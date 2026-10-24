@@ -27,3 +27,18 @@ export {
   type ExternalizeOptions,
   type ResolveOptions,
 } from "./blobs.ts";
+export type { StandardIssue, StandardResult, StandardSchemaV1 } from "./standard-schema.ts";
+export {
+  Pipeline,
+  TAG_KEY,
+  VALUE_KEY,
+  defineEntry,
+  findDropped,
+  objectToValue,
+  valueToObject,
+  type DecodeResult,
+  type EntryType,
+  type PipelineOptions,
+} from "./schema.ts";
+export { externalizeLarge, mapStrings, mapValueStrings, redact, wellFormed, type Transform } from "./transforms.ts";
+export { canonicalText, hashValue, sortKeysDeep } from "./hash.ts";
