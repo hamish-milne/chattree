@@ -7,7 +7,7 @@ Format spec: [docs/format.md](./docs/format.md).
 
 ```
 pnpm install
-pnpm test        # 430 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation, fork and subagents with crash injection (needs git >= 2.40 on PATH)
+pnpm test        # 430 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation, fork and subagents with crash injection (needs git >= 2.38 on PATH)
 pnpm typecheck   # src is checked with no Node types; tests and bench with @types/node
 pnpm bench       # strings vs bytes, see below
 ```

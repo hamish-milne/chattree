@@ -25,10 +25,10 @@ describe("versions", () => {
     assert.equal(parseGitVersion("not git"), undefined);
   });
   test("compares and formats", () => {
-    assert.ok(compareVersions({ major: 2, minor: 39, patch: 9 }, MIN_GIT_VERSION) < 0);
-    assert.ok(compareVersions({ major: 2, minor: 40, patch: 0 }, MIN_GIT_VERSION) === 0);
+    assert.ok(compareVersions({ major: 2, minor: 37, patch: 9 }, MIN_GIT_VERSION) < 0);
+    assert.ok(compareVersions({ major: 2, minor: 38, patch: 0 }, MIN_GIT_VERSION) === 0);
     assert.ok(compareVersions({ major: 3, minor: 0, patch: 0 }, MIN_GIT_VERSION) > 0);
-    assert.equal(formatVersion(MIN_GIT_VERSION), "2.40.0");
+    assert.equal(formatVersion(MIN_GIT_VERSION), "2.38.0");
   });
 });
 
@@ -38,10 +38,10 @@ describe("open", () => {
     exec: async (): Promise<ExecResult> => ({ exitCode, stdout: enc.encode(stdout), stderr: new Uint8Array(0) }),
   });
   test("rejects a git that is too old, naming both versions", async () => {
-    await assert.rejects(Git.open(fake("git version 2.39.3"), { cwd: "/" }), /2\.39\.3 is too old: 2\.40\.0/);
+    await assert.rejects(Git.open(fake("git version 2.37.7"), { cwd: "/" }), /2\.37\.7 is too old: 2\.38\.0/);
   });
   test("accepts the minimum", async () => {
-    assert.deepEqual((await Git.open(fake("git version 2.40.0"), { cwd: "/" })).version, MIN_GIT_VERSION);
+    assert.deepEqual((await Git.open(fake("git version 2.38.0"), { cwd: "/" })).version, MIN_GIT_VERSION);
   });
   test("reports output it cannot understand", async () => {
     await assert.rejects(Git.open(fake("hello"), { cwd: "/" }), GitError);

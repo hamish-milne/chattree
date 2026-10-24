@@ -86,16 +86,21 @@ child's work but make the report less clear-cut.) The recorded report in `subage
 whose child version was merged (`changed`, `added`), the files whose child version was dropped
 (`discarded`), and each conflict with git's kind (`merge.conflicts`).
 
-### D7. Minimum git version: 2.40
+### D7. Minimum git version: 2.38
 
-The features actually required are `git merge-tree --write-tree` (2.38), which computes a merge without
-touching a worktree, and `git worktree list -z` (2.36), which makes worktree parsing unambiguous;
-`commit --trailer`, `branch --show-current` and `init --initial-branch` are older. The floor is set at 2.40
-by agreement, one release above what is needed, because 2.40 also adds `merge-tree --merge-base` (taking a
-precomputed base), which later steps may want. 2.40 is from March 2023 and below what current distributions
-ship (Ubuntu 24.04: 2.43), but older LTS releases (Ubuntu 22.04: 2.34, Debian 12: 2.39) are below it and
-users there must install a newer git. The version is checked on open and fails with a clear message. The
-floor can be lowered to 2.38 if that matters; raise it only for a concrete need.
+The floor is the oldest release that has what the code uses: `git merge-tree --write-tree` (2.38), which
+computes a merge without touching a worktree, and `git worktree list -z` (2.36). Everything else
+(`commit --trailer`, `branch --show-current`, `init --initial-branch`, `merge-base --is-ancestor`) is older.
+Nothing below 2.38 can work, since `merge-tree --write-tree` does not exist there.
+
+This is verified, not assumed: the whole test suite, including the crash-injection sweeps, passes against
+git 2.38.0 built from source and against 2.43.0. Ubuntu 22.04 ships 2.34, below the floor, so
+users on it must install a newer git. The version is checked on open and fails
+with a clear message.
+
+The floor was 2.40 for a day, justified by `merge-tree --merge-base`, which nothing uses. Raise it again only
+for a concrete need (for example `--merge-base`, or `-X` strategy options on `merge-tree`, whose first release
+has not been confirmed here).
 
 ### D8. Workspace layout
 

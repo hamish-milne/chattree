@@ -18,4 +18,4 @@ export function compareVersions(a: GitVersion, b: GitVersion): number {
 export const formatVersion = (v: GitVersion): string => `${v.major}.${v.minor}.${v.patch}`;
 
 /** See docs/git-integration.md, D7. */
-export const MIN_GIT_VERSION: GitVersion = { major: 2, minor: 40, patch: 0 };
+export const MIN_GIT_VERSION: GitVersion = { major: 2, minor: 38, patch: 0 };
