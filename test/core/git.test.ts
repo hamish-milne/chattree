@@ -490,6 +490,36 @@ describe("fast-forward", () => {
   });
 });
 
+describe("batched object reads", () => {
+  test("objectInfo and readObjects answer many questions in one command, in order, with missing ones undefined", async () => {
+    const git = await newRepo();
+    const c1 = await commitFile(git, "a", "one\n");
+    const c2 = await commitFile(git, "a", "one\ntwo\n");
+    await commitFile(git, "b", "x".repeat(10_000));
+    const specs = [`${c1}:a`, `${c2}:a`, `${c1}:b`, "HEAD:b", `${c1}:a`];
+    const info = await git.objectInfo(specs);
+    assert.deepEqual(info.map((i) => i?.size), [4, 8, undefined, 10_000, 4]);
+    assert.deepEqual(info.map((i) => i?.type), ["blob", "blob", undefined, "blob", "blob"]);
+    const data = await git.readObjects(specs);
+    assert.deepEqual(data.map((d) => (d === undefined ? undefined : dec.decode(d).slice(0, 8))), ["one\n", "one\ntwo\n", undefined, "xxxxxxxx", "one\n"]);
+    assert.equal(data[3]?.length, 10_000);
+    assert.deepEqual(await git.objectInfo([]), []);
+    await assert.rejects(git.objectInfo(["-x"]), GitError);
+    await assert.rejects(git.readObjects(["a\nb"]), GitError);
+  });
+
+  test("binary content with newlines inside survives", async () => {
+    const git = await newRepo();
+    const bytes = Uint8Array.from({ length: 1000 }, (_, i) => (i * 7) % 256);
+    await writeFile(join(git.cwd, "bin"), bytes);
+    await git.addAll();
+    const c = await git.commit({ message: "bin" });
+    const [got, again] = await git.readObjects([`${c}:bin`, `${c}:bin`]);
+    assert.deepEqual(got, bytes);
+    assert.deepEqual(again, bytes);
+  });
+});
+
 describe("config", () => {
   test("setConfig and getConfig", async () => {
     const git = await newRepo();

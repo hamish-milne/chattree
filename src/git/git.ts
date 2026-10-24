@@ -84,6 +84,13 @@ export interface CommitOptions {
   allowEmpty?: boolean;
 }
 
+export interface ObjectInfo {
+  /** The object id. */
+  oid: string;
+  type: string;
+  size: number;
+}
+
 export interface MergeMessage {
   /** Paths the message is about. */
   paths: string[];
@@ -378,6 +385,45 @@ export class Git {
     assertSafeArg("revision", parent);
     const tree = await this.rewriteTree(await this.treeOf(parent), files.map((f) => ({ path: f.path, data: f.data, ...(f.mode === undefined ? {} : { mode: f.mode }) })));
     return this.commitTree(tree, [parent], opts);
+  }
+
+  /**
+   * Look up many objects in one command. `specs` are anything git accepts as an object name, such as
+   * `<commit>:path`. Missing objects come back as undefined, in the order asked.
+   */
+  async objectInfo(specs: readonly string[]): Promise<(ObjectInfo | undefined)[]> {
+    if (specs.length === 0) return [];
+    for (const sp of specs) if (sp.includes("\n") || sp.includes("\u0000") || sp.startsWith("-")) throw new GitError(`invalid object name: ${JSON.stringify(sp)}`);
+    const r = await this.run(["cat-file", "--batch-check"], { stdin: enc.encode(`${specs.join("\n")}\n`), readOnly: true });
+    const lines = dec.decode(r.stdout).split("\n");
+    return specs.map((_, i) => {
+      const m = /^([0-9a-f]{40,64}) (\S+) (\d+)$/.exec(lines[i] ?? "");
+      return m === null ? undefined : { oid: m[1] as string, type: m[2] as string, size: Number(m[3]) };
+    });
+  }
+
+  /** The content of many blobs in one command, in the order asked; undefined for any that is missing. */
+  async readObjects(specs: readonly string[]): Promise<(Uint8Array | undefined)[]> {
+    if (specs.length === 0) return [];
+    for (const sp of specs) if (sp.includes("\n") || sp.includes("\u0000") || sp.startsWith("-")) throw new GitError(`invalid object name: ${JSON.stringify(sp)}`);
+    const out = (await this.run(["cat-file", "--batch"], { stdin: enc.encode(`${specs.join("\n")}\n`), readOnly: true })).stdout;
+    const results: (Uint8Array | undefined)[] = [];
+    let at = 0;
+    for (let i = 0; i < specs.length; i++) {
+      let nl = at;
+      while (nl < out.length && out[nl] !== 10) nl++;
+      const header = dec.decode(out.subarray(at, nl));
+      const m = /^[0-9a-f]{40,64} \S+ (\d+)$/.exec(header);
+      if (m === null) {
+        results.push(undefined); // "<name> missing"
+        at = nl + 1;
+        continue;
+      }
+      const size = Number(m[1]);
+      results.push(out.subarray(nl + 1, nl + 1 + size));
+      at = nl + 1 + size + 1;
+    }
+    return results;
   }
 
   /** The tree a revision points at. */

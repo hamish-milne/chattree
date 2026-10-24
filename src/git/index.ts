@@ -7,6 +7,7 @@ export {
   type Identity,
   type MergeMessage,
   type MergeTreeResult,
+  type ObjectInfo,
   type RefInfo,
   type RunOptions,
   type StatusEntry,
