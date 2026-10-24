@@ -51,6 +51,7 @@ commit, and on failure roll back by truncating the file to its previous length.
 | `fork(at)` | `branch_start` on the new branch | branch from the entry's commit, new worktree |
 | `spawnSubagent` | `branch_start` with a fresh-context marker | branch, worktree, commit |
 | `finishSubagent` | `subagent_result` on the parent | merge the child branch into the parent (D6) |
+| `mergeFork` | `fork_merge` on the parent | the same merge for a fork: summary of the discussion, file changes |
 
 One commit per entry makes every entry a possible fork point. A subagent branches from the parent's commit,
 so full history stays on disk, and its model context starts at its `branch_start` marker.
@@ -176,3 +177,14 @@ kept. This separates chat from final code and lets one agent flow work across se
   the child as a second parent. The tests crash the process at every operation of spawn and finish.
 - The format minor version is now 1: `subagent_result` gained the optional `merge` object.
 - Not yet done: removing a finished child's worktree, and a per-environment merge policy.
+
+### Notes: merging a fork
+
+- `mergeFork` shares all of `finishSubagent`'s machinery (D6, the notes for step 4) and records a `fork_merge`
+  entry (format 1.2): the fork's branch and tip, `merge.base` (where it diverged, or where it was last
+  merged), the caller's summary of what was discussed and decided, and the per-file report.
+- A fork can be merged again after it moves on; each merge reports only what is new since the last. Merging
+  a fork with nothing new is refused ("already merged").
+- Presenting it to a model ("the user forked this conversation here, discussed X, changed Y") is a context
+  builder's job; the entry carries the data for it. Producing the summary is the caller's job too, so the
+  primitive stays free of model calls.

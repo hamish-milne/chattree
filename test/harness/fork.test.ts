@@ -310,6 +310,96 @@ describe("fork", () => {
   });
 });
 
+describe("mergeFork", () => {
+  const files = async (dir: string, names: Record<string, string | null>): Promise<void> => {
+    for (const [name, content] of Object.entries(names)) {
+      const full = join(dir, name);
+      if (content === null) await rm(full, { recursive: true, force: true });
+      else {
+        await mkdir(join(full, ".."), { recursive: true });
+        await writeFile(full, content);
+      }
+    }
+  };
+
+  test("merges the fork back and records what was discussed and what changed", async () => {
+    const { dir, convo } = await fresh();
+    await files(dir, { "plan.md": "plan\n", "shared.md": "a\nb\nc\n" });
+    const ids = await talk(convo);
+    const parentTipBefore = (await convo.index()).at(-1);
+    const { conversation: fork, branch, from } = await convo.fork(ids[1] as string);
+    assert.ok(fork !== undefined);
+
+    await files(fork.dir, { "plan.md": "plan, revised in the fork\n", "idea.md": "a new idea\n", "shared.md": "a\nB-fork\nc\n" });
+    await fork.append(user("what if we tried something else?"));
+    const last = await fork.append(reply("then we decided to revise the plan"));
+    await files(dir, { "shared.md": "a\nB-trunk\nc\n" });
+    await convo.append(user("meanwhile on the trunk"));
+
+    const out = await convo.mergeFork(fork, { summary: "Revised the plan; added idea.md." });
+    assert.deepEqual(out.report.added, ["idea.md"]);
+    assert.deepEqual(out.report.changed, ["plan.md"]);
+    assert.deepEqual(out.report.discarded, ["shared.md"]);
+    assert.deepEqual(out.report.conflicts, [{ path: "shared.md", kind: "content" }]);
+    assert.equal(await readFile(join(dir, "plan.md"), "utf8"), "plan, revised in the fork\n");
+    assert.equal(await readFile(join(dir, "idea.md"), "utf8"), "a new idea\n");
+    assert.equal(await readFile(join(dir, "shared.md"), "utf8"), "a\nB-trunk\nc\n");
+
+    const entry = (await convo.readEntries()).at(-1);
+    assert.ok(entry?.ok && entry.value.$tag === "fork_merge");
+    assert.deepEqual(entry.value, {
+      $tag: "fork_merge",
+      id: out.entry.id,
+      branch,
+      tip: last.commit,
+      summary: "Revised the plan; added idea.md.",
+      files: { changed: ["plan.md"], added: ["idea.md"], discarded: ["shared.md"] },
+      merge: { policy: "trunk", base: from, conflicts: [{ path: "shared.md", kind: "content" }] },
+    });
+    const [m] = await convo.git.log("HEAD", { maxCount: 1 });
+    assert.equal(m?.subject, `fork_merge: ${branch}`);
+    assert.deepEqual(m?.trailers["Chattree-Kind"], ["fork_merge"]);
+    assert.equal(m?.parents.length, 2);
+    assert.equal(m?.parents[1], last.commit);
+    assert.notEqual(parentTipBefore?.commit, m?.hash);
+
+    const tags = (await convo.readEntries()).map((e) => (e.ok ? e.tag : "?"));
+    assert.deepEqual(tags, ["header", "user", "assistant", "user", "assistant", "user", "fork_merge"]);
+    assert.equal((await convo.index()).at(-1)?.tag, "fork_merge");
+    await assertHistoryInvariants(convo);
+  });
+
+  test("a fork can be merged again after it moves on, and the second report covers only what is new", async () => {
+    const { convo } = await fresh();
+    const ids = await talk(convo);
+    const { conversation: fork } = await convo.fork(ids[1] as string);
+    assert.ok(fork !== undefined);
+    await files(fork.dir, { "one.txt": "1\n" });
+    await fork.append(user("first piece"));
+    const first = await convo.mergeFork(fork, { summary: "first" });
+    assert.deepEqual(first.report.added, ["one.txt"]);
+    await assert.rejects(convo.mergeFork(fork, { summary: "again" }), /already merged/);
+
+    await files(fork.dir, { "two.txt": "2\n" });
+    await fork.append(user("second piece"));
+    const second = await convo.mergeFork(fork, { summary: "second" });
+    assert.deepEqual(second.report.added, ["two.txt"], "one.txt was merged before");
+    assert.equal(second.report.base, first.childTip);
+    await assertHistoryInvariants(convo);
+  });
+
+  test("a fork can be merged by name, and conflicting entries stay out of the trunk's transcript", async () => {
+    const { convo } = await fresh();
+    const ids = await talk(convo);
+    const { conversation: fork, branch } = await convo.fork(ids[0] as string);
+    await (fork as Conversation).append(user("only in the fork"));
+    await convo.mergeFork(branch, { summary: "nothing much" });
+    const texts = (await convo.readEntries()).map((e) => (e.ok && e.value.$tag === "user" ? (e.value.content[0] as { text: string }).text : e.ok ? e.tag : "?"));
+    assert.ok(!texts.includes("only in the fork"));
+    assert.equal(texts.at(-1), "fork_merge");
+  });
+});
+
 describe("crash during a fork", () => {
   test("at every step the repository is valid and the new branch either exists complete or not at all", async () => {
     const probeHost = faultyHost(host, Infinity);

@@ -76,6 +76,15 @@ function samples(): Record<string, Record<string, unknown>> {
       summary: "tokenize() is called from 4 places.",
       files: { changed: ["notes/callers.md"], added: ["scratch/grep.txt"], discarded: ["scratch/plan.md"] },
     },
+    fork_merge: {
+      $tag: "fork_merge",
+      id: nextId(),
+      branch: "fork/01K8",
+      tip: "c0ffee1",
+      summary: "We decided to keep the tokenizer and drop the cache.",
+      files: { changed: ["src/tokenize.ts"], added: [], discarded: ["notes.md"] },
+      merge: { policy: "trunk", base: "9fceb02", conflicts: [{ path: "notes.md", kind: "content" }] },
+    },
     interrupted: {
       $tag: "interrupted",
       id: nextId(),
@@ -301,7 +310,7 @@ describe("transforms in the app pipeline", () => {
 describe("a whole file", () => {
   const conversation = () => {
     const s = samples();
-    return [s["header"], s["user"], s["assistant"], s["tool_result"], s["config_changed"], s["compaction"], s["branch_start (subagent)"], s["subagent_result"], s["interrupted"]] as Record<string, unknown>[];
+    return [s["header"], s["user"], s["assistant"], s["tool_result"], s["config_changed"], s["compaction"], s["branch_start (subagent)"], s["subagent_result"], s["fork_merge"], s["interrupted"]] as Record<string, unknown>[];
   };
 
   test("appended with appendEntry, framed, tagged and decoded", async () => {

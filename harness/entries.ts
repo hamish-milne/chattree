@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 1, minor: 1 } as const;
+export const FORMAT = { format: "chatlog", major: 1, minor: 2 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -97,6 +97,20 @@ export const branchStart = z.object({
   call_id: z.string().optional(),
 });
 
+/**
+ * What reached the parent in a merge: `changed` and `added` are files whose child version was merged;
+ * `discarded` are files the child changed whose version was dropped because the parent's version won a conflict.
+ */
+const mergedFiles = z.object({ changed: z.array(z.string()), added: z.array(z.string()), discarded: z.array(z.string()) });
+
+/** How a merge went. With policy "trunk" every conflict was resolved to the parent's version. */
+const mergeReport = z.object({
+  policy: z.literal("trunk"),
+  /** The commit the child branch diverged from (or was last merged at). */
+  base: z.string(),
+  conflicts: z.array(z.object({ path: z.string(), kind: z.string() })),
+});
+
 export const subagentResult = z.object({
   $tag: z.literal("subagent_result"),
   id: ulid,
@@ -104,20 +118,23 @@ export const subagentResult = z.object({
   branch: z.string(),
   tip: z.string(),
   summary: text,
-  /**
-   * What reached the parent: `changed` and `added` are files whose child version was merged; `discarded` are
-   * files the child changed whose version was dropped because the parent's version won a conflict.
-   */
-  files: z.object({ changed: z.array(z.string()), added: z.array(z.string()), discarded: z.array(z.string()) }),
-  /** How the merge went (format 1.1). With policy "trunk" every conflict was resolved to the parent's version. */
-  merge: z
-    .object({
-      policy: z.literal("trunk"),
-      /** The commit the child branch diverged from. */
-      base: z.string(),
-      conflicts: z.array(z.object({ path: z.string(), kind: z.string() })),
-    })
-    .optional(),
+  files: mergedFiles,
+  /** Format 1.1. */
+  merge: mergeReport.optional(),
+});
+
+/**
+ * A fork merged back into the branch it came from (format 1.2). `summary` is what was discussed and decided
+ * in the fork; `merge.base` is where the fork diverged, or where it was last merged.
+ */
+export const forkMerge = z.object({
+  $tag: z.literal("fork_merge"),
+  id: ulid,
+  branch: z.string(),
+  tip: z.string(),
+  summary: text,
+  files: mergedFiles,
+  merge: mergeReport,
 });
 
 export const interrupted = z.object({
@@ -138,6 +155,7 @@ export type ChatEntry =
   | z.infer<typeof configChanged>
   | z.infer<typeof branchStart>
   | z.infer<typeof subagentResult>
+  | z.infer<typeof forkMerge>
   | z.infer<typeof interrupted>;
 
 export const entryTypes = [
@@ -149,6 +167,7 @@ export const entryTypes = [
   defineEntry("config_changed", configChanged),
   defineEntry("branch_start", branchStart),
   defineEntry("subagent_result", subagentResult),
+  defineEntry("fork_merge", forkMerge),
   defineEntry("interrupted", interrupted),
 ];
 

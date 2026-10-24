@@ -140,12 +140,18 @@ export interface MergeReport {
   base: string;
 }
 
-export interface SubagentOutcome {
-  /** The `subagent_result` entry, committed as a merge commit. */
+export interface MergeOutcome {
+  /** The `subagent_result` or `fork_merge` entry, committed as a merge commit. */
   entry: Appended;
   report: MergeReport;
   /** The tip of the child's branch that was merged. */
   childTip: string;
+}
+export type SubagentOutcome = MergeOutcome;
+
+export interface MergeForkOptions {
+  /** What was discussed and decided in the fork. */
+  summary: string;
 }
 
 export interface BranchInfo {
@@ -204,6 +210,8 @@ export function describeEntry(e: ChatEntry): string {
       return `branch_start: ${e.kind}`;
     case "subagent_result":
       return `subagent_result: ${oneLine(e.branch, 40)}`;
+    case "fork_merge":
+      return `fork_merge: ${oneLine(e.branch, 40)}`;
     case "interrupted":
       return `interrupted: ${e.by}`;
   }
@@ -624,7 +632,40 @@ export class Conversation {
    * entry's commit (this branch's first parent, the child's tip second), then this branch is fast-forwarded
    * onto it. Pending workspace changes here are snapshotted first, so the working tree is clean for the move.
    */
-  async finishSubagent(child: Conversation | string, opts: FinishOptions): Promise<SubagentOutcome> {
+  async finishSubagent(child: Conversation | string, opts: FinishOptions): Promise<MergeOutcome> {
+    return this.#mergeBranch(child, (m) => ({
+      $tag: "subagent_result",
+      call_id: opts.callId,
+      branch: m.branch,
+      tip: m.tip,
+      summary: opts.summary,
+      files: m.files,
+      merge: m.merge,
+    }));
+  }
+
+  /**
+   * Merge a fork back into this branch, the same way as a subagent (trunk wins, the transcript keeps this
+   * branch's entries, one merge commit that is also the entry's commit) and record a `fork_merge` entry:
+   * the fork's branch, where it diverged, a summary of what was discussed and decided there, and what
+   * changed in the files. The fork's own conversation stays on its branch. A fork can be merged again after
+   * it has moved on; each merge reports only what is new since the last.
+   */
+  async mergeFork(fork: Conversation | string, opts: MergeForkOptions): Promise<MergeOutcome> {
+    return this.#mergeBranch(fork, (m) => ({
+      $tag: "fork_merge",
+      branch: m.branch,
+      tip: m.tip,
+      summary: opts.summary,
+      files: m.files,
+      merge: m.merge,
+    }));
+  }
+
+  async #mergeBranch(
+    child: Conversation | string,
+    build: (m: { branch: string; tip: string; files: { changed: string[]; added: string[]; discarded: string[] }; merge: { policy: "trunk"; base: string; conflicts: MergeConflict[] } }) => NewEntry,
+  ): Promise<MergeOutcome> {
     const childBranch = typeof child === "string" ? child : child.branch;
     if (childBranch === this.branch) throw new ConversationError("a branch cannot be merged into itself");
     if (typeof child !== "string") await child.snapshot();
@@ -644,16 +685,14 @@ export class Conversation {
       const childChanges = await this.git.diff(base, tip, [".", `:(exclude)${CHAT_FILE}`, `:(exclude)${BLOBS_DIR}`]);
       const summary = summarizeMerge(childChanges, merged);
 
-      const result: NewEntry = {
-        $tag: "subagent_result",
-        call_id: opts.callId,
-        branch: childBranch,
-        tip,
-        summary: opts.summary,
-        files: { changed: summary.changed, added: summary.added, discarded: summary.discarded },
-        merge: { policy: "trunk", base, conflicts: summary.conflicts },
-      };
-      const prepared = await this.#prepare(result);
+      const prepared = await this.#prepare(
+        build({
+          branch: childBranch,
+          tip,
+          files: { changed: summary.changed, added: summary.added, discarded: summary.discarded },
+          merge: { policy: "trunk", base, conflicts: summary.conflicts },
+        }),
+      );
       const transcript = await this.git.readFileAt(head, CHAT_FILE);
       if (transcript === undefined || transcript.length !== size) throw new ConversationError(`${CHAT_FILE} at HEAD does not match the working tree; reopen the conversation`);
       const data = new Uint8Array(transcript.length + prepared.bytes.length);
