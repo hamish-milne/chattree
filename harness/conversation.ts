@@ -10,19 +10,20 @@ import {
   parseFile,
   scan,
   type DecodeResult,
+  type DiffEntry,
   type Host,
   type Identity,
   type LockOptions,
+  type MergeTreeResult,
   type Pipeline,
 } from "../src/index.ts";
-import { HostBlobStore } from "./blob-store.ts";
+import { BLOBS_DIR, HostBlobStore, RecordingBlobStore } from "./blob-store.ts";
 import { FORMAT, createPipeline, type ChatEntry, type PipelineConfig } from "./entries.ts";
 import { createUlid } from "./ulid.ts";
 
 /** The transcript, relative to the repository root. */
 export const CHAT_FILE = "chat.yml";
-/** Where blobs live, relative to the repository root. */
-export const BLOBS_DIR = "blobs";
+export { BLOBS_DIR };
 
 const GITATTRIBUTES = `# Transcripts are byte-exact: never convert line endings.
 * -text
@@ -101,6 +102,52 @@ export interface ForkResult {
   conversation: Conversation | undefined;
 }
 
+export interface SpawnOptions {
+  /** The task, as the subagent's first message. */
+  brief: string;
+  /** The tool call in this conversation that started the subagent. */
+  callId: string;
+  /** Branch name. Default `sub/<new ulid>`. */
+  name?: string;
+  /** Branch from this entry instead of the current state of the workspace. */
+  from?: string | EntryRef;
+  checkout?: boolean;
+  worktree?: string;
+}
+
+export interface FinishOptions {
+  /** What the subagent reports back. */
+  summary: string;
+  /** The tool call that started the subagent. */
+  callId: string;
+}
+
+export interface MergeConflict {
+  path: string;
+  /** Git's conflict kind: `content`, `modify/delete`, `file/directory`, `add/add`, ... */
+  kind: string;
+}
+
+export interface MergeReport {
+  /** Child changes that were merged into this branch, as modified/deleted paths. */
+  changed: string[];
+  /** Child additions that were merged. */
+  added: string[];
+  /** Files the child changed whose version was dropped because this branch's version won a conflict. */
+  discarded: string[];
+  conflicts: MergeConflict[];
+  /** The commit the child diverged from. */
+  base: string;
+}
+
+export interface SubagentOutcome {
+  /** The `subagent_result` entry, committed as a merge commit. */
+  entry: Appended;
+  report: MergeReport;
+  /** The tip of the child's branch that was merged. */
+  childTip: string;
+}
+
 export interface BranchInfo {
   name: string;
   tip: string;
@@ -160,6 +207,41 @@ export function describeEntry(e: ChatEntry): string {
     case "interrupted":
       return `interrupted: ${e.by}`;
   }
+}
+
+const CONFLICT_TYPE = /^CONFLICT \((.+)\)$/;
+
+/**
+ * Describe a trunk-wins merge: which of the child's changes landed, which were dropped, and why. A file is
+ * "discarded" when it conflicted, because the trunk's version of the whole file was taken.
+ */
+export function summarizeMerge(childChanges: readonly DiffEntry[], merge: MergeTreeResult): Omit<MergeReport, "base"> {
+  const own = (p: string): boolean => p === CHAT_FILE || p === BLOBS_DIR || p.startsWith(`${BLOBS_DIR}/`);
+  const kinds = new Map<string, Set<string>>();
+  const conflicted = new Set<string>(merge.conflictedPaths.filter((p) => !own(p)));
+  for (const m of merge.messages) {
+    const type = CONFLICT_TYPE.exec(m.type)?.[1];
+    if (type === undefined) continue;
+    for (const p of m.paths) {
+      if (own(p)) continue;
+      conflicted.add(p);
+      (kinds.get(p) ?? kinds.set(p, new Set()).get(p))?.add(type === "contents" ? "content" : type);
+    }
+  }
+  const changes = childChanges.filter((c) => !own(c.path));
+  const touched = new Set(changes.map((c) => c.path));
+  const byPath = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+  const discarded = changes.filter((c) => conflicted.has(c.path)).map((c) => c.path).sort(byPath);
+  const landed = changes.filter((c) => !conflicted.has(c.path));
+  const conflicts: MergeConflict[] = [];
+  for (const [path, ks] of kinds) if (touched.has(path)) for (const kind of ks) conflicts.push({ path, kind });
+  conflicts.sort((a, b) => byPath(a.path, b.path) || byPath(a.kind, b.kind));
+  return {
+    changed: landed.filter((c) => c.status !== "A").map((c) => c.path).sort(byPath),
+    added: landed.filter((c) => c.status === "A").map((c) => c.path).sort(byPath),
+    discarded,
+    conflicts,
+  };
 }
 
 /**
@@ -322,7 +404,7 @@ export class Conversation {
       trailers,
       author,
       committer,
-      ...(opts.fixedDates === true && opts.now !== undefined ? { date: new Date(opts.now()).toISOString() } : {}),
+      ...Conversation.#dateOpt(opts),
     };
   }
 
@@ -357,13 +439,7 @@ export class Conversation {
     if (!decoded.ok) throw new ConversationError("entry failed to decode after encoding");
     const id = (decoded.value as { id?: string }).id ?? "";
 
-    const stat = await this.host.fs.stat(this.#file);
-    const before = stat?.size ?? 0;
-    if (before !== this.#size) {
-      throw new ConversationError(`${CHAT_FILE} is ${before} bytes but this handle expected ${this.#size}: it was changed by something else; reopen the conversation`);
-    }
-    const tail = before === 0 ? new Uint8Array(0) : await this.host.fs.readRange(this.#file, Math.max(0, before - 2), 2);
-    if (!endsCleanly(tail)) throw new ConversationError(`${CHAT_FILE} does not end with a complete entry; reopen the conversation to repair it`);
+    const before = await this.#assertIntact();
 
     try {
       await this.host.fs.append(this.#file, bytes, { sync: true });
@@ -372,16 +448,32 @@ export class Conversation {
       await this.git.addAll();
       const commit = await this.git.commit(Conversation.#commitFor(decoded.value, id, after, this.#opts));
       this.#size = after;
-      if (this.#idx !== undefined && this.#idx.tip === this.#head) {
-        this.#idx.refs.push({ id: id === "" ? undefined : id, tag: decoded.tag, commit, offset: after });
-        this.#idx.tip = commit;
-      }
-      this.#head = commit;
+      this.#advance(commit, { id: id === "" ? undefined : id, tag: decoded.tag, commit, offset: after });
       return { id, tag: decoded.tag, commit, offset: after };
     } catch (e) {
       await this.#rollback(before);
       throw e;
     }
+  }
+
+  /** The transcript must be exactly as this handle left it and end with a complete entry. Returns its length. */
+  async #assertIntact(): Promise<number> {
+    const size = (await this.host.fs.stat(this.#file))?.size ?? 0;
+    if (size !== this.#size) {
+      throw new ConversationError(`${CHAT_FILE} is ${size} bytes but this handle expected ${this.#size}: it was changed by something else; reopen the conversation`);
+    }
+    const tail = size === 0 ? new Uint8Array(0) : await this.host.fs.readRange(this.#file, Math.max(0, size - 2), 2);
+    if (!endsCleanly(tail)) throw new ConversationError(`${CHAT_FILE} does not end with a complete entry; reopen the conversation to repair it`);
+    return size;
+  }
+
+  /** Record a new commit on this branch: keeps the entry index and head current. */
+  #advance(commit: string, ref?: EntryRef): void {
+    if (this.#idx !== undefined && this.#idx.tip === this.#head) {
+      if (ref !== undefined) this.#idx.refs.push(ref);
+      this.#idx.tip = commit;
+    }
+    this.#head = commit;
   }
 
   /** Undo a failed append: restore the transcript from HEAD (a no-op if the commit did in fact land). */
@@ -407,22 +499,51 @@ export class Conversation {
    * To "edit" a past message, fork before it and append the new message to the fork.
    */
   async fork(at?: string | EntryRef, opts: ForkOptions = {}): Promise<ForkResult> {
+    const ref = await this.#resolveEntry(at);
+    const name = opts.name ?? `fork/${this.#nextId()}`;
+    await this.#assertNewBranch(name);
+    const marker: NewEntry = { $tag: "branch_start", kind: "fork", from: { branch: this.branch, commit: ref.commit }, context: "inherit" };
+    return this.#newBranch(name, ref.commit, marker, opts);
+  }
+
+  async #resolveEntry(at: string | EntryRef | undefined): Promise<EntryRef> {
     const refs = await this.index();
     let ref: EntryRef | undefined;
     if (at === undefined) ref = refs.at(-1);
     else if (typeof at === "string") ref = refs.find((r) => r.id === at);
     else ref = refs.find((r) => r.commit === at.commit);
     if (ref === undefined) throw new ConversationError(at === undefined ? "the conversation has no entries" : `no such entry on branch ${this.branch}: ${typeof at === "string" ? at : at.commit}`);
+    return ref;
+  }
 
-    const name = opts.name ?? `fork/${this.#nextId()}`;
+  async #assertNewBranch(name: string): Promise<void> {
     if (!(await this.git.isValidBranchName(name))) throw new ConversationError(`invalid branch name: ${JSON.stringify(name)}`);
     if ((await this.git.revParse(`refs/heads/${name}`)) !== undefined) throw new ConversationError(`branch ${name} already exists`);
+  }
 
-    const marker: NewEntry = { $tag: "branch_start", kind: "fork", from: { branch: this.branch, commit: ref.commit }, context: "inherit" };
-    const start = await this.#startBranch(name, ref.commit, marker);
+  async #newBranch(name: string, from: string, marker: NewEntry, opts: { checkout?: boolean; worktree?: string }): Promise<ForkResult> {
+    const start = await this.#startBranch(name, from, marker);
     let conversation: Conversation | undefined;
     if (opts.checkout !== false) conversation = await this.#checkoutBranch(name, opts.worktree);
-    return { branch: name, start, from: ref.commit, conversation };
+    return { branch: name, start, from, conversation };
+  }
+
+  /**
+   * Encode an entry that is about to be committed straight into git (a branch start, a merge): its bytes and
+   * any blobs it creates, held in memory so they can go into that commit's tree instead of a worktree.
+   */
+  async #prepare(input: NewEntry): Promise<{ id: string; tag: string; value: ChatEntry; bytes: Uint8Array; blobs: Map<string, Uint8Array> }> {
+    const store = new RecordingBlobStore(this.store);
+    const pipeline = createPipeline({ ...this.#opts.pipeline, store });
+    const withId = input.$tag === "header" || input.id !== undefined ? input : { ...input, id: this.#nextId() };
+    const entry = await pipeline.encode(withId);
+    const decoded = await pipeline.decode(entry);
+    if (!decoded.ok) throw new ConversationError(`${input.$tag} entry failed to decode after encoding`);
+    return { id: (decoded.value as { id?: string }).id ?? "", tag: decoded.tag, value: decoded.value, bytes: encodeEntry(entry), blobs: store.blobs };
+  }
+
+  static #blobEdits(blobs: ReadonlyMap<string, Uint8Array>): { path: string; data: Uint8Array }[] {
+    return [...blobs].map(([hash, data]) => ({ path: HostBlobStore.relativePath(hash), data }));
   }
 
   /**
@@ -430,20 +551,128 @@ export class Conversation {
    * step of creating the branch, so a crash leaves at worst an unreachable commit.
    */
   async #startBranch(name: string, from: string, marker: NewEntry): Promise<Appended> {
-    const withId = { ...marker, id: marker.id ?? this.#nextId() } as NewEntry;
-    const entry = await this.pipeline.encode(withId);
-    const decoded = await this.pipeline.decode(entry);
-    if (!decoded.ok) throw new ConversationError("branch_start failed to decode after encoding");
+    const prepared = await this.#prepare(marker);
     const prefix = await this.git.readFileAt(from, CHAT_FILE);
     if (prefix === undefined) throw new ConversationError(`${CHAT_FILE} does not exist at ${from}`);
-    const add = encodeEntry(entry);
-    const data = new Uint8Array(prefix.length + add.length);
+    const data = new Uint8Array(prefix.length + prepared.bytes.length);
     data.set(prefix);
-    data.set(add, prefix.length);
-    const id = (decoded.value as { id: string }).id;
-    const commit = await this.git.commitOnto(from, [{ path: CHAT_FILE, data }], Conversation.#commitFor(decoded.value, id, data.length, this.#opts));
+    data.set(prepared.bytes, prefix.length);
+    const commit = await this.git.commitOnto(from, [{ path: CHAT_FILE, data }, ...Conversation.#blobEdits(prepared.blobs)], Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts));
     await this.git.createBranch(name, commit);
-    return { id, tag: decoded.tag, commit, offset: data.length };
+    return { id: prepared.id, tag: prepared.tag, commit, offset: data.length };
+  }
+
+  // ---- subagents -------------------------------------------------------------------------------------------
+
+  /**
+   * Commit whatever changed in the working tree since the last commit, as a snapshot commit that is not an
+   * entry. Resolves to the commit, or undefined if the tree was clean.
+   */
+  snapshot(): Promise<string | undefined> {
+    return this.#transaction(() => this.#snapshotLocked());
+  }
+
+  async #snapshotLocked(): Promise<string | undefined> {
+    const size = await this.#assertIntact();
+    if (await this.git.isClean()) return undefined;
+    await this.git.addAll();
+    const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
+    const commit = await this.git.commit({
+      message: "workspace snapshot",
+      trailers: [["Chattree-Offset", String(size)], ["Chattree-Snapshot", "true"]],
+      author: committer,
+      committer,
+      ...Conversation.#dateOpt(this.#opts),
+    });
+    this.#advance(commit);
+    return commit;
+  }
+
+  static #dateOpt(opts: ConversationOptions): { date?: string } {
+    return opts.fixedDates === true && opts.now !== undefined ? { date: new Date(opts.now()).toISOString() } : {};
+  }
+
+  /**
+   * Start a subagent: a new branch from the current state of this one (pending workspace changes are
+   * snapshotted first so the subagent sees them) whose first entry is a `branch_start` with a fresh-context
+   * marker and the brief. The subagent works on the returned conversation, in its own worktree, and its
+   * entries stay on its own branch. Merge its work back with `finishSubagent`.
+   */
+  async spawnSubagent(opts: SpawnOptions): Promise<ForkResult> {
+    let from: string;
+    if (opts.from === undefined) {
+      await this.snapshot();
+      const head = await this.git.head();
+      if (head === undefined) throw new ConversationError("the conversation has no commits");
+      from = head;
+    } else {
+      from = (await this.#resolveEntry(opts.from)).commit;
+    }
+    const name = opts.name ?? `sub/${this.#nextId()}`;
+    await this.#assertNewBranch(name);
+    const marker: NewEntry = { $tag: "branch_start", kind: "subagent", from: { branch: this.branch, commit: from }, context: "fresh", brief: opts.brief, call_id: opts.callId };
+    return this.#newBranch(name, from, marker, opts);
+  }
+
+  /**
+   * Merge a subagent's branch into this one and record the result. Policy: the trunk wins. Everything the
+   * child changed that does not conflict is merged; any file that conflicts (content, modify/delete,
+   * file/directory, ...) takes this branch's version in full; the transcript always keeps this branch's.
+   * The outcome says exactly what landed and what was dropped.
+   *
+   * The merge is computed in memory and committed as a merge commit that is also the `subagent_result`
+   * entry's commit (this branch's first parent, the child's tip second), then this branch is fast-forwarded
+   * onto it. Pending workspace changes here are snapshotted first, so the working tree is clean for the move.
+   */
+  async finishSubagent(child: Conversation | string, opts: FinishOptions): Promise<SubagentOutcome> {
+    const childBranch = typeof child === "string" ? child : child.branch;
+    if (childBranch === this.branch) throw new ConversationError("a branch cannot be merged into itself");
+    if (typeof child !== "string") await child.snapshot();
+
+    return this.#transaction(async () => {
+      const size = await this.#assertIntact();
+      await this.#snapshotLocked();
+      const head = await this.git.head();
+      const tip = await this.git.revParse(`refs/heads/${childBranch}`);
+      if (head === undefined) throw new ConversationError("the conversation has no commits");
+      if (tip === undefined) throw new ConversationError(`no such branch: ${childBranch}`);
+      if (await this.git.isAncestor(tip, head)) throw new ConversationError(`branch ${childBranch} is already merged into ${this.branch}`);
+      const base = await this.git.mergeBase(head, tip);
+      if (base === undefined) throw new ConversationError(`branches ${this.branch} and ${childBranch} have no common history`);
+
+      const merged = await this.git.mergeTree(head, tip);
+      const childChanges = await this.git.diff(base, tip, [".", `:(exclude)${CHAT_FILE}`, `:(exclude)${BLOBS_DIR}`]);
+      const summary = summarizeMerge(childChanges, merged);
+
+      const result: NewEntry = {
+        $tag: "subagent_result",
+        call_id: opts.callId,
+        branch: childBranch,
+        tip,
+        summary: opts.summary,
+        files: { changed: summary.changed, added: summary.added, discarded: summary.discarded },
+        merge: { policy: "trunk", base, conflicts: summary.conflicts },
+      };
+      const prepared = await this.#prepare(result);
+      const transcript = await this.git.readFileAt(head, CHAT_FILE);
+      if (transcript === undefined || transcript.length !== size) throw new ConversationError(`${CHAT_FILE} at HEAD does not match the working tree; reopen the conversation`);
+      const data = new Uint8Array(transcript.length + prepared.bytes.length);
+      data.set(transcript);
+      data.set(prepared.bytes, transcript.length);
+
+      const tree = await this.git.rewriteTree(merged.tree, [
+        ...merged.conflictedPaths.filter((p) => p !== CHAT_FILE).map((path) => ({ path, from: head })),
+        { path: CHAT_FILE, data },
+        ...Conversation.#blobEdits(prepared.blobs),
+      ]);
+      const commit = await this.git.commitTree(tree, [head, tip], Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts));
+      await this.git.fastForward(commit);
+      const after = (await this.host.fs.stat(this.#file))?.size ?? 0;
+      if (after !== data.length) throw new ConversationError(`${CHAT_FILE} is ${after} bytes after the merge, expected ${data.length}`);
+      this.#size = after;
+      this.#advance(commit, { id: prepared.id, tag: prepared.tag, commit, offset: after });
+      return { entry: { id: prepared.id, tag: prepared.tag, commit, offset: after }, report: { ...summary, base }, childTip: tip };
+    });
   }
 
   #defaultWorktree(name: string): string {
@@ -493,7 +722,7 @@ export class Conversation {
     if (rev !== undefined && rev !== "HEAD") return this.#indexOf(rev);
     const head = await this.git.head();
     if (head === undefined) return [];
-    if (this.#idx?.tip === head) return this.#idx.refs;
+    if (this.#idx?.tip === head) return this.#idx.refs.slice();
     // Extend a stale cache if its tip is on this branch's first-parent line; otherwise rebuild.
     if (this.#idx !== undefined && (await this.git.isAncestor(this.#idx.tip, head))) {
       const added = await this.#indexOf(head, this.#idx.tip);
@@ -502,7 +731,7 @@ export class Conversation {
       this.#idx = { tip: head, refs: await this.#indexOf(head) };
     }
     this.#head = head;
-    return this.#idx.refs;
+    return this.#idx.refs.slice();
   }
 
   async #indexOf(rev: string, after?: string): Promise<EntryRef[]> {

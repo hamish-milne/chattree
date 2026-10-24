@@ -78,21 +78,24 @@ Default: **take the trunk on any conflict, and report exactly what happened to t
 agent moving and nothing is lost: the child's branch stays reachable as the merge's second parent.
 Configurable per environment later.
 
-Mechanics: `git merge-tree --write-tree` previews the merge without touching the worktree and yields the
-conflict list and messages; the merge itself resolves content conflicts with `-X ours`, and any remaining
-conflict kinds (modify/delete, binary, rename) are resolved to the trunk side explicitly. `chat.yml` always
-keeps the parent's side (`merge=ours` driver set in repo-local config). The report recorded in
-`subagent_result` lists files merged cleanly, files where the trunk won (with the conflict kind), and child
-changes that were dropped.
+Mechanics: `git merge-tree --write-tree` computes the merge in memory. Every path it reports as conflicted
+(content, modify/delete, file/directory, add/add, ...) is reset to the trunk's version in full, and
+`chat.yml` always keeps the parent's side. So conflict resolution is per file: one conflicting hunk drops the
+child's whole version of that file. (A hunk-level `-X ours` is possible later; it would keep more of the
+child's work but make the report less clear-cut.) The recorded report in `subagent_result` lists the files
+whose child version was merged (`changed`, `added`), the files whose child version was dropped
+(`discarded`), and each conflict with git's kind (`merge.conflicts`).
 
 ### D7. Minimum git version: 2.40
 
-`git merge-tree --write-tree` (2.38) and its `--merge-base` option (2.40) let us preview a merge and compute
-the conflict report without touching any worktree, which D6 relies on. `git worktree list -z` (2.36) makes
-worktree parsing unambiguous, and `commit --trailer`, `branch --show-current` and `init --initial-branch`
-are all older. 2.40 is from March 2023 and is below what current distributions ship (Ubuntu 24.04: 2.43),
-but older LTS releases (Ubuntu 22.04: 2.34, Debian 12: 2.39) are below it and users there must install a newer
-git. The version is checked on open and fails with a clear message. Raise the floor only for a concrete need.
+The features actually required are `git merge-tree --write-tree` (2.38), which computes a merge without
+touching a worktree, and `git worktree list -z` (2.36), which makes worktree parsing unambiguous;
+`commit --trailer`, `branch --show-current` and `init --initial-branch` are older. The floor is set at 2.40
+by agreement, one release above what is needed, because 2.40 also adds `merge-tree --merge-base` (taking a
+precomputed base), which later steps may want. 2.40 is from March 2023 and below what current distributions
+ship (Ubuntu 24.04: 2.43), but older LTS releases (Ubuntu 22.04: 2.34, Debian 12: 2.39) are below it and
+users there must install a newer git. The version is checked on open and fails with a clear message. The
+floor can be lowered to 2.38 if that matters; raise it only for a concrete need.
 
 ### D8. Workspace layout
 
@@ -109,7 +112,7 @@ kept. This separates chat from final code and lets one agent flow work across se
 1. `Host` and `Fs`, the Node host, the `Git` wrapper, and tests against real git. **Done.**
 2. `create`, `open`, `append`, the lock, recovery and trailers. **Done** (see notes below).
 3. `fork`, the entry-to-commit index, and read-at-commit. **Done** (see notes below).
-4. Subagents: worktrees, merge, and the result entry.
+4. Subagents: worktrees, merge, and the result entry. **Done** (see notes below).
 5. `compact`, `changeConfig`, `interrupt`, `verifyHistory`, and fault injection.
 6. Events, the index hook, and performance work (persistent `cat-file --batch`, `fast-import`).
 
@@ -147,3 +150,24 @@ kept. This separates chat from final code and lets one agent flow work across se
   is allowed; building a model context from such a branch is the agent loop's concern.
 - Editing a past message is a fork before it plus appending the new message.
 - Tests crash the process at every operation of a fork.
+
+### Notes from step 4
+
+- **Spawn** snapshots pending workspace changes as a non-entry commit (`Chattree-Snapshot: true`, no
+  `Chattree-Kind`, so the entry index skips it), then branches from that commit, so the subagent sees the
+  parent's current files. Its `branch_start` has `kind: subagent`, `context: fresh`, the brief and the
+  spawning call id. A long brief becomes a blob that is committed inside the new branch, not left in the
+  parent's worktree.
+- **Finish** runs under the parent's lock: snapshot (so the worktree is clean), `merge-tree`, build the
+  merged tree with conflicted paths reset to the trunk, write the `subagent_result` entry into the
+  transcript, create one merge commit (parents: the parent's HEAD, then the child's tip) that is also the
+  entry's commit, and `git merge --ff-only` onto it. If the child is given as a handle its uncommitted
+  workspace changes are snapshotted first; if only a branch name is given, its last commit is merged as is.
+- The merge commit keeps the usual `Chattree-*` trailers, so the first-parent entry index and the byte-prefix
+  property still hold: the parent's transcript never contains the child's entries (they stay on its branch).
+- **Crash window:** between creating the merge commit (unreachable until the move) and the fast-forward
+  finishing there is nothing to repair. If the process dies inside git's own fast-forward, reopening commits
+  the already-written transcript entry as a recovery commit: the history is valid but that one commit lacks
+  the child as a second parent. The tests crash the process at every operation of spawn and finish.
+- The format minor version is now 1: `subagent_result` gained the optional `merge` object.
+- Not yet done: removing a finished child's worktree, and a per-environment merge policy.
