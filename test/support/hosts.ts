@@ -27,7 +27,7 @@ export function faultyHost(inner: Host, failAt: number): Host & { ops: number; l
     nullDevice: inner.nullDevice,
     exec: (program, args, opts) => {
       // Read-only commands do not count: a crash between them changes nothing.
-      const mutating = args.some((a) => ["add", "commit", "update-index", "hash-object", "restore", "init", "config", "branch", "worktree", "merge", "reset"].includes(a));
+      const mutating = args.some((a) => ["add", "commit", "update-index", "hash-object", "restore", "init", "config", "branch", "worktree", "merge", "reset", "read-tree", "write-tree", "commit-tree"].includes(a));
       if (mutating) tick(`${program} ${args.filter((a) => !a.startsWith("-") && !a.includes("=")).slice(0, 2).join(" ")}`);
       return inner.exec(program, args, opts);
     },

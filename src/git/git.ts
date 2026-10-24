@@ -303,8 +303,7 @@ export class Git {
     await this.run(["add", "--all", "--", ...paths]);
   }
 
-  /** Commit everything staged. Returns the new commit's hash. */
-  async commit(opts: CommitOptions): Promise<string> {
+  static #message(opts: CommitOptions): string {
     if (opts.message.includes("\u0000")) throw new GitError("commit message contains a NUL");
     let message = opts.message.replace(/\n+$/, "");
     if (opts.trailers !== undefined && opts.trailers.length > 0) {
@@ -314,6 +313,10 @@ export class Git {
       }
       message += `\n\n${opts.trailers.map(([k, v]) => `${k}: ${v.trim()}`).join("\n")}`;
     }
+    return `${message}\n`;
+  }
+
+  static #identityEnv(opts: CommitOptions): Record<string, string> {
     const env: Record<string, string> = {};
     if (opts.author !== undefined) {
       env["GIT_AUTHOR_NAME"] = opts.author.name;
@@ -327,12 +330,40 @@ export class Git {
       env["GIT_AUTHOR_DATE"] = opts.date;
       env["GIT_COMMITTER_DATE"] = opts.date;
     }
+    return env;
+  }
+
+  /** Commit everything staged. Returns the new commit's hash. */
+  async commit(opts: CommitOptions): Promise<string> {
+    const message = Git.#message(opts);
     const args = ["commit", "--quiet", "--no-verify", "--no-gpg-sign", "--cleanup=verbatim", "-F", "-"];
     if (opts.allowEmpty === true) args.push("--allow-empty");
-    await this.run(args, { stdin: enc.encode(`${message}\n`), env });
+    await this.run(args, { stdin: enc.encode(message), env: Git.#identityEnv(opts) });
     const hash = await this.head();
     if (hash === undefined) throw new GitError("commit succeeded but HEAD does not resolve");
     return hash;
+  }
+
+  /**
+   * Create a commit whose tree is `parent`'s tree with the given files replaced or added, without touching
+   * any worktree, the real index or any branch. The commit is unreachable until something points at it.
+   * This is how a branch is started from an earlier commit with its first entry already in place.
+   */
+  async commitOnto(parent: string, files: ReadonlyArray<{ path: string; data: Uint8Array; mode?: string }>, opts: CommitOptions): Promise<string> {
+    assertSafeArg("revision", parent);
+    const message = Git.#message(opts);
+    const dir = this.host.path.join(await this.commonDir(), "chattree", "tmp");
+    await this.host.fs.mkdir(dir);
+    const index = this.host.path.join(dir, `index-${crypto.randomUUID()}`);
+    const env = { GIT_INDEX_FILE: index };
+    try {
+      await this.run(["read-tree", parent], { env });
+      for (const f of files) await this.run(["update-index", "--add", "--cacheinfo", `${f.mode ?? "100644"},${await this.hashObject(f.data)},${f.path}`], { env });
+      const tree = await this.text(["write-tree"], { env });
+      return await this.text(["commit-tree", tree, "-p", parent, "-F", "-"], { stdin: enc.encode(message), env: { ...Git.#identityEnv(opts) } });
+    } finally {
+      await this.host.fs.remove(index).catch(() => false);
+    }
   }
 
   /** Discard uncommitted changes to the given paths (restore them from HEAD). */
