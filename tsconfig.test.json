@@ -9,6 +9,7 @@
     "src",
     "harness",
     "test",
-    "bench"
+    "bench",
+    "hosts"
   ]
 }

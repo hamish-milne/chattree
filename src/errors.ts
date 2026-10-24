@@ -48,3 +48,18 @@ export class SchemaError extends Error {
     this.issues = issues;
   }
 }
+
+/** Thrown when a git command exits non-zero, or git is missing or too old. */
+export class GitError extends Error {
+  override name = "GitError";
+  /** The git arguments (without the `git` program name), when the error comes from a command. */
+  args: readonly string[];
+  exitCode: number | undefined;
+  stderr: string;
+  constructor(message: string, info: { args?: readonly string[]; exitCode?: number; stderr?: string } = {}) {
+    super(message);
+    this.args = info.args ?? [];
+    this.exitCode = info.exitCode;
+    this.stderr = info.stderr ?? "";
+  }
+}
