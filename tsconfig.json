@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "es2025",
+    "lib": ["es2025", "webworker"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": [],
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

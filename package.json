@@ -1,0 +1,26 @@
+{
+  "name": "chattree",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Model-neutral agent harness whose conversation history lives in Git",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --no-warnings --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
+    "bench": "node --no-warnings bench/bench.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^7.0.2",
+    "zod": "^4.6.7"
+  },
+  "dependencies": {
+    "yaml": "^2.9.1"
+  }
+}
