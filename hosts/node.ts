@@ -141,19 +141,43 @@ const nodeFs: Fs = {
     }
   },
   async createExclusive(path, data) {
-    await fsp.mkdir(nodePath.dirname(path), { recursive: true });
-    let h: fsp.FileHandle;
+    const dir = nodePath.dirname(path);
+    await fsp.mkdir(dir, { recursive: true });
+    // Publish complete content atomically: write a temporary file, then hard-link it into place. link() fails
+    // with EEXIST if the target exists, and a reader can never see a half-written file.
+    const tmp = `${path}.tmp-${randomBytes(6).toString("hex")}`;
+    const h = await fsp.open(tmp, "wx");
     try {
-      h = await fsp.open(path, "wx");
+      await writeFlushed(h, data);
+      await h.sync();
+    } catch (e) {
+      await h.close();
+      await fsp.rm(tmp, { force: true });
+      throw e;
+    }
+    await h.close();
+    try {
+      await fsp.link(tmp, path);
+      return true;
+    } catch (e) {
+      if (isCode(e, "EEXIST")) return false;
+      if (!isCode(e, "EPERM") && !isCode(e, "ENOSYS") && !isCode(e, "EXDEV") && !isCode(e, "ENOTSUP")) throw e;
+    } finally {
+      await fsp.rm(tmp, { force: true });
+    }
+    // The file system has no hard links: fall back to exclusive creation.
+    let direct: fsp.FileHandle;
+    try {
+      direct = await fsp.open(path, "wx");
     } catch (e) {
       if (isCode(e, "EEXIST")) return false;
       throw e;
     }
     try {
-      await writeFlushed(h, data);
-      await h.sync();
+      await writeFlushed(direct, data);
+      await direct.sync();
     } finally {
-      await h.close();
+      await direct.close();
     }
     return true;
   },

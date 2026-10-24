@@ -287,6 +287,33 @@ describe("files and status", () => {
   });
 });
 
+describe("staging helpers", () => {
+  test("stageContent commits file content that differs from the worktree", async () => {
+    const git = await newRepo();
+    await commitFile(git, "log", "one\n");
+    await writeFile(join(git.cwd, "log"), "one\ntwo\nthree\n");
+    const sha = await git.hashObject(enc.encode("one\ntwo\n"));
+    await git.stageContent("log", sha);
+    const commit = await git.commit({ message: "prefix" });
+    assert.equal(dec.decode(await git.readFileAt(commit, "log")), "one\ntwo\n");
+    assert.equal(await readFile(join(git.cwd, "log"), "utf8"), "one\ntwo\nthree\n", "the worktree is untouched");
+    assert.deepEqual(await git.status(), [{ code: ".M", path: "log" }]);
+  });
+
+  test("hashObject is stable and addAll stages new, changed and deleted files", async () => {
+    const git = await newRepo();
+    assert.equal(await git.hashObject(enc.encode("x")), await git.hashObject(enc.encode("x")));
+    await commitFile(git, "gone", "1\n");
+    await writeFile(join(git.cwd, "new"), "n\n");
+    await (await import("node:fs/promises")).rm(join(git.cwd, "gone"));
+    await git.addAll();
+    await git.commit({ message: "all" });
+    assert.equal(await git.isClean(), true);
+    assert.equal(await git.readFileAt("HEAD", "gone"), undefined);
+    assert.ok(await git.readFileAt("HEAD", "new"));
+  });
+});
+
 describe("config", () => {
   test("setConfig and getConfig", async () => {
     const git = await newRepo();

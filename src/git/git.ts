@@ -279,6 +279,24 @@ export class Git {
     return (await this.status()).length === 0;
   }
 
+  /** Stage every change in the worktree, including deletions (respecting .gitignore). */
+  async addAll(): Promise<void> {
+    await this.run(["add", "--all"]);
+  }
+
+  /** Write bytes to the object database and return the blob's hash. Does not touch the worktree or index. */
+  async hashObject(data: Uint8Array): Promise<string> {
+    const r = await this.run(["hash-object", "-w", "--stdin"], { stdin: data });
+    return dec.decode(r.stdout).trim();
+  }
+
+  /** Stage a blob (from `hashObject`) as `path` without touching the worktree file: used to commit a prefix of a file. */
+  async stageContent(path: string, blob: string, mode = "100644"): Promise<void> {
+    assertSafeArg("path", path);
+    assertSafeArg("object", blob);
+    await this.run(["update-index", "--add", "--cacheinfo", `${mode},${blob},${path}`]);
+  }
+
   /** Stage the given paths, including deletions. */
   async add(paths: readonly string[]): Promise<void> {
     if (paths.length === 0) return;
