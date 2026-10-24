@@ -130,3 +130,7 @@ The benchmark numbers above predate tags and were measured on untagged entries.
 
 Nesting depth 64, key length 4096 characters, numbers are IEEE doubles (integers beyond 2^53 are
 written in their double form), strings must be well-formed Unicode.
+
+## License
+
+MIT, see [LICENSE](./LICENSE).

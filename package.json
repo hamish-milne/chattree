@@ -3,6 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "description": "Model-neutral agent harness whose conversation history lives in Git",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.18"
