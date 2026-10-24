@@ -108,7 +108,7 @@ kept. This separates chat from final code and lets one agent flow work across se
 
 1. `Host` and `Fs`, the Node host, the `Git` wrapper, and tests against real git. **Done.**
 2. `create`, `open`, `append`, the lock, recovery and trailers. **Done** (see notes below).
-3. `fork`, the entry-to-commit index, and read-at-commit.
+3. `fork`, the entry-to-commit index, and read-at-commit. **Done** (see notes below).
 4. Subagents: worktrees, merge, and the result entry.
 5. `compact`, `changeConfig`, `interrupt`, `verifyHistory`, and fault injection.
 6. Events, the index hook, and performance work (persistent `cat-file --batch`, `fast-import`).
@@ -128,3 +128,22 @@ kept. This separates chat from final code and lets one agent flow work across se
   addressed, so harmless) and are committed with the next entry.
 - The tests crash the process at every side-effecting operation of an append and check that reopening yields
   a valid, fully committed history.
+
+### Notes from step 3
+
+- **Entry index:** one `git log --first-parent` over the trailers, then extended in memory as the handle
+  appends (no further git calls). A branch's index includes the history it was forked from.
+- **Reading history:** `readEntriesUpTo(ref)` slices the working-tree transcript by the `Chattree-Offset`
+  of the ref, with no git calls; `readEntriesAt(rev)` reads any revision with `git cat-file`.
+- **Fork is built, not checked out.** The new branch's first commit is made with plumbing in a temporary
+  index (`read-tree`, `update-index`, `write-tree`, `commit-tree`): the fork point's tree plus the transcript
+  extended with `branch_start`. The branch is created last, atomically, so it exists complete or not at all;
+  a crash leaves at worst an unreachable commit (collected by git's normal gc) and a temporary index file
+  under `.git/chattree/tmp`. The worktree checkout is a separate, optional step, and a branch without a
+  worktree is a normal state (`openBranch` checks it out). If only the checkout fails, the branch remains and
+  the error is reported; retry with `openBranch`, not `fork`.
+- **Forking rewinds files too:** the workspace is the fork point's tree. Uncommitted changes in the source
+  worktree are not carried. Forking in the middle of a turn (for example between a tool call and its result)
+  is allowed; building a model context from such a branch is the agent loop's concern.
+- Editing a past message is a fork before it plus appending the new message.
+- Tests crash the process at every operation of a fork.

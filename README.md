@@ -7,7 +7,7 @@ Format spec: [docs/format.md](./docs/format.md).
 
 ```
 pnpm install
-pnpm test        # 385 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation with crash injection (needs git >= 2.40 on PATH)
+pnpm test        # 405 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation and fork with crash injection (needs git >= 2.40 on PATH)
 pnpm typecheck   # src is checked with no Node types; tests and bench with @types/node
 pnpm bench       # strings vs bytes, see below
 ```
@@ -36,7 +36,7 @@ developed on 22.23 because that is what the sandbox had.
 | `src/git/` | `Git`: a typed wrapper over the git command line with fixed safety settings (see docs/git-integration.md) |
 | `src/lock.ts` | Lock files with stale takeover, over `Fs.createExclusive` |
 | `hosts/node.ts` | The local-machine `Host`; the only code that imports Node |
-| `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append) and the file-backed blob store |
+| `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork) and the file-backed blob store |
 
 `src/` uses only web-standard globals (`TextEncoder`, `TextDecoder`, `crypto.subtle`), so it should run
 unchanged on Node, Deno, Bun and browsers. Its tsconfig has `types: []` to enforce that.

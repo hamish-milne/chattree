@@ -72,6 +72,42 @@ export interface RecoveryReport {
   recovered: Appended[];
 }
 
+/** An entry's place in a branch's history. */
+export interface EntryRef {
+  /** Undefined for the header, which has no id. */
+  id: string | undefined;
+  tag: string;
+  commit: string;
+  /** Length of the transcript up to and including this entry. */
+  offset: number;
+}
+
+export interface ForkOptions {
+  /** Branch name. Default `fork/<new ulid>`. */
+  name?: string;
+  /** Also check the new branch out in a worktree and return a handle for it. Default true. */
+  checkout?: boolean;
+  /** Where to check it out. Default: `<dir>.branches/<encoded branch name>`. */
+  worktree?: string;
+}
+
+export interface ForkResult {
+  branch: string;
+  /** The first commit on the new branch: the fork point plus its `branch_start` entry. */
+  start: Appended;
+  /** The commit the branch was forked from. */
+  from: string;
+  /** A handle on the new branch's worktree (when `checkout` is not false). */
+  conversation: Conversation | undefined;
+}
+
+export interface BranchInfo {
+  name: string;
+  tip: string;
+  /** Where the branch is checked out, if anywhere. */
+  worktree: string | undefined;
+}
+
 const DEFAULT_COMMITTER: Identity = { name: "chattree", email: "chattree@localhost.invalid" };
 const enc = new TextEncoder();
 
@@ -147,6 +183,8 @@ export class Conversation {
   readonly #nextId: () => string;
   #size: number;
   #queue: Promise<unknown> = Promise.resolve();
+  #head: string | undefined;
+  #idx: { tip: string; refs: EntryRef[] } | undefined;
 
   private constructor(host: Host, git: Git, dir: string, branch: string, lockPath: string, opts: ConversationOptions, size: number, recovery: RecoveryReport) {
     this.host = host;
@@ -161,6 +199,12 @@ export class Conversation {
     this.store = new HostBlobStore(host, host.path.join(dir, BLOBS_DIR));
     this.pipeline = createPipeline({ ...opts.pipeline, store: this.store });
     this.#nextId = createUlid(opts.now);
+  }
+
+  /** Learn where HEAD is, so the entry index can be extended incrementally. */
+  async #init(): Promise<this> {
+    this.#head = await this.git.head();
+    return this;
   }
 
   // ---- create / open ---------------------------------------------------------------------------------------
@@ -201,7 +245,7 @@ export class Conversation {
 
   static async #load(host: Host, git: Git, dir: string, branch: string, opts: ConversationOptions, size: number, report: RecoveryReport): Promise<Conversation> {
     const lockPath = await Conversation.#lockPathFor(host, git, branch);
-    return new Conversation(host, git, dir, branch, lockPath, opts, size, report);
+    return new Conversation(host, git, dir, branch, lockPath, opts, size, report).#init();
   }
 
   static async #lockPathFor(host: Host, git: Git, branch: string): Promise<string> {
@@ -328,6 +372,11 @@ export class Conversation {
       await this.git.addAll();
       const commit = await this.git.commit(Conversation.#commitFor(decoded.value, id, after, this.#opts));
       this.#size = after;
+      if (this.#idx !== undefined && this.#idx.tip === this.#head) {
+        this.#idx.refs.push({ id: id === "" ? undefined : id, tag: decoded.tag, commit, offset: after });
+        this.#idx.tip = commit;
+      }
+      this.#head = commit;
       return { id, tag: decoded.tag, commit, offset: after };
     } catch (e) {
       await this.#rollback(before);
@@ -347,6 +396,84 @@ export class Conversation {
     this.#size = (await this.host.fs.stat(this.#file))?.size ?? 0;
   }
 
+  // ---- branches --------------------------------------------------------------------------------------------
+
+  /**
+   * Start a new branch from an earlier entry of this one (default: the latest), with a `branch_start` entry as
+   * its first entry. The branch is built directly in git, without a checkout, in one step: the fork point's
+   * tree plus the extended transcript, so either the branch exists complete or it does not exist. It is then
+   * checked out in its own worktree unless `checkout` is false. The workspace files are those of the fork
+   * point, so forking rewinds files as well as the conversation; uncommitted changes here are not carried.
+   * To "edit" a past message, fork before it and append the new message to the fork.
+   */
+  async fork(at?: string | EntryRef, opts: ForkOptions = {}): Promise<ForkResult> {
+    const refs = await this.index();
+    let ref: EntryRef | undefined;
+    if (at === undefined) ref = refs.at(-1);
+    else if (typeof at === "string") ref = refs.find((r) => r.id === at);
+    else ref = refs.find((r) => r.commit === at.commit);
+    if (ref === undefined) throw new ConversationError(at === undefined ? "the conversation has no entries" : `no such entry on branch ${this.branch}: ${typeof at === "string" ? at : at.commit}`);
+
+    const name = opts.name ?? `fork/${this.#nextId()}`;
+    if (!(await this.git.isValidBranchName(name))) throw new ConversationError(`invalid branch name: ${JSON.stringify(name)}`);
+    if ((await this.git.revParse(`refs/heads/${name}`)) !== undefined) throw new ConversationError(`branch ${name} already exists`);
+
+    const marker: NewEntry = { $tag: "branch_start", kind: "fork", from: { branch: this.branch, commit: ref.commit }, context: "inherit" };
+    const start = await this.#startBranch(name, ref.commit, marker);
+    let conversation: Conversation | undefined;
+    if (opts.checkout !== false) conversation = await this.#checkoutBranch(name, opts.worktree);
+    return { branch: name, start, from: ref.commit, conversation };
+  }
+
+  /**
+   * Make a branch at `from` whose first new entry is `marker`. Nothing is written until the final, atomic
+   * step of creating the branch, so a crash leaves at worst an unreachable commit.
+   */
+  async #startBranch(name: string, from: string, marker: NewEntry): Promise<Appended> {
+    const withId = { ...marker, id: marker.id ?? this.#nextId() } as NewEntry;
+    const entry = await this.pipeline.encode(withId);
+    const decoded = await this.pipeline.decode(entry);
+    if (!decoded.ok) throw new ConversationError("branch_start failed to decode after encoding");
+    const prefix = await this.git.readFileAt(from, CHAT_FILE);
+    if (prefix === undefined) throw new ConversationError(`${CHAT_FILE} does not exist at ${from}`);
+    const add = encodeEntry(entry);
+    const data = new Uint8Array(prefix.length + add.length);
+    data.set(prefix);
+    data.set(add, prefix.length);
+    const id = (decoded.value as { id: string }).id;
+    const commit = await this.git.commitOnto(from, [{ path: CHAT_FILE, data }], Conversation.#commitFor(decoded.value, id, data.length, this.#opts));
+    await this.git.createBranch(name, commit);
+    return { id, tag: decoded.tag, commit, offset: data.length };
+  }
+
+  #defaultWorktree(name: string): string {
+    return this.host.path.join(`${this.dir}.branches`, encodeURIComponent(name));
+  }
+
+  async #checkoutBranch(name: string, at?: string): Promise<Conversation> {
+    const path = at ?? this.#defaultWorktree(name);
+    const existing = (await this.git.worktrees()).find((w) => w.branch === `refs/heads/${name}`);
+    if (existing !== undefined) return Conversation.open(this.host, existing.path, this.#opts);
+    await this.git.addWorktree(path, { branch: name });
+    return Conversation.open(this.host, path, this.#opts);
+  }
+
+  /** All local branches with their tips and where each is checked out. */
+  async listBranches(): Promise<BranchInfo[]> {
+    const [branches, worktrees] = await Promise.all([this.git.branches(), this.git.worktrees()]);
+    return branches.map((b) => ({
+      name: b.ref.slice("refs/heads/".length),
+      tip: b.hash,
+      worktree: worktrees.find((w) => w.branch === b.ref)?.path,
+    }));
+  }
+
+  /** A handle on another branch, checking it out in a worktree first if it has none. */
+  async openBranch(name: string, opts: { worktree?: string } = {}): Promise<Conversation> {
+    if ((await this.git.revParse(`refs/heads/${name}`)) === undefined) throw new ConversationError(`no such branch: ${name}`);
+    return this.#checkoutBranch(name, opts.worktree);
+  }
+
   // ---- reading ---------------------------------------------------------------------------------------------
 
   /** Every entry in the transcript as of the working tree, decoded and validated. Entries that no longer validate come back with their issues. */
@@ -354,6 +481,60 @@ export class Conversation {
     const bytes = await this.host.fs.read(this.#file);
     const { entries } = parseFile(bytes);
     return Promise.all(entries.map((e) => this.pipeline.decode(e)));
+  }
+
+  /**
+   * Every entry on a branch, oldest first, with the commit that holds it: the index behind forking and
+   * reading history. Built from the commit trailers with one `git log` and then kept current as this handle
+   * appends. Follows first parents, so a branch's index includes the history it was forked from.
+   * With a revision other than this branch's HEAD the result is computed once and not cached.
+   */
+  async index(rev?: string): Promise<readonly EntryRef[]> {
+    if (rev !== undefined && rev !== "HEAD") return this.#indexOf(rev);
+    const head = await this.git.head();
+    if (head === undefined) return [];
+    if (this.#idx?.tip === head) return this.#idx.refs;
+    // Extend a stale cache if its tip is on this branch's first-parent line; otherwise rebuild.
+    if (this.#idx !== undefined && (await this.git.isAncestor(this.#idx.tip, head))) {
+      const added = await this.#indexOf(head, this.#idx.tip);
+      this.#idx = { tip: head, refs: [...this.#idx.refs, ...added] };
+    } else {
+      this.#idx = { tip: head, refs: await this.#indexOf(head) };
+    }
+    this.#head = head;
+    return this.#idx.refs;
+  }
+
+  async #indexOf(rev: string, after?: string): Promise<EntryRef[]> {
+    const range = after === undefined ? rev : `${after}..${rev}`;
+    const commits = await this.git.log(range, { firstParent: true });
+    const refs: EntryRef[] = [];
+    for (const c of commits) {
+      const kind = c.trailers["Chattree-Kind"]?.[0];
+      const offset = Number(c.trailers["Chattree-Offset"]?.[0]);
+      if (kind === undefined || !Number.isSafeInteger(offset)) continue; // not an entry commit
+      refs.push({ id: c.trailers["Chattree-Entry"]?.[0], tag: kind, commit: c.hash, offset });
+    }
+    return refs.reverse();
+  }
+
+  /** Find an entry on this branch by id. */
+  async findEntry(id: string): Promise<EntryRef | undefined> {
+    return (await this.index()).find((r) => r.id === id);
+  }
+
+  /** Entries up to and including `ref`, read from the working-tree transcript without running git. `ref` must come from this branch's index. */
+  async readEntriesUpTo(ref: EntryRef): Promise<DecodeResult<ChatEntry>[]> {
+    if (ref.offset > this.#size) throw new ConversationError(`entry ${ref.id ?? ref.tag} is beyond the end of the transcript`);
+    const bytes = await this.host.fs.readRange(this.#file, 0, ref.offset);
+    return Promise.all(parseFile(bytes).entries.map((e) => this.pipeline.decode(e)));
+  }
+
+  /** Every entry as of any revision (a branch name, commit hash or ref), without touching the worktree. */
+  async readEntriesAt(rev: string): Promise<DecodeResult<ChatEntry>[]> {
+    const bytes = await this.git.readFileAt(rev, CHAT_FILE);
+    if (bytes === undefined) throw new ConversationError(`${CHAT_FILE} does not exist at ${rev}`);
+    return Promise.all(parseFile(bytes).entries.map((e) => this.pipeline.decode(e)));
   }
 
   /** The raw transcript bytes. */
