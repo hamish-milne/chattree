@@ -1,9 +1,11 @@
+import { editConfig, parseConfig, type ConfigResult } from "../src/config.ts";
 import {
   FrameError,
   Git,
   GitError,
   ParseError,
   decodeSpan,
+  hashValue,
   acquireLock,
   encodeEntry,
   endsCleanly,
@@ -18,12 +20,16 @@ import {
   type Pipeline,
 } from "../src/index.ts";
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore } from "./blob-store.ts";
+import { harnessConfig, type HarnessConfig } from "./config.ts";
+import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChatEntry, type PipelineConfig } from "./entries.ts";
 import { createUlid } from "./ulid.ts";
 
 /** The transcript, relative to the repository root. */
 export const CHAT_FILE = "chat.yml";
 export { BLOBS_DIR };
+/** The harness configuration, relative to the repository root. */
+export const CONFIG_FILE = "harness.yml";
 
 const GITATTRIBUTES = `# Transcripts are byte-exact: never convert line endings.
 * -text
@@ -56,6 +62,42 @@ export interface ConversationOptions {
 export interface CreateOptions extends ConversationOptions {
   /** Name of the first branch. Default "main". */
   branch?: string;
+  /** Initial `harness.yml` text. Validated, written, and recorded as the first `config_changed`. */
+  config?: string;
+}
+
+export interface CompactOptions {
+  /** The first entry replaced: an id visible in the current context (see `contextEntries`). */
+  from: string;
+  /** The last entry replaced. */
+  to: string;
+  summary: string;
+  /** The model that wrote the summary. */
+  model?: string;
+}
+
+export interface InterruptOptions {
+  by: "user" | "error";
+  /** Blocks received before the interruption; may be incomplete (a tool call with partial arguments). */
+  partial?: Extract<NewEntry, { $tag: "interrupted" }>["partial"];
+  error?: string;
+}
+
+export interface ConfigStatus {
+  /** Hash of the validated `harness.yml`, or undefined if the file is missing or invalid. */
+  current: string | undefined;
+  /** The last hash recorded by a `config_changed` entry on this branch (the hash of an empty config if none). */
+  recorded: string;
+  inSync: boolean;
+  /** Why the file could not be read, if it could not. */
+  issues: { path: string; message: string }[];
+}
+
+export interface ConfigChange {
+  /** False if the configuration's data did not change (a comment-only edit changes the file but records nothing). */
+  changed: boolean;
+  hash: string;
+  entry: Appended | undefined;
 }
 
 export interface Appended {
@@ -163,6 +205,7 @@ export interface BranchInfo {
 
 const DEFAULT_COMMITTER: Identity = { name: "chattree", email: "chattree@localhost.invalid" };
 const enc = new TextEncoder();
+const dec = new TextDecoder();
 
 function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
   if (prefix.length > bytes.length) return false;
@@ -310,6 +353,7 @@ export class Conversation {
     await convo.#transaction(async () => {
       await convo.#appendLocked({ $tag: "header", ...FORMAT });
     });
+    if (opts.config !== undefined) await convo.setConfigText(opts.config);
     return convo;
   }
 
@@ -494,6 +538,120 @@ export class Conversation {
       await this.host.fs.truncate(this.#file, expectedBefore);
     }
     this.#size = (await this.host.fs.stat(this.#file))?.size ?? 0;
+  }
+
+  // ---- other events ----------------------------------------------------------------------------------------
+
+  /** Record that the turn was cut short, keeping whatever had been received. */
+  interrupt(opts: InterruptOptions): Promise<Appended> {
+    return this.append({ $tag: "interrupted", by: opts.by, partial: opts.partial ?? [], ...(opts.error === undefined ? {} : { error: opts.error }) });
+  }
+
+  /**
+   * Record a compaction: entries `from` through `to` are replaced, in what the model sees, by `summary`. Nothing
+   * is rewritten (see `contextEntries`). Both ends must be visible in the current context, so a range can
+   * never start or end inside something already compacted; it can contain earlier summaries whole.
+   */
+  compact(opts: CompactOptions): Promise<Appended> {
+    return this.#transaction(async () => {
+      const entries = await this.readEntries();
+      const values: ChatEntry[] = [];
+      for (const [i, e] of entries.entries()) {
+        if (!e.ok) throw new ConversationError(`entry ${i + 1} no longer validates, so the context cannot be computed; cannot compact`);
+        values.push(e.value);
+      }
+      const visible = contextEntries(values).map((e) => ("id" in e ? e.id : undefined));
+      const a = visible.indexOf(opts.from);
+      const b = visible.indexOf(opts.to);
+      if (a < 0) throw new ConversationError(`${opts.from} is not an entry in the current context`);
+      if (b < 0) throw new ConversationError(`${opts.to} is not an entry in the current context`);
+      if (a > b) throw new ConversationError("a compaction must run from an earlier entry to a later one");
+      return this.#appendLocked({
+        $tag: "compaction",
+        replaces: { from: opts.from, to: opts.to },
+        summary: opts.summary,
+        ...(opts.model === undefined ? {} : { model: opts.model }),
+      });
+    });
+  }
+
+  // ---- configuration ---------------------------------------------------------------------------------------
+
+  /** The hash a branch with no configuration records as its starting point. */
+  static async emptyConfigHash(): Promise<string> {
+    return hashValue(new Map());
+  }
+
+  /** The last configuration hash this branch's transcript recorded. */
+  async #recordedConfigHash(): Promise<string> {
+    let hash = await Conversation.emptyConfigHash();
+    for (const e of await this.readEntries()) if (e.ok && e.value.$tag === "config_changed") hash = e.value.new;
+    return hash;
+  }
+
+  /** Read and validate `harness.yml`. Undefined if there is no such file. */
+  async readConfig(): Promise<ConfigResult<HarnessConfig> | undefined> {
+    const path = this.host.path.join(this.dir, CONFIG_FILE);
+    if ((await this.host.fs.stat(path)) === undefined) return undefined;
+    return parseConfig(dec.decode(await this.host.fs.read(path)), harnessConfig);
+  }
+
+  /** Whether the file on disk is the configuration the transcript last recorded. */
+  async configStatus(): Promise<ConfigStatus> {
+    const [recorded, current] = [await this.#recordedConfigHash(), await this.readConfig()];
+    const hash = current?.ok === true ? current.hash : undefined;
+    const empty = await Conversation.emptyConfigHash();
+    return {
+      current: hash,
+      recorded,
+      inSync: current === undefined ? recorded === empty : hash === recorded,
+      issues: current?.ok === false ? current.issues : [],
+    };
+  }
+
+  /**
+   * Replace `harness.yml` with `text` (validated against the schema, comments kept as written) and record the
+   * change. A `config_changed` entry holds the previous and new hashes of the validated data, so the
+   * transcript says which configuration each part of the conversation ran under. If the data is unchanged
+   * (only comments or layout differ) the file is updated and nothing is recorded; if the file was edited by
+   * hand since the last record, calling this with its own text records that edit.
+   */
+  setConfigText(text: string): Promise<ConfigChange> {
+    return this.#transaction(() => this.#applyConfig(text));
+  }
+
+  /** Edit `harness.yml` through its comment-preserving document, then record the change as `setConfigText` does. */
+  changeConfig(edit: Parameters<typeof editConfig>[2]): Promise<ConfigChange> {
+    return this.#transaction(async () => {
+      const path = this.host.path.join(this.dir, CONFIG_FILE);
+      const exists = (await this.host.fs.stat(path)) !== undefined;
+      const before = exists ? dec.decode(await this.host.fs.read(path)) : "";
+      const r = await editConfig(before, harnessConfig, edit);
+      if (!r.ok) throw new ConversationError(`invalid configuration: ${r.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
+      return this.#applyConfig(r.text);
+    });
+  }
+
+  async #applyConfig(text: string): Promise<ConfigChange> {
+    const parsed = await parseConfig(text, harnessConfig);
+    if (!parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
+    const path = this.host.path.join(this.dir, CONFIG_FILE);
+    const previous = (await this.host.fs.stat(path)) === undefined ? undefined : await this.host.fs.read(path);
+    const recorded = await this.#recordedConfigHash();
+    const bytes = enc.encode(text);
+    const same = previous !== undefined && previous.length === bytes.length && previous.every((b, i) => b === bytes[i]);
+    if (!same) await this.host.fs.writeAtomic(path, bytes);
+    if (parsed.hash === recorded) return { changed: false, hash: parsed.hash, entry: undefined };
+    try {
+      const entry = await this.#appendLocked({ $tag: "config_changed", old: recorded, new: parsed.hash });
+      return { changed: true, hash: parsed.hash, entry };
+    } catch (e) {
+      if (!same) {
+        if (previous === undefined) await this.host.fs.remove(path).catch(() => false);
+        else await this.host.fs.writeAtomic(path, previous).catch(() => undefined);
+      }
+      throw e;
+    }
   }
 
   // ---- branches --------------------------------------------------------------------------------------------
