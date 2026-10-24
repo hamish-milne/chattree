@@ -119,7 +119,7 @@ kept. This separates chat from final code and lets one agent flow work across se
 2. `create`, `open`, `append`, the lock, recovery and trailers. **Done** (see notes below).
 3. `fork`, the entry-to-commit index, and read-at-commit. **Done** (see notes below).
 4. Subagents: worktrees, merge, and the result entry. **Done** (see notes below).
-5. `compact`, `changeConfig`, `interrupt`, `verifyHistory`, and fault injection.
+5. `compact`, `changeConfig`, `interrupt`, `verifyHistory`, and fault injection. **Done** (see notes below).
 6. Events, the index hook, and performance work (persistent `cat-file --batch`, `fast-import`).
 
 ### Notes from step 2
@@ -188,3 +188,26 @@ kept. This separates chat from final code and lets one agent flow work across se
 - Presenting it to a model ("the user forked this conversation here, discussed X, changed Y") is a context
   builder's job; the entry carries the data for it. Producing the summary is the caller's job too, so the
   primitive stays free of model calls.
+
+### Notes from step 5
+
+- **Context view.** `contextEntries(entries)` (harness/context.ts) is the one definition of what the model sees:
+  a compaction replaces `from..to` with its summary; it takes effect only if both ids are visible at that
+  point and ordered, otherwise it is ignored. `compact` enforces the same rule up front, so a range can
+  contain earlier summaries whole but never start or end inside one.
+- **Config.** `harness.yml` is validated before it is written; `config_changed` records the hashes of the
+  validated data (comments and layout do not count), so a comment-only edit records nothing. Hand edits show
+  up as drift in `configStatus()` and are recorded by `setConfigText`/`changeConfig`. If the append fails the
+  file is restored. After a crash the file may differ from the record; the next call catches it up.
+- **Batched reads.** `Git.objectInfo` and `Git.readObjects` read many objects with one `cat-file --batch`
+  process each, which `verifyHistory` uses so a check costs a handful of processes, not one per commit.
+- **`verifyHistory(conv, {rev?, deep?})`** returns problems rather than throwing. It checks the tip transcript,
+  every first-parent commit's `Chattree-Offset`/`Kind`/`Entry` trailers against the entry at that offset,
+  one commit per entry, merge parents and fork points against the entries that name them, compactions,
+  the config hash chain, and blob references. `deep` also compares every historical `chat.yml` and blob byte
+  for byte; cheap checks cannot see an edit that preserves length. Anything that is merely odd (a recovered
+  merge, a broken config chain, an ignored compaction) is a warning, not an error.
+- **Random-operation test.** `test/harness/random-ops.test.ts` runs seeded sequences of appends, snapshots,
+  subagents, forks and merges, compactions, config changes, interrupts and reopens against a model of the
+  expected transcript, and runs a deep `verifyHistory` on every branch. Corrupted repositories are covered
+  separately in `verify.test.ts`.
