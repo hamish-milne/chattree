@@ -44,3 +44,4 @@ export { externalizeLarge, mapStrings, mapValueStrings, redact, wellFormed, type
 export { canonicalText, hashValue, sortKeysDeep } from "./hash.ts";
 export type { ExecOptions, ExecResult, FileStat, Fs, Host, PathOps } from "./host.ts";
 export * from "./git/index.ts";
+export { LockHeldError, acquireLock, withLock, type Lock, type LockInfo, type LockOptions } from "./lock.ts";

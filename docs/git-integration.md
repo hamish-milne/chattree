@@ -104,11 +104,27 @@ project code in a submodule. The submodule pointer is tracked as normal, with ex
 since a submodule is detached when its head moves) and a saved working-tree diff so intra-commit changes are
 kept. This separates chat from final code and lets one agent flow work across several repositories.
 
-## Build order
+## Build order (status)
 
-1. `Host` and `Fs`, the Node host, the `Git` wrapper, and tests against real git.
-2. `create`, `open`, `append`, the lock, recovery and trailers.
+1. `Host` and `Fs`, the Node host, the `Git` wrapper, and tests against real git. **Done.**
+2. `create`, `open`, `append`, the lock, recovery and trailers. **Done** (see notes below).
 3. `fork`, the entry-to-commit index, and read-at-commit.
 4. Subagents: worktrees, merge, and the result entry.
 5. `compact`, `changeConfig`, `interrupt`, `verifyHistory`, and fault injection.
 6. Events, the index hook, and performance work (persistent `cat-file --batch`, `fast-import`).
+
+### Notes from step 2
+
+- A branch's lock lives in `<common git dir>/chattree/locks/<encoded branch>.lock` and is held only for the
+  duration of one mutation. A crashed process's lock goes stale after 30 s (configurable); restarting sooner
+  fails with `LockHeldError` naming the holder.
+- `append` commits everything in the working tree (`git add --all`), so files the agent wrote since the last
+  entry are snapshotted with the entry that follows them. `.gitignore` decides what is excluded.
+- Recovery stages the transcript prefix for each uncommitted entry with `hash-object` and `update-index
+  --cacheinfo`, so each gets its own commit (`Chattree-Recovered: true`) without touching the worktree file.
+  Workspace files are not committed by recovery; they wait for the next entry.
+- A failed append is undone with `git restore --staged --worktree chat.yml`, which is also correct if the
+  commit had in fact landed. Blobs written for a failed entry stay as untracked files (they are content
+  addressed, so harmless) and are committed with the next entry.
+- The tests crash the process at every side-effecting operation of an append and check that reopening yields
+  a valid, fully committed history.
