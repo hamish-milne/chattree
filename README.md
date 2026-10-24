@@ -7,7 +7,7 @@ Format spec: [docs/format.md](./docs/format.md).
 
 ```
 pnpm install
-pnpm test        # 302 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, app schemas, config
+pnpm test        # 353 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git (needs git >= 2.40 on PATH)
 pnpm typecheck   # src is checked with no Node types; tests and bench with @types/node
 pnpm bench       # strings vs bytes, see below
 ```
@@ -17,7 +17,7 @@ developed on 22.23 because that is what the sandbox had.
 
 ## Layout
 
-`src/` is the runtime-independent core library, `harness/` holds the harness-specific schemas built on it, `test/core` and `test/harness` mirror them, `docs/` has the format spec.
+`src/` is the runtime-independent core library, `hosts/` the host implementations, `harness/` holds the harness-specific schemas built on it, `test/core` and `test/harness` mirror them, `docs/` has the format spec and the git integration plan.
 
 | File | Role |
 |---|---|
@@ -32,6 +32,9 @@ developed on 22.23 because that is what the sandbox had.
 | `src/transforms.ts` | `mapStrings`, `wellFormed`, `redact`, `externalizeLarge` |
 | `src/hash.ts` | Canonical, key-sorted hashing of values |
 | `src/config.ts` | Config files: lenient comment-preserving read and edit, same schemas and hash (`./config` export; the only file that needs `yaml`) |
+| `src/host.ts` | The `Host` seam: run programs (argv only) and file operations, for local, remote or test hosts |
+| `src/git/` | `Git`: a typed wrapper over the git command line with fixed safety settings (see docs/git-integration.md) |
+| `hosts/node.ts` | The local-machine `Host`; the only code that imports Node |
 | `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config |
 
 `src/` uses only web-standard globals (`TextEncoder`, `TextDecoder`, `crypto.subtle`), so it should run

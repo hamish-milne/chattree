@@ -1,4 +1,4 @@
-export { BlobError, EmitError, FrameError, ParseError, SchemaError, type Issue } from "./errors.ts";
+export { BlobError, EmitError, FrameError, GitError, ParseError, SchemaError, type Issue } from "./errors.ts";
 export { BlobData, BlobRef, MAX_DEPTH, TAG_NAME, Tagged, fromPlain, toPlain, valueEquals, type Entry, type Value } from "./value.ts";
 export { emitEntry } from "./emit.ts";
 export { parseEntry, type ParseOptions } from "./parse.ts";
@@ -42,3 +42,5 @@ export {
 } from "./schema.ts";
 export { externalizeLarge, mapStrings, mapValueStrings, redact, wellFormed, type Transform } from "./transforms.ts";
 export { canonicalText, hashValue, sortKeysDeep } from "./hash.ts";
+export type { ExecOptions, ExecResult, FileStat, Fs, Host, PathOps } from "./host.ts";
+export * from "./git/index.ts";
