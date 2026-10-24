@@ -314,6 +314,182 @@ describe("staging helpers", () => {
   });
 });
 
+async function writeAll(git: Git, files: Record<string, string | null>): Promise<void> {
+  const fsp = await import("node:fs/promises");
+  for (const [name, content] of Object.entries(files)) {
+    const full = join(git.cwd, name);
+    if (content === null) await fsp.rm(full, { recursive: true, force: true });
+    else {
+      await fsp.mkdir(join(full, ".."), { recursive: true });
+      await writeFile(full, content);
+    }
+  }
+}
+
+/** main and child diverge from a common base: the child edits f, deletes g, edits h, adds files; main edits f and g, deletes h. */
+async function diverged(): Promise<{ git: Git; base: string; main: string; child: string }> {
+  const git = await newRepo();
+  await writeAll(git, { f: "a\nb\nc\n", g: "x\n", h: "y\n", ok: "k\n", "d/inner": "1\n" });
+  await git.addAll();
+  const base = await git.commit({ message: "base" });
+  await git.run(["checkout", "--quiet", "-b", "child"]);
+  await writeAll(git, { f: "a\nB-child\nc\n", g: null, h: "child h\n", "new-child": "n\n", d: null });
+  await writeAll(git, { d: "now a file\n" });
+  await git.addAll();
+  const child = await git.commit({ message: "child" });
+  await git.run(["checkout", "--quiet", "main"]);
+  await writeAll(git, { f: "a\nB-main\nc\n", g: "main g\n", h: null, "new-main": "m\n", "d/inner2": "2\n" });
+  await git.addAll();
+  const main = await git.commit({ message: "main" });
+  return { git, base, main, child };
+}
+
+describe("merging in memory", () => {
+  test("a clean merge returns the merged tree without touching anything", async () => {
+    const git = await newRepo();
+    await writeAll(git, { a: "1\n", b: "2\n" });
+    await git.addAll();
+    await git.commit({ message: "base" });
+    await git.run(["checkout", "--quiet", "-b", "side"]);
+    await writeAll(git, { a: "1 side\n", "only-side": "s\n" });
+    await git.addAll();
+    const side = await git.commit({ message: "side" });
+    await git.run(["checkout", "--quiet", "main"]);
+    await writeAll(git, { b: "2 main\n" });
+    await git.addAll();
+    const main = await git.commit({ message: "main" });
+    const r = await git.mergeTree(main, side);
+    assert.equal(r.clean, true);
+    assert.deepEqual(r.conflictedPaths, []);
+    assert.ok(r.messages.every((m) => m.type === "Auto-merging" || !m.type.startsWith("CONFLICT")));
+    const tip = await git.commitTree(r.tree, [main, side], { message: "merge" });
+    assert.equal(dec.decode(await git.readFileAt(tip, "a")), "1 side\n");
+    assert.equal(dec.decode(await git.readFileAt(tip, "b")), "2 main\n");
+    assert.deepEqual((await git.log(tip))[0]?.parents, [main, side]);
+    assert.equal(await git.head(), main);
+    assert.equal(await git.isClean(), true);
+  });
+
+  test("conflicts are reported by path and kind", async () => {
+    const { git, main, child } = await diverged();
+    const r = await git.mergeTree(main, child);
+    assert.equal(r.clean, false);
+    // the file/directory conflict moves the file aside under a name that includes the other side's label
+    assert.deepEqual(r.conflictedPaths.map((p) => p.replace(/^d~.+$/, "d~side")).sort(), ["d~side", "f", "g", "h"]);
+    const kinds = Object.fromEntries(r.messages.filter((m) => m.type.startsWith("CONFLICT")).flatMap((m) => m.paths.map((p) => [p, m.type])));
+    assert.equal(kinds["f"], "CONFLICT (contents)");
+    assert.equal(kinds["g"], "CONFLICT (modify/delete)");
+    assert.equal(kinds["h"], "CONFLICT (modify/delete)");
+    assert.equal(kinds["d"], "CONFLICT (file/directory)");
+    assert.ok(r.messages.some((m) => m.type === "Auto-merging" && m.paths[0] === "f"));
+  });
+
+  test("taking the trunk's version of each conflicted path gives a tree where the trunk wins and the rest merges", async () => {
+    const { git, main, child } = await diverged();
+    const r = await git.mergeTree(main, child);
+    const tree = await git.rewriteTree(r.tree, r.conflictedPaths.map((path) => ({ path, from: main })));
+    const merged = await git.commitTree(tree, [main, child], { message: "trunk wins" });
+    const at = async (p: string): Promise<string | undefined> => {
+      const b = await git.readFileAt(merged, p);
+      return b === undefined ? undefined : dec.decode(b);
+    };
+    assert.equal(await at("f"), "a\nB-main\nc\n");
+    assert.equal(await at("g"), "main g\n");
+    assert.equal(await at("h"), undefined, "main deleted it");
+    assert.equal(await at("d~child"), undefined);
+    assert.equal(await at("d/inner2"), "2\n", "main's directory survives the file/directory conflict");
+    assert.equal(await at("new-child"), "n\n", "non-conflicting child work is merged");
+    assert.equal(await at("new-main"), "m\n");
+    assert.equal(await at("ok"), "k\n");
+  });
+});
+
+describe("tree edits", () => {
+  test("write, remove and restore edits, without touching the repository", async () => {
+    const git = await newRepo();
+    await writeAll(git, { a: "1\n", "dir/x": "x\n", "dir/y": "y\n", keep: "k\n" });
+    await git.addAll();
+    const c1 = await git.commit({ message: "one" });
+    await writeAll(git, { a: "2\n", "dir/x": null, "dir/z": "z\n" });
+    await git.addAll();
+    const c2 = await git.commit({ message: "two" });
+    const before = await git.status();
+
+    const tree = await git.rewriteTree(await git.treeOf(c2), [
+      { path: "new file", data: enc.encode("created\n") },
+      { path: "a", data: enc.encode("replaced\n") },
+      { path: "keep", remove: true },
+      { path: "dir", from: c1 },
+    ]);
+    const c3 = await git.commitTree(tree, [c2], { message: "edited" });
+    const at = async (p: string): Promise<string | undefined> => {
+      const b = await git.readFileAt(c3, p);
+      return b === undefined ? undefined : dec.decode(b);
+    };
+    assert.equal(await at("new file"), "created\n");
+    assert.equal(await at("a"), "replaced\n");
+    assert.equal(await at("keep"), undefined);
+    assert.equal(await at("dir/x"), "x\n", "restored from the earlier commit");
+    assert.equal(await at("dir/z"), undefined, "restoring a directory removes what the source lacks");
+    assert.deepEqual(await git.status(), before);
+    assert.equal(await git.head(), c2);
+  });
+
+  test("a file replaced by a directory and back", async () => {
+    const git = await newRepo();
+    await writeAll(git, { p: "file\n" });
+    await git.addAll();
+    const c1 = await git.commit({ message: "file" });
+    const t = await git.rewriteTree(await git.treeOf(c1), [{ path: "p", remove: true }, { path: "p/inner", data: enc.encode("i\n") }]);
+    const c2 = await git.commitTree(t, [c1], { message: "dir" });
+    assert.equal(dec.decode(await git.readFileAt(c2, "p/inner")), "i\n");
+    const back = await git.rewriteTree(await git.treeOf(c2), [{ path: "p", from: c1 }]);
+    assert.equal(dec.decode(await git.readFileAt(await git.commitTree(back, [c2], { message: "back" }), "p")), "file\n");
+  });
+
+  test("paths that look like globs are taken literally", async () => {
+    const git = await newRepo();
+    await writeAll(git, { "a*": "star\n", ab: "ab\n" });
+    await git.addAll();
+    const c1 = await git.commit({ message: "x" });
+    const t = await git.rewriteTree(await git.treeOf(c1), [{ path: "a*", remove: true }]);
+    const c2 = await git.commitTree(t, [c1], { message: "y" });
+    assert.equal(await git.readFileAt(c2, "a*"), undefined);
+    assert.equal(dec.decode(await git.readFileAt(c2, "ab")), "ab\n");
+  });
+});
+
+describe("fast-forward", () => {
+  test("moves the branch and worktree to a descendant, keeping unrelated local changes", async () => {
+    const git = await newRepo();
+    await writeAll(git, { a: "1\n", b: "1\n" });
+    await git.addAll();
+    const c1 = await git.commit({ message: "one" });
+    const t = await git.rewriteTree(await git.treeOf(c1), [{ path: "a", data: enc.encode("2\n") }]);
+    const c2 = await git.commitTree(t, [c1], { message: "two" });
+    await writeAll(git, { b: "local edit\n" });
+    await git.fastForward(c2);
+    assert.equal(await git.head(), c2);
+    assert.equal(await readFile(join(git.cwd, "a"), "utf8"), "2\n");
+    assert.equal(await readFile(join(git.cwd, "b"), "utf8"), "local edit\n");
+  });
+
+  test("refuses when a local change would be overwritten, or the commit is not a descendant", async () => {
+    const git = await newRepo();
+    await writeAll(git, { a: "1\n" });
+    await git.addAll();
+    const c1 = await git.commit({ message: "one" });
+    const t = await git.rewriteTree(await git.treeOf(c1), [{ path: "a", data: enc.encode("2\n") }]);
+    const c2 = await git.commitTree(t, [c1], { message: "two" });
+    await writeAll(git, { a: "dirty\n" });
+    await assert.rejects(git.fastForward(c2), GitError);
+    assert.equal(await git.head(), c1);
+    await git.restore(["a"]);
+    const orphan = await git.commitTree(await git.treeOf(c1), [], { message: "unrelated root" });
+    await assert.rejects(git.fastForward(orphan), GitError);
+  });
+});
+
 describe("config", () => {
   test("setConfig and getConfig", async () => {
     const git = await newRepo();

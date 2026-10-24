@@ -84,6 +84,31 @@ export interface CommitOptions {
   allowEmpty?: boolean;
 }
 
+export interface MergeMessage {
+  /** Paths the message is about. */
+  paths: string[];
+  /** Git's label, e.g. `Auto-merging`, `CONFLICT (contents)`, `CONFLICT (modify/delete)`. */
+  type: string;
+  message: string;
+}
+
+export interface MergeTreeResult {
+  /** The merged tree. When there are conflicts it holds placeholders (conflict markers, one side's version). */
+  tree: string;
+  clean: boolean;
+  /** Paths in the tree that are left in a conflicted state. */
+  conflictedPaths: string[];
+  messages: MergeMessage[];
+}
+
+/** A change to a tree, applied to a temporary index. */
+export type TreeEdit =
+  | { path: string; data: Uint8Array; mode?: string }
+  /** Remove the path (and everything below it). */
+  | { path: string; remove: true }
+  /** Make the path (and everything below it) exactly as it is in `from`, removing it if `from` lacks it. */
+  | { path: string; from: string };
+
 const TRAILER_KEY = /^[A-Za-z][A-Za-z0-9-]*$/;
 const NO_CONTROL = /^[^\u0000-\u001f\u007f]*$/;
 
@@ -351,16 +376,101 @@ export class Git {
    */
   async commitOnto(parent: string, files: ReadonlyArray<{ path: string; data: Uint8Array; mode?: string }>, opts: CommitOptions): Promise<string> {
     assertSafeArg("revision", parent);
-    const message = Git.#message(opts);
+    const tree = await this.rewriteTree(await this.treeOf(parent), files.map((f) => ({ path: f.path, data: f.data, ...(f.mode === undefined ? {} : { mode: f.mode }) })));
+    return this.commitTree(tree, [parent], opts);
+  }
+
+  /** The tree a revision points at. */
+  async treeOf(rev: string): Promise<string> {
+    assertSafeArg("revision", rev);
+    return this.text(["rev-parse", "--verify", `${rev}^{tree}`], { readOnly: true });
+  }
+
+  /**
+   * Merge two commits in memory (no worktree, index or ref is touched) and report the result: the merged
+   * tree, which paths conflict, and git's messages. A conflicted merge is a normal result, not an error.
+   */
+  async mergeTree(ours: string, theirs: string): Promise<MergeTreeResult> {
+    assertSafeArg("revision", ours);
+    assertSafeArg("revision", theirs);
+    const r = await this.run(["merge-tree", "--write-tree", "-z", "--name-only", ours, theirs], { ok: [1], readOnly: true });
+    const f = dec.decode(r.stdout).split("\u0000");
+    const tree = f[0] ?? "";
+    let i = 1;
+    const conflictedPaths: string[] = [];
+    while (i < f.length && f[i] !== "") conflictedPaths.push(f[i++] as string);
+    i++; // the empty field that ends the path list
+    const messages: MergeMessage[] = [];
+    while (i < f.length && f[i] !== "") {
+      const n = Number(f[i++]);
+      if (!Number.isSafeInteger(n) || n < 0) throw new GitError(`unexpected merge-tree output near ${JSON.stringify(f[i - 1])}`);
+      const paths = f.slice(i, i + n);
+      i += n;
+      messages.push({ paths, type: f[i++] ?? "", message: (f[i++] ?? "").replace(/\n$/, "") });
+    }
+    if (!/^[0-9a-f]{40,64}$/.test(tree)) throw new GitError("merge-tree did not return a tree");
+    return { tree, clean: r.exitCode === 0, conflictedPaths, messages };
+  }
+
+  /** A new tree: `tree` with the edits applied. Uses a temporary index file, so nothing real is touched. */
+  async rewriteTree(tree: string, edits: readonly TreeEdit[]): Promise<string> {
+    assertSafeArg("tree", tree);
+    return this.#withTempIndex(tree, async (env) => {
+      const literal = { ...env, GIT_LITERAL_PATHSPECS: "1" };
+      const removeUnder = async (path: string): Promise<void> => {
+        const listed = dec.decode((await this.run(["ls-files", "-z", "--", path], { env: literal })).stdout).split("\u0000").filter((x) => x !== "");
+        for (const p of listed) await this.run(["update-index", "--force-remove", "--", p], { env: literal });
+      };
+      for (const e of edits) {
+        assertSafeArg("path", e.path);
+        if ("data" in e) {
+          await removeUnder(e.path);
+          await this.run(["update-index", "--add", "--cacheinfo", `${e.mode ?? "100644"},${await this.hashObject(e.data)},${e.path}`], { env });
+        } else if ("remove" in e) {
+          await removeUnder(e.path);
+        } else {
+          await removeUnder(e.path);
+          const there = dec.decode((await this.run(["ls-tree", "-r", "-z", e.from, "--", e.path], { env: literal })).stdout).split("\u0000").filter((x) => x !== "");
+          for (const rec of there) {
+            const tab = rec.indexOf("\t");
+            const [mode, , sha] = rec.slice(0, tab).split(" ");
+            await this.run(["update-index", "--add", "--cacheinfo", `${mode},${sha},${rec.slice(tab + 1)}`], { env });
+          }
+        }
+      }
+      return this.text(["write-tree"], { env });
+    });
+  }
+
+  /** Create a commit object for `tree` with the given parents. Unreachable until a ref points at it. */
+  async commitTree(tree: string, parents: readonly string[], opts: CommitOptions): Promise<string> {
+    assertSafeArg("tree", tree);
+    const args = ["commit-tree", tree];
+    for (const p of parents) {
+      assertSafeArg("revision", p);
+      args.push("-p", p);
+    }
+    args.push("-F", "-");
+    return this.text(args, { stdin: enc.encode(Git.#message(opts)), env: Git.#identityEnv(opts) });
+  }
+
+  /**
+   * Move the current branch forward to `commit` (which must descend from HEAD), updating the index and
+   * worktree as `git merge --ff-only` does. Refuses if local changes would be overwritten.
+   */
+  async fastForward(commit: string): Promise<void> {
+    assertSafeArg("revision", commit);
+    await this.run(["merge", "--ff-only", "--quiet", commit]);
+  }
+
+  async #withTempIndex<T>(tree: string, fn: (env: Record<string, string>) => Promise<T>): Promise<T> {
     const dir = this.host.path.join(await this.commonDir(), "chattree", "tmp");
     await this.host.fs.mkdir(dir);
     const index = this.host.path.join(dir, `index-${crypto.randomUUID()}`);
     const env = { GIT_INDEX_FILE: index };
     try {
-      await this.run(["read-tree", parent], { env });
-      for (const f of files) await this.run(["update-index", "--add", "--cacheinfo", `${f.mode ?? "100644"},${await this.hashObject(f.data)},${f.path}`], { env });
-      const tree = await this.text(["write-tree"], { env });
-      return await this.text(["commit-tree", tree, "-p", parent, "-F", "-"], { stdin: enc.encode(message), env: { ...Git.#identityEnv(opts) } });
+      await this.run(["read-tree", tree], { env });
+      return await fn(env);
     } finally {
       await this.host.fs.remove(index).catch(() => false);
     }
