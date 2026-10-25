@@ -7,7 +7,7 @@ Format spec: [docs/format.md](./docs/format.md).
 
 ```
 pnpm install
-pnpm test        # 480 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation, fork and subagents with crash injection, compaction/config events, history verification, random-operation fuzzing (needs git >= 2.38 on PATH)
+pnpm test        # 505 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation, fork and subagents with crash injection, compaction/config events, history verification, random-operation fuzzing, batched git reads and fast-import, events and the index cache, and an end-to-end lifecycle test (needs git >= 2.38 on PATH)
 pnpm typecheck   # src is checked with no Node types; tests and bench with @types/node
 pnpm bench       # strings vs bytes, see below
 ```
@@ -36,7 +36,7 @@ developed on 22.23 because that is what the sandbox had.
 | `src/git/` | `Git`: a typed wrapper over the git command line with fixed safety settings (see docs/git-integration.md) |
 | `src/lock.ts` | Lock files with stale takeover, over `Fs.createExclusive` |
 | `hosts/node.ts` | The local-machine `Host`; the only code that imports Node |
-| `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork, subagents, fork merge, compact, interrupt, config changes), the context view (`contextEntries`), `verifyHistory`, and the file-backed blob store |
+| `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork, subagents, fork merge, compact, interrupt, config changes), the context view (`contextEntries`), `appendMany`, `onEvent` events, the entry-index cache, `verifyHistory`, `readCommitGraph`/`toMermaid` (see `docs/lifecycle-graph.md`), and the file-backed blob store |
 
 `src/` uses only web-standard globals (`TextEncoder`, `TextDecoder`, `crypto.subtle`), so it should run
 unchanged on Node, Deno, Bun and browsers. Its tsconfig has `types: []` to enforce that.

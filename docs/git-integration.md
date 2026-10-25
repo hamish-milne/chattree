@@ -120,7 +120,7 @@ kept. This separates chat from final code and lets one agent flow work across se
 3. `fork`, the entry-to-commit index, and read-at-commit. **Done** (see notes below).
 4. Subagents: worktrees, merge, and the result entry. **Done** (see notes below).
 5. `compact`, `changeConfig`, `interrupt`, `verifyHistory`, and fault injection. **Done** (see notes below).
-6. Events, the index hook, and performance work (persistent `cat-file --batch`, `fast-import`).
+6. Events, the index hook, and performance work (persistent `cat-file`, `fast-import`). **Done** (see notes below).
 
 ### Notes from step 2
 
@@ -211,3 +211,39 @@ kept. This separates chat from final code and lets one agent flow work across se
   subagents, forks and merges, compactions, config changes, interrupts and reopens against a model of the
   expected transcript, and runs a deep `verifyHistory` on every branch. Corrupted repositories are covered
   separately in `verify.test.ts`.
+
+### Notes from step 6
+
+Measured first (200 appends): an append cost three git processes (`add`, `commit`, and `rev-parse` to learn
+the new hash), about 15 ms each.
+
+- **Two processes per append.** `git commit` prints the new commit's hash when abbreviation is off
+  (`core.abbrev=no`), so the `rev-parse` is gone (falling back to it if the output is not as expected).
+  A test pins the cost at two. 200 appends went from 3.1 s to 2.4 s.
+- **`Host.spawn` and `CatFileSession`.** An optional host method keeps a process running; `Git.catFile()` uses it
+  for one `git cat-file --batch-command` that answers `info` and `contents` requests. Requests are written
+  without waiting for earlier answers (git answers in order), so a burst costs one round trip; verifying deep
+  uses windows of 32. Without `spawn` the same interface falls back to one process per request. Honest numbers:
+  at 200 commits deep verification is about the same speed as the previous one-shot batches, with fewer
+  processes and bounded memory; the session pays off for interleaved reads and long histories.
+- **`appendMany` via `fast-import`.** N entries in a fixed number of processes (snapshot, `fast-import`,
+  `reset`). Same crash story as `append`: all entries are written to the transcript first, so a crash before
+  the branch moves leaves them for `open` to commit (the crash sweep checks every failure point: all or none
+  survive, history verifies). The ref moves once, when the stream ends. Each blob arrives with the first
+  entry that refers to it. Commits bypass the index, so `git reset --mixed` realigns it afterwards (best
+  effort: the next staging heals it). Pending workspace changes go into a snapshot commit first.
+- **Events.** `ConversationOptions.onEvent` receives `entry`, `snapshot`, `branch`, `merge` and `recovery`
+  events after the change is committed, in order, through a per-handle queue. A slow or throwing handler never
+  delays or fails the operation (`onEventError` hears of it); `flushEvents()` waits for delivery. Handles for
+  forks and subagents inherit the handler. Entries `open` recovers are reported as `recovered` entry events.
+- **Index cache (the hook).** The entry index is derived data. `IndexCache` is the interface; the default
+  `FileIndexCache` keeps one JSON file per branch under the git directory (never committed). On a cold
+  open the cached index is extended with only the commits newer than its tip; a damaged, unknown or
+  non-ancestor cache is ignored and the index rebuilt. `flushIndex()` saves on demand.
+- **Lifecycle test and graph.** `test/integration/lifecycle.test.ts` runs one conversation through everything
+  (work with large blobs, bulk import, compaction, config change, interruption, a fork merged with a
+  conflict, an abandoned fork, two subagents, a crash mid-append and recovery), then checks every branch with
+  deep `verifyHistory`, `git fsck --strict`, events against history, and the cache against a rebuild. The graph
+  is in `docs/lifecycle-graph.md`.
+- **Not done:** orphaned-blob GC, removing finished child worktrees, and a persistent `fast-import` process
+  (a single batch already makes bulk writes constant-cost; per-append use would need the index kept in step).
