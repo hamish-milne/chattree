@@ -83,7 +83,68 @@ export const compaction = z.object({
   model: z.string().optional(),
 });
 
-export const configChanged = z.object({ $tag: z.literal("config_changed"), id: ulid, old: sha256, new: sha256 });
+// ---- agent_setup: the agent's state, folded per branch (see docs/providers.md, P8) -----------------------------
+
+/** What a change to an agent's setup would do. Which of these a given change causes is the provider adapter's call. */
+export const CHANGE_KINDS = [
+  "model_changed",
+  "provider_changed",
+  "cache_break",
+  "cost_increase",
+  "context_overflow",
+  "reasoning_dropped",
+  "capability_loss",
+  "mid_loop",
+  "tools_changed",
+  "instructions_changed",
+  "pricing_changed",
+  "resolved_model_changed",
+] as const;
+export type ChangeKind = (typeof CHANGE_KINDS)[number];
+const changeKind = z.enum(CHANGE_KINDS);
+
+/** A pinned definition (tool, instructions, skill, MCP server): the hash of its canonical form and where the bytes live. */
+export const pinnedDefinition = z.object({
+  hash: sha256,
+  /** `blob`: the canonical bytes are in `blobs/`. `external`: only the hash is here and the host's source serves the bytes. */
+  store: z.enum(["blob", "external"]),
+  /** For `external`: the host's locator (a path in a shared submodule, say). */
+  ref: z.string().optional(),
+});
+const definitionDelta = z.object({
+  set: z.record(z.string(), pinnedDefinition).optional(),
+  remove: z.array(z.string()).optional(),
+});
+
+export const agentSetup = z.object({
+  $tag: z.literal("agent_setup"),
+  id: ulid,
+  /** `provider` and `resolved` are written when a response reports a different model than the setup says. */
+  reason: z.enum(["user", "fork", "subagent", "provider", "resolved"]),
+  /** Always complete when present: the whole model block replaces the previous one. */
+  model: z
+    .object({
+      provider: z.string().min(1),
+      /** What was asked for; may be an alias. */
+      id: z.string().min(1),
+      /** The dated model the provider reported serving; requests use it once known. */
+      resolved: z.string().min(1).optional(),
+      settings: json.optional(),
+    })
+    .optional(),
+  tools: definitionDelta.optional(),
+  instructions: pinnedDefinition.optional(),
+  skills: definitionDelta.optional(),
+  mcp: definitionDelta.optional(),
+  /** The hash of the price table this agent is costed under. */
+  pricing: z.object({ table: sha256 }).optional(),
+  /** Change kinds the caller allowed for this mutation. */
+  allow: z.array(changeKind).optional(),
+  /** For `provider` and `resolved` entries: the kinds the observed change would have been classified as. */
+  changes: z.array(changeKind).optional(),
+  /** Provider-observed `agent_setup` entries this one accepts. */
+  acknowledges: z.array(ulid).optional(),
+});
 
 export const branchStart = z.object({
   $tag: z.literal("branch_start"),
@@ -152,7 +213,7 @@ export type ChatEntry =
   | z.infer<typeof assistant>
   | z.infer<typeof toolResult>
   | z.infer<typeof compaction>
-  | z.infer<typeof configChanged>
+  | z.infer<typeof agentSetup>
   | z.infer<typeof branchStart>
   | z.infer<typeof subagentResult>
   | z.infer<typeof forkMerge>
@@ -164,7 +225,7 @@ export const entryTypes = [
   defineEntry("assistant", assistant),
   defineEntry("tool_result", toolResult),
   defineEntry("compaction", compaction),
-  defineEntry("config_changed", configChanged),
+  defineEntry("agent_setup", agentSetup),
   defineEntry("branch_start", branchStart),
   defineEntry("subagent_result", subagentResult),
   defineEntry("fork_merge", forkMerge),

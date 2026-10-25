@@ -28,8 +28,7 @@ Two independent choices make up a policy:
 - **Resolution** for what cannot be merged cleanly: `trunk`, `child`, `union`, `ask` (leave the branch unmerged
   and tell the model what is in the way), or `regenerate` (drop both, run a command).
 
-**Where it is configured.** In `harness.yml`, so it is versioned, hashed into `config_changed`, and visible in
-the transcript like the rest of the configuration:
+**Where it is configured.** In `harness.yml`, so it is versioned with the repository (there is no `config_changed` entry any more):
 
 ```yaml
 merge:

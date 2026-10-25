@@ -14,7 +14,7 @@ CHATTREE_GRAPH_OUT=docs/lifecycle-graph.md pnpm test -- test/integration/lifecyc
 ## How to read it
 
 - One commit per transcript entry, numbered in topological order and labelled with what the entry says.
-  Highlighted squares are structural events: `config`, `compaction`, `interrupted`, and the three merges
+  Highlighted squares are structural events: `setup`, `compaction`, `interrupted`, and the three merges
   (`fork merge`, `subagent result` x2).
 - A cross marks a commit that is not an ordinary entry: the **workspace snapshot** taken before the subagents
   started (so they begin from the uncommitted work), the **recovered** entry committed by `open` after the
@@ -36,7 +36,7 @@ config:
 ---
 gitGraph
   commit id: "1 Start conversation" tag: "header" type: NORMAL
-  commit id: "2 config changed" tag: "config" type: HIGHLIGHT
+  commit id: "2 setup (user): claude-sonnet-5-5" tag: "setup" type: HIGHLIGHT
   commit id: "3 user: Build a command-line word count~" type: NORMAL
   commit id: "4 assistant: calls write_file" type: NORMAL
   branch "fork/rethink"
@@ -52,7 +52,7 @@ gitGraph
   commit id: "12 user: (imported) Should it read stdi~" type: NORMAL
   commit id: "13 assistant: Yes, when no argument is ~" type: NORMAL
   commit id: "14 compaction: Decided: UTF-8, Unicode ~" tag: "compaction" type: HIGHLIGHT
-  commit id: "15 config changed" tag: "config" type: HIGHLIGHT
+  commit id: "15 setup (user): claude-opus-5-5" tag: "setup" type: HIGHLIGHT
   commit id: "16 user: Now add a --lines flag." type: NORMAL
   commit id: "17 interrupted by user" tag: "interrupted" type: HIGHLIGHT
   commit id: "18 user: Sorry, hit enter early. Add th~" type: NORMAL

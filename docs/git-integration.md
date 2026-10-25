@@ -47,7 +47,8 @@ commit, and on failure roll back by truncating the file to its previous length.
 | `append` (user, assistant, tool_result) | one entry, plus blobs | one commit per entry |
 | `interrupt` | `interrupted` entry holding the partial output | commit |
 | `compact` | `compaction` entry (history is never rewritten) | commit |
-| `changeConfig` | edit `harness.yml` keeping comments, then `config_changed` with both hashes | one commit with both |
+| `setupChange` | `agent_setup` entry holding the delta; refused with `ChangeNotAllowed` unless every kind of change it makes is allowed | one entry commit |
+| `appendResponse` | `agent_setup` (a provider-observed model change) and the `assistant` entry together | one `appendMany` |
 | `fork(at)` | `branch_start` on the new branch | branch from the entry's commit, new worktree |
 | `spawnSubagent` | `branch_start` with a fresh-context marker | branch, worktree, commit |
 | `finishSubagent` | `subagent_result` on the parent | merge the child branch into the parent (D6) |
@@ -119,7 +120,7 @@ kept. This separates chat from final code and lets one agent flow work across se
 2. `create`, `open`, `append`, the lock, recovery and trailers. **Done** (see notes below).
 3. `fork`, the entry-to-commit index, and read-at-commit. **Done** (see notes below).
 4. Subagents: worktrees, merge, and the result entry. **Done** (see notes below).
-5. `compact`, `changeConfig`, `interrupt`, `verifyHistory`, and fault injection. **Done** (see notes below).
+5. `compact`, config changes (since replaced by `setupChange`), `interrupt`, `verifyHistory`, and fault injection. **Done** (see notes below).
 6. Events, the index hook, and performance work (persistent `cat-file`, `fast-import`). **Done** (see notes below).
 7. Housekeeping: blob GC, finished worktrees, process and crash-debris cleanup. **Done** (see notes below).
 
@@ -198,10 +199,10 @@ kept. This separates chat from final code and lets one agent flow work across se
   a compaction replaces `from..to` with its summary; it takes effect only if both ids are visible at that
   point and ordered, otherwise it is ignored. `compact` enforces the same rule up front, so a range can
   contain earlier summaries whole but never start or end inside one.
-- **Config.** `harness.yml` is validated before it is written; `config_changed` records the hashes of the
-  validated data (comments and layout do not count), so a comment-only edit records nothing. Hand edits show
-  up as drift in `configStatus()` and are recorded by `setConfigText`/`changeConfig`. If the append fails the
-  file is restored. After a crash the file may differ from the record; the next call catches it up.
+- **Config.** `harness.yml` holds only the outside world (providers, limits, host wiring); it is validated at
+  `create` and read with `readConfig`. It is an ordinary workspace file: edits are committed by snapshot, and its
+  history is git's. There is no `config_changed` entry (removed after the first version: what the agent *is* is
+  the folded `agent_setup` entries, see `docs/providers.md`).
 - **Batched reads.** `Git.objectInfo` and `Git.readObjects` read many objects with one `cat-file --batch`
   process each, which `verifyHistory` uses so a check costs a handful of processes, not one per commit.
 - **`verifyHistory(conv, {rev?, deep?})`** returns problems rather than throwing. It checks the tip transcript,

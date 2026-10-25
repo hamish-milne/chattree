@@ -5,13 +5,14 @@ import { describe, test } from "node:test";
 import { nodeHost } from "../../hosts/node.ts";
 import { contextEntries } from "../../harness/context.ts";
 import { Conversation, type NewEntry } from "../../harness/conversation.ts";
+import { CHANGE_KINDS } from "../../harness/entries.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import { Rng } from "../support/gen.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
-const CONFIG = "version: 1\nmodel:\n  provider: anthropic\n  model: m0\n";
+const CONFIG = "providers:\n  main:\n    $tag: anthropic\n    api_key_env: K\n";
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
 const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "m", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
 const FILES = ["a.txt", "b.txt", "dir/c.txt", "dir/d.txt"];
@@ -76,10 +77,10 @@ async function run(seed: number, steps: number): Promise<void> {
           model.push((await convo.compact({ from: visible[a] as string, to: visible[b] as string, summary: `sum ${i}` })).id);
         }
       } else if (op === 8) {
-        note("config");
+        note("setup");
         const m = `m${r.int(5)}`;
-        const res = await convo.changeConfig((d) => d.setIn(["model", "model"], m));
-        if (res.entry !== undefined) model.push(res.entry.id);
+        const res = await convo.setupChange({ model: { provider: "anthropic", id: m } }, { allow: CHANGE_KINDS });
+        if (res !== undefined) model.push(res.id);
       } else if (op === 9) {
         note("interrupt");
         await grow(convo, { $tag: "interrupted", by: r.chance(0.5) ? "user" : "error", partial: [] }, model);

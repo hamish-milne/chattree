@@ -46,8 +46,8 @@ export function summarizeEntry(e: ChatEntry | undefined, fallback: string): stri
       return `tool result${typeof e.content === "string" ? `: ${flat(e.content)}` : " (large, stored as a blob)"}`;
     case "compaction":
       return `compaction: ${flat(e.summary)}`;
-    case "config_changed":
-      return "config changed";
+    case "agent_setup":
+      return `setup (${e.reason})${e.model === undefined ? "" : `: ${e.model.resolved ?? e.model.id}`}`;
     case "branch_start":
       return e.kind === "subagent" ? `subagent starts: ${flat(e.brief)}` : "fork starts";
     case "subagent_result":
@@ -135,7 +135,7 @@ export interface MermaidOptions {
 
 const TAGGED: Record<string, string> = {
   compaction: "compaction",
-  config_changed: "config",
+  agent_setup: "setup",
   interrupted: "interrupted",
   subagent_result: "subagent result",
   fork_merge: "fork merge",
@@ -184,7 +184,7 @@ export function toMermaid(graph: CommitGraph, opts: MermaidOptions = {}): string
     for (const c of chain.get(branch) ?? []) {
       if ((c.kind !== "snapshot" && c.kind !== "gc") || showSnapshots) {
         const tag = c.recovered ? "recovered" : c.kind === "snapshot" ? undefined : TAGGED[c.kind];
-        const type = c.recovered ? "REVERSE" : c.kind === "snapshot" || c.kind === "gc" ? "REVERSE" : c.parents.length > 1 || c.kind === "compaction" || c.kind === "config_changed" || c.kind === "interrupted" ? "HIGHLIGHT" : "NORMAL";
+        const type = c.recovered ? "REVERSE" : c.kind === "snapshot" || c.kind === "gc" ? "REVERSE" : c.parents.length > 1 || c.kind === "compaction" || c.kind === "agent_setup" || c.kind === "interrupted" ? "HIGHLIGHT" : "NORMAL";
         const attrs = `id: "${label(c)}"${tag === undefined ? "" : ` tag: "${tag}"`} type: ${type}`;
         const second = c.parents[1] === undefined ? undefined : byHash.get(c.parents[1]);
         if (second !== undefined && second.branch !== branch) lines.push(`  merge ${mainName(second.branch)} ${attrs}`);

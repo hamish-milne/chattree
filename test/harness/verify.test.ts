@@ -5,13 +5,14 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { nodeHost } from "../../hosts/node.ts";
 import { CHAT_FILE, Conversation, type NewEntry } from "../../harness/conversation.ts";
+import { encodeEntry } from "../../src/index.ts";
 import { verifyHistory, type Problem } from "../../harness/verify.ts";
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
 const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "m", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
-const CONFIG = "version: 1\nmodel:\n  provider: anthropic\n  model: claude-sonnet-5-5\n";
+const CONFIG = "providers:\n  main:\n    $tag: anthropic\n    api_key_env: K\n";
 
 const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@e", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@e" };
 const git = (dir: string, ...args: string[]): string => execFileSync("git", args, { cwd: dir, env, encoding: "utf8" });
@@ -46,7 +47,8 @@ describe("verifyHistory: healthy conversations", () => {
     const ids = (await convo.index()).map((r) => r.id);
     await convo.append(user("x".repeat(10_000)));
     await convo.compact({ from: ids[1] as string, to: ids[3] as string, summary: "talk" });
-    await convo.changeConfig((d) => d.setIn(["model", "model"], "other"));
+    await convo.setupChange({ model: { provider: "anthropic", id: "first" } });
+    await convo.setupChange({ model: { provider: "anthropic", id: "other" } }, { allow: ["model_changed"] });
     const sub = await convo.spawnSubagent({ brief: "look around", callId: "c1" });
     await writeFile(join(sub.conversation?.dir as string, "found.txt"), "found\n");
     await sub.conversation?.append(user("subtask"));
@@ -159,20 +161,20 @@ describe("verifyHistory: damaged conversations", () => {
     assert.ok(codes(await both(await reopen(dir))).includes("merge-parent-mismatch"));
   });
 
-  test("a compaction of unknown entries is flagged, and the config chain is checked", async () => {
+  test("a compaction of unknown entries is flagged", async () => {
     const { dir, convo } = await fresh();
     const ids = (await convo.index()).map((r) => r.id);
     await convo.compact({ from: ids[1] as string, to: ids[2] as string, summary: "ok" });
     assert.deepEqual(await both(convo), []);
-    // Hand-write a second config_changed with the wrong 'old'.
     const fs = await import("node:fs");
     const file = join(dir, CHAT_FILE);
-    const bogus = "a".repeat(64);
-    fs.appendFileSync(file, `- !config_changed\n  id: "01ARZ3NDEKTSV4RRFFQ69G5FAV"\n  old: ${bogus}\n  new: ${bogus}\n\n`);
+    const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
+    const bytes = encodeEntry(await convo.pipeline.encode({ $tag: "compaction", id, replaces: { from: "01ARZ3NDEKTSV4RRFFQ69G5FAA", to: "01ARZ3NDEKTSV4RRFFQ69G5FAB" }, summary: "nothing" }));
+    fs.appendFileSync(file, bytes);
     git(dir, "add", CHAT_FILE);
-    git(dir, "commit", "-m", `x\n\nChattree-Entry: 01ARZ3NDEKTSV4RRFFQ69G5FAV\nChattree-Kind: config_changed\nChattree-Offset: ${fs.statSync(file).size}\n`);
+    git(dir, "commit", "-m", `x\n\nChattree-Entry: ${id}\nChattree-Kind: compaction\nChattree-Offset: ${fs.statSync(file).size}\n`);
     const ps = await verifyHistory(await reopen(dir));
-    assert.deepEqual(ps.map((p) => [p.severity, p.code]), [["warning", "config-chain-broken"]]);
+    assert.deepEqual(ps.map((p) => [p.severity, p.code]), [["warning", "compaction-ignored"]]);
   });
 
   test("a damaged transcript is reported, not thrown", async () => {

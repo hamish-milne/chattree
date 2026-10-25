@@ -1,6 +1,6 @@
 # Provider adapters: plan (v2)
 
-Status: **proposal, nothing built yet.** Version 2 folds in the first round of decisions. Decisions are numbered
+Status: **step 1 of the build order is done** (the `agent_setup` entry, fold, mutations, `config_changed` removed; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
 P1–P12 so they can be accepted or changed one by one, as with `git-integration.md`. What changed since v1 is in
 section 9; the few questions still open are in section 8.
 
@@ -407,8 +407,11 @@ test/providers/fixtures/        P12
 
 ## 5. Build order
 
-1. **Format and setup first**: `agent_setup` entry and fold, remove `config_changed`, slim `assistant`, the
-   mutation machinery and `ChangeNotAllowed` (P8, P11), reusing what `changeConfig` had. No network.
+1. **Format and setup first. Done**: `agent_setup` entry and fold (`harness/setup.ts`), `Conversation.setupChange`,
+   `appendResponse`, `checkRequest`, `ChangeNotAllowed`, the `setup_changed` event; `config_changed` and its
+   hash chain removed; `harness.yml` reduced to providers, limits and compaction; `$tag` and `!tag` sugar in
+   the config reader; verifier checks for setups. Not yet: usage normalisation and the optional block `ext`
+   (P11), which wait for the first adapter. The `assistant` entry never carried settings, so there was nothing to slim.
 2. **Context builder** and golden tests (P1), **definitions and the `DefinitionSource` hook** (P10).
 3. **Provider types, SSE parser, HTTP base, fake server, conformance suite, fixture recorder** (P2, P3, P12).
 4. **Anthropic adapter** against fixtures, then **OpenAI Responses** (chaining, compaction, retrieval).
@@ -429,15 +432,14 @@ The live comparison of stored versus replayed OpenAI state (cost, cached tokens,
 caching and pricing pages and the cache order; whether hosted tools need server state; OpenAI's WebSocket
 continuation cache; a VS Code helper for custom tags; `allowed_tools`-style restriction on Anthropic.
 
-## 8. Still open
+## 8. Decided (formerly open)
 
-- **Q1.** Keep the **served model id** on the `assistant` entry (a few bytes; the fold would then not be needed
-  to attribute a block, replay validity, git author and drift checks stay local), or derive it only from the
-  fold? I recommend keeping that one field and nothing else of the settings.
-- **Q2.** Where does **compaction policy** (`threshold_tokens`, `keep_recent`) live: `harness.yml` (the harness's
-  disposition) or the setup (per agent)? I lean to `harness.yml`.
-- **Q3.** For a `provider`-reason change, should the gate on the next request apply by default, with hosts
-  opting into standing allowances, or never gate and only notify? The plan says gate by default.
+- **Q1.** The served model id **stays on the `assistant` entry** and nothing else of the settings does. Done:
+  `appendResponse` writes the model the provider reported as the entry's `model`.
+- **Q2.** Compaction policy (`threshold_tokens`, `keep_recent`) lives in **`harness.yml`**: it is the harness's
+  disposition, not the agent's state. Already so in the schema.
+- **Q3.** A provider-observed change **gates the next request by default**; the host's standing allowance (the
+  `standing` argument of `checkRequest`) is configurable. Done.
 
 ## 9. What changed since v1
 

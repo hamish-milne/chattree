@@ -10,9 +10,13 @@ import type { StandardSchemaV1 } from "./standard-schema.ts";
  * anything YAML 1.2 core allows) and edited through its comment-preserving document model. The strict
  * canonical codec is never used for them.
  *
- * What is rejected, because it makes a config ambiguous or unhashable: anchors and aliases, custom tags,
- * duplicate keys, multiple documents, non-finite numbers, non-string keys, and the reserved keys
- * `$tag`/`$value`.
+ * What is rejected, because it makes a config ambiguous or unhashable: anchors and aliases, custom tags
+ * on anything but a map, duplicate keys, multiple documents, non-finite numbers, non-string keys, and the
+ * reserved key `$value`.
+ *
+ * `$tag` is how a value says what type it is, as in the transcript. `!anthropic {...}` on a map is sugar for
+ * `{$tag: anthropic, ...}` and is normalised before validation and hashing; `$tag: anthropic` written out is
+ * the same thing and works with any YAML editor and JSON Schema.
  */
 
 export type ConfigResult<T> = { ok: true; value: T; hash: string } | { ok: false; issues: Issue[] };
@@ -33,6 +37,25 @@ function pathOf(path: readonly unknown[]): string {
   return out;
 }
 
+/** A local tag (`!name`), as opposed to the YAML core tags (`!!str`, `tag:yaml.org,2002:...`). */
+const TAG_SUGAR = /^![A-Za-z][\w.-]*$/;
+const unresolvedTag = (message: string): boolean => /^Unresolved tag: /.test(message);
+
+/** Turn `!name {...}` into `{$tag: name, ...}` in a copy of the document. */
+function normaliseTags(doc: Document.Parsed): Document.Parsed {
+  const copy = doc.clone() as Document.Parsed;
+  visit(copy, {
+    Map(_k, node) {
+      const tag = node.tag;
+      if (tag === undefined || !TAG_SUGAR.test(tag)) return;
+      if (node.has(TAG_KEY)) throw new Error(`a map with the tag ${tag} also has a ${TAG_KEY} key`);
+      node.items.unshift(copy.createPair(TAG_KEY, tag.slice(1)));
+      delete node.tag;
+    },
+  });
+  return copy;
+}
+
 function structural(doc: Document.Parsed): Issue[] {
   const issues: Issue[] = [];
   const line = (node: unknown): string => {
@@ -40,16 +63,25 @@ function structural(doc: Document.Parsed): Issue[] {
     if (range === undefined) return "";
     return ` (offset ${range[0]})`;
   };
+  const notOnMap = (node: unknown): void => {
+    const tag = (node as { tag?: string }).tag;
+    if (tag !== undefined && TAG_SUGAR.test(tag)) issues.push({ path: "", message: `the tag ${tag} is only allowed on a map${line(node)}` });
+  };
   visit(doc, {
     Alias(_k, node) {
       issues.push({ path: "", message: `aliases are not allowed in config files${line(node)}` });
     },
     Node(_k, node) {
       if (isAlias(node)) return;
+      if (!isMap(node)) notOnMap(node);
       const anchor = (node as { anchor?: string }).anchor;
       if (anchor !== undefined) issues.push({ path: "", message: `anchors are not allowed in config files (&${anchor})${line(node)}` });
     },
+    Seq(_k, node) {
+      notOnMap(node);
+    },
     Scalar(_k, node) {
+      notOnMap(node);
       if (typeof node.value === "number" && !Number.isFinite(node.value)) {
         issues.push({ path: "", message: `non-finite number${line(node)}` });
       }
@@ -58,7 +90,7 @@ function structural(doc: Document.Parsed): Issue[] {
     Pair(_k, pair) {
       if (!isScalar(pair.key) || typeof pair.key.value !== "string") {
         issues.push({ path: "", message: `map keys must be strings${line(pair.key)}` });
-      } else if (pair.key.value === TAG_KEY || pair.key.value === VALUE_KEY) {
+      } else if (pair.key.value === VALUE_KEY) {
         issues.push({ path: "", message: `the key ${pair.key.value} is reserved${line(pair.key)}` });
       }
     },
@@ -70,7 +102,7 @@ function structural(doc: Document.Parsed): Issue[] {
 export function loadConfigDocument(text: string): { doc: Document.Parsed; issues: Issue[] } {
   const doc = parseDocument(text, { version: "1.2", uniqueKeys: true, prettyErrors: false, strict: true });
   const issues: Issue[] = [];
-  for (const e of [...doc.errors, ...doc.warnings]) {
+  for (const e of [...doc.errors, ...doc.warnings.filter((w) => !unresolvedTag(w.message))]) {
     const pos = e.linePos?.[0];
     issues.push({ path: "", message: `${pos ? `line ${pos.line}, column ${pos.col}: ` : ""}${e.message.split("\n")[0]}` });
   }
@@ -114,7 +146,13 @@ export async function parseConfig<T>(text: string, schema: StandardSchemaV1<unkn
   if (issues.length > 0) return { ok: false, issues };
   const rootIssue = checkRoot(doc);
   if (rootIssue !== undefined) return { ok: false, issues: [rootIssue] };
-  return validate(schema, doc.toJS({ maxAliasCount: 0 }), opts.strict !== false);
+  let plain: unknown;
+  try {
+    plain = normaliseTags(doc).toJS({ maxAliasCount: 0 });
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : String(e));
+  }
+  return validate(schema, plain, opts.strict !== false);
 }
 
 /**

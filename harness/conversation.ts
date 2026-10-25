@@ -1,11 +1,10 @@
-import { editConfig, parseConfig, type ConfigResult } from "../src/config.ts";
+import { parseConfig, type ConfigResult } from "../src/config.ts";
 import {
   FrameError,
   Git,
   GitError,
   ParseError,
   decodeSpan,
-  hashValue,
   acquireLock,
   encodeEntry,
   endsCleanly,
@@ -23,7 +22,8 @@ import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-s
 import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
-import { FORMAT, createPipeline, type ChatEntry, type PipelineConfig } from "./entries.ts";
+import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
+import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type SetupChange } from "./setup.ts";
 import { createUlid } from "./ulid.ts";
 
 /** The transcript, relative to the repository root. */
@@ -37,6 +37,8 @@ const GITATTRIBUTES = `# Transcripts are byte-exact: never convert line endings.
 # Branches diverge by appending to the transcript; a merge keeps the receiving branch's version.
 ${CHAT_FILE} merge=ours
 `;
+
+export { ChangeNotAllowed };
 
 export class ConversationError extends Error {
   override name = "ConversationError";
@@ -71,12 +73,16 @@ export interface ConversationOptions {
    * Default: a file under the repository's git directory. `false` keeps it in memory only.
    */
   indexCache?: IndexCache | false;
+  /** What a setup change does beyond what the harness can tell itself (cache, cost, capabilities): the provider adapter's `classify`. */
+  classify?: Classifier;
 }
 
 /** Something that happened to a conversation. Events are delivered after the change is committed, in order. */
 export type ConversationEvent =
   /** An entry was committed (also on a new branch's first entry). `recovered` entries were found uncommitted by `open`. */
   | { type: "entry"; branch: string; entry: Appended; value: ChatEntry; recovered?: true }
+  /** An `agent_setup` entry was committed. For `reason: provider` this is the host's cue to tell the user ("the provider changed the model to X"). */
+  | { type: "setup_changed"; branch: string; entry: Appended; value: Extract<ChatEntry, { $tag: "agent_setup" }> }
   /** Pending workspace changes were committed without an entry. */
   | { type: "snapshot"; branch: string; commit: string }
   /** A fork or subagent branch was created. */
@@ -89,7 +95,7 @@ export type ConversationEvent =
 export interface CreateOptions extends ConversationOptions {
   /** Name of the first branch. Default "main". */
   branch?: string;
-  /** Initial `harness.yml` text. Validated, written, and recorded as the first `config_changed`. */
+  /** Initial `harness.yml` text. Validated and written with the header commit. */
   config?: string;
 }
 
@@ -108,23 +114,6 @@ export interface InterruptOptions {
   /** Blocks received before the interruption; may be incomplete (a tool call with partial arguments). */
   partial?: Extract<NewEntry, { $tag: "interrupted" }>["partial"];
   error?: string;
-}
-
-export interface ConfigStatus {
-  /** Hash of the validated `harness.yml`, or undefined if the file is missing or invalid. */
-  current: string | undefined;
-  /** The last hash recorded by a `config_changed` entry on this branch (the hash of an empty config if none). */
-  recorded: string;
-  inSync: boolean;
-  /** Why the file could not be read, if it could not. */
-  issues: { path: string; message: string }[];
-}
-
-export interface ConfigChange {
-  /** False if the configuration's data did not change (a comment-only edit changes the file but records nothing). */
-  changed: boolean;
-  hash: string;
-  entry: Appended | undefined;
 }
 
 export interface Appended {
@@ -299,8 +288,8 @@ export function describeEntry(e: ChatEntry): string {
       return `tool_result: ${oneLine(e.call_id, 40)}${e.is_error ? " (error)" : ""}`;
     case "compaction":
       return "compaction";
-    case "config_changed":
-      return "config changed";
+    case "agent_setup":
+      return `agent_setup: ${e.reason}${e.model === undefined ? "" : ` ${oneLine(e.model.resolved ?? e.model.id, 40)}`}`;
     case "branch_start":
       return `branch_start: ${e.kind}`;
     case "subagent_result":
@@ -415,6 +404,7 @@ export class Conversation {
 
   #emitEntry(branch: string, entry: Appended, value: ChatEntry, recovered = false): void {
     this.#emit({ type: "entry", branch, entry, value, ...(recovered ? { recovered: true as const } : {}) });
+    if (value.$tag === "agent_setup") this.#emit({ type: "setup_changed", branch, entry, value });
   }
 
   /** Resolves when every event emitted so far has been delivered to `onEvent`. */
@@ -432,10 +422,14 @@ export class Conversation {
     await host.fs.writeAtomic(host.path.join(dir, ".gitattributes"), enc.encode(GITATTRIBUTES));
     const branch = opts.branch ?? "main";
     const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [], cleaned: [] });
+    if (opts.config !== undefined) {
+      const parsed = await parseConfig(opts.config, harnessConfig);
+      if (!parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
+      await host.fs.writeAtomic(host.path.join(dir, CONFIG_FILE), enc.encode(opts.config));
+    }
     await convo.#transaction(async () => {
       await convo.#appendLocked({ $tag: "header", ...FORMAT });
     });
-    if (opts.config !== undefined) await convo.setConfigText(opts.config);
     return convo;
   }
 
@@ -781,81 +775,103 @@ export class Conversation {
 
   // ---- configuration ---------------------------------------------------------------------------------------
 
-  /** The hash a branch with no configuration records as its starting point. */
-  static async emptyConfigHash(): Promise<string> {
-    return hashValue(new Map());
-  }
-
-  /** The last configuration hash this branch's transcript recorded. */
-  async #recordedConfigHash(): Promise<string> {
-    let hash = await Conversation.emptyConfigHash();
-    for (const e of await this.readEntries()) if (e.ok && e.value.$tag === "config_changed") hash = e.value.new;
-    return hash;
-  }
-
-  /** Read and validate `harness.yml`. Undefined if there is no such file. */
+  /**
+   * Read and validate `harness.yml`, the outside-world configuration (providers, limits, host wiring). It is
+   * an ordinary file in the repository: edits are committed with the workspace and their history is git's.
+   * Undefined if there is no such file.
+   */
   async readConfig(): Promise<ConfigResult<HarnessConfig> | undefined> {
     const path = this.host.path.join(this.dir, CONFIG_FILE);
     if ((await this.host.fs.stat(path)) === undefined) return undefined;
     return parseConfig(dec.decode(await this.host.fs.read(path)), harnessConfig);
   }
 
-  /** Whether the file on disk is the configuration the transcript last recorded. */
-  async configStatus(): Promise<ConfigStatus> {
-    const [recorded, current] = [await this.#recordedConfigHash(), await this.readConfig()];
-    const hash = current?.ok === true ? current.hash : undefined;
-    const empty = await Conversation.emptyConfigHash();
-    return {
-      current: hash,
-      recorded,
-      inSync: current === undefined ? recorded === empty : hash === recorded,
-      issues: current?.ok === false ? current.issues : [],
-    };
+  // ---- agent setup -----------------------------------------------------------------------------------------
+
+  async #foldedSetup(): Promise<{ setup: AgentSetup; entries: ChatEntry[] }> {
+    const entries = (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+    return { setup: foldSetup(entries), entries };
+  }
+
+  /** This agent's setup: the fold of its `agent_setup` entries (a fork's includes what it inherited). */
+  async setup(): Promise<AgentSetup> {
+    return (await this.#foldedSetup()).setup;
+  }
+
+  #classify(from: AgentSetup, to: AgentSetup, midLoop: boolean): Change[] {
+    if (from.model === undefined) return []; // an agent's first setup changes nothing
+    const ctx = { midLoop };
+    return [...coreClassify(from, to, ctx), ...(this.#opts.classify?.(from, to, ctx) ?? [])];
   }
 
   /**
-   * Replace `harness.yml` with `text` (validated against the schema, comments kept as written) and record the
-   * change. A `config_changed` entry holds the previous and new hashes of the validated data, so the
-   * transcript says which configuration each part of the conversation ran under. If the data is unchanged
-   * (only comments or layout differ) the file is updated and nothing is recorded; if the file was edited by
-   * hand since the last record, calling this with its own text records that edit.
+   * Change the agent's setup: model and settings, pinned tools, instructions, skills, MCP servers, price
+   * table. The change is classified (what the harness can tell, plus the provider adapter's `classify`), and
+   * any kind of change not named in `allow` is refused with `ChangeNotAllowed`, listing what it would do and
+   * the flags that would permit it; a host asks the user and retries. The first setup of an agent (one with
+   * no model yet) changes nothing and needs no flags. Resolves to the entry, or undefined if nothing changes.
    */
-  setConfigText(text: string): Promise<ConfigChange> {
-    return this.#transaction(() => this.#applyConfig(text));
-  }
-
-  /** Edit `harness.yml` through its comment-preserving document, then record the change as `setConfigText` does. */
-  changeConfig(edit: Parameters<typeof editConfig>[2]): Promise<ConfigChange> {
+  setupChange(change: SetupChange, opts: { allow?: readonly ChangeKind[]; reason?: "user" | "fork" | "subagent"; acknowledges?: readonly string[] } = {}): Promise<Appended | undefined> {
     return this.#transaction(async () => {
-      const path = this.host.path.join(this.dir, CONFIG_FILE);
-      const exists = (await this.host.fs.stat(path)) !== undefined;
-      const before = exists ? dec.decode(await this.host.fs.read(path)) : "";
-      const r = await editConfig(before, harnessConfig, edit);
-      if (!r.ok) throw new ConversationError(`invalid configuration: ${r.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
-      return this.#applyConfig(r.text);
+      const { setup, entries } = await this.#foldedSetup();
+      const delta = minimizeChange(setup, change);
+      const acknowledges = (opts.acknowledges ?? []).filter((id) => setup.unacknowledged.some((u) => u.id === id));
+      for (const id of opts.acknowledges ?? []) if (!acknowledges.includes(id)) throw new ConversationError(`${id} is not an unacknowledged provider change on this branch`);
+      if (Object.keys(delta).length === 0 && acknowledges.length === 0) return undefined;
+      const next = applyChange(setup, delta);
+      const changes = sameSetup(setup, next) ? [] : this.#classify(setup, next, inToolLoop(entries));
+      const allowed = new Set(opts.allow ?? []);
+      const refused = changes.filter((c) => !allowed.has(c.kind));
+      if (refused.length > 0) throw new ChangeNotAllowed(refused);
+      const used = [...new Set(changes.map((c) => c.kind))];
+      return this.#appendLocked({
+        $tag: "agent_setup",
+        reason: opts.reason ?? "user",
+        ...delta,
+        ...(used.length > 0 ? { allow: used } : {}),
+        ...(acknowledges.length > 0 ? { acknowledges } : {}),
+      });
     });
   }
 
-  async #applyConfig(text: string): Promise<ConfigChange> {
-    const parsed = await parseConfig(text, harnessConfig);
-    if (!parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
-    const path = this.host.path.join(this.dir, CONFIG_FILE);
-    const previous = (await this.host.fs.stat(path)) === undefined ? undefined : await this.host.fs.read(path);
-    const recorded = await this.#recordedConfigHash();
-    const bytes = enc.encode(text);
-    const same = previous !== undefined && previous.length === bytes.length && previous.every((b, i) => b === bytes[i]);
-    if (!same) await this.host.fs.writeAtomic(path, bytes);
-    if (parsed.hash === recorded) return { changed: false, hash: parsed.hash, entry: undefined };
-    try {
-      const entry = await this.#appendLocked({ $tag: "config_changed", old: recorded, new: parsed.hash });
-      return { changed: true, hash: parsed.hash, entry };
-    } catch (e) {
-      if (!same) {
-        if (previous === undefined) await this.host.fs.remove(path).catch(() => false);
-        else await this.host.fs.writeAtomic(path, previous).catch(() => undefined);
+  /**
+   * Whether the next request may go out. Provider-observed changes (`reason: provider`) are recorded as facts
+   * when they happen; until a later entry acknowledges them, a request is refused with `ChangeNotAllowed`
+   * unless the host's standing allowance covers every kind the change was classified as. Resolves to the
+   * setup the request should be built from.
+   */
+  async checkRequest(standing: readonly ChangeKind[] = []): Promise<AgentSetup> {
+    const setup = await this.setup();
+    const allowed = new Set(standing);
+    const refused = setup.unacknowledged.flatMap((u) => u.changes.filter((k) => !allowed.has(k)).map((kind) => ({ kind, message: `the provider changed the agent (entry ${u.id}) and nobody has acknowledged it` })));
+    if (refused.length > 0) throw new ChangeNotAllowed(refused, "request not allowed");
+    return setup;
+  }
+
+  /**
+   * Append a response, together with the `agent_setup` entry that records a model the provider reported
+   * differently from the setup, in one atomic append so the model behind every block is known from the fold.
+   * `observed.model` is the model that served the request. The assistant entry records it as its `model`.
+   * First response under a setup: an alias resolved to a dated model is written as `reason: resolved`
+   * (expected, never gated); a later mismatch is `reason: provider`, classified, and gates the next request
+   * (see `checkRequest`). It is recorded either way: the response was already paid for.
+   */
+  appendResponse(response: NewEntry & { $tag: "assistant" }, observed: { model?: string } = {}): Promise<Appended[]> {
+    return this.#transaction(async () => {
+      const { setup, entries } = await this.#foldedSetup();
+      const served = observed.model ?? response.model;
+      const out: NewEntry[] = [];
+      const m = setup.model;
+      if (m !== undefined && served !== servedModelId(m)) {
+        const reason = m.resolved === undefined ? "resolved" : "provider";
+        const next = { ...m, resolved: served };
+        const to = applyChange(setup, { model: next });
+        const changes = reason === "provider" ? [...new Set(this.#classify(setup, to, inToolLoop(entries)).map((c) => c.kind))] : [];
+        out.push({ $tag: "agent_setup", reason, model: next, ...(changes.length > 0 ? { changes } : {}) });
       }
-      throw e;
-    }
+      out.push({ ...response, model: served });
+      return this.#appendManyLocked(out);
+    });
   }
 
   // ---- branches --------------------------------------------------------------------------------------------

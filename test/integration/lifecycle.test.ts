@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { nodeHost } from "../../hosts/node.ts";
 import { contextEntries } from "../../harness/context.ts";
-import { Conversation, type ConversationEvent, type NewEntry } from "../../harness/conversation.ts";
+import { ChangeNotAllowed, Conversation, type ConversationEvent, type NewEntry } from "../../harness/conversation.ts";
 import { readCommitGraph, toMermaid } from "../../harness/graph.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
@@ -21,7 +21,7 @@ import { tempDir } from "../support/tmp.ts";
  */
 
 const COMMITTER = { name: "chattree", email: "chattree@localhost.invalid" };
-const CONFIG = "# which model drives this conversation\nversion: 1\nmodel:\n  provider: anthropic\n  model: claude-sonnet-5-5\ntools:\n  - write_file\n  - run\n";
+const CONFIG = "# outside-world configuration; the agent itself is set up in the transcript\nproviders:\n  main:\n    $tag: anthropic\n    api_key_env: ANTHROPIC_API_KEY\n";
 
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
 const say = (text: string, ...calls: [id: string, name: string, args: Record<string, unknown>][]): NewEntry => ({
@@ -51,6 +51,12 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   // ---- 1. a session of work -----------------------------------------------------------------------------------
   let main = await Conversation.create(host, dir, { ...opts, config: CONFIG });
   await put(dir, { "README.md": "# wc\nCounts words.\n", "notes.md": "plan:\n- parse args\n- count\n", "src/wc.ts": "export const wc = (s: string) => s.split(/\\s+/).length;\n" });
+  // The agent's own state lives in the transcript: model, settings, pinned tools.
+  const H = "ab".repeat(32);
+  await main.setupChange({
+    model: { provider: "anthropic", id: "claude-sonnet-5-5", settings: { max_output_tokens: 8000 } },
+    tools: { set: { write_file: { hash: H, store: "blob" } } },
+  });
   await main.append(user("Build a command-line word counter."));
   const plan = await main.append(say("I'll write the counter and its entry point.", ["t1", "write_file", { path: "src/cli.ts" }]));
   await put(dir, { "src/cli.ts": "import { wc } from './wc.ts';\nconsole.log(wc(process.argv[2] ?? ''));\n" });
@@ -74,8 +80,10 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   assert.ok(!seen.some((e) => "id" in e && e.id === imported[1]!.id), "imported turns are summarised away");
 
   // ---- 3. config change, interruption ---------------------------------------------------------------------------
-  await main.changeConfig((doc) => doc.setIn(["model", "model"], "claude-opus-5-5"));
-  assert.match((await read(dir, "harness.yml")) ?? "", /# which model drives/);
+  await assert.rejects(main.setupChange({ model: { provider: "anthropic", id: "claude-opus-5-5" } }), (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("model_changed"));
+  await main.setupChange({ model: { provider: "anthropic", id: "claude-opus-5-5" } }, { allow: ["model_changed"] });
+  assert.equal((await main.setup()).model?.id, "claude-opus-5-5");
+  assert.match((await read(dir, "harness.yml")) ?? "", /outside-world configuration/);
   await main.append(user("Now add a --lines flag."));
   await main.interrupt({ by: "user", partial: [{ $tag: "text", text: "Sure, I'll start by" }] });
   await main.append(user("Sorry, hit enter early. Add the --lines flag please."));
@@ -192,7 +200,7 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   assert.equal((mermaid.match(/^ {2}merge /gm) ?? []).length, 3);
   assert.equal((mermaid.match(/^ {2}branch /gm) ?? []).length, 4);
   for (const name of ["fork/rethink", "fork/abandoned", "sub/tests", "sub/docs"]) assert.ok(mermaid.includes(`"${name}"`));
-  assert.ok(mermaid.includes('tag: "blob gc"') && mermaid.includes('tag: "recovered"') && mermaid.includes('tag: "compaction"') && mermaid.includes('tag: "config"') && mermaid.includes('tag: "interrupted"'));
+  assert.ok(mermaid.includes('tag: "blob gc"') && mermaid.includes('tag: "recovered"') && mermaid.includes('tag: "compaction"') && mermaid.includes('tag: "setup"') && mermaid.includes('tag: "interrupted"'));
 
   const out = process.env["CHATTREE_GRAPH_OUT"];
   if (out !== undefined) {

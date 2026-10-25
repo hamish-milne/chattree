@@ -64,7 +64,17 @@ function samples(): Record<string, Record<string, unknown>> {
     tool_result: { $tag: "tool_result", id: nextId(), call_id: "toolu_01A", is_error: false, content: "test result: ok. 3 passed\n", truncated: true },
     "tool_result with a blob": { $tag: "tool_result", id: nextId(), call_id: "toolu_01B", is_error: true, content: blob },
     compaction: { $tag: "compaction", id: nextId(), replaces: { from: nextId(), to: nextId() }, summary: "The user asked for a parser fix.\nWe found an off-by-one in tokenize().", model: "claude-sonnet-5-5" },
-    config_changed: { $tag: "config_changed", id: nextId(), old: HASH_A, new: HASH_B },
+    agent_setup: {
+      $tag: "agent_setup",
+      id: nextId(),
+      reason: "user",
+      model: { provider: "anthropic", id: "claude-sonnet-5-5", settings: { max_output_tokens: 8000, effort: "medium" } },
+      tools: { set: { write_file: { hash: HASH_A, store: "blob" }, run: { hash: HASH_B, store: "external", ref: "tools/run" } }, remove: ["old_tool"] },
+      instructions: { hash: HASH_A, store: "blob" },
+      pricing: { table: HASH_B },
+      allow: ["model_changed", "cache_break"],
+    },
+    "agent_setup (provider)": { $tag: "agent_setup", id: nextId(), reason: "provider", model: { provider: "openai", id: "gpt-5.4", resolved: "gpt-5.4-2026-03-05" }, changes: ["resolved_model_changed"], acknowledges: [nextId()] },
     "branch_start (subagent)": { $tag: "branch_start", id: nextId(), kind: "subagent", from: { branch: "main", commit: "9fceb02" }, context: "fresh", brief: "Find every caller of tokenize().", call_id: "toolu_09Z" },
     "branch_start (fork)": { $tag: "branch_start", id: nextId(), kind: "fork", from: { branch: "main", commit: "9fceb02" }, context: "inherit" },
     subagent_result: {
@@ -187,8 +197,8 @@ describe("on-disk layout", () => {
   });
 
   test("the entry type is visible to plain text tools", async () => {
-    const e = await pipeline.encode(samples()["config_changed"] as Record<string, unknown>);
-    assert.match(emitEntry(e), /^- !config_changed\n/);
+    const e = await pipeline.encode(samples()["agent_setup"] as Record<string, unknown>);
+    assert.match(emitEntry(e), /^- !agent_setup\n/);
   });
 });
 
@@ -310,7 +320,7 @@ describe("transforms in the app pipeline", () => {
 describe("a whole file", () => {
   const conversation = () => {
     const s = samples();
-    return [s["header"], s["user"], s["assistant"], s["tool_result"], s["config_changed"], s["compaction"], s["branch_start (subagent)"], s["subagent_result"], s["fork_merge"], s["interrupted"]] as Record<string, unknown>[];
+    return [s["header"], s["user"], s["assistant"], s["tool_result"], s["agent_setup"], s["compaction"], s["branch_start (subagent)"], s["subagent_result"], s["fork_merge"], s["interrupted"]] as Record<string, unknown>[];
   };
 
   test("appended with appendEntry, framed, tagged and decoded", async () => {

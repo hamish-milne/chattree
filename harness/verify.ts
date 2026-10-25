@@ -33,7 +33,7 @@ export interface VerifyOptions {
  *   exactly one commit
  * - merge commits for `subagent_result` / `fork_merge` have the entry's `tip` as second parent, and a fork or
  *   subagent start sits directly on its recorded fork point
- * - compactions can be applied, the `config_changed` hashes chain, and every blob an entry refers to exists
+ * - compactions can be applied, agent setups are consistent, and every blob an entry refers to exists
  * - with `deep`: each historical `chat.yml` is a byte prefix of the tip's, and each blob has the bytes its hash
  *   and size claim
  */
@@ -172,11 +172,26 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
     const upto = entries.slice(0, i + 1).flatMap((x) => (x.value === undefined ? [] : [x.value]));
     if (!contextEntries(upto).includes(e.value)) add("warning", "compaction-ignored", "this compaction cannot be applied (unknown ids, a range not entirely before it, or a range in another context) and has no effect", { entry: e.id ?? `#${i + 1}` });
   }
-  let chain = await Conversation.emptyConfigHash();
+  // ---- agent setups ----------------------------------------------------------------------------------------------
+  const providerEntries = new Set<string>();
+  let flowFirstSetup = true;
   for (const [i, e] of entries.entries()) {
-    if (e.value?.$tag !== "config_changed") continue;
-    if (e.value.old !== chain) add("warning", "config-chain-broken", `old hash ${e.value.old.slice(0, 12)} is not the previous recorded hash ${chain.slice(0, 12)} (the file was changed outside the harness, or by a merge)`, { entry: e.id ?? `#${i + 1}` });
-    chain = e.value.new;
+    const label = e.id ?? `#${i + 1}`;
+    if (e.value?.$tag === "branch_start" && e.value.context === "fresh") {
+      flowFirstSetup = true;
+      providerEntries.clear();
+    }
+    if (e.value?.$tag !== "agent_setup") continue;
+    const v = e.value;
+    if (flowFirstSetup && v.model === undefined) add("warning", "setup-incomplete", "the first agent_setup of an agent flow must name the model (a subagent starts from nothing)", { entry: label });
+    flowFirstSetup = false;
+    for (const id of v.acknowledges ?? []) if (!providerEntries.has(id)) add("warning", "acknowledges-unknown", `acknowledges ${id}, which is not an earlier provider-observed setup change on this branch`, { entry: label });
+    if (v.reason === "provider" || v.reason === "resolved") {
+      const next = entries[i + 1]?.value;
+      if (next?.$tag !== "assistant") add("error", "provider-setup-orphan", `a ${v.reason} setup change must be followed by the response it explains`, { entry: label });
+      else if (v.model === undefined || next.model !== (v.model.resolved ?? v.model.id)) add("warning", "provider-setup-mismatch", "the response's model is not the one this setup change recorded", { entry: label });
+    }
+    if (v.reason === "provider") providerEntries.add(v.id);
   }
 
   // ---- blobs ---------------------------------------------------------------------------------------------------

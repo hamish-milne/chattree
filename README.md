@@ -36,7 +36,7 @@ developed on 22.23 because that is what the sandbox had.
 | `src/git/` | `Git`: a typed wrapper over the git command line with fixed safety settings (see docs/git-integration.md) |
 | `src/lock.ts` | Lock files with stale takeover, over `Fs.createExclusive` |
 | `hosts/node.ts` | The local-machine `Host`; the only code that imports Node |
-| `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork, subagents, fork merge, compact, interrupt, config changes), the context view (`contextEntries`), `appendMany`, `onEvent` events, the entry-index cache, `gcBlobs`, `pruneWorktrees`, `close`, `verifyHistory`, `readCommitGraph`/`toMermaid` (see `docs/lifecycle-graph.md`), and the file-backed blob store |
+| `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork, subagents, fork merge, compact, interrupt, `agent_setup` changes and provider-observed model changes), the context view (`contextEntries`), `appendMany`, `onEvent` events, the entry-index cache, `gcBlobs`, `pruneWorktrees`, `close`, `verifyHistory`, `readCommitGraph`/`toMermaid` (see `docs/lifecycle-graph.md`), and the file-backed blob store |
 
 `src/` uses only web-standard globals (`TextEncoder`, `TextDecoder`, `crypto.subtle`), so it should run
 unchanged on Node, Deno, Bun and browsers. Its tsconfig has `types: []` to enforce that.

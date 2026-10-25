@@ -5,16 +5,15 @@ import { editConfig, parseConfig } from "../../src/config.ts";
 import { schema as miniSchema, obj, str, num, opt, arr } from "../support/mini.ts";
 
 const BASE = `# Harness config
-version: 1
-model:
-  provider: anthropic   # primary
-  model: claude-sonnet-5-5
-tools: [read_file, run_command]
-skills:
-  - pdf
-mcp_servers:
-  search:
-    url: https://search.example.com/mcp
+providers:
+  main:
+    $tag: anthropic   # primary
+    api_key_env: ANTHROPIC_API_KEY
+  local: !openai-compatible
+    base_url: http://localhost:8080/v1
+limits:
+  max_request_usd: 1.5
+  warn_at: 0.8
 `;
 
 const ok = async (text: string) => {
@@ -31,18 +30,32 @@ const bad = async (text: string) => {
 describe("reading", () => {
   test("accepts comments, flow style, plain scalars; applies schema defaults", async () => {
     const r = await ok(BASE);
-    assert.deepEqual(r.value.tools, ["read_file", "run_command"]);
-    assert.equal(r.value.model.provider, "anthropic");
-    const minimal = await ok("version: 1\nmodel: {provider: openai, model: gpt-5}\n");
-    assert.deepEqual(minimal.value.tools, []);
-    assert.deepEqual(minimal.value.mcp_servers, {});
+    assert.equal(r.value.providers["main"]?.$tag, "anthropic");
+    assert.equal(r.value.limits.max_request_usd, 1.5);
+    const minimal = await ok("providers: {a: {$tag: openai}}\n");
+    assert.deepEqual(minimal.value.limits, {});
+    assert.deepEqual((await ok("limits: {warn_at: 0.5}\n")).value.providers, {});
+  });
+
+  test("`!name` on a map is the same as a $tag key, and the rest of the map passes through", async () => {
+    const r = await ok(BASE);
+    assert.equal(r.value.providers["local"]?.$tag, "openai-compatible");
+    assert.equal(r.value.providers["local"]?.["base_url"], "http://localhost:8080/v1");
+    const written = await ok("providers:\n  local:\n    $tag: openai-compatible\n    base_url: http://localhost:8080/v1\nlimits: {max_request_usd: 1.5, warn_at: 0.8}\nproviders2: ignored\n".replace("providers2: ignored\n", "").replace("providers:\n  local", "providers:\n  main:\n    $tag: anthropic\n    api_key_env: ANTHROPIC_API_KEY\n  local"));
+    assert.equal(written.hash, r.hash);
+  });
+
+  test("a tag on anything but a map is refused", async () => {
+    assert.ok((await bad("providers: {a: {$tag: !x openai}}\n")).length > 0);
+    assert.ok((await bad("providers: !x [a]\n")).length > 0);
+    assert.ok((await bad("providers: {a: !x {$tag: y}}\n")).length > 0, "a tag and a $tag key together are ambiguous");
   });
 
   test("validation issues carry paths", async () => {
-    const issues = await bad(BASE.replace("provider: anthropic", "provider: gemini"));
-    assert.ok(issues.some((i) => i.path === "model.provider"), JSON.stringify(issues));
-    const nested = await bad(BASE.replace("https://search.example.com/mcp", "not a url"));
-    assert.ok(nested.length > 0);
+    const issues = await bad(BASE.replace("max_request_usd: 1.5", "max_request_usd: -1"));
+    assert.ok(issues.some((i) => i.path === "limits.max_request_usd"), JSON.stringify(issues));
+    const untagged = await bad("providers: {a: {api_key_env: X}}\n");
+    assert.ok(untagged.some((i) => i.path.startsWith("providers.a")), JSON.stringify(untagged));
   });
 
   test("unknown fields are rejected by default and allowed when not strict", async () => {
@@ -53,17 +66,16 @@ describe("reading", () => {
   });
 
   const rejected: [string, string][] = [
-    ["aliases", "version: 1\nmodel: &m {provider: openai, model: x}\nmcp_servers: {}\nother: *m\n"],
-    ["anchors", "version: 1\nmodel: &m {provider: openai, model: x}\n"],
-    ["custom tags", "version: 1\nmodel: !custom {provider: openai, model: x}\n"],
-    ["duplicate keys", "version: 1\nversion: 1\nmodel: {provider: openai, model: x}\n"],
-    ["multiple documents", "version: 1\nmodel: {provider: openai, model: x}\n---\nversion: 2\n"],
-    ["syntax errors", "version: 1\nmodel: {provider: openai\n"],
+    ["aliases", "providers: {a: &m {$tag: openai}}\nlimits: {}\nother: *m\n"],
+    ["anchors", "providers: {a: &m {$tag: openai}}\n"],
+    ["duplicate keys", "providers: {}\nproviders: {}\n"],
+    ["multiple documents", "providers: {}\n---\nlimits: {}\n"],
+    ["syntax errors", "providers: {a: {$tag: openai\n"],
     ["a non-map root", "- a\n- b\n"],
     ["an empty file", ""],
-    ["non-string keys", "1: a\nversion: 1\nmodel: {provider: openai, model: x}\n"],
-    ["the reserved $tag key", "$tag: x\nversion: 1\nmodel: {provider: openai, model: x}\n"],
-    ["NUL bytes", "version: 1\u0000\n"],
+    ["non-string keys", "1: a\nproviders: {}\n"],
+    ["the reserved $value key", "providers: {a: {$tag: openai, $value: x}}\n"],
+    ["NUL bytes", "providers: {}\u0000\n"],
   ];
   for (const [name, text] of rejected) {
     test(`rejects ${name}`, async () => {
@@ -85,31 +97,27 @@ describe("reading", () => {
 });
 
 describe("hash", () => {
-  test("ignores comments, spacing, quoting, style and key order", async () => {
+  test("ignores comments, spacing, quoting, style, key order and tag sugar", async () => {
     const a = await ok(BASE);
-    const b = await ok(`version: 1
-skills: [pdf]
-mcp_servers: {search: {url: "https://search.example.com/mcp"}}
-tools:
-- read_file
-- "run_command"
-model: {model: claude-sonnet-5-5, provider: anthropic}
+    const b = await ok(`limits: {warn_at: 0.8, max_request_usd: 1.5}
+providers:
+  local: {base_url: "http://localhost:8080/v1", $tag: "openai-compatible"}
+  main: {api_key_env: ANTHROPIC_API_KEY, $tag: anthropic}
 `);
     assert.equal(a.hash, b.hash);
     assert.match(a.hash, /^[0-9a-f]{64}$/);
   });
 
   test("an explicit value equal to the default hashes the same as the omitted one", async () => {
-    const a = await ok("version: 1\nmodel: {provider: openai, model: x}\n");
-    const b = await ok("version: 1\nmodel: {provider: openai, model: x}\ntools: []\nskills: []\n");
+    const a = await ok("providers: {a: {$tag: openai}}\n");
+    const b = await ok("providers: {a: {$tag: openai}}\nlimits: {}\n");
     assert.equal(a.hash, b.hash);
   });
 
-  test("values and list order change it", async () => {
+  test("values change it", async () => {
     const a = await ok(BASE);
-    assert.notEqual(a.hash, (await ok(BASE.replace("claude-sonnet-5-5", "claude-opus-5-5"))).hash);
-    assert.notEqual(a.hash, (await ok(BASE.replace("[read_file, run_command]", "[run_command, read_file]"))).hash);
-    assert.notEqual(a.hash, (await ok(BASE.replace("[read_file, run_command]", "[read_file]"))).hash);
+    assert.notEqual(a.hash, (await ok(BASE.replace("ANTHROPIC_API_KEY", "OTHER_KEY"))).hash);
+    assert.notEqual(a.hash, (await ok(BASE.replace("!openai-compatible", "!openai"))).hash);
   });
 
   test("a string and a number never collide", async () => {
@@ -121,32 +129,21 @@ model: {model: claude-sonnet-5-5, provider: anthropic}
 });
 
 describe("editing", () => {
-  test("keeps comments and layout, changes only what was asked", async () => {
+  test("keeps comments, layout and tag sugar, changes only what was asked", async () => {
     const r = await editConfig(BASE, harnessConfig, (doc) => {
-      doc.setIn(["model", "model"], "claude-opus-5-5");
+      doc.setIn(["limits", "max_request_usd"], 3);
     });
     assert.ok(r.ok, r.ok ? "" : JSON.stringify(r.issues));
-    // Comments and structure survive; the library may normalise spacing before a trailing comment.
-    assert.equal(r.text.replace(/ +#/, "   #"), BASE.replace("claude-sonnet-5-5", "claude-opus-5-5"));
-    assert.equal(r.value.model.model, "claude-opus-5-5");
+    assert.equal(r.text.replace(/ +#/, "   #"), BASE.replace("max_request_usd: 1.5", "max_request_usd: 3"));
+    assert.equal(r.value.limits.max_request_usd, 3);
     assert.equal(r.hash, (await ok(r.text)).hash);
-  });
-
-  test("adding to a list keeps the comment on the line before", async () => {
-    const r = await editConfig(BASE, harnessConfig, (doc) => {
-      doc.addIn(["skills"], "xlsx");
-    });
-    assert.ok(r.ok);
-    assert.match(r.text, /^# Harness config\n/);
-    assert.match(r.text, /provider: anthropic\s+# primary/);
-    assert.deepEqual(r.value.skills, ["pdf", "xlsx"]);
   });
 
   test("an edit that makes the file invalid is refused", async () => {
     const r = await editConfig(BASE, harnessConfig, (doc) => {
-      doc.setIn(["model", "provider"], "gemini");
+      doc.setIn(["limits", "warn_at"], 5);
     });
-    assert.ok(!r.ok && r.issues.some((i) => i.path === "model.provider"));
+    assert.ok(!r.ok && r.issues.some((i) => i.path === "limits.warn_at"));
   });
 
   test("a file that is already broken cannot be edited", async () => {
