@@ -120,7 +120,9 @@ describe("fs", () => {
     const b = path.join(dir, "b");
     assert.equal(await fs.stat(a), undefined);
     await fs.append(a, enc.encode("xyz"));
-    assert.deepEqual(await fs.stat(a), { size: 3, isFile: true, isDirectory: false });
+    const st = await fs.stat(a);
+    assert.deepEqual({ ...st, mtimeMs: undefined }, { size: 3, isFile: true, isDirectory: false, mtimeMs: undefined });
+    assert.ok(typeof st?.mtimeMs === "number" && Math.abs(Date.now() - st.mtimeMs) < 60_000, "mtimeMs is the modification time");
     await fs.rename(a, b);
     assert.equal(await fs.stat(a), undefined);
     await fs.mkdir(path.join(dir, "d", "e"));

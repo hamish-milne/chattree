@@ -148,7 +148,7 @@ const nodeFs: Fs = {
   async stat(path): Promise<FileStat | undefined> {
     try {
       const s = await fsp.stat(path);
-      return { size: s.size, isFile: s.isFile(), isDirectory: s.isDirectory() };
+      return { size: s.size, isFile: s.isFile(), isDirectory: s.isDirectory(), mtimeMs: s.mtimeMs };
     } catch (e) {
       if (isCode(e, "ENOENT") || isCode(e, "ENOTDIR")) return undefined;
       throw e;

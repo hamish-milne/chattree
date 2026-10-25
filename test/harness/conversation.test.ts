@@ -265,7 +265,7 @@ describe("open and recovery", () => {
     await convo.append(user("x"));
     const head = await convo.git.head();
     const reopened = await Conversation.open(host, dir);
-    assert.deepEqual(reopened.recovery, { truncatedBytes: 0, recovered: [] });
+    assert.deepEqual(reopened.recovery, { truncatedBytes: 0, recovered: [], cleaned: [] });
     assert.equal(reopened.size, convo.size);
     assert.equal(await reopened.git.head(), head);
   });

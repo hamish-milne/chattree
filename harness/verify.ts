@@ -1,5 +1,5 @@
 import { FrameError, ParseError, decodeSpan, scan, sha256Hex, type CommitInfo } from "../src/index.ts";
-import { HostBlobStore } from "./blob-store.ts";
+import { HostBlobStore, blobRefs } from "./blob-store.ts";
 import { contextEntries } from "./context.ts";
 import { CHAT_FILE, Conversation } from "./conversation.ts";
 import { FORMAT, type ChatEntry } from "./entries.ts";
@@ -181,15 +181,9 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
 
   // ---- blobs ---------------------------------------------------------------------------------------------------
   const wanted = new Map<string, { bytes: number; entry: string }>();
-  const walk = (x: unknown, entry: string): void => {
-    if (Array.isArray(x)) for (const y of x) walk(y, entry);
-    else if (typeof x === "object" && x !== null) {
-      const o = x as Record<string, unknown>;
-      if (o["$tag"] === "blob" && typeof o["sha256"] === "string" && typeof o["bytes"] === "number") wanted.set(o["sha256"], { bytes: o["bytes"], entry });
-      else for (const y of Object.values(o)) walk(y, entry);
-    }
-  };
-  for (const [i, e] of entries.entries()) if (e.value !== undefined) walk(e.value, e.id ?? `#${i + 1}`);
+  for (const [i, e] of entries.entries()) {
+    if (e.value !== undefined) for (const [hash, bytes] of blobRefs(e.value)) wanted.set(hash, { bytes, entry: e.id ?? `#${i + 1}` });
+  }
   const hashes = [...wanted.keys()];
   const specs = hashes.map((h) => `${tipCommit}:${HostBlobStore.relativePath(h)}`);
   const blobInfo = await git.objectInfo(specs);

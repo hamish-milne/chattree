@@ -43,6 +43,8 @@ export interface FileStat {
   size: number;
   isFile: boolean;
   isDirectory: boolean;
+  /** Last modification time, if the host can tell. Used only to leave recent files alone when tidying up. */
+  mtimeMs?: number;
 }
 
 export interface Fs {

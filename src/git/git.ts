@@ -83,6 +83,8 @@ export interface CommitOptions {
   /** Fixes both author and committer dates (ISO 8601). For tests and reproducible history. */
   date?: string;
   allowEmpty?: boolean;
+  /** Commit only these paths (as they are in the worktree), leaving anything else staged out of the commit. */
+  paths?: readonly string[];
 }
 
 export interface ImportCommit extends Omit<CommitOptions, "allowEmpty" | "author" | "committer"> {
@@ -138,6 +140,7 @@ function assertSafeArg(what: string, value: string): void {
  * no pager or editor, no hooks, no signing, no auto-gc, no line-ending conversion, C locale.
  */
 export class Git {
+  readonly #sessions = new Set<CatFileSession>();
   readonly host: Host;
   readonly cwd: string;
   readonly version: GitVersion;
@@ -379,6 +382,7 @@ export class Git {
     // The summary line git prints names the new commit; with abbreviation off it is the full hash, which saves a process.
     const args = ["-c", "core.abbrev=no", "commit", "--no-verify", "--no-gpg-sign", "--cleanup=verbatim", "-F", "-"];
     if (opts.allowEmpty === true) args.push("--allow-empty");
+    if (opts.paths !== undefined) args.push("--only", "--", ...opts.paths);
     const r = await this.run(args, { stdin: enc.encode(message), env: Git.#identityEnv(opts) });
     const hash = /^\[[^\]]*? ([0-9a-f]{40,64})\]/.exec(dec.decode(r.stdout))?.[1] ?? (await this.head());
     if (hash === undefined) throw new GitError("commit succeeded but HEAD does not resolve");
@@ -446,7 +450,21 @@ export class Git {
       cwd: this.cwd,
       env: { LC_ALL: "C", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
     });
-    return new CatFileSession(proc);
+    const session: CatFileSession = new CatFileSession(proc, { onClosed: () => void this.#sessions.delete(session) });
+    this.#sessions.add(session);
+    return session;
+  }
+
+  /** Close every `catFile` session still open on this handle. Safe to call at any time. */
+  async closeSessions(): Promise<void> {
+    await Promise.all([...this.#sessions].map((s) => s.close().catch(() => undefined)));
+  }
+
+  /** Files under `paths`: those git tracks (in the index), or those it does not (and has not been told to ignore). */
+  async listFiles(paths: readonly string[], which: "tracked" | "untracked"): Promise<string[]> {
+    const args = which === "tracked" ? ["ls-files", "-z", "--cached", "--"] : ["ls-files", "-z", "--others", "--exclude-standard", "--"];
+    const r = await this.run([...args, ...paths], { readOnly: true });
+    return dec.decode(r.stdout).split("\u0000").filter((p) => p !== "");
   }
 
   /** Make the index match HEAD, leaving the working tree alone. Used after commits were written without the index. */

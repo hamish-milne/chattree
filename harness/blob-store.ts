@@ -43,6 +43,17 @@ export class HostBlobStore implements BlobStore {
   }
 }
 
+/** Every blob a decoded entry refers to: its hash and the size the reference claims. */
+export function blobRefs(value: unknown, into: Map<string, number> = new Map()): Map<string, number> {
+  if (Array.isArray(value)) for (const x of value) blobRefs(x, into);
+  else if (typeof value === "object" && value !== null) {
+    const o = value as Record<string, unknown>;
+    if (o["$tag"] === "blob" && typeof o["sha256"] === "string" && typeof o["bytes"] === "number") into.set(o["sha256"], o["bytes"]);
+    else for (const x of Object.values(o)) blobRefs(x, into);
+  }
+  return into;
+}
+
 /**
  * Collects blobs in memory instead of writing them, falling back to a real store for reads. Used when an
  * entry is committed straight into git (a new branch, a merge) so its blobs can be added to that commit's tree

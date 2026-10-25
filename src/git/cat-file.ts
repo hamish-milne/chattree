@@ -70,9 +70,14 @@ export class CatFileSession implements ObjectReader {
   #writes: Promise<unknown> = Promise.resolve();
   #reads: Promise<unknown> = Promise.resolve();
   #closed = false;
+  readonly #onClosed: (() => void) | undefined;
+  readonly #killAfterMs: number;
 
-  constructor(proc: HostProcess) {
+  /** `killAfterMs`: how long `close` waits for the process to exit by itself before killing it. */
+  constructor(proc: HostProcess, opts: { onClosed?: () => void; killAfterMs?: number } = {}) {
     this.#proc = proc;
+    this.#onClosed = opts.onClosed;
+    this.#killAfterMs = opts.killAfterMs ?? 2000;
     this.#out = new ByteReader(proc.output);
   }
 
@@ -115,9 +120,19 @@ export class CatFileSession implements ObjectReader {
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
-    await this.#writes;
-    await this.#reads;
-    await this.#proc.closeInput();
-    await this.#proc.exit;
+    try {
+      await this.#writes;
+      await this.#reads;
+    } finally {
+      // Closing its input is how git is told to finish; if it does not, or cannot be told, kill it.
+      const timer = setTimeout(() => this.#proc.kill(), this.#killAfterMs);
+      try {
+        await this.#proc.closeInput().catch(() => undefined);
+        await this.#proc.exit;
+      } finally {
+        clearTimeout(timer);
+        this.#onClosed?.();
+      }
+    }
   }
 }

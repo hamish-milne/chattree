@@ -19,7 +19,7 @@ import {
   type MergeTreeResult,
   type Pipeline,
 } from "../src/index.ts";
-import { BLOBS_DIR, HostBlobStore, RecordingBlobStore } from "./blob-store.ts";
+import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
@@ -140,6 +140,8 @@ export interface RecoveryReport {
   truncatedBytes: number;
   /** Entries that were complete but never committed; each is now committed. */
   recovered: Appended[];
+  /** Leftovers of interrupted work that `open` removed (temporary files, stale lock remnants), as repository-relative or `.git/` paths. */
+  cleaned: string[];
 }
 
 /** An entry's place in a branch's history. */
@@ -189,6 +191,8 @@ export interface FinishOptions {
   summary: string;
   /** The tool call that started the subagent. */
   callId: string;
+  /** Remove the subagent's worktree once it is merged (its branch and history stay). Default false. */
+  removeWorktree?: boolean;
 }
 
 export interface MergeConflict {
@@ -221,6 +225,27 @@ export type SubagentOutcome = MergeOutcome;
 export interface MergeForkOptions {
   /** What was discussed and decided in the fork. */
   summary: string;
+  /** Remove the fork's worktree once it is merged (its branch and history stay). Default false. */
+  removeWorktree?: boolean;
+}
+
+export interface BlobGcOptions {
+  /** Report what would be removed without removing anything. */
+  dryRun?: boolean;
+}
+
+export interface BlobGcReport {
+  /** Unreferenced blob files that were never committed. */
+  untracked: { path: string; bytes: number }[];
+  /** Unreferenced blob files that had been committed (by a later entry's commit, after a failed append). They are removed in a new commit. */
+  tracked: { path: string; bytes: number }[];
+  /** The commit that removed the tracked ones, if there were any. */
+  commit: string | undefined;
+}
+
+export interface WorktreeCleanup {
+  removed: { branch: string; path: string }[];
+  kept: { branch: string; path: string; reason: string }[];
 }
 
 export interface BranchInfo {
@@ -406,7 +431,7 @@ export class Conversation {
     await git.setConfig("merge.ours.driver", "true");
     await host.fs.writeAtomic(host.path.join(dir, ".gitattributes"), enc.encode(GITATTRIBUTES));
     const branch = opts.branch ?? "main";
-    const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [] });
+    const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [], cleaned: [] });
     await convo.#transaction(async () => {
       await convo.#appendLocked({ $tag: "header", ...FORMAT });
     });
@@ -427,9 +452,11 @@ export class Conversation {
     const lockPath = await Conversation.#lockPathFor(host, git, branch);
     const lock = await acquireLock(host.fs, lockPath, { ...opts.lock, ...(opts.now === undefined ? {} : { now: opts.now }) });
     try {
+      const cleaned = await Conversation.#tidy(host, git, dir, opts);
       const { size, report, recoveredEntries } = await Conversation.#recover(host, git, dir, opts);
+      report.cleaned = cleaned;
       const convo = await Conversation.#load(host, git, dir, branch, opts, size, report);
-      if (report.truncatedBytes > 0 || report.recovered.length > 0) convo.#emit({ type: "recovery", branch, report });
+      if (report.truncatedBytes > 0 || report.recovered.length > 0 || report.cleaned.length > 0) convo.#emit({ type: "recovery", branch, report });
       for (const [i, r] of report.recovered.entries()) convo.#emitEntry(branch, r, recoveredEntries[i] as ChatEntry, true);
       return convo;
     } finally {
@@ -446,6 +473,40 @@ export class Conversation {
     return host.path.join(await git.commonDir(), "chattree", "locks", `${encodeURIComponent(branch)}.lock`);
   }
 
+  /**
+   * Remove what an interrupted process leaves lying around: half-written temporary files (which would otherwise
+   * be committed with the next entry), temporary git indexes, and lock files set aside by a takeover. Only
+   * files that match our own naming and are not recent are touched.
+   */
+  static async #tidy(host: Host, git: Git, dir: string, opts: ConversationOptions): Promise<string[]> {
+    const cleaned: string[] = [];
+    const now = (opts.now ?? Date.now)();
+    const older = async (path: string, ms: number): Promise<boolean> => {
+      const mtime = (await host.fs.stat(path))?.mtimeMs;
+      return mtime !== undefined && now - mtime > ms; // unknown or future times are left alone
+    };
+    const drop = async (path: string, label: string): Promise<void> => {
+      if (await host.fs.remove(path).catch(() => false)) cleaned.push(label);
+    };
+    // Temporary files from atomic writes: only ever ours, and only in the working tree at the moment of a crash.
+    const tmp = /\.tmp-[0-9a-f]{12}$/;
+    for (const name of await host.fs.readdir(dir).catch(() => [] as string[])) {
+      if (tmp.test(name)) await drop(host.path.join(dir, name), name);
+    }
+    for (const rel of (await git.listFiles([BLOBS_DIR], "untracked")).filter((p) => tmp.test(p))) await drop(host.path.join(dir, ...rel.split("/")), rel);
+    const common = await git.commonDir();
+    const gitTmp = host.path.join(common, "chattree", "tmp");
+    for (const name of await host.fs.readdir(gitTmp).catch(() => [] as string[])) {
+      if (/^index-[0-9a-f-]{36}$/.test(name) && (await older(host.path.join(gitTmp, name), 10 * 60_000))) await drop(host.path.join(gitTmp, name), `.git/chattree/tmp/${name}`);
+    }
+    const locks = host.path.join(common, "chattree", "locks");
+    const staleAfter = opts.lock?.staleAfterMs ?? 30_000;
+    for (const name of await host.fs.readdir(locks).catch(() => [] as string[])) {
+      if (/\.lock\.stale-[0-9a-f]{8}$/.test(name) && (await older(host.path.join(locks, name), staleAfter))) await drop(host.path.join(locks, name), `.git/chattree/locks/${name}`);
+    }
+    return cleaned;
+  }
+
   static async #recover(host: Host, git: Git, dir: string, opts: ConversationOptions): Promise<{ size: number; report: RecoveryReport; recoveredEntries: ChatEntry[] }> {
     const file = host.path.join(dir, CHAT_FILE);
     const committed = await git.readFileAt("HEAD", CHAT_FILE);
@@ -457,7 +518,7 @@ export class Conversation {
       throw new ConversationError(`${CHAT_FILE} in the working tree does not extend the version at HEAD: it was edited, not appended to. Restore it with git, or commit the edit deliberately.`);
     }
 
-    const report: RecoveryReport = { truncatedBytes: 0, recovered: [] };
+    const report: RecoveryReport = { truncatedBytes: 0, recovered: [], cleaned: [] };
     const recoveredEntries: ChatEntry[] = [];
     let framed;
     try {
@@ -938,7 +999,7 @@ export class Conversation {
    * onto it. Pending workspace changes here are snapshotted first, so the working tree is clean for the move.
    */
   async finishSubagent(child: Conversation | string, opts: FinishOptions): Promise<MergeOutcome> {
-    return this.#mergeBranch(child, (m) => ({
+    return this.#mergeBranch(child, opts.removeWorktree === true, (m) => ({
       $tag: "subagent_result",
       call_id: opts.callId,
       branch: m.branch,
@@ -957,7 +1018,7 @@ export class Conversation {
    * it has moved on; each merge reports only what is new since the last.
    */
   async mergeFork(fork: Conversation | string, opts: MergeForkOptions): Promise<MergeOutcome> {
-    return this.#mergeBranch(fork, (m) => ({
+    return this.#mergeBranch(fork, opts.removeWorktree === true, (m) => ({
       $tag: "fork_merge",
       branch: m.branch,
       tip: m.tip,
@@ -969,13 +1030,14 @@ export class Conversation {
 
   async #mergeBranch(
     child: Conversation | string,
+    removeWorktree: boolean,
     build: (m: { branch: string; tip: string; files: { changed: string[]; added: string[]; discarded: string[] }; merge: { policy: "trunk"; base: string; conflicts: MergeConflict[] } }) => NewEntry,
   ): Promise<MergeOutcome> {
     const childBranch = typeof child === "string" ? child : child.branch;
     if (childBranch === this.branch) throw new ConversationError("a branch cannot be merged into itself");
     if (typeof child !== "string") await child.snapshot();
 
-    return this.#transaction(async () => {
+    const outcome = await this.#transaction(async () => {
       const size = await this.#assertIntact();
       await this.#snapshotLocked();
       const head = await this.git.head();
@@ -1021,6 +1083,105 @@ export class Conversation {
       this.#emit({ type: "merge", branch: this.branch, child: childBranch, kind: prepared.value.$tag === "fork_merge" ? "fork" : "subagent", entry, report });
       return { entry, report, childTip: tip };
     });
+    if (removeWorktree) await this.removeWorktree(childBranch);
+    return outcome;
+  }
+
+  // ---- housekeeping ----------------------------------------------------------------------------------------
+
+  /**
+   * Remove the worktree of a branch that is merged into this one (its branch and history stay). Refuses if the
+   * branch is not merged or its worktree has uncommitted changes, unless `force`. Resolves to the removed
+   * path, or undefined if the branch had no worktree.
+   */
+  async removeWorktree(branch: string, opts: { force?: boolean } = {}): Promise<string | undefined> {
+    if (branch === this.branch) throw new ConversationError("cannot remove the worktree this handle is using");
+    const wt = (await this.git.worktrees()).find((w) => w.branch === `refs/heads/${branch}`);
+    if (wt === undefined) return undefined;
+    if (wt.path === this.dir) throw new ConversationError("cannot remove the worktree this handle is using");
+    if (opts.force !== true) {
+      const [tip, head] = [await this.git.revParse(`refs/heads/${branch}`), await this.git.head()];
+      if (tip === undefined || head === undefined || !(await this.git.isAncestor(tip, head))) throw new ConversationError(`branch ${branch} is not merged into ${this.branch}; keep its worktree or pass force`);
+    }
+    try {
+      await this.git.removeWorktree(wt.path, opts.force === true ? { force: true } : {});
+    } catch (e) {
+      if (e instanceof GitError && opts.force !== true) throw new ConversationError(`the worktree of ${branch} has uncommitted or untracked changes; commit them, or pass force: ${e.message}`);
+      throw e;
+    }
+    await this.git.pruneWorktrees();
+    return wt.path;
+  }
+
+  /** Remove the worktrees of every branch merged into this one that has nothing uncommitted in it; report what was kept and why. */
+  async pruneWorktrees(): Promise<WorktreeCleanup> {
+    const report: WorktreeCleanup = { removed: [], kept: [] };
+    for (const wt of await this.git.worktrees()) {
+      const branch = wt.branch?.startsWith("refs/heads/") === true ? wt.branch.slice("refs/heads/".length) : undefined;
+      if (branch === undefined || branch === this.branch || wt.path === this.dir) continue;
+      try {
+        if ((await this.removeWorktree(branch)) !== undefined) report.removed.push({ branch, path: wt.path });
+      } catch (e) {
+        if (e instanceof ConversationError) report.kept.push({ branch, path: wt.path, reason: e.message });
+        else throw e;
+      }
+    }
+    await this.git.pruneWorktrees();
+    return report;
+  }
+
+  /**
+   * Remove blob files the transcript does not refer to. They come from appends that failed after their large
+   * values were written: such files are either still untracked or, if a later commit swept them up, tracked
+   * but unreferenced. Referenced blobs are never touched; history is not rewritten (older commits keep
+   * whatever they had). Refuses if any entry no longer validates, since it could hide a reference.
+   */
+  gcBlobs(opts: BlobGcOptions = {}): Promise<BlobGcReport> {
+    return this.#transaction(async () => {
+      await this.#assertIntact();
+      const wanted = new Set<string>();
+      for (const [i, e] of (await this.readEntries()).entries()) {
+        if (!e.ok) throw new ConversationError(`entry ${i + 1} no longer validates, so its blob references are unknown; refusing to collect blobs`);
+        for (const hash of blobRefs(e.value).keys()) wanted.add(HostBlobStore.relativePath(hash));
+      }
+      const sizeOf = async (path: string): Promise<number> => (await this.host.fs.stat(this.host.path.join(this.dir, ...path.split("/"))))?.size ?? 0;
+      const orphans = async (which: "tracked" | "untracked") => {
+        const out: { path: string; bytes: number }[] = [];
+        for (const path of (await this.git.listFiles([BLOBS_DIR], which)).filter((p) => !wanted.has(p)).sort()) out.push({ path, bytes: await sizeOf(path) });
+        return out;
+      };
+      const report: BlobGcReport = { untracked: await orphans("untracked"), tracked: await orphans("tracked"), commit: undefined };
+      if (opts.dryRun === true) return report;
+      for (const o of [...report.untracked, ...report.tracked]) await this.host.fs.remove(this.host.path.join(this.dir, ...o.path.split("/")));
+      if (report.tracked.length > 0) {
+        const paths = report.tracked.map((o) => o.path);
+        await this.git.add(paths);
+        const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
+        report.commit = await this.git.commit({
+          message: "remove unreferenced blobs",
+          trailers: [["Chattree-Offset", String(this.#size)], ["Chattree-Gc", "true"]],
+          author: committer,
+          committer,
+          paths,
+          ...Conversation.#dateOpt(this.#opts),
+        });
+        this.#advance(report.commit);
+      }
+      return report;
+    });
+  }
+
+  /**
+   * Finish all background work for this handle: deliver pending events and end any long-running git processes
+   * it started. The handle stays usable (sessions are started on demand).
+   */
+  async close(): Promise<void> {
+    await this.flushEvents();
+    await this.git.closeSessions();
+  }
+
+  async [Symbol.asyncDispose](): Promise<void> {
+    await this.close();
   }
 
   #defaultWorktree(name: string): string {
