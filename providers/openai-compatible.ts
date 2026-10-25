@@ -5,6 +5,7 @@ import { servedModelId, stable, type AgentSetup, type Change } from "../harness/
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
 import { httpStream, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
+import { DEFAULT_THINK, ThinkSplitter, type Piece, type ThinkOptions } from "./think-tags.ts";
 import { ProviderError, type Completed, type ErrorKind, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
 
 /**
@@ -36,10 +37,26 @@ export const compatibleSettings = z.strictObject({
    * chat templates drop it, and a few (those that expect it next to tool calls) need it.
    */
   replay_reasoning: z.boolean().optional(),
+  /**
+   * Reasoning that a server leaves inline in the text as `<think>…</think>`. `auto` (the default) looks only at the very start
+   * of each response and costs nothing when there is no tag; `off` never splits (use it if answers may begin with a literal
+   * `<think>`: a tag cannot be told from the text, there is no escaping); `implicit` is for chat templates that put the opening
+   * tag in the prompt, so the output starts mid-thought and only `</think>` appears (a response that skips thinking is then all
+   * reasoning); an object names other tags.
+   */
+  think_tags: z.union([z.enum(["auto", "off", "implicit"]), z.strictObject({ open: z.string().min(1), close: z.string().min(1), implicit_open: z.boolean().optional() })]).optional(),
   /** Extra top-level request fields for server extensions (`top_k`, `min_p`, `chat_template_kwargs`, Ollama's `think`). Cannot override the fields the adapter owns. */
   extra: z.record(z.string(), z.unknown()).optional(),
 });
 export type CompatibleSettings = z.infer<typeof compatibleSettings>;
+
+/** The splitter a response needs, from the setting: none when it is `off`. */
+function thinkOptions(setting: CompatibleSettings["think_tags"]): ThinkOptions | undefined {
+  if (setting === "off") return undefined;
+  if (setting === undefined || setting === "auto") return DEFAULT_THINK;
+  if (setting === "implicit") return { ...DEFAULT_THINK, implicitOpen: true };
+  return { open: setting.open, close: setting.close, ...(setting.implicit_open === true ? { implicitOpen: true } : {}) };
+}
 
 export function parseCompatibleSettings(settings: unknown): CompatibleSettings {
   const r = compatibleSettings.safeParse(settings ?? {});
@@ -119,6 +136,8 @@ interface State {
   finish: string | undefined;
   refused: boolean;
   sawTool: boolean;
+  /** Splits inline reasoning out of the content; undefined when `think_tags` is off. */
+  think: ThinkSplitter | undefined;
   raw: { prompt: number; completion: number; cached: number | undefined; reasoning: number | undefined };
   usage: Usage;
   hasUsage: boolean;
@@ -195,6 +214,37 @@ function close(o: Open | undefined, s: State, events: StreamEvent[]): void {
   events.push({ type: "block.done", index: o.index, block });
 }
 
+function reasoningDelta(s: State, events: StreamEvent[], text: string, field: string): void {
+  if (s.reasoning === undefined) s.reasoning = { kind: "reasoning", index: s.next++, text: "", field };
+  if (s.reasoning.kind === "reasoning") s.reasoning.text += text;
+  events.push({ type: "reasoning.delta", index: s.reasoning.index, text });
+}
+
+function textDelta(s: State, events: StreamEvent[], text: string): void {
+  close(s.reasoning, s, events); // the model has moved on from thinking
+  s.reasoning = undefined;
+  if (s.text === undefined) s.text = { kind: "text", index: s.next++, text: "" };
+  if (s.text.kind === "text") s.text.text += text;
+  events.push({ type: "text.delta", index: s.text.index, text });
+}
+
+/** Content passes through the think-tag splitter (when on): inline reasoning becomes a reasoning block, the rest text. */
+function content(s: State, events: StreamEvent[], pieces: readonly Piece[]): void {
+  for (const p of pieces) {
+    if (p.kind === "text") textDelta(s, events, p.text);
+    else if (p.kind === "reasoning") reasoningDelta(s, events, p.text, "think_tags");
+    else {
+      close(s.reasoning, s, events);
+      s.reasoning = undefined;
+    }
+  }
+}
+
+/** The content is over (a finish chunk, a tool call, `[DONE]`): what the splitter was holding back was not a tag. */
+function endContent(s: State, events: StreamEvent[]): void {
+  if (s.think !== undefined) content(s, events, s.think.end());
+}
+
 export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper<State> {
   return {
     request(req: StreamRequest): HttpRequestSpec {
@@ -214,6 +264,7 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       finish: undefined,
       refused: false,
       sawTool: false,
+      think: ((o) => (o === undefined ? undefined : new ThinkSplitter(o)))(thinkOptions(parseCompatibleSettings(req.setup.model?.settings).think_tags)),
       raw: { prompt: 0, completion: 0, cached: undefined, reasoning: undefined },
       usage: { input_tokens: 0, output_tokens: 0 },
       hasUsage: false,
@@ -226,6 +277,7 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
         s.done = true;
         const events: StreamEvent[] = [];
         // A server that ends without a finish chunk after real output is treated as having stopped normally.
+        endContent(s, events);
         close(s.reasoning, s, events);
         close(s.text, s, events);
         for (const t of s.tools.values()) close(t, s, events);
@@ -259,22 +311,17 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       const delta = (choice?.["delta"] ?? {}) as Json;
 
       const reasoningField = typeof delta["reasoning_content"] === "string" && delta["reasoning_content"] !== "" ? "reasoning_content" : typeof delta["reasoning"] === "string" && delta["reasoning"] !== "" ? "reasoning" : undefined;
-      if (reasoningField !== undefined) {
-        const t = delta[reasoningField] as string;
-        if (s.reasoning === undefined) s.reasoning = { kind: "reasoning", index: s.next++, text: "", field: reasoningField };
-        if (s.reasoning.kind === "reasoning") s.reasoning.text += t;
-        events.push({ type: "reasoning.delta", index: s.reasoning.index, text: t });
-      }
-      const content = typeof delta["content"] === "string" && delta["content"] !== "" ? delta["content"] : typeof delta["refusal"] === "string" && delta["refusal"] !== "" ? ((s.refused = true), delta["refusal"] as string) : undefined;
-      if (content !== undefined) {
-        close(s.reasoning, s, events); // the model has moved on from thinking
-        s.reasoning = undefined;
-        if (s.text === undefined) s.text = { kind: "text", index: s.next++, text: "" };
-        if (s.text.kind === "text") s.text.text += content;
-        events.push({ type: "text.delta", index: s.text.index, text: content });
+      if (reasoningField !== undefined) reasoningDelta(s, events, delta[reasoningField] as string, reasoningField);
+      if (typeof delta["content"] === "string" && delta["content"] !== "") {
+        if (s.think === undefined) content(s, events, [{ kind: "text", text: delta["content"] }]);
+        else content(s, events, s.think.push(delta["content"]));
+      } else if (typeof delta["refusal"] === "string" && delta["refusal"] !== "") {
+        s.refused = true;
+        textDelta(s, events, delta["refusal"]);
       }
       const calls = delta["tool_calls"];
       if (Array.isArray(calls)) {
+        endContent(s, events);
         close(s.reasoning, s, events);
         close(s.text, s, events);
         s.reasoning = s.text = undefined;
@@ -300,6 +347,7 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       }
       if (typeof choice?.["finish_reason"] === "string") {
         s.finish = choice["finish_reason"];
+        endContent(s, events);
         close(s.reasoning, s, events);
         close(s.text, s, events);
         for (const t of s.tools.values()) close(t, s, events);

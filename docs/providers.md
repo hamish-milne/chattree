@@ -569,7 +569,13 @@ test/providers/fixtures/        P12
    and a cache hit found partway lowers the uncached input, and an event cannot be taken back (so a stream that dies
    mid-way reports no tokens; fine for local servers, and the parking lot has the alternative); cached tokens are taken
    out of `prompt_tokens` so the meters stay disjoint; a server that reports no usage gives zero tokens and
-   `ext.usage_reported: false`. `live-check --flavor openai-compatible` runs the same scenarios (retrieval skips; chaining
+   `ext.usage_reported: false`. Inline reasoning (`providers/think-tags.ts`, setting `think_tags: auto | off | implicit | {open, close}`):
+   servers that leave `<think>…</think>` in the text (vLLM without a reasoning parser, llama-server with reasoning parsing off,
+   gateways for R1- and Qwen3-style models; Ollama splits natively) get it split into a reasoning block. `auto` is the default
+   and looks only at the very start of a response, so it costs nothing and cannot touch a tag later in an answer. There is no
+   unescaping: model text has no escaping, so an answer that itself *begins* with a literal `<think>` cannot be told from the
+   delimiter (use `off`). `implicit` is for templates that open the tag in the prompt (output starts mid-thought, only
+   `</think>` appears); a response that skips thinking is then all reasoning, so it is opt-in. `live-check --flavor openai-compatible` runs the same scenarios (retrieval skips; chaining
    reports that it replayed). Tests: fixtures-by-hand for text, tool calls, both reasoning fields, Ollama's whole-call chunk,
    invalid arguments, finish reasons, revised usage, chunking invariance, errors, request bodies, the registry, and an
    end-to-end test (`test/integration/compatible-turn.test.ts`) that drives a conversation through a tool call and back with

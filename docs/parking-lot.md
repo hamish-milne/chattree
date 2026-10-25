@@ -17,7 +17,6 @@ Each entry says what it is and what a first step would be. Within a group, the o
 
 ## Medium
 
-- **`<think>` splitting** (top of Medium: without it a thinking model's reasoning shows up as answer text on some servers).
 - **Token counting**: Anthropic `count_tokens` and OpenAI input-token endpoints in place of the pessimistic bytes-per-token
   estimate, which can refuse a request that would have fit.
 - **Repository maintenance**: `gc.auto` is off so git never rewrites the repository behind a running conversation, so loose

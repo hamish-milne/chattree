@@ -163,6 +163,36 @@ describe("stream", () => {
     }
   });
 
+  test("inline <think> in the content becomes a reasoning block, whichever way the tags are split across chunks", async () => {
+    const pieces = ["<th", "ink>Let me ", "think.</th", "ink>\n\n", "The ", "answer."];
+    const r = good(await run(replay([...pieces.map((c) => chunk({ content: c })), chunk({}, "stop"), DONE])));
+    assert.deepEqual(r.completed?.blocks, [{ type: "reasoning", provider: "local", payload: JSON.stringify({ think_tags: "Let me think." }), visible: "Let me think." }, { type: "text", text: "The answer." }]);
+    assert.ok(r.events.findIndex((e) => e.type === "block.done") < r.events.findIndex((e) => e.type === "text.delta"));
+    const sizes = good(await run(replay([...pieces.map((c) => chunk({ content: c })), chunk({}, "stop"), DONE], [7, 3, 11])));
+    assert.deepEqual(sizes, r);
+  });
+
+  test("think_tags: off leaves the tags in the text; implicit and custom tags work; a response without tags is unchanged under auto", async () => {
+    const tagged = [chunk({ content: "<think>x</think>y" }), chunk({}, "stop"), DONE];
+    const off = good(await run(replay(tagged), ctx(), setupFor({ max_output_tokens: 9, think_tags: "off" })));
+    assert.deepEqual(off.completed?.blocks, [{ type: "text", text: "<think>x</think>y" }]);
+    const implicit = good(await run(replay([chunk({ content: "pondering</think>\nok" }), chunk({}, "stop"), DONE]), ctx(), setupFor({ max_output_tokens: 9, think_tags: "implicit" })));
+    assert.deepEqual(implicit.completed?.blocks.map((b) => b.type), ["reasoning", "text"]);
+    assert.equal(implicit.completed?.blocks[1]?.type === "text" && implicit.completed.blocks[1].text, "ok");
+    const custom = good(await run(replay([chunk({ content: "[[a]]b" }), chunk({}, "stop"), DONE]), ctx(), setupFor({ max_output_tokens: 9, think_tags: { open: "[[", close: "]]" } })));
+    assert.deepEqual(custom.completed?.blocks.map((b) => b.type), ["reasoning", "text"]);
+    assert.deepEqual((await run(replay(TEXT))).completed?.blocks, [{ type: "text", text: "Hello" }]);
+    assert.throws(() => parseCompatibleSettings({ max_output_tokens: 1, think_tags: "maybe" }));
+  });
+
+  test("a tool call right after inline reasoning, and a stream that ends inside the reasoning, still produce complete blocks", async () => {
+    const r = good(await run(replay([chunk({ content: "<think>plan</think>" }), chunk({ tool_calls: [{ index: 0, id: "c", function: { name: "f", arguments: "{}" } }] }), chunk({}, "tool_calls"), DONE])));
+    assert.deepEqual(r.completed?.blocks.map((b) => b.type), ["reasoning", "tool_call"]);
+    const cut = good(await run(replay([chunk({ content: "<think>never finished" }), chunk({}, "length"), DONE])));
+    assert.deepEqual(cut.completed?.blocks.map((b) => b.type), ["reasoning"]);
+    assert.equal(cut.completed?.stop_reason, "max_tokens");
+  });
+
   test("finish reasons are normalised; a refusal is text with the refusal stop reason", async () => {
     for (const [finish, want] of [["stop", "end_turn"], ["length", "max_tokens"], ["content_filter", "refusal"], ["eos", "eos"]] as const) {
       const r = good(await run(replay([chunk({ content: "x" }), chunk({}, finish), DONE])));
