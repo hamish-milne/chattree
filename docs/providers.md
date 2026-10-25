@@ -485,13 +485,17 @@ test/providers/fixtures/        P12
    passes it to `repoSecretSource`. Not done: the VS Code helper for `yaml.customTags`, and the per-adapter pricing
    overrides key (step 6).
 6. **Catalog, pricing tables, ledger, estimates, limits (P9). Done**: `providers/pricing.ts` (the table format:
-   per model, dollars per million tokens for `input`, `output`, `cache_read`, `cache_write`, optional service `tiers`
-   and a `long_context` band; `free: true` is an explicit zero; `costOf` returns `{usd, unknown}` and an unpriced meter
+   per model, `rates` keyed by service tier (`standard` when there is only one; `default` and `auto` in a
+   request's settings mean `standard`), each giving dollars per million tokens for `input`, `output`, `cache_read` and
+   `cache_write`, which is one number or a map from cache lifetime in minutes to rate (`{ 30: 12.5, 720: 25 }`), plus an
+   optional `long_context` band with the same by-tier shape; usage carries the per-lifetime split as
+   `cache_write_by_minutes` (entries store it as `cache_write_tokens_<minutes>m`, `usageRecord` / `tokensOf` convert), and
+   writes with no stated lifetime are priced at the shortest one, the default; `free: true` is an explicit zero; `costOf` returns `{usd, unknown}` and an unpriced meter
    with tokens makes the whole request unknown rather than cheaper; `effectiveTable` puts a provider's overrides
    over the bundled table; `tableHash` is the SHA-256 of the canonical bytes, which is also the blob's hash),
    `providers/pricing-data.ts` (bundled tables, **read from the pricing pages on 2026-10-25 by a summarising tool and
-   only for models whose ids are known, so check them before relying on a limit**; Anthropic `cache_write` is the
-   5-minute rate), provider config keys `pricing: {free, models}` and `models: {id: {context_window,
+   only for models whose ids are known, so check them before relying on a limit**; Anthropic `cache_write` is keyed
+   `{5, 60}`; the adapter reads the split from `usage.cache_creation`, which is from memory of the docs and unverified), provider config keys `pricing: {free, models}` and `models: {id: {context_window,
    max_output_tokens}}`, and adapter definitions' optional `prices` and `models`. `harness/ledger.ts` folds the
    transcript (each response priced under the table pinned by the setup in force at that entry, so history is never
    repriced; `interrupted.usage`; a merged branch's `spend` rollup on `subagent_result` / `fork_merge`, computed at the

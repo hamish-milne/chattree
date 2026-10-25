@@ -6,7 +6,7 @@ import { nodeHost } from "../../hosts/node.ts";
 import { CONFIG_FILE, Conversation, type NewEntry } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { costIncrease, estimateRequest } from "../../harness/estimate.ts";
-import { computeLedger, priceResolver } from "../../harness/ledger.ts";
+import { computeLedger, priceResolver, tokensOf, usageRecord } from "../../harness/ledger.ts";
 import { checkLimits, LimitExceeded } from "../../harness/limits.ts";
 import { envSource } from "../../harness/secrets.ts";
 import { ChangeNotAllowed } from "../../harness/setup.ts";
@@ -23,8 +23,8 @@ const KEY = "sk-proj-COST-TEST-KEY";
 
 // ---- ledger on hand-written entries ------------------------------------------------------------------------------
 
-const cheap: PriceTable = { ...emptyTable(), as_of: "2026-10-25", source: "t", models: { m: { rates: { input: 1, output: 2, cache_read: 0.1 } } } };
-const dear: PriceTable = { ...cheap, models: { m: { rates: { input: 10, output: 20, cache_read: 1 } } } };
+const cheap: PriceTable = { ...emptyTable(), as_of: "2026-10-25", source: "t", models: { m: { rates: { standard: { input: 1, output: 2, cache_read: 0.1 } } } } };
+const dear: PriceTable = { ...cheap, models: { m: { rates: { standard: { input: 10, output: 20, cache_read: 1 } } } } };
 const resolver = priceResolver([cheap, dear]);
 let n = 0;
 const id = (): string => `01J${String(++n).padStart(23, "0")}`;
@@ -79,6 +79,22 @@ describe("ledger", () => {
 const ctx = (text = "hello"): Parameters<typeof estimateRequest>[0] => ({ system: "sys", instructions: undefined, turns: [{ role: "user", parts: [{ type: "text", text }] }], tools: [], cacheHints: [] });
 const ledger = (usd = 0, requests = 0, turn = { usd: 0, requests: 0, unpriced: 0 }) => ({ conversation: { usd, requests, unpriced: 0 }, turn, byModel: {} });
 
+describe("usage records", () => {
+  test("flat names round-trip, including the per-lifetime cache writes", () => {
+    const u = { input_tokens: 1, output_tokens: 2, cache_read_tokens: 3, cache_write_tokens: 10, reasoning_tokens: 1, cache_write_by_minutes: { "30": 4, "720": 6 } };
+    const rec = usageRecord(u);
+    assert.deepEqual(rec, { input_tokens: 1, output_tokens: 2, cache_read_tokens: 3, cache_write_tokens: 10, reasoning_tokens: 1, cache_write_tokens_30m: 4, cache_write_tokens_720m: 6 });
+    assert.deepEqual(tokensOf(rec).cache_write_by_minutes, { "30": 4, "720": 6 });
+    assert.equal(tokensOf(usageRecord({ input_tokens: 1, output_tokens: 1 })).cache_write_by_minutes, undefined);
+  });
+
+  test("the ledger prices a response's cache writes by lifetime", async () => {
+    const t: PriceTable = { ...cheap, models: { m: { rates: { standard: { input: 1, output: 1, cache_write: { 5: 2, 60: 4 } } } } } };
+    const l = await computeLedger([setup(t), user(), reply({ input_tokens: 0, output_tokens: 0, cache_write_tokens: 2 * M, cache_write_tokens_5m: M, cache_write_tokens_60m: M })], priceResolver([t]));
+    assert.equal(l.conversation.usd, 6);
+  });
+});
+
 describe("estimate", () => {
   test("pessimistic: input at the plain rate, all of max output used; unknown stays unknown", () => {
     const e = estimateRequest(ctx("x".repeat(30_000)), { id: "m", settings: { max_output_tokens: 1000 } }, cheap, { context_window: 12_000 });
@@ -91,8 +107,8 @@ describe("estimate", () => {
   });
 
   test("costIncrease: says what switching does at this size, only when it matters", () => {
-    const a = { price: { rates: { input: 0.1, output: 0.5 } } };
-    const b = { price: { rates: { input: 10, output: 50 } } };
+    const a = { price: { rates: { standard: { input: 0.1, output: 0.5 } } } };
+    const b = { price: { rates: { standard: { input: 10, output: 50 } } } };
     const c = costIncrease({ tokens: 100_000, maxOutputTokens: 8000, from: a, to: b });
     assert.equal(c?.kind, "cost_increase");
     assert.match(c?.message ?? "", /about \$0\.0\d+ now and about \$\d+\.\d+ after \(\d+x\)/);
@@ -195,7 +211,7 @@ describe("prepareContext with costs", () => {
     const { dir, convo } = await fresh();
     await convo.pinPricing();
     await convo.append(hi);
-    await writeFile(join(dir, CONFIG_FILE), CONFIG.replace("local:", "gpt2:").replace(/(  gpt:\n    \$tag: openai\n    api_key_env: OPENAI_API_KEY\n)/, "$1    pricing: { models: { gpt-6-luna: { rates: { input: 0.2, output: 1 } } } }\n"));
+    await writeFile(join(dir, CONFIG_FILE), CONFIG.replace("local:", "gpt2:").replace(/(  gpt:\n    \$tag: openai\n    api_key_env: OPENAI_API_KEY\n)/, "$1    pricing: { models: { gpt-6-luna: { rates: { standard: { input: 0.2, output: 1 } } } } }\n"));
     const changed = await Conversation.open(host, dir, opts());
     await assert.rejects(prepareContext(changed, { system: "s" }), (e) => e instanceof ChangeNotAllowed && /not the one this agent is pinned to/.test(e.message));
     await prepareContext(changed, { system: "s", allowDrift: ["pricing_changed"] });
@@ -291,5 +307,5 @@ describe("merges and interruptions carry cost", () => {
 });
 
 test("the bundled OpenAI prices cover the tier names the setting uses", () => {
-  assert.ok(OPENAI_PRICES.models["gpt-6-luna"]?.tiers?.["flex"]);
+  assert.ok(OPENAI_PRICES.models["gpt-6-luna"]?.rates?.["flex"]);
 });

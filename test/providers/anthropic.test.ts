@@ -203,6 +203,12 @@ describe("stream", () => {
     assert.deepEqual([r.completed?.usage.input_tokens, r.completed?.usage.cache_read_tokens, r.completed?.usage.output_tokens], [25, 33, 75]);
   });
 
+  test("cache writes are split by lifetime when the provider says", async () => {
+    const r = good(await run(replay([start({ input_tokens: 10, cache_creation_input_tokens: 300, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 200 }, output_tokens: 1 }), ev("message_delta", { delta: { stop_reason: "end_turn" }, usage: { output_tokens: 5 } }), ev("message_stop", {})])));
+    assert.equal(r.completed?.usage.cache_write_tokens, 300);
+    assert.deepEqual(r.completed?.usage.cache_write_by_minutes, { "5": 100, "60": 200 });
+  });
+
   test("usage is cumulative and carries the cache counts", async () => {
     const r = good(await run(replay([start({ input_tokens: 10, cache_read_input_tokens: 500, cache_creation_input_tokens: 40, output_tokens: 1 }), ev("message_delta", { delta: {}, usage: { output_tokens: 20 } }), ev("message_delta", { delta: { stop_reason: "end_turn" }, usage: { output_tokens: 30 } }), ev("message_stop", {})])));
     assert.deepEqual([r.completed?.usage.input_tokens, r.completed?.usage.cache_read_tokens, r.completed?.usage.cache_write_tokens, r.completed?.usage.output_tokens], [10, 500, 40, 30]);

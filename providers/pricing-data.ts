@@ -5,20 +5,21 @@ import type { PriceTable } from "./pricing.ts";
  * not copied from a machine-readable source, and only for the models whose API ids are known. They are defaults:
  * check them before relying on a spending limit, and put your own in a provider's `pricing.models` in `harness.yml`.
  * A package upgrade that changes a table is a `pricing_changed` for every agent pinned to the old one (docs/providers.md, P9).
+ * Cache writes are keyed by the cache lifetime in minutes.
  */
 
 export const ANTHROPIC_PRICES: PriceTable = {
   version: 1,
   as_of: "2026-10-25",
-  source: "https://platform.claude.com/docs/en/about-claude/pricing (read by a summarising tool; cache_write is the 5-minute rate)",
+  source: "https://platform.claude.com/docs/en/about-claude/pricing (read by a summarising tool)",
   currency: "USD",
   models: {
-    "claude-fable-5-1": { rates: { input: 10, output: 50, cache_write: 12.5, cache_read: 0.25 } },
-    "claude-opus-5-5": { rates: { input: 4, output: 20, cache_write: 5, cache_read: 0.2 } },
-    "claude-sonnet-5-5": { rates: { input: 2, output: 10, cache_write: 2.5, cache_read: 0.1 } },
+    "claude-fable-5-1": { rates: { standard: { input: 10, output: 50, cache_write: { 5: 12.5, 60: 20 }, cache_read: 0.25 } } },
+    "claude-opus-5-5": { rates: { standard: { input: 4, output: 20, cache_write: { 5: 5, 60: 8 }, cache_read: 0.2 } } },
+    "claude-sonnet-5-5": { rates: { standard: { input: 2, output: 10, cache_write: { 5: 2.5, 60: 4 }, cache_read: 0.1 } } },
     "claude-haiku-5-5": {
-      rates: { input: 0.1, output: 0.5, cache_write: 0.125, cache_read: 0.01 },
-      long_context: { above_tokens: 100_000, rates: { input: 0.5, output: 2.5, cache_write: 0.625, cache_read: 0.05 } },
+      rates: { standard: { input: 0.1, output: 0.5, cache_write: { 5: 0.125, 60: 0.2 }, cache_read: 0.01 } },
+      long_context: { above_tokens: 100_000, rates: { standard: { input: 0.5, output: 2.5, cache_write: { 5: 0.625, 60: 1 }, cache_read: 0.05 } } },
     },
   },
 };
@@ -29,9 +30,9 @@ export const OPENAI_PRICES: PriceTable = {
   source: "https://developers.openai.com/api/docs/pricing (read by a summarising tool; tier names matched to the page's tab order)",
   currency: "USD",
   models: {
-    "gpt-6-astra": { rates: { input: 10, cache_read: 1, output: 50 }, tiers: { flex: { input: 5, cache_read: 0.5, output: 25 }, fast: { input: 20, cache_read: 2, output: 100 }, ultrafast: { input: 60, cache_read: 6, output: 300 } } },
-    "gpt-6.1-sol": { rates: { input: 2, cache_read: 0.1, output: 10 }, tiers: { flex: { input: 1, cache_read: 0.05, output: 5 }, fast: { input: 4, cache_read: 0.2, output: 20 }, ultrafast: { input: 12, cache_read: 0.6, output: 60 } } },
-    "gpt-6-luna": { rates: { input: 0.1, cache_read: 0.01, output: 0.5 }, tiers: { flex: { input: 0.05, cache_read: 0.005, output: 0.25 }, fast: { input: 0.2, cache_read: 0.02, output: 1 } } },
+    "gpt-6-astra": { rates: { standard: { input: 10, cache_read: 1, output: 50 }, flex: { input: 5, cache_read: 0.5, output: 25 }, fast: { input: 20, cache_read: 2, output: 100 }, ultrafast: { input: 60, cache_read: 6, output: 300 } } },
+    "gpt-6.1-sol": { rates: { standard: { input: 2, cache_read: 0.1, output: 10 }, flex: { input: 1, cache_read: 0.05, output: 5 }, fast: { input: 4, cache_read: 0.2, output: 20 }, ultrafast: { input: 12, cache_read: 0.6, output: 60 } } },
+    "gpt-6-luna": { rates: { standard: { input: 0.1, cache_read: 0.01, output: 0.5 }, flex: { input: 0.05, cache_read: 0.005, output: 0.25 }, fast: { input: 0.2, cache_read: 0.02, output: 1 } } },
   },
 };
 

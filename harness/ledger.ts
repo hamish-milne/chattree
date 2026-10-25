@@ -36,8 +36,29 @@ const add = (a: Spend, b: Spend): void => {
   a.unpriced += b.unpriced;
 };
 
+const WINDOW_KEY = /^cache_write_tokens_(\d+)m$/;
+
+/** Usage as an entry stores it: flat names, with the per-lifetime cache writes as `cache_write_tokens_<minutes>m`. */
+export function usageRecord(u: { input_tokens: number; output_tokens: number; cache_read_tokens?: number | undefined; cache_write_tokens?: number | undefined; reasoning_tokens?: number | undefined; cache_write_by_minutes?: Record<string, number> | undefined }): Record<string, number> {
+  const out: Record<string, number> = { input_tokens: u.input_tokens, output_tokens: u.output_tokens };
+  for (const k of ["cache_read_tokens", "cache_write_tokens", "reasoning_tokens"] as const) if (u[k] !== undefined) out[k] = u[k] as number;
+  for (const [m, n] of Object.entries(u.cache_write_by_minutes ?? {})) out[`cache_write_tokens_${m}m`] = n;
+  return out;
+}
+
 export function tokensOf(usage: Record<string, number> | undefined): Tokens {
-  return { input_tokens: usage?.["input_tokens"] ?? 0, output_tokens: usage?.["output_tokens"] ?? 0, cache_read_tokens: usage?.["cache_read_tokens"] ?? 0, cache_write_tokens: usage?.["cache_write_tokens"] ?? 0 };
+  const by: Record<string, number> = {};
+  for (const [k, v] of Object.entries(usage ?? {})) {
+    const m = WINDOW_KEY.exec(k);
+    if (m !== null) by[m[1] as string] = v;
+  }
+  return {
+    input_tokens: usage?.["input_tokens"] ?? 0,
+    output_tokens: usage?.["output_tokens"] ?? 0,
+    cache_read_tokens: usage?.["cache_read_tokens"] ?? 0,
+    cache_write_tokens: usage?.["cache_write_tokens"] ?? 0,
+    ...(Object.keys(by).length > 0 ? { cache_write_by_minutes: by } : {}),
+  };
 }
 
 export interface LedgerOptions {

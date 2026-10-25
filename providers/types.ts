@@ -19,6 +19,8 @@ export interface Usage {
   output_tokens: number;
   cache_read_tokens?: number;
   cache_write_tokens?: number;
+  /** Of `cache_write_tokens`, how many were written to a cache of each lifetime, keyed by minutes (`"5"`, `"60"`), when the provider says. */
+  cache_write_by_minutes?: Record<string, number>;
   /** Included in `output_tokens` (providers bill thinking as output); reported separately for analysis. */
   reasoning_tokens?: number;
   raw?: Record<string, unknown>;

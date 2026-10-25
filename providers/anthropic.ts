@@ -178,6 +178,16 @@ function mergeUsage(into: Usage, raw: Json | undefined): void {
   if (out !== undefined) into.output_tokens = Math.max(into.output_tokens, out);
   if (read !== undefined) into.cache_read_tokens = read;
   if (write !== undefined) into.cache_write_tokens = write;
+  // `cache_creation` splits the writes by lifetime (from memory of the docs: ephemeral_5m_ and ephemeral_1h_input_tokens).
+  const created = raw["cache_creation"] as Json | undefined;
+  if (created !== undefined && typeof created === "object") {
+    const by: Record<string, number> = {};
+    const m5 = num(created["ephemeral_5m_input_tokens"]);
+    const h1 = num(created["ephemeral_1h_input_tokens"]);
+    if (m5 !== undefined) by["5"] = m5;
+    if (h1 !== undefined) by["60"] = h1;
+    if (Object.keys(by).length > 0) into.cache_write_by_minutes = by;
+  }
   if (thinking !== undefined) into.reasoning_tokens = thinking;
   into.raw = { ...into.raw, ...raw };
 }

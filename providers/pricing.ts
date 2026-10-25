@@ -4,27 +4,39 @@ import { stable } from "../harness/setup.ts";
 
 /**
  * Prices (docs/providers.md, P9). A price table is plain data: per model, dollars per million tokens for each meter
- * (input, output, cache read, cache write; reasoning is billed as output and already counted there), optional
- * service tiers, and an optional long-context band. Tables are pinned by hash in the agent's setup so that the cost
+ * (input, output, cache read, cache write; reasoning is billed as output and already counted there) for each
+ * service tier, and an optional long-context band. Tables are pinned by hash in the agent's setup so that the cost
  * of history never changes under it. An unknown price is unknown, never zero: a local server says `free: true`.
  */
 
-export const METERS = ["input", "output", "cache_read", "cache_write"] as const;
-export type Meter = (typeof METERS)[number];
-
 const rate = z.number().nonnegative();
-const rates = z.strictObject({ input: rate.optional(), output: rate.optional(), cache_read: rate.optional(), cache_write: rate.optional() });
+/** A cache lifetime in minutes, as a key (`"30"`, `"720"`). */
+const minutes = z.string().regex(/^[1-9]\d*$/, "a whole number of minutes");
+
+/** Dollars per million tokens for each meter of one service tier. A meter that is absent is unknown. */
+const rates = z.strictObject({
+  input: rate.optional(),
+  output: rate.optional(),
+  cache_read: rate.optional(),
+  /**
+   * A single rate, or one rate per cache lifetime keyed by minutes (`{ 30: 12.5, 720: 25 }`): writing to a cache
+   * that lasts longer costs more. Tokens whose lifetime the usage does not say are priced at the shortest one.
+   */
+  cache_write: z.union([rate, z.record(minutes, rate)]).optional(),
+});
 export type Rates = z.infer<typeof rates>;
+
+/** Rates by service tier, named as the provider's `service_tier` setting names them. Use `standard` when there is only one. */
+const ratesByTier = z.record(z.string().min(1), rates);
+export type RatesByTier = z.infer<typeof ratesByTier>;
 
 export const modelPrice = z.strictObject({
   /** Explicitly free (a local server). Overrides everything else. */
   free: z.literal(true).optional(),
-  /** Standard tier, dollars per million tokens. A meter that is absent is unknown. */
-  rates: rates.optional(),
-  /** Other service tiers by the name the provider's `service_tier` setting uses; each lists the meters it prices. */
-  tiers: z.record(z.string(), rates).optional(),
+  /** By tier. `standard` is the default; `default` and `auto` in a request's settings mean `standard`. */
+  rates: ratesByTier.optional(),
   /** Requests whose prompt (input, cache read and write together) is longer than `above_tokens` use these rates instead. */
-  long_context: z.strictObject({ above_tokens: z.number().int().positive(), rates }).optional(),
+  long_context: z.strictObject({ above_tokens: z.number().int().positive(), rates: ratesByTier }).optional(),
 });
 export type ModelPrice = z.infer<typeof modelPrice>;
 
@@ -86,7 +98,10 @@ export interface Tokens {
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens?: number | undefined;
+  /** All tokens written to a cache. */
   cache_write_tokens?: number | undefined;
+  /** Of those, how many went to a cache of each lifetime (keyed by minutes); the rest are priced at the shortest lifetime. */
+  cache_write_by_minutes?: Record<string, number> | undefined;
 }
 
 export interface Priced {
@@ -95,11 +110,33 @@ export interface Priced {
   unknown: boolean;
 }
 
-/** The rates that apply to a request: the tier, then the long-context band. `undefined` when the tier is not in the table. */
+/** The rates that apply to a request: the long-context band if the prompt is long enough, then the tier. `undefined` when the tier is not priced. */
 export function ratesFor(price: ModelPrice, tier: string | undefined, promptTokens: number): Rates | undefined {
-  if (price.long_context !== undefined && promptTokens > price.long_context.above_tokens) return price.long_context.rates;
-  if (tier === undefined || tier === "standard" || tier === "default" || tier === "auto") return price.rates;
-  return price.tiers?.[tier];
+  const by = price.long_context !== undefined && promptTokens > price.long_context.above_tokens ? price.long_context.rates : price.rates;
+  const name = tier === undefined || tier === "default" || tier === "auto" ? "standard" : tier;
+  return by?.[name];
+}
+
+/** Dollars for `tokens` written to caches, given the meter's rate (one number, or one per lifetime). `undefined` if a needed rate is missing. */
+function cacheWriteUsd(tokens: Tokens, rate: Rates["cache_write"]): number | undefined {
+  const total = tokens.cache_write_tokens ?? 0;
+  if (total === 0) return 0;
+  if (rate === undefined) return undefined;
+  if (typeof rate === "number") return (total * rate) / 1_000_000;
+  const windows = Object.keys(rate).sort((a, b) => Number(a) - Number(b));
+  const shortest = windows[0];
+  if (shortest === undefined) return undefined;
+  let usd = 0;
+  let known = 0;
+  for (const [w, n] of Object.entries(tokens.cache_write_by_minutes ?? {})) {
+    if (n === 0) continue;
+    const per = rate[w];
+    if (per === undefined) return undefined; // a lifetime the table does not price
+    usd += (n * per) / 1_000_000;
+    known += n;
+  }
+  const rest = Math.max(0, total - known);
+  return usd + (rest * (rate[shortest] as number)) / 1_000_000;
 }
 
 export function costOf(tokens: Tokens, price: ModelPrice | undefined, tier?: string): Priced {
@@ -111,11 +148,13 @@ export function costOf(tokens: Tokens, price: ModelPrice | undefined, tier?: str
   if (r === undefined) return { usd: 0, unknown: true };
   let usd = 0;
   let unknown = false;
-  for (const [meter, n] of [["input", tokens.input_tokens], ["output", tokens.output_tokens], ["cache_read", read], ["cache_write", write]] as const) {
+  for (const [n, per] of [[tokens.input_tokens, r.input], [tokens.output_tokens, r.output], [read, r.cache_read]] as const) {
     if (n === 0) continue;
-    const per = r[meter];
     if (per === undefined) unknown = true;
     else usd += (n * per) / 1_000_000;
   }
+  const w = cacheWriteUsd(tokens, r.cache_write);
+  if (w === undefined) unknown = true;
+  else usd += w;
   return { usd, unknown };
 }
