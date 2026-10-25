@@ -375,3 +375,45 @@ async function* idleGuarded(body: ReadableStream<Uint8Array>, idleMs: number, co
     reader.cancel().catch(() => undefined);
   }
 }
+
+
+/**
+ * One JSON request, no streaming, no retry: for the small calls an adapter makes beside its main one (counting tokens).
+ * Credentials come from `opts.auth`, secrets are scrubbed from errors, and failures are classified as for a stream
+ * (`classify` may refine them). The caller's signal and the total timeout both cancel it.
+ */
+export async function jsonRequest(
+  spec: HttpRequestSpec,
+  opts: HttpOptions,
+  extra: { signal: AbortSignal; classify?: HttpMapper<unknown>["classify"] },
+): Promise<unknown> {
+  const secrets = new Set((opts.secrets ?? []).filter((s) => s.length > 0));
+  const authHeaders = (await opts.auth?.(spec)) ?? {};
+  const headers = { ...spec.headers, ...authHeaders };
+  for (const v of Object.values(authHeaders)) {
+    if (v.length === 0) continue;
+    secrets.add(v);
+    const bare = /^(?:Bearer|Basic|Token)\s+(.+)$/i.exec(v)?.[1];
+    if (bare !== undefined) secrets.add(bare);
+  }
+  const scrub = (t: string): string => [...secrets].reduce((acc, k) => acc.split(k).join("[redacted]"), t);
+  const signal = AbortSignal.any([extra.signal, AbortSignal.timeout(opts.timeouts?.totalMs ?? 60_000)]);
+  const method = spec.method ?? "POST";
+  const body = spec.body === undefined ? undefined : typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body);
+  let res: Response;
+  try {
+    res = await (opts.fetch ?? fetch)(spec.url, { method, headers, ...(body === undefined ? {} : { body }), signal });
+  } catch (e) {
+    throw new ProviderError({ kind: extra.signal.aborted ? "aborted" : signal.aborted ? "timeout" : "network", message: scrub(`request failed: ${errorText(e)}`), retryable: !signal.aborted, cause: e });
+  }
+  const text = await res.text();
+  if (!res.ok) {
+    const c = extra.classify?.({ status: res.status, headers: res.headers, body: text });
+    throw new ProviderError({ ...classifyStatus(res.status), ...c, message: scrub(c?.message ?? `HTTP ${res.status}: ${text.slice(0, 500)}`), status: res.status });
+  }
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new ProviderError({ kind: "protocol", message: "the response is not JSON" });
+  }
+}

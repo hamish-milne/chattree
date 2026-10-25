@@ -516,8 +516,12 @@ test/providers/fixtures/        P12
    window at 90% and the long-context cliff within 10%). `prepareContext` now also requires the pin to match the
    provider's table (`pricing_changed`, accepted with `allowDrift` or by re-pinning), enforces the limits
    (`LimitExceeded`, nothing is sent), and returns `estimate`, `ledger` and `warnings`; it does nothing of this without
-   the `providers` option or with `cost: false`. Not done: an API-backed catalog (`/models`, llama-server's `/props`)
-   and token-counting endpoints for better estimates (parking lot); the wall-clock cap `max_turn_seconds` is in the
+   the `providers` option or with `cost: false`. Token counting (added later): an adapter may implement
+   `countTokens({context, setup, signal})` (Anthropic `POST /v1/messages/count_tokens`, OpenAI `POST /responses/input_tokens`,
+   both free). `prepareContext` calls it only when the byte estimate is near a limit, 60% of the context window or of the
+   long-context threshold (`count: "auto"`, or `"always"`/`"never"`), recomputes the estimate and limits from the exact
+   figure (`estimate.counted`), caches by context digest per conversation, and on failure keeps the estimate and adds a
+   `token_count_failed` warning. Not done: an API-backed catalog (`/models`, llama-server's `/props`); the wall-clock cap `max_turn_seconds` is in the
    config but enforced by the turn runner (step 7); `max_subagent_usd` belongs to the subagent tool's configuration.
 7. **Turn runner and journal**, recovery (including retrieval) in `open`, crash sweeps (P5). **Done.**
    `harness/turn.ts`: `requestStream(convo, opts)` (an async generator of the provider's events that returns how the

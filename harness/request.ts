@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Conversation } from "./conversation.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
 import { assertDefinitions, loadDefinitions, type DefinitionSource } from "./definitions.ts";
@@ -26,7 +27,15 @@ export interface PrepareOptions {
    * the limits in `harness.yml` (`LimitExceeded` otherwise). `false` turns them off.
    */
   cost?: false;
+  /**
+   * When to ask the provider to count the request's tokens, where its adapter can: `auto` (the default) only when the
+   * byte estimate is near a limit, the context window or a long-context threshold, since only then does the exact
+   * figure change a decision; `always`; or `never`. A failed count keeps the estimate and adds a `token_count_failed` warning.
+   */
+  count?: "auto" | "always" | "never";
 }
+
+const counts = new WeakMap<Conversation, Map<string, number>>();
 
 export interface Prepared {
   setup: AgentSetup;
@@ -79,9 +88,35 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const pinnedTable = setup.pricing === undefined ? undefined : await resolver.table(setup.pricing.table);
   const config = await convo.readConfig();
   const limits = config?.ok === true ? config.value.limits : {};
-  const estimate = estimateRequest(context, { id: servedModelId(model), settings: model.settings }, pinnedTable ?? current, convo.modelInfo(model.provider, servedModelId(model)));
+  const modelRef = { id: servedModelId(model), settings: model.settings };
+  const table = pinnedTable ?? current;
+  const info = convo.modelInfo(model.provider, servedModelId(model));
+  let estimate = estimateRequest(context, modelRef, table, info);
   const ledger = await computeLedger(entries, resolver);
-  const { violations, warnings } = checkLimits({ limits, ledger, estimate });
+  let checked = checkLimits({ limits, ledger, estimate });
+  const adapter = convo.providers.get(model.provider);
+  const mode = opts.count ?? "auto";
+  const near = (n: number | undefined): boolean => n !== undefined && estimate.inputTokens >= n * 0.6;
+  const matters = checked.violations.length > 0 || checked.warnings.some((w) => w.kind === "near_limit" || w.kind === "context_window" || w.kind === "long_context") || near(estimate.contextWindow) || near(estimate.longContextAt);
+  let countFailed: CostWarning | undefined;
+  if (adapter?.countTokens !== undefined && mode !== "never" && (mode === "always" || matters)) {
+    const key = createHash("sha256").update(JSON.stringify([model.provider, modelRef.id, context])).digest("hex");
+    const cache = counts.get(convo) ?? new Map<string, number>();
+    counts.set(convo, cache);
+    try {
+      let n = cache.get(key);
+      if (n === undefined) {
+        n = await adapter.countTokens({ context, setup, signal: AbortSignal.timeout(15_000) });
+        cache.set(key, n);
+      }
+      estimate = estimateRequest(context, modelRef, table, info, n);
+      checked = checkLimits({ limits, ledger, estimate });
+    } catch (e) {
+      countFailed = { kind: "token_count_failed", message: `could not count the request's tokens (${e instanceof Error ? e.message : String(e)}); using the size estimate, which errs high` };
+    }
+  }
+  const { violations } = checked;
+  const warnings = countFailed === undefined ? checked.warnings : [...checked.warnings, countFailed];
   if (violations.length > 0) throw new LimitExceeded(violations);
   return { setup, context, estimate, ledger, warnings };
 }

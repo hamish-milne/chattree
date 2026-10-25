@@ -17,8 +17,6 @@ Each entry says what it is and what a first step would be. Within a group, the o
 
 ## Medium
 
-- **Token counting**: Anthropic `count_tokens` and OpenAI input-token endpoints in place of the pessimistic bytes-per-token
-  estimate, which can refuse a request that would have fit.
 - **Repository maintenance**: `gc.auto` is off so git never rewrites the repository behind a running conversation, so loose
   objects accumulate (every commit writes a few). Needs an automatic `maintain()` under the branch locks.
 - **"Continue from where it left off"** after an `interrupted` entry: an explicit mutation, never silent.
@@ -114,6 +112,9 @@ with the pointer tracked in the chat repository (plus branch name and a saved di
 also lets one agent flow work across several repositories. It touches snapshots, forks, merges and verification.
 
 ## Low
+
+- **Token counting, further**: llama-server `/tokenize` for the openai-compatible adapter (unverified), and calibrating the
+  bytes-per-token estimate from the usage of earlier requests for providers with no counting endpoint.
 
 - **Recovery that checks the owner is dead.** A journal that goes quiet is taken for dead after `journalStaleMs`; a suspended
   but living process is only caught by the commit-time ownership check (`RequestSuperseded`), after its work is wasted.

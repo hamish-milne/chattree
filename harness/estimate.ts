@@ -21,6 +21,8 @@ export interface Estimate {
   contextWindow: number | undefined;
   /** The long-context threshold the request is near or past, when the model has one. */
   longContextAt: number | undefined;
+  /** True when `inputTokens` is the provider's own count rather than the byte-based guess. */
+  counted?: boolean;
 }
 
 const BYTES_PER_TOKEN = 3;
@@ -37,8 +39,8 @@ export function estimateInputTokens(ctx: ModelContext): number {
   return Math.ceil(new TextEncoder().encode(text).length / BYTES_PER_TOKEN);
 }
 
-export function estimateRequest(ctx: ModelContext, model: { id: string; settings?: unknown }, table: PriceTable | undefined, info?: ModelInfo): Estimate {
-  const inputTokens = estimateInputTokens(ctx);
+export function estimateRequest(ctx: ModelContext, model: { id: string; settings?: unknown }, table: PriceTable | undefined, info?: ModelInfo, counted?: number): Estimate {
+  const inputTokens = counted ?? estimateInputTokens(ctx);
   const maxOutputTokens = Number((model.settings as { max_output_tokens?: unknown } | undefined)?.max_output_tokens ?? 0);
   const price = table === undefined ? undefined : findModel(table, model.id);
   const tier = (model.settings as { service_tier?: unknown } | undefined)?.service_tier;
@@ -49,7 +51,7 @@ export function estimateRequest(ctx: ModelContext, model: { id: string; settings
     const per = r === undefined ? undefined : promptRate(r, (model.settings as { cache_ttl?: unknown } | undefined)?.cache_ttl);
     if (r?.output !== undefined && per !== undefined) usd = (inputTokens * per + maxOutputTokens * r.output) / 1_000_000;
   }
-  return { inputTokens, maxOutputTokens, usd, contextWindow: info?.context_window, longContextAt: price?.long_context?.above_tokens };
+  return { inputTokens, maxOutputTokens, usd, contextWindow: info?.context_window, longContextAt: price?.long_context?.above_tokens, ...(counted === undefined ? {} : { counted: true }) };
 }
 
 /**

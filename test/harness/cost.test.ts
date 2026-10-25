@@ -282,6 +282,61 @@ describe("prepareContext with costs", () => {
   });
 });
 
+describe("token counting in prepareContext", () => {
+  const TIGHT = CONFIG.replace("max_request_usd: 1", "max_request_usd: 0.001");
+  const big: NewEntry = { $tag: "user", content: [{ $tag: "text", text: "x".repeat(9_500) }] };
+
+  async function counting(config: string, reply: (() => number) | Error) {
+    const { convo } = await fresh(config);
+    await convo.pinPricing();
+    const adapter = convo.providers.get("gpt") as { countTokens?: unknown };
+    let calls = 0;
+    adapter.countTokens = async () => {
+      calls++;
+      if (reply instanceof Error) throw reply;
+      return reply();
+    };
+    return { convo, calls: () => calls };
+  }
+
+  test("far from every limit the provider is not asked; `always` asks and uses the exact figure", async () => {
+    const { convo, calls } = await counting(CONFIG, () => 42);
+    await convo.append(hi);
+    const a = await prepareContext(convo, { system: "s" });
+    assert.equal(calls(), 0);
+    assert.equal(a.estimate?.counted, undefined);
+    const b = await prepareContext(convo, { system: "s", count: "always" });
+    assert.equal(calls(), 1);
+    assert.deepEqual([b.estimate?.inputTokens, b.estimate?.counted], [42, true]);
+  });
+
+  test("near a limit the exact count replaces the estimate, which can lift a warning; results are cached; `never` skips", async () => {
+    const { convo, calls } = await counting(TIGHT, () => 10);
+    await convo.append(big);
+    const without = await prepareContext(convo, { system: "s", count: "never" });
+    assert.equal(calls(), 0);
+    assert.ok(without.warnings.some((w) => w.kind === "near_limit") || without.estimate!.usd! > 0.0008, "the byte estimate is near the limit");
+    const p = await prepareContext(convo, { system: "s" });
+    assert.equal(calls(), 1);
+    assert.equal(p.estimate?.inputTokens, 10);
+    assert.deepEqual(p.warnings, []);
+    await prepareContext(convo, { system: "s" });
+    assert.equal(calls(), 1, "the same context is not counted twice");
+  });
+
+  test("the exact count can also stop a request the estimate let through, and a failure keeps the estimate with a warning", async () => {
+    const over = await counting(TIGHT, () => 10_000_000);
+    await over.convo.append(big);
+    await assert.rejects(prepareContext(over.convo, { system: "s" }), (e) => e instanceof LimitExceeded);
+
+    const bad = await counting(TIGHT, new Error("boom"));
+    await bad.convo.append(big);
+    const p = await prepareContext(bad.convo, { system: "s" });
+    assert.ok(p.warnings.some((w) => w.kind === "token_count_failed" && /boom/.test(w.message)));
+    assert.equal(p.estimate?.counted, undefined);
+  });
+});
+
 describe("merges and interruptions carry cost", () => {
   test("a subagent's spend is rolled up in its result, under the table it pinned; interrupted usage counts", async () => {
     const { convo } = await fresh();

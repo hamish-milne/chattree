@@ -4,7 +4,7 @@ import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
 import { ANTHROPIC_MODELS, ANTHROPIC_PRICES } from "./pricing-data.ts";
-import { httpStream, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
+import { httpStream, jsonRequest, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
 import { ProviderError, type Completed, type ErrorKind, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
 
@@ -377,9 +377,21 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
       return { ...base, ...(opts.authorization === "bearer" ? { authorization: `Bearer ${key}` } : { "x-api-key": key }) };
     },
   };
+  const secrets = typeof opts.apiKey === "string" ? [opts.apiKey] : [];
+  const headers: Record<string, string> = { "content-type": "application/json", "anthropic-version": opts.version ?? "2023-06-01", ...((opts.betas ?? []).length > 0 ? { "anthropic-beta": (opts.betas ?? []).join(",") } : {}) };
   return {
     $tag: "anthropic",
     stream: (req) => httpStream(mapper, req, http),
+    async countTokens(req) {
+      // POST /v1/messages/count_tokens takes the Messages request without the generation settings. No cache markers: they change nothing about the count.
+      const full = buildAnthropicBody(req.context, req.setup, { cacheControl: false });
+      const body: Json = {};
+      for (const k of ["model", "system", "messages", "tools", "thinking", "output_config"]) if (full[k] !== undefined) body[k] = full[k];
+      const d = await jsonRequest({ url: `${baseUrl.replace(/\/$/, "")}/v1/messages/count_tokens`, headers, body }, { ...http, secrets: [...(http.secrets ?? []), ...secrets] }, { signal: req.signal, classify: mapper.classify });
+      const n = (d as Json | undefined)?.["input_tokens"];
+      if (typeof n !== "number" || !Number.isFinite(n)) throw new ProviderError({ kind: "protocol", message: "the token count response has no input_tokens" });
+      return n;
+    },
     classify: classifyAnthropic,
   };
 }

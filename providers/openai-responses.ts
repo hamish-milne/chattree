@@ -5,7 +5,7 @@ import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
 import { OPENAI_PRICES } from "./pricing-data.ts";
-import { classifyStatus, httpStream, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
+import { classifyStatus, httpStream, jsonRequest, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
 import { ProviderError, type Completed, type ErrorKind, type ModelStream, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
 
@@ -545,7 +545,18 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
     return { blocks, stop_reason: stopReason(d, blocks, refused), usage, observed: { ...(model === undefined ? {} : { model }), response_id: r.responseId }, ext: { response_id: r.responseId, store: d["store"] === true, retrieved: true } };
   }
 
-  return { $tag: "openai", stream, retrieve, classify: classifyOpenAI };
+  async function countTokens(r: { context: ModelContext; setup: AgentSetup; signal: AbortSignal }): Promise<number> {
+    // POST /responses/input_tokens takes the Responses request's input fields; always the full context (no chaining).
+    const full = buildResponsesBody(r.context, r.setup, request);
+    const body: Json = {};
+    for (const k of ["model", "input", "instructions", "tools"]) if (full[k] !== undefined) body[k] = full[k];
+    const d = await jsonRequest({ url: `${baseUrl.replace(/\/$/, "")}/responses/input_tokens`, headers: { "content-type": "application/json" }, body }, http, { signal: r.signal, classify: mapper.classify });
+    const n = (d as Json | undefined)?.["input_tokens"];
+    if (typeof n !== "number" || !Number.isFinite(n)) throw protocol("the token count response has no input_tokens");
+    return n;
+  }
+
+  return { $tag: "openai", stream, retrieve, countTokens, classify: classifyOpenAI };
 }
 
 // ---- registration -----------------------------------------------------------------------------------------------

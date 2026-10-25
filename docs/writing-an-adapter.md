@@ -83,6 +83,9 @@ blocks complete and put the response id in `observed` as early as you know it: a
 `retrieve` and commit the finished response instead of an `interrupted` entry. If the stream is aborted, throw
 `ProviderError` of kind `aborted` promptly; the runner records what had arrived.
 
+An adapter whose provider has a token-counting endpoint may implement `countTokens` (use `jsonRequest` from `providers/http.ts`):
+send the request without generation settings or cache markers, return the input token count, throw `ProviderError` on failure.
+
 A provider that is not HTTP and SSE (an in-process engine, a socket protocol) implements `ProviderAdapter`
 directly and ignores all this. The conformance checks below apply to it all the same.
 

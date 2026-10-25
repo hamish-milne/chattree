@@ -141,5 +141,11 @@ export interface ProviderAdapter {
    * `undefined` when the provider no longer has it (or never stored it). Only providers that store responses have this.
    */
   retrieve?(req: { responseId: string; setup: AgentSetup; signal: AbortSignal }): Promise<Completed | undefined>;
+  /**
+   * How many input tokens the request for this context would use, from the provider's own counting endpoint (free where
+   * it exists). Used to replace the byte-based estimate when a limit or the context window is near. Throws `ProviderError`
+   * if the call fails; the caller then keeps the estimate. Absent for providers that have no such endpoint.
+   */
+  countTokens?(req: { context: ModelContext; setup: AgentSetup; signal: AbortSignal }): Promise<number>;
   classify?(from: AgentSetup, to: AgentSetup, ctx: { midLoop: boolean }): readonly Change[];
 }
