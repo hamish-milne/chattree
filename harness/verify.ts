@@ -203,23 +203,31 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
   });
 
   if (opts.deep === true) {
-    for (let at = 0; at < present.length; at += 200) {
-      const chunk = present.slice(at, at + 200);
-      const data = await git.readObjects(chunk.map((i) => specs[i] as string));
-      for (const [k, i] of chunk.entries()) {
-        const h = hashes[i] as string;
-        const bytes = data[k];
-        if (bytes === undefined || (await sha256Hex(bytes)) !== h) add("error", "blob-corrupt", `blob ${h.slice(0, 12)} does not match its hash`, { commit: tipCommit, entry: wanted.get(h)?.entry as string });
+    // One long-lived cat-file process, and one object in memory at a time.
+    const objects = await git.catFile();
+    try {
+      // Requests go out in windows, so the process is never idle and memory stays bounded.
+      const WINDOW = 32;
+      for (let at = 0; at < present.length; at += WINDOW) {
+        const chunk = present.slice(at, at + WINDOW);
+        const got = await Promise.all(chunk.map((i) => objects.read(specs[i] as string)));
+        for (const [k, i] of chunk.entries()) {
+          const h = hashes[i] as string;
+          const bytes = got[k];
+          if (bytes === undefined || (await sha256Hex(bytes)) !== h) add("error", "blob-corrupt", `blob ${h.slice(0, 12)} does not match its hash`, { commit: tipCommit, entry: wanted.get(h)?.entry as string });
+        }
       }
-    }
-    for (let at = 0; at < commits.length; at += 100) {
-      const chunk = commits.slice(at, at + 100);
-      const data = await git.readObjects(chunk.map((c) => `${c.hash}:${CHAT_FILE}`));
-      for (const [k, c] of chunk.entries()) {
-        const bytes = data[k];
-        if (bytes === undefined) continue; // reported above
-        if (bytes.length > tip.length || !bytes.every((b, j) => b === tip[j])) add("error", "not-a-prefix", `${CHAT_FILE} at this commit is not a byte prefix of the tip's`, { commit: c.hash });
+      for (let at = 0; at < commits.length; at += WINDOW) {
+        const chunk = commits.slice(at, at + WINDOW);
+        const got = await Promise.all(chunk.map((c) => objects.read(`${c.hash}:${CHAT_FILE}`)));
+        for (const [k, c] of chunk.entries()) {
+          const bytes = got[k];
+          if (bytes === undefined) continue; // reported above
+          if (bytes.length > tip.length || !bytes.every((b, j) => b === tip[j])) add("error", "not-a-prefix", `${CHAT_FILE} at this commit is not a byte prefix of the tip's`, { commit: c.hash });
+        }
       }
+    } finally {
+      await objects.close();
     }
   }
   return problems;

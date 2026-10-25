@@ -21,6 +21,7 @@ import {
 } from "../src/index.ts";
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
+import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChatEntry, type PipelineConfig } from "./entries.ts";
 import { createUlid } from "./ulid.ts";
@@ -57,7 +58,33 @@ export interface ConversationOptions {
   now?: () => number;
   /** Fix commit dates from `now`. Default: git's own clock. */
   fixedDates?: boolean;
+  /**
+   * Called for everything that happens to the conversation, in order, after it is committed (see `ConversationEvent`).
+   * Handles opened for other branches (forks, subagents) inherit it. Delivery is asynchronous and never delays or
+   * fails the operation that caused the event; `flushEvents()` waits for it.
+   */
+  onEvent?: (event: ConversationEvent) => void | Promise<void>;
+  /** Told when `onEvent` throws or rejects. Default: ignored. */
+  onEventError?: (error: unknown, event: ConversationEvent) => void;
+  /**
+   * Where to keep the entry index between runs, so opening a long conversation need not walk its whole history.
+   * Default: a file under the repository's git directory. `false` keeps it in memory only.
+   */
+  indexCache?: IndexCache | false;
 }
+
+/** Something that happened to a conversation. Events are delivered after the change is committed, in order. */
+export type ConversationEvent =
+  /** An entry was committed (also on a new branch's first entry). `recovered` entries were found uncommitted by `open`. */
+  | { type: "entry"; branch: string; entry: Appended; value: ChatEntry; recovered?: true }
+  /** Pending workspace changes were committed without an entry. */
+  | { type: "snapshot"; branch: string; commit: string }
+  /** A fork or subagent branch was created. */
+  | { type: "branch"; branch: string; kind: "fork" | "subagent"; parent: string; from: string; start: Appended }
+  /** A fork or subagent was merged into `branch`. */
+  | { type: "merge"; branch: string; child: string; kind: "subagent" | "fork"; entry: Appended; report: MergeReport }
+  /** `open` repaired something a crash left behind. */
+  | { type: "recovery"; branch: string; report: RecoveryReport };
 
 export interface CreateOptions extends ConversationOptions {
   /** Name of the first branch. Default "main". */
@@ -318,6 +345,9 @@ export class Conversation {
   #queue: Promise<unknown> = Promise.resolve();
   #head: string | undefined;
   #idx: { tip: string; refs: EntryRef[] } | undefined;
+  #cache: IndexCache | undefined;
+  #cacheReady = false;
+  #delivery: Promise<void> = Promise.resolve();
 
   private constructor(host: Host, git: Git, dir: string, branch: string, lockPath: string, opts: ConversationOptions, size: number, recovery: RecoveryReport) {
     this.host = host;
@@ -338,6 +368,33 @@ export class Conversation {
   async #init(): Promise<this> {
     this.#head = await this.git.head();
     return this;
+  }
+
+  // ---- events ----------------------------------------------------------------------------------------------
+
+  #emit(event: ConversationEvent): void {
+    const handler = this.#opts.onEvent;
+    if (handler === undefined) return;
+    this.#delivery = this.#delivery.then(async () => {
+      try {
+        await handler(event);
+      } catch (e) {
+        try {
+          this.#opts.onEventError?.(e, event);
+        } catch {
+          /* a failing error handler must not stop delivery */
+        }
+      }
+    });
+  }
+
+  #emitEntry(branch: string, entry: Appended, value: ChatEntry, recovered = false): void {
+    this.#emit({ type: "entry", branch, entry, value, ...(recovered ? { recovered: true as const } : {}) });
+  }
+
+  /** Resolves when every event emitted so far has been delivered to `onEvent`. */
+  async flushEvents(): Promise<void> {
+    await this.#delivery;
   }
 
   // ---- create / open ---------------------------------------------------------------------------------------
@@ -370,8 +427,11 @@ export class Conversation {
     const lockPath = await Conversation.#lockPathFor(host, git, branch);
     const lock = await acquireLock(host.fs, lockPath, { ...opts.lock, ...(opts.now === undefined ? {} : { now: opts.now }) });
     try {
-      const { size, report } = await Conversation.#recover(host, git, dir, opts);
-      return await Conversation.#load(host, git, dir, branch, opts, size, report);
+      const { size, report, recoveredEntries } = await Conversation.#recover(host, git, dir, opts);
+      const convo = await Conversation.#load(host, git, dir, branch, opts, size, report);
+      if (report.truncatedBytes > 0 || report.recovered.length > 0) convo.#emit({ type: "recovery", branch, report });
+      for (const [i, r] of report.recovered.entries()) convo.#emitEntry(branch, r, recoveredEntries[i] as ChatEntry, true);
+      return convo;
     } finally {
       await lock.release();
     }
@@ -386,7 +446,7 @@ export class Conversation {
     return host.path.join(await git.commonDir(), "chattree", "locks", `${encodeURIComponent(branch)}.lock`);
   }
 
-  static async #recover(host: Host, git: Git, dir: string, opts: ConversationOptions): Promise<{ size: number; report: RecoveryReport }> {
+  static async #recover(host: Host, git: Git, dir: string, opts: ConversationOptions): Promise<{ size: number; report: RecoveryReport; recoveredEntries: ChatEntry[] }> {
     const file = host.path.join(dir, CHAT_FILE);
     const committed = await git.readFileAt("HEAD", CHAT_FILE);
     if (committed === undefined) throw new ConversationError(`HEAD has no ${CHAT_FILE}: not a conversation repository`);
@@ -398,6 +458,7 @@ export class Conversation {
     }
 
     const report: RecoveryReport = { truncatedBytes: 0, recovered: [] };
+    const recoveredEntries: ChatEntry[] = [];
     let framed;
     try {
       framed = scan(disk);
@@ -435,9 +496,10 @@ export class Conversation {
         await git.stageContent(CHAT_FILE, await git.hashObject(disk.subarray(0, d.end)));
         const commit = await git.commit(Conversation.#commitFor(d.entry, d.id, d.end, opts, true));
         report.recovered.push({ id: d.id, tag: d.tag, commit, offset: d.end });
+        recoveredEntries.push(d.entry);
       }
     }
-    return { size: disk.length, report };
+    return { size: disk.length, report, recoveredEntries };
   }
 
   // ---- commits ---------------------------------------------------------------------------------------------
@@ -483,6 +545,85 @@ export class Conversation {
     return this.#transaction(() => this.#appendLocked(entry));
   }
 
+  /**
+   * Append many entries, each its own commit, with a fixed number of git processes instead of a few per entry
+   * (importing a transcript, replaying a session). Pending workspace changes are committed first as a snapshot,
+   * so the entry commits hold only the transcript and its blobs. All entries are written to the transcript
+   * before any is committed, as with `append`, so a crash leaves them for `open` to commit; the commits are
+   * then written in one `git fast-import` and the branch moves once, so either all of them are in the history
+   * or none is. Cost grows with the transcript's size times the number of entries, as with separate appends.
+   */
+  appendMany(inputs: readonly NewEntry[]): Promise<Appended[]> {
+    return this.#transaction(() => this.#appendManyLocked(inputs));
+  }
+
+  async #appendManyLocked(inputs: readonly NewEntry[]): Promise<Appended[]> {
+    if (inputs.length === 0) return [];
+    await this.#snapshotLocked();
+    const before = await this.#assertIntact();
+    const head = await this.git.head();
+    if (head === undefined) throw new ConversationError("the conversation has no commits");
+
+    // Encode everything first: an entry that does not validate must leave nothing behind.
+    const items: { id: string; tag: string; value: ChatEntry; bytes: Uint8Array; blobs: Map<string, Uint8Array> }[] = [];
+    for (const input of inputs) {
+      const recorder = new RecordingBlobStore(this.store);
+      const pipeline = createPipeline({ ...this.#opts.pipeline, store: recorder });
+      const withId = input.$tag === "header" || input.id !== undefined ? input : { ...input, id: this.#nextId() };
+      const entry = await pipeline.encode(withId);
+      const decoded = await pipeline.decode(entry);
+      if (!decoded.ok) throw new ConversationError(`${input.$tag} entry failed to decode after encoding`);
+      items.push({ id: (decoded.value as { id?: string }).id ?? "", tag: decoded.tag, value: decoded.value, bytes: encodeEntry(entry), blobs: recorder.blobs });
+    }
+    const total = items.reduce((n, i) => n + i.bytes.length, 0);
+    const existing = await this.host.fs.read(this.#file);
+    const full = new Uint8Array(before + total);
+    full.set(existing.subarray(0, before));
+    let at = before;
+    const ends: number[] = [];
+    for (const i of items) {
+      full.set(i.bytes, at);
+      at += i.bytes.length;
+      ends.push(at);
+    }
+
+    let commits: string[];
+    try {
+      for (const item of items) for (const data of item.blobs.values()) await this.store.put(data);
+      await this.host.fs.append(this.#file, full.subarray(before), { sync: true });
+      const after = (await this.host.fs.stat(this.#file))?.size ?? 0;
+      if (after !== full.length) throw new ConversationError(`${CHAT_FILE} is ${after} bytes after appending, expected ${full.length}: something else wrote to it`);
+      const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
+      const seenBlobs = new Set<string>();
+      commits = await this.git.importCommits(
+        `refs/heads/${this.branch}`,
+        head,
+        items.map((item, k) => {
+          const c = Conversation.#commitFor(item.value, item.id, ends[k] as number, this.#opts);
+          // A blob goes in with the first entry that refers to it, as it would with separate appends.
+          const blobFiles = [...item.blobs].map(([hash, data]) => ({ path: HostBlobStore.relativePath(hash), data })).filter((b) => !seenBlobs.has(b.path));
+          for (const b of blobFiles) seenBlobs.add(b.path);
+          const files = [{ path: CHAT_FILE, data: full.subarray(0, ends[k]) }, ...blobFiles];
+          return { message: c.message, trailers: c.trailers, author: c.author, committer: c.committer ?? committer, ...("date" in c && c.date !== undefined ? { date: c.date } : {}), files };
+        }),
+      );
+    } catch (e) {
+      if ((await this.git.head().catch(() => undefined)) === head) await this.#rollback(before);
+      throw e;
+    }
+    this.#size = full.length;
+    // The commits bypassed the index; bring it back in line. If this fails the next staging heals it.
+    await this.git.syncIndex().catch(() => undefined);
+    const out: Appended[] = [];
+    for (const [k, item] of items.entries()) {
+      const a = { id: item.id, tag: item.tag, commit: commits[k] as string, offset: ends[k] as number };
+      out.push(a);
+      this.#advance(a.commit, { id: item.id === "" ? undefined : item.id, tag: item.tag, commit: a.commit, offset: a.offset });
+      this.#emitEntry(this.branch, a, item.value);
+    }
+    return out;
+  }
+
   async #appendLocked(input: NewEntry): Promise<Appended> {
     const withId = input.$tag === "header" || input.id !== undefined ? input : { ...input, id: this.#nextId() };
     const entry = await this.pipeline.encode(withId);
@@ -501,7 +642,9 @@ export class Conversation {
       const commit = await this.git.commit(Conversation.#commitFor(decoded.value, id, after, this.#opts));
       this.#size = after;
       this.#advance(commit, { id: id === "" ? undefined : id, tag: decoded.tag, commit, offset: after });
-      return { id, tag: decoded.tag, commit, offset: after };
+      const appended = { id, tag: decoded.tag, commit, offset: after };
+      this.#emitEntry(this.branch, appended, decoded.value);
+      return appended;
     } catch (e) {
       await this.#rollback(before);
       throw e;
@@ -725,7 +868,10 @@ export class Conversation {
     data.set(prepared.bytes, prefix.length);
     const commit = await this.git.commitOnto(from, [{ path: CHAT_FILE, data }, ...Conversation.#blobEdits(prepared.blobs)], Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts));
     await this.git.createBranch(name, commit);
-    return { id: prepared.id, tag: prepared.tag, commit, offset: data.length };
+    const start = { id: prepared.id, tag: prepared.tag, commit, offset: data.length };
+    this.#emitEntry(name, start, prepared.value);
+    if (marker.$tag === "branch_start") this.#emit({ type: "branch", branch: name, kind: marker.kind, parent: marker.from.branch, from, start });
+    return start;
   }
 
   // ---- subagents -------------------------------------------------------------------------------------------
@@ -751,6 +897,7 @@ export class Conversation {
       ...Conversation.#dateOpt(this.#opts),
     });
     this.#advance(commit);
+    this.#emit({ type: "snapshot", branch: this.branch, commit });
     return commit;
   }
 
@@ -868,7 +1015,11 @@ export class Conversation {
       if (after !== data.length) throw new ConversationError(`${CHAT_FILE} is ${after} bytes after the merge, expected ${data.length}`);
       this.#size = after;
       this.#advance(commit, { id: prepared.id, tag: prepared.tag, commit, offset: after });
-      return { entry: { id: prepared.id, tag: prepared.tag, commit, offset: after }, report: { ...summary, base }, childTip: tip };
+      const entry = { id: prepared.id, tag: prepared.tag, commit, offset: after };
+      const report = { ...summary, base };
+      this.#emitEntry(this.branch, entry, prepared.value);
+      this.#emit({ type: "merge", branch: this.branch, child: childBranch, kind: prepared.value.$tag === "fork_merge" ? "fork" : "subagent", entry, report });
+      return { entry, report, childTip: tip };
     });
   }
 
@@ -920,15 +1071,66 @@ export class Conversation {
     const head = await this.git.head();
     if (head === undefined) return [];
     if (this.#idx?.tip === head) return this.#idx.refs.slice();
-    // Extend a stale cache if its tip is on this branch's first-parent line; otherwise rebuild.
-    if (this.#idx !== undefined && (await this.git.isAncestor(this.#idx.tip, head))) {
-      const added = await this.#indexOf(head, this.#idx.tip);
-      this.#idx = { tip: head, refs: [...this.#idx.refs, ...added] };
+    // Start from what we have, or what the cache kept from an earlier run.
+    let have = this.#idx;
+    if (have === undefined) {
+      have = await this.#loadCachedIndex();
+    }
+    // Extend it if its tip is on this branch's first-parent line; otherwise rebuild.
+    if (have !== undefined && have.tip === head) {
+      this.#idx = { tip: head, refs: have.refs };
+    } else if (have !== undefined && (await this.#onBranchLine(have.tip, head))) {
+      const added = await this.#indexOf(head, have.tip);
+      this.#idx = { tip: head, refs: [...have.refs, ...added] };
+      await this.#saveCachedIndex();
     } else {
       this.#idx = { tip: head, refs: await this.#indexOf(head) };
+      await this.#saveCachedIndex();
     }
     this.#head = head;
     return this.#idx.refs.slice();
+  }
+
+  async #onBranchLine(ancestor: string, head: string): Promise<boolean> {
+    try {
+      return await this.git.isAncestor(ancestor, head);
+    } catch (e) {
+      if (e instanceof GitError) return false; // the cached tip no longer exists
+      throw e;
+    }
+  }
+
+  async #indexCache(): Promise<IndexCache | undefined> {
+    if (!this.#cacheReady) {
+      const o = this.#opts.indexCache;
+      this.#cache = o === false ? undefined : (o ?? (await FileIndexCache.forRepository(this.host, this.git)));
+      this.#cacheReady = true;
+    }
+    return this.#cache;
+  }
+
+  async #loadCachedIndex(): Promise<{ tip: string; refs: EntryRef[] } | undefined> {
+    try {
+      const cached = await (await this.#indexCache())?.load(this.branch);
+      return cached === undefined ? undefined : { tip: cached.tip, refs: cached.refs.map((r) => ({ ...r })) };
+    } catch {
+      return undefined; // a broken cache is just a missing one
+    }
+  }
+
+  async #saveCachedIndex(): Promise<void> {
+    if (this.#idx === undefined) return;
+    try {
+      await (await this.#indexCache())?.save(this.branch, { tip: this.#idx.tip, refs: this.#idx.refs });
+    } catch {
+      /* the cache is an optimisation */
+    }
+  }
+
+  /** Write the current entry index to the cache now (it is otherwise saved when `index()` has to do work). */
+  async flushIndex(): Promise<void> {
+    await this.index();
+    await this.#saveCachedIndex();
   }
 
   async #indexOf(rev: string, after?: string): Promise<EntryRef[]> {
