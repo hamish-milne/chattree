@@ -601,6 +601,15 @@ loose objects and removes the packed copies; objects written but not yet committ
 or an in-flight append, could need. A `maintenance` event reports bytes and counts before and after; `convo.maintain()`
 does it on demand; `auto: false` turns the automatic checks off. A failure is swallowed and retried at the next check.
 
+### Continuing after an interruption (added after step 8)
+
+`convo.continueInterrupted({ instruction? })` is the one mutation for resuming: the last entry (setup changes after it
+are skipped) must be an `interrupted`, otherwise it throws `ConversationError`. It appends an ordinary `user` entry
+(default text `CONTINUE_INSTRUCTION`: the reply was cut off, continue from where it stopped without repeating) and
+the commit carries `Chattree-Continues: <interrupted id>`; the host then calls `runRequest`. Nothing about the
+transcript format changes: the interrupted entry keeps its partial text, the model sees it and the new message, and
+the wording is stored text, so a later renderer change cannot alter it. Never done silently: the host decides.
+
 ## 6. Out of scope here
 
 The tool-execution loop and permissions; skills and MCP implementations (only their pinning); when to compact;

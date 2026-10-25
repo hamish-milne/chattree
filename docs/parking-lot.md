@@ -17,7 +17,6 @@ Each entry says what it is and what a first step would be. Within a group, the o
 
 ## Medium
 
-- **"Continue from where it left off"** after an `interrupted` entry: an explicit mutation, never silent.
 - **Attachments** (images, files): refused today by all three adapters.
 - **Tool loop above `requestStream`**: the turn's deadline, `max_requests_per_turn`, tool results, and raising `cost`
   warnings as events from `Prepared.warnings`. The next layer rather than a gap in this phase.

@@ -125,6 +125,9 @@ export type ConversationEvent =
   /** The repository was repacked (see `Conversation.maintain`). */
   | { type: "maintenance"; branch: string; report: MaintenanceReport };
 
+/** What `continueInterrupted` says by default. */
+export const CONTINUE_INSTRUCTION = "Your previous reply was cut off. Continue from where it stopped, without repeating what you already wrote.";
+
 export interface RepoStats {
   looseObjects: number;
   packs: number;
@@ -765,7 +768,7 @@ export class Conversation {
 
   // ---- commits ---------------------------------------------------------------------------------------------
 
-  static #commitFor(entry: ChatEntry, id: string, offset: number, opts: ConversationOptions, recovered = false) {
+  static #commitFor(entry: ChatEntry, id: string, offset: number, opts: ConversationOptions, recovered = false, extra: readonly [string, string][] = []) {
     const committer = opts.committer ?? DEFAULT_COMMITTER;
     let author: Identity = committer;
     if (entry.$tag === "user") author = opts.user ?? committer;
@@ -774,6 +777,7 @@ export class Conversation {
     if (id !== "") trailers.push(["Chattree-Entry", id]);
     trailers.push(["Chattree-Offset", String(offset)]);
     if (recovered) trailers.push(["Chattree-Recovered", "true"]);
+    trailers.push(...extra);
     return {
       message: describeEntry(entry),
       trailers,
@@ -798,6 +802,31 @@ export class Conversation {
     });
     this.#queue = run.catch(() => undefined);
     return run;
+  }
+
+  // ---- continuing ------------------------------------------------------------------------------------------
+
+  /**
+   * Answer an `interrupted` entry with a new user message asking the model to carry on, so the host can call
+   * `runRequest` again. The interrupted entry must be the last in the transcript (setup changes after it do not
+   * count); it stays as it is, partial text and all, and the model sees both it and the new message. The message is
+   * ordinary stored text (`instruction`, default: say the reply was cut off and to continue from where it stopped),
+   * so it never changes meaning when renderers do. The commit carries `Chattree-Continues: <interrupted id>`.
+   */
+  continueInterrupted(opts: { instruction?: string } = {}): Promise<Appended> {
+    return this.#transaction(async () => {
+      const entries = (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+      let last: ChatEntry | undefined;
+      for (let i = entries.length - 1; i >= 0; i--) {
+        const e = entries[i] as ChatEntry;
+        if (e.$tag === "agent_setup") continue;
+        last = e;
+        break;
+      }
+      if (last?.$tag !== "interrupted") throw new ConversationError(`there is nothing to continue: the last entry is ${last === undefined ? "missing" : `a ${last.$tag}`}, not an interrupted reply`);
+      const text = opts.instruction ?? CONTINUE_INSTRUCTION;
+      return this.#appendLocked({ $tag: "user", content: [{ $tag: "text", text }] }, [["Chattree-Continues", last.id]]);
+    });
   }
 
   // ---- maintenance -----------------------------------------------------------------------------------------
@@ -934,7 +963,7 @@ export class Conversation {
     return out;
   }
 
-  async #appendLocked(input: NewEntry): Promise<Appended> {
+  async #appendLocked(input: NewEntry, extraTrailers: readonly [string, string][] = []): Promise<Appended> {
     const withId = input.$tag === "header" || input.id !== undefined ? input : { ...input, id: this.#nextId() };
     const entry = await this.pipeline.encode(withId);
     const bytes = encodeEntry(entry);
@@ -949,7 +978,7 @@ export class Conversation {
       const after = (await this.host.fs.stat(this.#file))?.size ?? 0;
       if (after !== before + bytes.length) throw new ConversationError(`${CHAT_FILE} is ${after} bytes after appending ${bytes.length} to ${before}: something else wrote to it`);
       await this.git.addAll();
-      const commit = await this.git.commit(Conversation.#commitFor(decoded.value, id, after, this.#opts));
+      const commit = await this.git.commit(Conversation.#commitFor(decoded.value, id, after, this.#opts, false, extraTrailers));
       this.#size = after;
       this.#advance(commit, { id: id === "" ? undefined : id, tag: decoded.tag, commit, offset: after });
       const appended = { id, tag: decoded.tag, commit, offset: after };
