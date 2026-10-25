@@ -208,7 +208,9 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           s.id = m["id"] as string | undefined;
           s.model = m["model"] as string | undefined;
           mergeUsage(s.usage, m["usage"] as Json | undefined);
-          return [{ type: "started" }, { type: "observed", observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) } }, usageEvent(s.usage)];
+          // The usage in message_start is provisional (Ollama revises its input count, down, in the final message_delta),
+          // so it is kept for the result but not reported as an event: reported usage never decreases.
+          return [{ type: "started" }, { type: "observed", observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) } }];
         }
         case "content_block_start": {
           const i = d["index"] as number;

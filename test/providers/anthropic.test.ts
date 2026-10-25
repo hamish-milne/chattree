@@ -152,7 +152,7 @@ describe("request body", () => {
 describe("stream", () => {
   test("text: events, usage, observed model, response id", async () => {
     const r = good(await run());
-    assert.deepEqual(r.events.map((e) => e.type), ["started", "observed", "usage", "text.delta", "text.delta", "block.done", "usage"]);
+    assert.deepEqual(r.events.map((e) => e.type), ["started", "observed", "text.delta", "text.delta", "block.done", "usage"]);
     assert.deepEqual(r.completed?.blocks, [{ type: "text", text: "Hello" }]);
     assert.equal(r.completed?.stop_reason, "end_turn");
     assert.deepEqual(r.completed?.observed, { model: "claude-sonnet-5-5-20260301", response_id: "msg_01" });
@@ -196,6 +196,11 @@ describe("stream", () => {
       const r = good(await run(replay([start(), end(given)])));
       assert.equal(r.completed?.stop_reason, want, given);
     }
+  });
+
+  test("a server that revises its input count downwards (Ollama, seen live) still gives non-decreasing events", async () => {
+    const r = good(await run(replay([start({ input_tokens: 189, output_tokens: 0 }), blockStart(0, { type: "text", text: "" }), delta(0, { type: "text_delta", text: "x" }), stop(0), ev("message_delta", { delta: { stop_reason: "end_turn" }, usage: { input_tokens: 25, cache_read_input_tokens: 33, output_tokens: 75 } }), ev("message_stop", {})])));
+    assert.deepEqual([r.completed?.usage.input_tokens, r.completed?.usage.cache_read_tokens, r.completed?.usage.output_tokens], [25, 33, 75]);
   });
 
   test("usage is cumulative and carries the cache counts", async () => {

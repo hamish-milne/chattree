@@ -137,7 +137,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
             break;
           }
           run.events.push(n.value);
-          if (n.value.type === "text.delta" && !ac.signal.aborted) ac.abort();
+          if ((n.value.type === "text.delta" || n.value.type === "reasoning.delta") && !ac.signal.aborted) ac.abort();
         }
       } catch (e) {
         run.error = e;

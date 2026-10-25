@@ -133,3 +133,7 @@ agent loop shows process start-up dominating.
 - Verifying a renderer's output at runtime (a self-test with fixed inputs, output hash recorded in the setup).
   Decided: stability is part of the renderer interface contract (an id is immutable, renderers are pure), not
   something the harness defensively checks, at least for now. Revisit if host-supplied renderers cause drift.
+
+- Ollama (gemma4:12b, live run 2026-10-25): its Anthropic `message_start` input count is provisional and is revised
+  down in `message_delta` (fixed: start usage is no longer emitted). Reasoning arrives before text, so the abort check now
+  triggers on either. OpenAI Responses passed all scenarios.
