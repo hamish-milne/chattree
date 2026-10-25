@@ -1,4 +1,4 @@
-import { attachmentKind, normalizeMime } from "./attachments.ts";
+import { attachmentKind, decodeText, normalizeMime } from "./attachments.ts";
 import { contextEntries } from "./context.ts";
 import type { ChatEntry } from "./entries.ts";
 import type { ToolDefinition } from "./definitions.ts";
@@ -110,7 +110,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
           if (mime === undefined || kind === undefined) throw new Error(`attachment ${p.name ?? ref.sha256.slice(0, 12)} has ${mime === undefined ? "no media type" : `the media type ${mime}, which no model is given`}`);
           if (input.readBytes === undefined) throw new Error(`an attachment (${ref.sha256.slice(0, 12)}) needs readBytes`);
           const bytes = await input.readBytes(ref);
-          if (kind === "text") parts.push({ type: "text", text: render.textAttachment(p.name, new TextDecoder().decode(bytes)) });
+          if (kind === "text") parts.push({ type: "text", text: render.textAttachment(p.name, decodeText(bytes, p.charset)) });
           else parts.push({ type: "attachment", kind, name: p.name, mime: normalizeMime(mime) as string, sha256: ref.sha256, bytes });
         }
         raw.push({ role: "user", parts });

@@ -621,7 +621,7 @@ stores the bytes as a blob and returns the part for the entry. `harness/attachme
 and webp images; `application/pdf`; text (`text/*`, JSON, XML, YAML, TOML and `+json`/`+xml`/`+yaml` types). The context
 builder (given `readBytes`, which `prepareContext` supplies) inlines text files as text through
 `Renderer.textAttachment` and passes images and PDFs on as `AttachmentPart {kind, name, mime, sha256, bytes}`.
-Adapters: Anthropic `image`/`document` base64 blocks; OpenAI Responses `input_image` (data URL) and `input_file`
+Text is a strict view of the stored bytes (`decodeText`): a UTF-8 BOM is dropped, a UTF-16 BOM selects UTF-16, otherwise the part's `charset` (an optional field on the `attachment` part, set from `attach`'s `charset` option or a `charset=` parameter on the media type; the blob's `mime` stays a bare `type/subtype`) or UTF-8; invalid bytes, an unknown charset or NULs in an 8-bit encoding are an error at `attach` (never replaced, never guessed: detection is the host's job), and CR/CRLF are left as they are. The blob keeps the original bytes. Adapters: Anthropic `image`/`document` base64 blocks; OpenAI Responses `input_image` (data URL) and `input_file`
 (`file_data` data URL); Chat Completions `image_url` data URLs, PDFs refused with an error that says to send text. The
 pre-flight estimate prices an image at 2000 tokens and a PDF at 1500 plus a token per 25 bytes (high on purpose); the
 counting endpoints replace that near a limit. Unverified against the real APIs: the exact request shapes above.

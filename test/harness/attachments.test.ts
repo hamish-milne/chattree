@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { nodeHost } from "../../hosts/node.ts";
-import { attachmentKind, normalizeMime } from "../../harness/attachments.ts";
+import { attachmentKind, decodeText, mimeCharset, normalizeMime } from "../../harness/attachments.ts";
 import { Conversation, ConversationError } from "../../harness/conversation.ts";
 import { estimateInputTokens } from "../../harness/estimate.ts";
 import { prepareContext } from "../../harness/request.ts";
@@ -27,6 +27,31 @@ describe("media types", () => {
   });
 });
 
+describe("text encodings", () => {
+  const bytes = (...n: number[]) => new Uint8Array(n);
+  test("UTF-8 with or without a BOM; CRs are left alone; the bytes are not what is changed", () => {
+    assert.equal(decodeText(enc.encode("héllo\r\nworld\r")), "héllo\r\nworld\r");
+    assert.equal(decodeText(bytes(0xef, 0xbb, 0xbf, 0x68, 0x69)), "hi");
+  });
+  test("a UTF-16 BOM selects UTF-16, whatever the declared charset", () => {
+    assert.equal(decodeText(bytes(0xff, 0xfe, 0x68, 0, 0xe9, 0)), "hé");
+    assert.equal(decodeText(bytes(0xfe, 0xff, 0, 0x68, 0, 0xe9), "utf-8"), "hé");
+  });
+  test("a declared charset is honoured; invalid bytes and unknown charsets are errors, never replaced or guessed", () => {
+    assert.equal(decodeText(bytes(0x63, 0x61, 0x66, 0xe9), "windows-1252"), "café");
+    assert.throws(() => decodeText(bytes(0x63, 0x61, 0x66, 0xe9)), /not valid utf-8.*charset/);
+    assert.throws(() => decodeText(bytes(0xe9), "utf-8"), /not valid utf-8$/);
+    assert.throws(() => decodeText(bytes(0x68), "klingon"), /charset "klingon"/);
+  });
+  test("NUL bytes mean binary in an 8-bit encoding", () => {
+    assert.throws(() => decodeText(bytes(0x68, 0, 0x69)), /NUL/);
+  });
+  test("a charset parameter on the media type is read", () => {
+    assert.equal(mimeCharset("Text/Plain; Charset=\"Windows-1252\""), "windows-1252");
+    assert.equal(mimeCharset("text/plain"), undefined);
+  });
+});
+
 describe("Conversation.attach", () => {
   test("stores the bytes as a blob that records the host's media type; the entry round-trips and verifies", async () => {
     const convo = await fresh();
@@ -48,6 +73,18 @@ describe("Conversation.attach", () => {
     await assert.rejects(convo.attach(new Uint8Array(), { mime: "image/png" }), /empty/);
     await assert.rejects(convo.attach(new Uint8Array(11), { mime: "image/png" }), /over the limit of 10/);
     await convo.attach(new Uint8Array(10).fill(1), { mime: "image/png" });
+  });
+
+  test("text is checked when attached: bad bytes are refused up front, and a declared charset reaches the model as UTF-8", async () => {
+    const convo = await fresh();
+    const latin1 = new Uint8Array([0x63, 0x61, 0x66, 0xe9]);
+    await assert.rejects(convo.attach(latin1, { mime: "text/plain", name: "old.txt" }), (e) => e instanceof ConversationError && /old\.txt cannot be attached as text.*not valid utf-8/.test(e.message));
+    const part = await convo.attach(latin1, { mime: "text/plain; charset=ISO-8859-1", name: "old.txt" });
+    assert.deepEqual([part.data.mime, part.charset], ["text/plain", "iso-8859-1"]);
+    assert.deepEqual(await convo.store.get(part.data.sha256), latin1, "the original bytes are kept");
+    await convo.append({ $tag: "user", content: [part] });
+    const { context } = await prepareContext(convo, { system: "s" });
+    assert.equal(JSON.stringify(context.turns[0]).includes("café"), true);
   });
 });
 
