@@ -14,6 +14,7 @@ type EntryBlock = Extract<ChatEntry, { $tag: "assistant" }>["blocks"][number];
 export type Block =
   | { type: "text"; text: string; ext?: Record<string, unknown> }
   | { type: "reasoning"; provider: string; payload: string; visible?: string; ext?: Record<string, unknown> }
+  | { type: "provider_compaction"; provider: string; payload: string; ext?: Record<string, unknown> }
   | { type: "tool_call"; call_id: string; name: string; args: Record<string, unknown>; args_raw?: string; ext?: Record<string, unknown> };
 type BlobRef = Extract<ChatEntry, { $tag: "tool_result" }>["content"] & { $tag: "blob" };
 
@@ -21,7 +22,7 @@ export type UserPart = { type: "text"; text: string } | { type: "attachment"; na
 
 export type Turn =
   | { role: "user"; parts: UserPart[] }
-  | { role: "assistant"; provider: string; model: string; blocks: Block[] }
+  | { role: "assistant"; provider: string; model: string; blocks: Block[]; /** The entry's `ext`: the response id and prefix digest an adapter chains from. */ ext?: Record<string, unknown> }
   | { role: "tool_results"; results: { call_id: string; is_error: boolean; content: string; truncated: boolean }[] };
 
 export interface ModelContext {
@@ -48,6 +49,8 @@ export interface BuildInput {
   readText?: (ref: { sha256: string; bytes: number }) => Promise<string>;
 }
 
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
 type Pending = { call_id: string; is_error: boolean; content: string; truncated: boolean; fallback?: string };
 
 /**
@@ -68,10 +71,11 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     if (input.readText === undefined) throw new Error(`a blob-backed text (${t.sha256.slice(0, 12)}) needs readText`);
     return input.readText(t);
   };
-  const keepReasoning = (provider: string, model: string, b: EntryBlock): boolean => b.$tag !== "reasoning" || (provider === input.target.provider && model === input.target.model && b.provider === input.target.provider);
+  const keepReasoning = (provider: string, model: string, b: EntryBlock): boolean => (b.$tag !== "reasoning" && b.$tag !== "provider_compaction") || (provider === input.target.provider && model === input.target.model && b.provider === input.target.provider);
   const block = async (b: EntryBlock): Promise<Block> => {
     const ext = b.ext === undefined ? {} : { ext: b.ext };
     if (b.$tag === "text") return { type: "text", text: await text(b.text), ...ext };
+    if (b.$tag === "provider_compaction") return { type: "provider_compaction", provider: b.provider, payload: await text(b.payload), ...ext };
     if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, payload: await text(b.payload), ...(b.visible === undefined ? {} : { visible: b.visible }), ...ext };
     return { type: "tool_call", call_id: b.call_id, name: b.name, args: b.args, ...(b.args_raw === undefined ? {} : { args_raw: b.args_raw }), ...ext };
   };
@@ -97,7 +101,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       case "assistant": {
         const blocks: Block[] = [];
         for (const b of e.blocks) if (keepReasoning(e.provider, e.model, b)) blocks.push(await block(b));
-        if (blocks.length > 0) raw.push({ role: "assistant", provider: e.provider, model: e.model, blocks });
+        if (blocks.length > 0) raw.push({ role: "assistant", provider: e.provider, model: e.model, blocks, ...(isObject(e.ext) ? { ext: e.ext } : {}) });
         break;
       }
       case "tool_result":

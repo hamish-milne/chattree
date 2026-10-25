@@ -12,7 +12,7 @@ import { Rng } from "../support/gen.ts";
 const KEY = "sk-proj-SECRET-key";
 let seq = 0;
 const ev = (type: string, data: object = {}): string => `event: ${type}\ndata: ${JSON.stringify({ type, ...data, sequence_number: ++seq })}\n\n`;
-const resp = (extra: object = {}) => ({ id: "resp_01", object: "response", model: "gpt-5.4-2026-03-05", status: "in_progress", output: [], ...extra });
+const resp = (extra: object = {}) => ({ id: "resp_01", object: "response", model: "gpt-5.4-2026-03-05", status: "in_progress", store: true, output: [], ...extra });
 const created = () => ev("response.created", { response: resp() }) + ev("response.in_progress", { response: resp() });
 const usage = { input_tokens: 120, input_tokens_details: { cached_tokens: 100 }, output_tokens: 30, output_tokens_details: { reasoning_tokens: 12 }, total_tokens: 150 };
 const completed = (extra: object = {}) => ev("response.completed", { response: resp({ status: "completed", usage, ...extra }) });
@@ -57,7 +57,7 @@ const good = (r: StreamRun): StreamRun => {
   assert.equal(r.error, undefined);
   return r;
 };
-const opts = { store: true, replayItemIds: true };
+const opts = { store: true, replayItemIds: true, chain: true, pruneAtCompaction: true };
 
 describe("settings", () => {
   test("accepted and refused", () => {
@@ -103,7 +103,7 @@ describe("request body", () => {
   });
 
   test("opt-out of storage, of item ids, and of reasoning", () => {
-    const off = buildResponsesBody(ctx({ turns }), setupFor({ max_output_tokens: 5, reasoning: false }), { store: false, replayItemIds: false });
+    const off = buildResponsesBody(ctx({ turns }), setupFor({ max_output_tokens: 5, reasoning: false }), { store: false, replayItemIds: false, chain: true, pruneAtCompaction: true });
     assert.equal(off["store"], false);
     assert.ok(!("reasoning" in off) && !("include" in off));
     const input = JSON.stringify(off["input"]);
@@ -131,7 +131,10 @@ describe("stream", () => {
     assert.deepEqual(r.completed?.observed, { model: "gpt-5.4-2026-03-05", response_id: "resp_01" });
     const u = r.completed?.usage;
     assert.deepEqual([u?.input_tokens, u?.cache_read_tokens, u?.output_tokens, u?.reasoning_tokens], [20, 100, 30, 12]);
-    assert.deepEqual(r.completed?.ext, { response_id: "resp_01", store: true });
+    assert.equal(r.completed?.ext?.["response_id"], "resp_01");
+    assert.equal(r.completed?.ext?.["store"], true);
+    assert.match(String(r.completed?.ext?.["prefix_digest"]), /^[0-9a-f]{64}$/);
+    assert.ok(!("chained" in (r.completed?.ext ?? {})));
   });
 
   test("reasoning item kept whole; a function call with its ids; stop reason tool_use; both replay in the next request", async () => {

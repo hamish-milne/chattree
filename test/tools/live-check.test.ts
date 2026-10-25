@@ -78,6 +78,20 @@ describe("runLiveChecks", () => {
     }
   });
 
+  test("chaining and retrieval scenarios against a Responses server that stores what it says", async () => {
+    const item = (text: string) => ({ id: "m1", type: "message", role: "assistant", status: "completed", content: [{ type: "output_text", text }] });
+    const done = (text: string, n: number): Reply => ({ acts: [ev("response.created", { response: { id: `r${n}`, model: "fake", store: true } }), ev("response.output_item.added", { output_index: 0, item: { id: "m1", type: "message", content: [] } }), ev("response.output_text.delta", { output_index: 0, delta: text }), ev("response.output_item.done", { output_index: 0, item: item(text) }), ev("response.completed", { response: { id: `r${n}`, model: "fake", status: "completed", store: true, usage: { input_tokens: 5, output_tokens: 4 } } })] });
+    const server = await FakeServer.start((n, seen) => (seen.method === "GET" ? { headers: { "content-type": "application/json" }, acts: [JSON.stringify({ id: "r1", model: "fake", status: "completed", store: true, usage: { input_tokens: 1, output_tokens: 1 }, output: [item("pong")] })] } : seen.body.includes("previous_response_id") || seen.body.includes("7421") && seen.body.includes("What number") ? done("7421", n + 1) : done("pong", n + 1)));
+    try {
+      const r = byName(await runLiveChecks({ flavor: "openai-responses", baseUrl: `${server.url}/v1`, model: "fake", only: ["chaining", "retrieve"] }));
+      assert.equal(r["chaining"]?.status, "pass", r["chaining"]?.detail);
+      assert.match(r["chaining"]?.detail ?? "", /previous_response_id/);
+      assert.equal(r["retrieve"]?.status, "pass", r["retrieve"]?.detail);
+    } finally {
+      await server.close();
+    }
+  });
+
   test("onRun sees every scenario's events and the key never appears in results", async () => {
     const server = await FakeServer.start(pretend());
     const seen: string[] = [];

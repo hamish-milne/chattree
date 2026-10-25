@@ -73,6 +73,11 @@ Everything is an option with a default, and any of it can be replaced:
 | `hooks` | none | `onRequest`, `onResponse`, `onSse`, `onRetry`: redacted views, cannot break a request |
 | `sleep` | timer | tests inject an instant one |
 
+An adapter whose provider keeps conversation state may implement `retrieve` (fetch a finished response by the id it
+reported) and may chain requests. Chaining must be an optimisation with a proof: put a digest of what the provider saw
+in `Completed.ext`, continue only when the next context's prefix has the same digest, and fall back to a full replay
+when the provider has forgotten the state (see `planChain` in `providers/openai-responses.ts`).
+
 A provider that is not HTTP and SSE (an in-process engine, a socket protocol) implements `ProviderAdapter`
 directly and ignores all this. The conformance checks below apply to it all the same.
 

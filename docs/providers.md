@@ -1,6 +1,6 @@
 # Provider adapters: plan (v2)
 
-Status: **steps 1 to 3 and the core of step 4 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
+Status: **steps 1 to 4 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
 P1–P12 so they can be accepted or changed one by one, as with `git-integration.md`. What changed since v1 is in
 section 9; the few questions still open are in section 8.
 
@@ -437,7 +437,7 @@ test/providers/fixtures/        P12
    `test/support/fake-server.ts` and a made-up `toy-adapter.ts` that exercises all of it, and
    `docs/writing-an-adapter.md`. The catalog, pricing, estimate and settings-schema parts of the adapter interface
    are not in `providers/types.ts` yet; they arrive with step 6 and step 5.
-4. **Anthropic adapter, then OpenAI Responses. Core done; chaining, compaction and retrieval not yet (step 4b)**:
+4. **Anthropic adapter, then OpenAI Responses. Done, including chaining, compaction and retrieval (step 4b)**:
    `providers/anthropic.ts` and `providers/openai-responses.ts` (settings schemas, request bodies, stream mappers,
    `classify`), `harness/blocks.ts` (`toEntryBlocks`), the optional block `ext` (item ids), and
    `tools/live-check.ts`, an opt-in script that runs the adapter against a real or local server (Ollama speaks
@@ -447,6 +447,25 @@ test/providers/fixtures/        P12
    against a real server**: Anthropic's `system` and `cache_control` request shapes and where breakpoints may go,
    the caching and pricing details; for OpenAI the assistant `message` and `function_call` item shapes on replay,
    whether item ids may be replayed, and `include` for models without reasoning. Attachments are refused by both.
+
+   **Step 4b** (same adapter, `providers/openai-responses.ts`): a response the server confirms it stored
+   (`response.store === true`, so a server that ignores `store`, like Ollama, is never chained) is recorded in the
+   assistant entry's `ext` as `{response_id, store, prefix_digest}`; the digest covers the model and the exact input
+   items the response saw plus the items it produced. `planChain` continues from the latest assistant turn only if
+   the digest of the context's own prefix matches, and then sends just the items after it (instructions and tools
+   are sent every time). Anything else, including an edited history, another model or provider, an interrupted turn
+   in between, or the `chain: false` / `store: false` options, replays everything. If the server answers that the
+   previous response is not found, and nothing has reached the caller yet, the same request is made again without the
+   chain. Provider compaction: the `compact_threshold` setting becomes `context_management`; the `compaction`
+   output item is kept as an opaque `provider_compaction` block (own block kind so it cannot be mistaken for our
+   readable `compaction` entry), replayed only to the same provider and model, and a replay drops everything before
+   the latest one (`pruneAtCompaction`, default on). Retrieval: `ProviderAdapter.retrieve` fetches a finished
+   response by id into the same `Completed` (`undefined` for 404 or cancelled, a retryable error while it is still
+   running); the turn runner will use it for recovery (step 7). `tools/live-check.ts` gained `chaining` and
+   `retrieve` scenarios. **Also unverified**: that `previous_response_id` with only new items continues a stored
+   response, the `context_management` field name, that dropping items before a compaction item is right for a
+   stateless replay, and the not-found error text the fallback matches (`previous_response`). Not done: the
+   standalone `/responses/compact` call.
 5. **`harness.yml` v-next, secrets, JSON Schema generation and the editor marker** (P6, P7).
 6. **Catalog, pricing tables, ledger, estimates, limits** (P9).
 7. **Turn runner and journal**, recovery (including retrieval) in `open`, crash sweeps (P5).

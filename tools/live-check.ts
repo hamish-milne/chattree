@@ -79,7 +79,8 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
     if (run.error !== undefined) throw run.error;
     return run;
   };
-  const assistantTurn = (blocks: Block[]): Turn => ({ role: "assistant", provider: "live", model: o.model, blocks });
+  const assistantTurn = (blocks: Block[], ext?: Record<string, unknown>): Turn => ({ role: "assistant", provider: "live", model: o.model, blocks, ...(ext === undefined ? {} : { ext }) });
+  const textOf = (blocks: readonly Block[]): string => blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
 
   const scenarios: [string, () => Promise<string>][] = [
     ["plain", async () => {
@@ -124,6 +125,29 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       const r2 = clean(await go(c2));
       ok((r2.completed?.blocks.length ?? 0) > 0, "no reply on the second turn");
       return `${blocks.filter((b) => b.type === "reasoning").length} reasoning block(s) replayed`;
+    }],
+    ["chaining", async () => {
+      const c1 = ctx([user("Remember the number 7421. Reply only: ok")]);
+      const r1 = clean(await go(c1));
+      const stored = r1.completed?.ext?.["store"] === true;
+      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? [], r1.completed?.ext), user("What number did I ask you to remember? Reply with the number only.")]);
+      const r2 = clean(await go(c2));
+      const answer = textOf(r2.completed?.blocks ?? []);
+      ok(answer.includes("7421"), `the second turn lost the first: ${JSON.stringify(answer.slice(0, 60))}`);
+      const chained = r2.completed?.ext?.["chained"] === true;
+      if (!stored && !chained) return `ok; the server does not confirm storage, so the whole context was replayed`;
+      ok(!stored || chained, "the server stored the response but the second request did not continue it");
+      return chained ? "second turn continued the stored response (previous_response_id)" : "ok";
+    }],
+    ["retrieve", async () => {
+      if (adapter.retrieve === undefined) return skip("this adapter does not retrieve responses");
+      const r = clean(await go(ctx([user("Reply with the single word: pong")])));
+      const id = r.completed?.observed.response_id;
+      if (id === undefined || r.completed?.ext?.["store"] !== true) return skip("the server did not confirm that it stored the response");
+      const got = await adapter.retrieve({ responseId: id, setup, signal: new AbortController().signal });
+      ok(got !== undefined, `the stored response ${id} could not be retrieved`);
+      ok(textOf(got.blocks).trim() === textOf(r.completed?.blocks ?? []).trim(), "the retrieved text differs from the streamed text");
+      return `retrieved ${id}`;
     }],
     ["abort", async () => {
       const ac = new AbortController();
@@ -176,7 +200,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   return results;
 }
 
-export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "reasoning-replay", "abort", "bad-model"];
+export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
 
 export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: LiveOptions; record?: string; list: boolean } {
   const flags = new Map<string, string[]>();

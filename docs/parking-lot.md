@@ -122,8 +122,9 @@ agent loop shows process start-up dominating.
 - OpenAI WebSocket continuation cache.
 - Anthropic equivalent of allowed_tools for restricting tools without changing the prefix.
 - Attachments (images, files) in both adapters; they are refused today.
-- OpenAI step 4b: `previous_response_id` chaining (only when the prefix digest matches), provider compaction, and
-  response retrieval for recovery. The response id is already in `observed` and `completed.ext`.
+- OpenAI standalone compaction (`/responses/compact`), for compacting on demand rather than at a threshold.
+- Verify against the real API: chaining with `previous_response_id`, `context_management`, dropping items before a
+  compaction item, the not-found error the chain fallback matches. Use the `chaining` and `retrieve` live-check scenarios.
 - Run `tools/live-check.ts` against Ollama and record fixtures from it. Known Ollama caveats: no `cache_control` or
   `tool_choice`, in-stream errors are unreliable, small models may not call tools or reason (those scenarios skip).
 - A Chat Completions flavor for the live check, once the `openai-compatible` adapter (step 8) exists.

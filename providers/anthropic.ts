@@ -99,6 +99,7 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: boo
       const content = t.blocks.flatMap((b): Json[] => {
         if (b.type === "text") return b.text === "" ? [] : [{ type: "text", text: b.text }];
         if (b.type === "tool_call") return [{ type: "tool_use", id: b.call_id, name: b.name, input: b.args }];
+        if (b.type === "provider_compaction") return []; // another provider's opaque state: never ours to send
         const original = parseOriginal(b.payload);
         return original === undefined ? [] : [original];
       });

@@ -134,5 +134,10 @@ export interface ProviderAdapter {
   readonly $tag: string;
   stream(req: StreamRequest): ModelStream;
   /** What a change of setup does that the harness cannot tell (cache, cost, capabilities). */
+  /**
+   * Fetch a finished response by the id reported in `observed.response_id`, for recovery after a crash.
+   * `undefined` when the provider no longer has it (or never stored it). Only providers that store responses have this.
+   */
+  retrieve?(req: { responseId: string; setup: AgentSetup; signal: AbortSignal }): Promise<Completed | undefined>;
   classify?(from: AgentSetup, to: AgentSetup, ctx: { midLoop: boolean }): readonly Change[];
 }

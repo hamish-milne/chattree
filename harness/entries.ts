@@ -41,9 +41,11 @@ const toolCallBlock = z.object({
   args_raw: z.string().optional(),
   ext: blockExt,
 });
+/** A provider's own compaction of the conversation so far: opaque, replayed only to the model that made it (docs/providers.md, P4). Not our readable `compaction` entry. */
+const providerCompactionBlock = z.object({ $tag: z.literal("provider_compaction"), provider: z.string(), payload: text, ext: blockExt });
 const attachmentPart = z.object({ $tag: z.literal("attachment"), name: z.string().optional(), data: blobRef });
 
-const assistantBlock = z.discriminatedUnion("$tag", [textBlock, reasoningBlock, toolCallBlock]);
+const assistantBlock = z.discriminatedUnion("$tag", [textBlock, reasoningBlock, toolCallBlock, providerCompactionBlock]);
 const userPart = z.discriminatedUnion("$tag", [textBlock, attachmentPart]);
 
 // ---- entries -----------------------------------------------------------------------------------------------

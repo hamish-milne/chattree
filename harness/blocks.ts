@@ -8,6 +8,7 @@ export function toEntryBlocks(blocks: readonly Block[]): EntryBlock[] {
   return blocks.map((b): EntryBlock => {
     const ext = b.ext === undefined ? {} : { ext: b.ext };
     if (b.type === "text") return { $tag: "text", text: b.text, ...ext };
+    if (b.type === "provider_compaction") return { $tag: "provider_compaction", provider: b.provider, payload: b.payload, ...ext };
     if (b.type === "reasoning") return { $tag: "reasoning", provider: b.provider, payload: b.payload, ...(b.visible === undefined ? {} : { visible: b.visible }), ...ext };
     return { $tag: "tool_call", call_id: b.call_id, name: b.name, args: b.args, ...(b.args_raw === undefined ? {} : { args_raw: b.args_raw }), ...ext };
   });
