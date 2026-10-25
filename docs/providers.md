@@ -1,6 +1,6 @@
 # Provider adapters: plan (v2)
 
-Status: **steps 1 to 3 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
+Status: **steps 1 to 3 and the core of step 4 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
 P1–P12 so they can be accepted or changed one by one, as with `git-integration.md`. What changed since v1 is in
 section 9; the few questions still open are in section 8.
 
@@ -437,7 +437,16 @@ test/providers/fixtures/        P12
    `test/support/fake-server.ts` and a made-up `toy-adapter.ts` that exercises all of it, and
    `docs/writing-an-adapter.md`. The catalog, pricing, estimate and settings-schema parts of the adapter interface
    are not in `providers/types.ts` yet; they arrive with step 6 and step 5.
-4. **Anthropic adapter** against fixtures, then **OpenAI Responses** (chaining, compaction, retrieval).
+4. **Anthropic adapter, then OpenAI Responses. Core done; chaining, compaction and retrieval not yet (step 4b)**:
+   `providers/anthropic.ts` and `providers/openai-responses.ts` (settings schemas, request bodies, stream mappers,
+   `classify`), `harness/blocks.ts` (`toEntryBlocks`), the optional block `ext` (item ids), and
+   `tools/live-check.ts`, an opt-in script that runs the adapter against a real or local server (Ollama speaks
+   the Anthropic and OpenAI Responses shapes, so it is a zero-cost check): plain reply, usage, incremental
+   streaming, tool-call round trip, reasoning replay, abort, bad model. It is tested against the fake server.
+   The adapters were written from the docs and memory, with no recorded fixtures yet. **Unverified until run
+   against a real server**: Anthropic's `system` and `cache_control` request shapes and where breakpoints may go,
+   the caching and pricing details; for OpenAI the assistant `message` and `function_call` item shapes on replay,
+   whether item ids may be replayed, and `include` for models without reasoning. Attachments are refused by both.
 5. **`harness.yml` v-next, secrets, JSON Schema generation and the editor marker** (P6, P7).
 6. **Catalog, pricing tables, ledger, estimates, limits** (P9).
 7. **Turn runner and journal**, recovery (including retrieval) in `open`, crash sweeps (P5).

@@ -12,9 +12,9 @@ import { chattreeEnglishV1, type Renderer } from "./renderer.ts";
 type EntryBlock = Extract<ChatEntry, { $tag: "assistant" }>["blocks"][number];
 /** An assistant block with its texts read in. `payload` is opaque and goes back to the provider verbatim. */
 export type Block =
-  | { type: "text"; text: string }
-  | { type: "reasoning"; provider: string; payload: string; visible?: string }
-  | { type: "tool_call"; call_id: string; name: string; args: Record<string, unknown>; args_raw?: string };
+  | { type: "text"; text: string; ext?: Record<string, unknown> }
+  | { type: "reasoning"; provider: string; payload: string; visible?: string; ext?: Record<string, unknown> }
+  | { type: "tool_call"; call_id: string; name: string; args: Record<string, unknown>; args_raw?: string; ext?: Record<string, unknown> };
 type BlobRef = Extract<ChatEntry, { $tag: "tool_result" }>["content"] & { $tag: "blob" };
 
 export type UserPart = { type: "text"; text: string } | { type: "attachment"; name: string | undefined; data: BlobRef };
@@ -70,9 +70,10 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
   };
   const keepReasoning = (provider: string, model: string, b: EntryBlock): boolean => b.$tag !== "reasoning" || (provider === input.target.provider && model === input.target.model && b.provider === input.target.provider);
   const block = async (b: EntryBlock): Promise<Block> => {
-    if (b.$tag === "text") return { type: "text", text: await text(b.text) };
-    if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, payload: await text(b.payload), ...(b.visible === undefined ? {} : { visible: b.visible }) };
-    return { type: "tool_call", call_id: b.call_id, name: b.name, args: b.args, ...(b.args_raw === undefined ? {} : { args_raw: b.args_raw }) };
+    const ext = b.ext === undefined ? {} : { ext: b.ext };
+    if (b.$tag === "text") return { type: "text", text: await text(b.text), ...ext };
+    if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, payload: await text(b.payload), ...(b.visible === undefined ? {} : { visible: b.visible }), ...ext };
+    return { type: "tool_call", call_id: b.call_id, name: b.name, args: b.args, ...(b.args_raw === undefined ? {} : { args_raw: b.args_raw }), ...ext };
   };
 
   type Raw = Turn | { role: "result"; result: Pending };

@@ -92,6 +92,15 @@ directly and ignores all this. The conformance checks below apply to it all the 
 5. Cover, at least: text, a tool call (with arguments split across events), reasoning with an opaque payload, an
    error status, an error event in the stream, a stream that ends early, usage, and an unknown event.
 
+## Checking against a real server
+
+`node tools/live-check.ts --flavor anthropic --base-url http://localhost:11434 --model <model>` (or
+`--flavor openai-responses --base-url http://localhost:11434/v1`) runs the adapter through a handful of scenarios
+and the conformance checks on each. `--api-key-env NAME` reads a key from the environment (never put a key on the
+command line), `--record DIR` saves each scenario's events with secrets scrubbed (a start for a fixture),
+`--only NAME` narrows it, `--list` names the scenarios. A scenario the model cannot do (no tools, no reasoning) is
+a skip; any failure exits non-zero. Add a flavor in `makeAdapter` when you add an adapter.
+
 ## When the provider changes its API
 
 Re-record the fixtures, diff them against the old ones (the diff is the change), fix `request`, `event` and

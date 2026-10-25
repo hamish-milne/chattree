@@ -222,7 +222,12 @@ export async function* httpStream<S>(mapper: HttpMapper<S>, req: StreamRequest, 
         if (signal.aborted) throw signalError(signal);
         const spec = await mapper.request(req);
         const authHeaders = (await opts.auth?.(spec)) ?? {};
-        for (const v of Object.values(authHeaders)) if (v.length > 0) secrets.add(v);
+        for (const v of Object.values(authHeaders)) {
+          if (v.length === 0) continue;
+          secrets.add(v);
+          const bare = /^(?:Bearer|Basic|Token)\s+(.+)$/i.exec(v)?.[1]; // the key alone, as an error body might echo it
+          if (bare !== undefined) secrets.add(bare);
+        }
         const headers = { ...spec.headers, ...authHeaders };
         const body = spec.body === undefined ? undefined : typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body);
         const method = spec.method ?? "POST";

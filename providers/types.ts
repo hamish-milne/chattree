@@ -7,8 +7,14 @@ import type { AgentSetup, Change } from "../harness/setup.ts";
  * transcript, journals or budgets. This file is the whole contract; `docs/writing-an-adapter.md` explains it.
  */
 
-/** Token counts, normalised. Providers that do not report a field leave it out. `raw` is the provider's own object. */
+/**
+ * Token counts, normalised so that the meters are disjoint and each is billed at its own rate:
+ * total input = `input_tokens` + `cache_read_tokens` + `cache_write_tokens`. (A provider that reports cached tokens
+ * as part of its input count, like OpenAI, has them subtracted.) Providers that do not report a field leave it out.
+ * `raw` is the provider's own object.
+ */
 export interface Usage {
+  /** Input tokens that were neither read from nor written to a cache. */
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens?: number;

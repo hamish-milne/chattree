@@ -20,7 +20,9 @@ const text = z.union([z.string(), blobRef]);
 
 // ---- content blocks (tagged values inside entries) ---------------------------------------------------------
 
-const textBlock = z.object({ $tag: z.literal("text"), text });
+/** Provider round-trip data for one block (an item id that replay needs, a cache marker). Opaque to the harness. */
+const blockExt = json.optional();
+const textBlock = z.object({ $tag: z.literal("text"), text, ext: blockExt });
 const reasoningBlock = z.object({
   $tag: z.literal("reasoning"),
   provider: z.string(),
@@ -28,6 +30,7 @@ const reasoningBlock = z.object({
   payload: text,
   /** Readable form of the reasoning when the provider exposes one. */
   visible: z.string().optional(),
+  ext: blockExt,
 });
 const toolCallBlock = z.object({
   $tag: z.literal("tool_call"),
@@ -36,6 +39,7 @@ const toolCallBlock = z.object({
   args: json,
   /** The provider's original argument string, kept when it was not valid JSON. */
   args_raw: z.string().optional(),
+  ext: blockExt,
 });
 const attachmentPart = z.object({ $tag: z.literal("attachment"), name: z.string().optional(), data: blobRef });
 
