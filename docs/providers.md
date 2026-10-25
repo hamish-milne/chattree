@@ -1,392 +1,474 @@
-# Provider adapters: plan
+# Provider adapters: plan (v2)
 
-Status: **proposal, nothing built yet.** Decisions are numbered P1–P11 so they can be accepted or changed one by
-one, as with `git-integration.md`. Section 7 lists the questions I need answered before building.
+Status: **proposal, nothing built yet.** Version 2 folds in the first round of decisions. Decisions are numbered
+P1–P12 so they can be accepted or changed one by one, as with `git-integration.md`. What changed since v1 is in
+section 9; the few questions still open are in section 8.
 
-## 1. Where we are, and one gap to close first
+## 0. Principles this plan rests on
 
-What exists and what the adapters can rely on:
+1. **The transcript holds the agent's whole state; `harness.yml` holds only the outside world.** What the agent
+   *is* (model, settings, tools, instructions, skills, MCP, pricing it was costed under) is folded from
+   `agent_setup` entries on its branch. `harness.yml` holds machine setup (providers, environment variable
+   names, host wiring) and the harness's disposition (limits). Its history is its git history, and a commit
+   message is the place for a reason.
+2. **Everything that can cost money or break a cache is changed by an explicit mutation**, never by a side
+   effect, and a mutation that is not allowed fails with an error that says what and why, so a host can ask the
+   user and retry.
+3. **A limit is a limit.** A host that wants to bypass one changes the configuration.
+4. **Providers decide what they can tell us** (model catalog, prices, capabilities) and how: an API, or a bundled
+   table. The harness asks through an interface and never assumes a table is static.
+5. **The transcript stays replayable without the provider.** Server-side conveniences are optimisations with a
+   verified fallback to replay, never the only copy of anything.
 
-- `contextEntries(entries)` returns the **entries** a model should see (fresh-context markers, compactions).
-  It does not produce provider messages: nothing yet turns entries into "system + turns + tool results", renders
-  `subagent_result` / `fork_merge` / `interrupted` as something a model can read, or decides what happens to
-  reasoning blocks from another model. The parking lot calls this "context building for models". **The adapters
-  need it as their input, so it is the first piece of work (P1), not an assumption.**
-- The `assistant` entry already carries what a response needs: `provider`, `model`, `blocks` (text, reasoning
-  with an opaque `payload` and a `provider` tag, tool calls with `args_raw`), `stop_reason`, `usage`, `ext`. The
-  `interrupted` entry already carries `partial` blocks and `by: user | error`.
-- `harness.yml` has `model: { provider: anthropic|openai|llama.cpp, model, base_url, max_output_tokens,
-  temperature }`, tool and skill *names*, and MCP servers. It has no system prompt, no tool definitions, no
-  credentials, no limits. Provider-level and model-level settings share one object.
-- The pipeline can already redact patterns from strings before they are stored (`redact`).
+## 1. Where we are
 
-## 2. What the two APIs look like (checked against current docs)
+- `contextEntries(entries)` returns the **entries** a model should see (fresh-context markers, compactions). It
+  does not produce provider messages, and nothing yet renders `subagent_result`, `fork_merge` or `interrupted`
+  as text, or decides what happens to reasoning from another model. **That builder is the first piece of work
+  (P1).**
+- The `assistant` entry carries `provider`, `model`, `blocks` (text, reasoning with an opaque `payload` and a
+  `provider` tag, tool calls with `args_raw`), `stop_reason`, `usage`, `ext`; `interrupted` carries `partial`
+  blocks and `by`.
+- `harness.yml` still holds a single `model:` block, tool/skill names and MCP servers, and a recorded
+  `config_changed` entry type. Both are replaced by this plan (P6, P8).
+- The write pipeline can redact patterns from strings before they are stored.
 
-Only the facts that shape the design. Sources are in section 8; two things I could not verify are listed there
-too.
+## 2. What the APIs look like (checked against current docs)
+
+Only the facts that shape the design; sources in section 10.
 
 | | Anthropic Messages | OpenAI Responses |
 | --- | --- | --- |
 | Streaming | SSE: `message_start`, per block `content_block_start` / `_delta` / `_stop`, `message_delta`, `message_stop`; `ping` anywhere; unknown event types must be tolerated | SSE: `response.created`, `response.output_item.added/done`, `response.output_text.delta`, `response.function_call_arguments.delta/done`, `response.reasoning_summary_text.delta`, then `response.completed` / `.incomplete` / `.failed`; every event has `sequence_number` |
-| Block identity | `index` of the content block | `item_id` + `output_index`; the function-call item has both an `id` and a `call_id` |
+| Block identity | `index` of the content block | `item_id` + `output_index`; function-call items have both an `id` and a `call_id` |
 | Tool-call arguments | `input_json_delta.partial_json`, parse at `content_block_stop` | `function_call_arguments.delta`, full string in `.done`; `arguments` is a JSON **string** |
 | Usage | `message_start.usage`, then **cumulative** counts in `message_delta.usage`; thinking tokens in `output_tokens_details.thinking_tokens` (included in `output_tokens`) | one object in `response.completed`: `input_tokens`, `output_tokens`, `input_tokens_details.cached_tokens`, `output_tokens_details.reasoning_tokens` |
-| Reasoning round trip | Thinking blocks (with `signature`) and `redacted_thinking` must come back **complete and unmodified** in the active tool loop; dropping or editing them is a 400. Newest models may return an empty `thinking` string with only the signature | `include: ["reasoning.encrypted_content"]` with `store: false`; replay the reasoning items. Needed when a turn has a function call; the final `encrypted_content` is the one in `output_item.done`, not `.added` |
-| State | none (stateless) | stateful by default (`previous_response_id`); `store: false` makes it stateless. `previous_response_id` does not carry `instructions` |
+| Reasoning round trip | Thinking blocks (with `signature`) and `redacted_thinking` must come back **complete and unmodified** in the active tool loop; dropping or editing them is a 400. Newest models may return an empty `thinking` string with only the signature | `include: ["reasoning.encrypted_content"]` returns replayable reasoning items (needed when a turn has a function call); the final `encrypted_content` is the one in `output_item.done`, not `.added` |
+| State | none (stateless) | stored by default for 30 days; `previous_response_id` chains; `store: false` makes it stateless (and is forced for zero-retention accounts). `previous_response_id` does not carry `instructions`. All earlier input tokens in a chain are still billed as input |
+| Context compaction | none provided by the API | server-side (`context_management` with `compact_threshold`, emitted in the stream) or standalone (`/responses/compact`); both work with `store: false`; the compaction item is **opaque and encrypted**, to be passed on as is; with `previous_response_id` the guide says not to prune manually |
+| Stream recovery | resume only from the last **text** block of a partial response; `tool_use` and `thinking` cannot be partially recovered | background mode with `stream: true`: reconnect with `GET /responses/{id}?stream=true&starting_after=<sequence_number>`; background responses work with `store: false` but are kept only about 10 minutes |
+| Provider-initiated model change | the streaming docs describe server-side **fallback** (a `fallback` block at each model boundary, `input_transformations` reported with a beta header) | aliases resolve to dated snapshots; the response reports the model that served it |
 | Settings that matter | `thinking: {type: "adaptive"}`, `output_config.effort` (`low`…`max`, default differs by model), `max_tokens` is a per-request cap covering thinking | `reasoning.effort`, `max_output_tokens`, `service_tier` |
-| Mid-stream failure | `error` event (e.g. `overloaded_error`); resume only from the last **text** block; `tool_use` and `thinking` cannot be partially recovered | `response.failed` / `response.incomplete` with `incomplete_details.reason` |
-| Cost surprises | thinking billed as output even when `display` is `summarized` or `omitted`; changing effort or thinking settings invalidates the prompt cache | reasoning tokens billed as output; omitting earlier reasoning items weakens caching; above ~272K input tokens the **whole request** moves to a higher rate (2x input, 1.5x output on the listed models) |
-| Compatible servers | n/a | OpenAI recommends Responses for new work. Chat Completions stays supported, but from GPT-5.4 it cannot call tools with a `reasoning_effort` other than `none`, so real OpenAI use means Responses. llama.cpp, vLLM and similar mostly speak Chat Completions |
-
-Two things follow immediately: the neutral stream must carry **opaque, verbatim blocks** (we replay them), and
-the two providers disagree on identity and on when usage is final, so the adapters, not the loop, normalise
-that.
+| Cache | prefix order tools, system, messages; changing effort or thinking settings invalidates it (*the order is from memory; the caching page was not reachable*) | prefix = hidden instructions, developer messages, tools (names, descriptions, schemas, **order**), history; `reasoning.effort`, `text.format`, `parallel_tool_calls`, compaction also change it. Newer models: write 1.25x (30 min) or 2.5x (12 h), read 0.1x; GPT-6 models have a `configuration_update` item that changes effort **without** altering the prefix |
+| Cost surprises | thinking billed as output even when not displayed | reasoning tokens billed as output; above ~272K input tokens the **whole request** moves to a higher rate |
+| Compatible servers | n/a | Responses is recommended for new work; from GPT-5.4 Chat Completions cannot call tools with a `reasoning_effort` other than `none`. llama.cpp, vLLM and similar mostly speak Chat Completions |
 
 ## 3. Decisions
 
 ### P1. A context builder comes first, and it is pure
 
-`buildContext(entries, options) → ModelContext`, no network, no provider code:
+`buildContext(effectiveSetup, entries) → ModelContext`, no network, no provider code:
 
 ```ts
 interface ModelContext {
-  system: string;                       // from config/skills, see P6
-  turns: Turn[];                        // user | assistant | tool_results, in order
-  tools: ToolDefinition[];              // JSON-schema'd, supplied by the agent loop
-  cacheHints: number[];                 // turn indexes where a stable prefix ends (end of system, of tools, of a compaction summary, of the last completed turn)
+  system: string;                 // the pinned prefix: harness prompt (P10)
+  instructions: string;           // global/user instructions; the adapter decides where they go (P10)
+  turns: Turn[];                  // user | assistant | tool_results
+  tools: ToolDefinition[];        // canonical form (P10); adapters translate
+  cacheHints: number[];           // turn indexes where a stable prefix ends
 }
 ```
 
-- It consumes `contextEntries`, then renders the entries that have no provider equivalent as text with fixed
+- It consumes `contextEntries`, then renders entries that have no provider equivalent as text with fixed
   wording: a compaction summary, `subagent_result`, `fork_merge` ("the user forked this conversation here,
-  discussed X, and changed Y"), `interrupted`. `config_changed` and `branch_start` markers are not shown.
-- **An interrupted partial never replays as a live tool call**: a half-received call has no result and would
-  make the next request invalid. Partial text is kept; partial tool calls become a short text note.
-- **Reasoning is replayed only to the model that produced it** (same provider, same model id). Anything else is
-  dropped, with the consequences (cold cache, less context for the model) documented. Replaying across models is
-  at best useless and on Anthropic risks a 400.
+  discussed X, and changed Y"), `interrupted`. `agent_setup` and `branch_start` markers are not shown.
+- **An interrupted partial never replays as a live tool call.** A half-received call has no result and would
+  make the next request invalid. Partial text is kept; a partial tool call becomes a short text note.
+- **Reasoning is replayed only to the model that produced it** (same provider, same resolved model). Anything
+  else is dropped, with the consequences documented. Which model produced a block is known from the setup
+  folded at that point (P8), so the setup entry for a provider-observed change is written *before* the assistant
+  entry it explains.
+- Provider-native compaction items (P4) are replayed only to the provider that made them; for anyone else the
+  builder uses the full history (the transcript is append-only, so it still exists), and our own `compaction`
+  entry takes over when that no longer fits.
 - Golden tests run it over the lifecycle conversation's history.
 
-### P2. The adapter is a stateless function from context to an event stream
+### P2. The adapter is a stateless function from context to an event stream, and it owns what the provider knows
 
 ```ts
 interface ProviderAdapter {
-  readonly type: string;                              // "anthropic", "openai", "openai-compatible", ...
-  readonly providerSchema: StandardSchema;            // connection, auth, transport (P6)
-  readonly settingsSchema: StandardSchema;            // per-request knobs for a model (P8)
-  describe(model: string): ModelInfo | undefined;     // capabilities, window, price reference (P8, P9)
-  estimate(ctx: ModelContext, s: Settings): Estimate; // tokens + worst-case cost before sending (P9)
-  stream(req: { context: ModelContext; model: string; settings: Settings; signal: AbortSignal }): ModelStream;
+  readonly $tag: string;                                   // "anthropic", "openai", "openai-compatible", ...
+  readonly providerSchema: StandardSchema;                 // connection, auth, transport, pricing overrides (P6)
+  settingsSchema(model: string): StandardSchema;           // per-request knobs for that model (P8)
+  catalog(): Promise<ModelInfo[]>;                         // from an API or a bundled table: the adapter's choice
+  pricing(model: string): Promise<PriceTable>;             // normalised dimension tables (P9)
+  classify(from: AgentSetup, to: AgentSetup, at: Position): Change[];   // what a change would do (P8)
+  estimate(ctx: ModelContext, setup: AgentSetup): Estimate;             // tokens + worst-case cost
+  stream(req: { context: ModelContext; setup: AgentSetup; signal: AbortSignal }): ModelStream;
 }
-type ModelStream = AsyncGenerator<StreamEvent, Completed>;   // yields events, returns the final result
+type ModelStream = AsyncGenerator<StreamEvent, Completed>;  // yields events, returns the final result
 ```
 
-Neutral events (all adapters emit these and nothing else):
+Neutral events: `started`, `text.delta`, `reasoning.delta` (readable part only), `tool_call.start` / `.delta`,
+`block.done` (the **complete block**, with opaque payloads exactly as the provider sent them), `usage`
+(cumulative), and `observed` (what the provider reports about how the request was served: the resolved model,
+and the service tier where it says). The generator **returns** `Completed { blocks, stop_reason, usage,
+observed, ext }` or **throws** `ProviderError { kind, retryable, partial }` where `partial` is the blocks
+completed before the failure. Exactly one terminal state per stream: completed, error, or aborted.
 
-- `started` (provider response id, if any, goes to `ext`)
-- `text.delta`, `reasoning.delta` (readable part only), `tool_call.start` (`call_id`, `name`), `tool_call.delta`
-- `block.done` with the **complete block**, including the opaque reasoning payload exactly as the provider sent it
-- `usage` (always cumulative, normalised, raw counts kept)
-- the generator **returns** `Completed { blocks, stop_reason (normalised and raw), usage, ext }`, ready to be
-  committed as an `assistant` entry, or **throws** `ProviderError { kind, retryable, partial, status? }` where
-  `partial` is whatever blocks completed before the failure.
+### P3. A shared HTTP base, open for extension and documented as an extension point
 
-Exactly one terminal state per stream: completed, error, or aborted (abort throws with `kind: "aborted"` and
-`partial`). The caller never has to interpret provider event names.
+Raw `fetch`, because it keeps the core portable and the raw payloads we must replay. It is also the part most
+likely to change under the user's feet, so it is designed to be changed:
 
-### P3. A shared base for HTTP providers; a "direct" adapter implements the interface itself
+- **Injected `fetch`** (web-standard), so any runtime, proxy, or test double works.
+- **Everything the base does is a replaceable piece**, passed in as an option with a documented default:
+  `auth` (how credentials become headers), `retry` (a policy object: which errors, how long, jitter,
+  `retry-after`), `timeouts` (connect, idle between events, total), `sse` (the line parser), `limiter`
+  (shared concurrency per provider), `redact` (what is scrubbed from errors and logs), and `hooks`
+  (`onRequest`, `onResponse`, `onEvent`, all receiving redacted views) for logging, tracing and recording.
+- **A provider is three small functions**: `buildRequest(ctx, setup)`, `onEvent(sse, state) → StreamEvent[]`,
+  `finish(state) → Completed`. A new API version means editing those, not the base.
+- **A "direct" adapter** (an in-process engine) implements `ProviderAdapter` without any of this.
+- The base retries only **before the first content event**; after that it never retries by itself, because the
+  partial output was paid for and the caller decides (P5).
+- **Documentation is a deliverable**, not an afterthought: `docs/writing-an-adapter.md` (the interface, the
+  event contract, the conformance suite, how to record fixtures), plus a **fixture recorder** that captures a
+  real stream, redacts it, and writes the SSE file the tests replay. When a provider changes its API, the
+  workflow is: re-record, diff the fixtures, fix the three functions, run the conformance suite.
 
-`providers/http.ts` is a template, not a base class everyone must extend:
+### P4. State: Anthropic is stateless; OpenAI is stored by default, with replay always possible
 
-- takes an injected `fetch` (web-standard, so the core stays runtime-independent), builds requests, parses SSE
-  (own parser, tested with arbitrary chunk boundaries like the transcript framing), enforces an **idle timeout**
-  between events as well as an overall one, and honours `AbortSignal`;
-- retries only **before the first content event** (connection errors, 429, 5xx, `overloaded`), with jittered
-  backoff and `retry-after`; after content has started it never retries by itself, because the partial output
-  was paid for and the caller must decide (P5);
-- classifies errors (auth, rate limit, context too long, invalid request, overloaded, server) and strips
-  secrets from every message it produces;
-- shares a per-provider concurrency limiter, so a fan-out of subagents does not stampede one rate limit.
+- **Anthropic** is stateless already; the cache hints (P1) become explicit breakpoints.
+- **OpenAI** requests are stored by default (`store: true`) because that buys real features: server-side
+  compaction and retrieving a response by id. `store: false` is an opt-out flag in the provider config (and
+  the server forces it for zero-retention accounts; the adapter reads `response.store` and stops chaining when
+  it is false).
+- **Chaining is an optimisation with a verified fallback, never the only source of truth.** The adapter
+  records the response id and a digest of the rendered prefix in `ext`. A request uses `previous_response_id`
+  and sends only the new items **only if** the prefix up to that response is byte-identical to what the response
+  saw (no compaction of ours, setup change, fork, or edit since). Otherwise, or if the id has expired or the API
+  says it is not found, it replays the full context. Because replay must always be possible, the adapter
+  **always** requests `reasoning.encrypted_content` and keeps it in the entry, even when stored.
+- `instructions` are not carried by `previous_response_id`, so they are sent on every request.
+- **Compaction.** Server-side compaction arrives in the stream as an opaque item. It is stored as a block in
+  the assistant entry (provider-tagged, opaque `payload`) and shown as an **event**, not as readable text:
+  the transcript gains an automatic compaction, but not one a person can read. It does not replace our own
+  `compaction` entry, which is readable and provider-independent; the two coexist (P1).
+- **Retrieval has a concrete use: crash recovery.** The response id arrives in the first event and is written to
+  the journal (P5). If the process dies, `open` can retrieve the finished response by id (and the response
+  existed because it was stored) instead of recording an `interrupted` entry for something that was paid for
+  and completed. That step needs the network and credentials, so it is optional and runs only when a provider
+  is configured; otherwise recovery falls back to `interrupted`.
+- **Privacy note**: stored mode keeps conversation content on OpenAI's servers for the retention period. The
+  provider schema's `store` property is documented as such, and `create` mentions it in its output.
+- The cost and performance comparison with stateless replay is deferred (parking lot); everything above works
+  either way, which is why it is safe to choose now.
 
-A provider implements three small functions: `buildRequest(ctx, settings)`, `onEvent(sse, state) → StreamEvent[]`,
-`finish(state) → Completed`. Anthropic and OpenAI Responses each do that. An in-process "direct" adapter
-(for example a native llama.cpp binding) implements `ProviderAdapter` without any of it.
+### P5. Streaming: pass events through, and journal them beside the repository
 
-**Raw `fetch` rather than the vendor SDKs** (question Q2): no dependency, the core stays portable, and we
-keep the raw payloads we must replay. The price is that we track API changes ourselves; the conformance suite
-(P11) is what makes that tolerable.
+- `stream()` is an async generator; a UI consumes it directly.
+- The turn runner also tees the events into a **journal**: one append-only JSON-lines file per branch at
+  `<git-common-dir>/chattree/journal/<branch>.jsonl`, next to the lock files, never committed. It is not
+  canonical YAML and not content-addressed, and is flushed in small batches with a documented loss window.
+  Other processes can follow it.
+- It starts with a record naming the request (provider, setup digest, context digest) and, for OpenAI, the
+  response id as soon as it is known. It ends **before the commit**, in one of two ways: the `assistant` entry
+  (this *is* the "response complete" record; no new entry type) is committed and the journal deleted, or an
+  `interrupted` entry is built from the completed blocks (`by: user | error`), committed, and the journal
+  deleted.
+- **Recovery in `open`**: a journal with no matching commit becomes an `interrupted` entry with `by: error`
+  (or, for a stored OpenAI response, the retrieved response, P4). The `recovery` event reports it.
+- Partial blocks follow what the providers can resume: complete text and reasoning blocks are kept; a partial
+  tool call or thinking block is not usable and is recorded only as text (P1). "Continue from where it left
+  off" is a later explicit action, not something an adapter does silently.
 
-### P4. Stateless by construction
-
-- Anthropic is stateless already.
-- OpenAI is always called with `store: false` and `include: ["reasoning.encrypted_content"]`; we never use
-  `previous_response_id` or a server-side conversation. Server state would not survive our forks, compactions or
-  model switches, would make the git history not the source of truth, and conflicts with zero-retention accounts.
-- Consequence: every request resends the whole visible context. That is what prefix caching is for, and it is
-  why `cacheHints` exist (P1). Anthropic: the adapter turns hints into explicit cache breakpoints. OpenAI:
-  automatic prefix caching, so the adapter's job is to keep the prefix **byte-stable** (stable ordering, no
-  timestamps in the system prompt).
-
-### P5. Streaming: pass events through; journal them beside the repository, never in the transcript
-
-The two options you gave, and why I'd pick neither as stated:
-
-1. **In-memory passthrough** is the right interface: `stream()` is an async generator and a UI consumes it.
-   Alone, it loses the partial response (and the money spent on it) if the process dies.
-2. **A streaming entry in `chat.yml`** would break what the transcript guarantees: every entry complete,
-   canonical, and committed exactly once, with an incomplete tail meaning "truncate on open". A growing entry is
-   a partial write by definition, and it would have to be removed or rewritten before the commit.
-
-**Proposal: option 1 plus an optional journal, as a consumer of the stream rather than part of any adapter.**
-
-- The turn runner tees the neutral events into a **journal**, one append-only file per branch under the git
-  directory (`<git-common-dir>/chattree/journal/<branch>.jsonl`, the same place as the lock files, never committed, so no ignore rules are needed). It is
-  plain JSON lines, not canonical YAML and not content-addressed, flushed in small batches (a few hundred ms)
-  with a documented loss window. Other processes (a UI, a `tail -f`) can follow it.
-- It starts with a record naming the request (provider, model, settings, a digest of the context). It ends one
-  of two ways, **always before the commit**:
-  - success: the `assistant` entry (this *is* the "response complete" record, so no new entry type) is appended
-    and committed, then the journal is deleted;
-  - interruption: the runner builds an `interrupted` entry from the completed blocks in the journal
-    (`partial`, `by: user | error`), commits it, then deletes the journal.
-- **Crash recovery** is one more step in `open`, next to truncating a torn entry and committing complete ones: a
-  journal with no matching commit becomes an `interrupted` entry with `by: error`, built from its completed
-  blocks. The `recovery` event reports it.
-- Partial blocks follow what the providers can actually resume: complete text and reasoning blocks are kept; a
-  partial tool call or thinking block is not usable and is recorded only as text (P1). "Continue from where it
-  left off" is a later, explicit action that builds a new request (Anthropic documents two different ways to do
-  this depending on the model), not something the adapter does silently.
-
-### P6. Configuration: providers, models, settings, limits; adapters bring their own schemas
-
-`harness.yml` moves to `version: 2` (with a migration from today's shape):
+### P6. `harness.yml` is the outside world; schemas by `$tag`
 
 ```yaml
-version: 2
-providers:                        # connection and auth: one entry per account/endpoint
+# yaml-language-server: $schema=./.chattree/harness.schema.json
+providers:                              # connection, auth, transport, pricing overrides
   anthropic:
-    type: anthropic
-    api_key_env: ANTHROPIC_API_KEY      # the NAME of an environment variable, never a key
+    $tag: anthropic                      # same key the transcript codec uses; `!anthropic` is accepted as sugar
+    api_key_env: ANTHROPIC_API_KEY       # the NAME of an environment variable, never a key
   openai:
-    type: openai
+    $tag: openai
     api_key_env: OPENAI_API_KEY
-    service_tier: standard              # provider-specific property, validated by the adapter
+    store: true                          # opt-out flag (P4)
+    pricing: { overrides: [...] }        # provider-specific, validated by the adapter
   local:
-    type: openai-compatible
+    $tag: openai-compatible
     base_url: http://localhost:8080/v1
-models:                           # what to call and how
-  main:
-    provider: anthropic
-    model: claude-opus-5-5
-    settings: { max_output_tokens: 16000, thinking: adaptive, effort: medium }
-  helper:
-    provider: openai
-    model: gpt-5.4-mini
-    settings: { max_output_tokens: 4000, reasoning_effort: low }
-agent: { model: main, subagent_model: helper }
 limits: { max_request_usd: 1.00, max_turn_usd: 5.00, max_conversation_usd: 50.00, warn_at: 0.8 }
 ```
 
-- **Schemas by tag.** An adapter registers itself the way entry types register (`defineEntry`): a `type` name,
-  a provider schema and a settings schema. The loader validates `providers.<name>` with the schema of its
-  `type`, and `models.<name>.settings` with the schema of its provider's adapter, so an adapter can demand any
-  properties it likes (`api_version`, `organization`, `region`) without the core knowing them. Adapters
-  describe schemas through Standard Schema, so a third-party adapter is not tied to zod. If you meant
-  *YAML tags* (`!anthropic {...}`) literally, that also works with the `yaml` package and matches the
-  transcript's `!tag` convention; I prefer a `type:` key because it shows up in editors and JSON-schema tools
-  (question Q3).
-- Everything that is not an adapter's business (the shape of `providers`, `models`, `agent`, `limits`,
-  cross-references like "model names a provider that exists") stays in the core schema.
-- The existing `model:` block is migrated to one provider plus one model named `main`.
+- **`$tag` is the discriminator.** The transcript codec already means "this value's type" by it (`!user` is
+  `$tag: user`), so the config uses the same word and the same mapping: a `!anthropic` tag on a provider is
+  normalised to `$tag: anthropic` before validation. No rename is needed in either place. It is plain YAML
+  (`$tag: anthropic` needs no quoting) and plain JSON Schema (`const`).
+- **Schemas by tag.** An adapter registers itself like an entry type: a `$tag`, a provider schema, a settings
+  schema. The loader validates each provider with its adapter's schema. Adapters describe schemas through
+  Standard Schema and must be able to emit JSON Schema (zod does natively), so a third-party adapter is not
+  tied to one library.
+- **Editor support.** `create` and `open` generate a combined JSON Schema (core plus every registered adapter)
+  into the worktree (`.chattree/harness.schema.json`, gitignored; each open regenerates it, so every worktree
+  has one) and `create` writes the `# yaml-language-server: $schema=` line. As far as I know the YAML language
+  server cannot learn **custom tags** from a schema (that needs its `yaml.customTags` setting), so tags remain
+  optional sugar; a helper that adds them to VS Code settings comes later.
+- **Models are not in the file.** Which models exist comes from the provider (P9); which one an agent uses is
+  state in the transcript (P8). Any model the provider lists may be chosen: that is a host and user decision.
+- **The `config_changed` entry goes away** (with its hash chain, `configStatus`, and the verifier's chain check).
+  Config changes are visible as git commits to `harness.yml`; every entry commit includes the file as it was, so
+  "what config was in force for this response" is `git show <commit>:harness.yml`.
+- No migration code and no version bump: formats change in place until the first release.
 
 ### P7. Secrets: names in config, values from a source that cannot be committed
 
-- Config stores **names** (`api_key_env`), so `config_changed` hashes and the repository never contain a secret.
-- Resolution goes through an injected `SecretSource: (name) => string | undefined` (the core never reads
-  `process.env`). The Node entry point supplies, in order: the process environment, then a repo-local file.
-- The repo-local file lives at **`<git-common-dir>/chattree/env`** (dotenv syntax), inside `.git/`, so it is
-  shared by all worktrees (a gitignored file in the main worktree would not exist in a subagent's worktree) and
-  `git add -A` or `git add -f` cannot commit it. A dotfile inside the worktree is also supported **only if
-  `git check-ignore` says it is ignored**; otherwise loading it fails with an explanation rather than reading a
-  file that the next `append` would commit. `create` writes the `.gitignore` entry for that case.
-- **Every resolved secret is registered with the write pipeline's `redact`**, and with the error scrubber in
-  the HTTP base, so a key can never reach the transcript, the journal, a log line or an error message, even if a
-  tool result echoes it.
-- Validation reports a missing variable as an error naming the variable and the provider that needs it, at
-  `open` and at `changeConfig`, not at the first request an hour in.
+- Config stores **names** (`api_key_env`). The core never reads `process.env`; resolution goes through an
+  injected `SecretSource`. The Node entry point supplies the process environment, then a repo-local file.
+- The file is **`<git-common-dir>/chattree/env`** (dotenv syntax): inside `.git/`, shared by all worktrees, and
+  not committable by `git add -A` or `-f`. A dotfile inside the worktree is read **only if `git check-ignore`
+  says it is ignored**; otherwise loading fails with an explanation. `create` writes the `.gitignore` entry.
+- **Every resolved secret is registered with the pipeline's `redact`** and the HTTP base's scrubber, so a key
+  cannot reach the transcript, the journal, a log or an error, even if a tool result echoes it.
+- A missing variable is an error naming the variable and provider, at `open`, not at the first request.
 
-### P8. Provider config, model settings, and what "valid" means
+### P8. `agent_setup`: the agent's state in the transcript, folded, changed by explicit mutations
 
-Three levels, validated separately, because they fail differently:
+```yaml
+- !agent_setup
+  id: ...
+  reason: user                  # user | fork | subagent | provider | resolved
+  model: { provider: openai, id: gpt-5.4, resolved: gpt-5.4-2026-03-05,
+           settings: { max_output_tokens: 8000, reasoning_effort: low } }
+  tools:  { set: { write_file: { hash: ..., store: blob }, run: { hash: ..., store: external, ref: tools/run } },
+            remove: [] }
+  instructions: { hash: ..., store: blob }
+  skills: { ... }               # same shape as tools
+  mcp: { ... }                  # same shape
+  pricing: { table: <hash> }    # the price table this agent is costed under (P9)
+  allow: [cache_break]          # change kinds the caller allowed for this mutation
+  acknowledges: [<entry id>]    # provider-observed changes this entry accepts
+```
 
-| Level | Examples | Changing it mid-conversation |
-| --- | --- | --- |
-| **Provider** (connection, auth, transport) | base URL, key variable, service tier, region | invisible to the transcript, but can change cost (tier) |
-| **Model** (identity) | provider + model id | reasoning is dropped, the cache goes cold, the context window may shrink |
-| **Settings** (per-request knobs) | effort, thinking, temperature, max output tokens | can invalidate the cache (Anthropic) and changes cost |
+- **Sections are optional deltas** (`set` / `remove` for maps); the first entry of an agent flow is complete.
+  The **effective setup** is the fold of an agent's `agent_setup` entries, kept by the `Conversation` so the
+  append path (commit author, descriptions) does not re-read the transcript.
+- **Inheritance.** A fork inherits the folded setup, so it needs no entry. A subagent has fresh context
+  (`contextEntries` starts at its marker), so it must write its own complete first `agent_setup` right after
+  `branch_start`: its model, settings and tools. The coordinator's **subagent allowlist** lives in the
+  subagent tool's own configuration; the allowed models appear as an enum in that tool's input schema (so the
+  coordinator sees the same list) **and** are enforced in code against the pinned value, because model output
+  is never trusted. The allowlist is part of the tool's hash, so changing it is a tool change (P10).
+- **Mutations** (`Conversation.setupChange(change, { allow })`, reusing the validate, check, append machinery
+  that `changeConfig` had):
+  1. validate shapes with the adapter's schemas, then semantics against the catalog (unknown model: a warning,
+     never an error; a window the current context no longer fits: an error);
+  2. ask `adapter.classify(from, to, position)` what the change would do, as **change kinds**: `model_changed`,
+     `provider_changed`, `cache_break`, `cost_increase`, `context_overflow`, `reasoning_dropped`,
+     `capability_loss`, `mid_loop` (inside a tool loop, where Anthropic wants one thinking configuration per
+     turn), `tools_changed`, `instructions_changed`, `pricing_changed`, `resolved_model_changed`;
+  3. any kind not in `allow` throws `ChangeNotAllowed { changes: [{kind, message, estimatedCost}], allowWith }`;
+     the host shows a dialog and retries with the flags the user accepted, which are recorded in the entry.
+  The same classification differs per provider and model, which is why it belongs to the adapter.
+- **Provider-observed changes are facts, not requests.** When a response reports a model (or service tier)
+  other than the folded one, the turn runner writes **`agent_setup` with `reason: provider` before the
+  assistant entry**, in one atomic `appendMany`, so the producer of every block is known from the fold. It
+  raises a `setup_changed` event (the host's toast). Observing it is never refused (the response was already
+  paid for); the **next request** is gated: while a provider-reason entry is unacknowledged, a request whose
+  change kinds are not in the host's standing allow set throws `ChangeNotAllowed`, and the host answers with a
+  mutation whose `acknowledges` names it.
+- **Aliases are pinned.** The first response under a setup reports the resolved model id. Writing it is an
+  expected `reason: resolved` entry (not gated); from then on requests send the resolved, dated id where the
+  provider has one, so the provider cannot silently re-point an alias. A later mismatch (deprecation, a
+  server-side fallback) is a real `reason: provider` change.
+- **`assistant` entries are slimmed**: the model settings that v1 repeated (`request` block, effort, tier,
+  token caps) are not stored per entry; the fold has them. What the *response* reports stays: `usage`,
+  `stop_reason`, `ext`, and (open question Q1) the served model id.
 
-Validation has two phases and three severities:
+### P9. Catalog, pricing and cost: through the provider, pinned by hash
 
-1. **Shape**: the adapter-supplied schemas (types, ranges, enums). Errors only.
-2. **Semantics**, against a **model catalog** each adapter ships (`describe(model)`): context window, maximum
-   output, supported effort levels, whether temperature is allowed with thinking, whether forced tool choice is
-   allowed with the chosen thinking mode (the Anthropic docs say some current models reject that), price
-   reference, deprecation. Examples: unsupported effort for that model is an **error**; `max_output_tokens`
-   above the model's maximum is an **error**; a model not in the catalog is a **warning** ("capabilities
-   unchecked, cost unknown"), never an error, because new models appear weekly; the user can supply
-   `capabilities` and `price` overrides in the model entry.
+- **Catalog.** `adapter.catalog()` returns the models, with capabilities (context window, maximum output,
+  supported effort levels, whether temperature is allowed with thinking, forced tool choice, deprecation). An
+  API-backed provider (llama-server's `/v1/models` and `/props`, for context size) fetches it, with a short-
+  lived cache under the git directory and a bundled fallback offline; OpenAI and Anthropic ship a bundled
+  table. The harness treats all of them alike.
+- **Pricing is normalised.** `adapter.pricing(model)` returns dimension tables: meters (input, output, cache
+  read, cache write by lifetime; reasoning is billed as output and aliased), tiers (standard, flex, priority,
+  batch), context bands (the long-context cliff), and `rate(model, meter, tier, band) → $/Mtok`, with `asOf` and
+  `source`. A provider with a real pricing API returns the same shape; a local server returns an explicit **zero**
+  (free), not unknown. Overrides come in through the provider config schema.
+- **Pinned, so history is reproducible.** The setup records the **hash of the effective table** (bundled plus
+  overrides) it is costed under; the table itself is stored as a blob (or externalised like any definition,
+  P10). Each turn compares the effective table's hash with the pin; a mismatch (a package upgrade changed the
+  bundled table, an override was edited) is a `pricing_changed` change that needs an explicit mutation. A real
+  price change you want to preserve is therefore a mutation, and the old table stays reachable at the earlier
+  commit for analytics. A genuinely retroactive correction is a config edit plus the same mutation.
+- **Cost is derived**, not stored per entry: usage × the pinned table for the setup folded at that entry. The
+  ledger is a fold over the transcript, including usage rolled up in `subagent_result` / `fork_merge`, so
+  budgets survive restarts and forks.
+- **Limits are enforced**: `max_request_usd` against the pre-flight estimate (input tokens plus
+  `max_output_tokens` priced as fully used, which is why `max_output_tokens` is required in the settings),
+  `max_turn_usd`, `max_conversation_usd`, `max_requests_per_turn`, a wall-clock cap, and `max_subagent_usd` in
+  the subagent tool's configuration. A request that would exceed a limit is not sent. `warn_at` raises a `cost`
+  event first. To go past a limit the host edits `harness.yml`.
+- **Unknown price** is shown as unknown, never zero; a limit `unknown_price: warn | block` decides what then.
+- **Surprises checked specifically**: a model or tier switch ("next turn about $0.04 now, $1.20 after, 30x,
+  for this conversation's current size"); the price spread between the cheapest and the "pro" tiers (about
+  300x on one provider's list); the long-context cliff (warn within 10% of the threshold); cache loss from
+  effort or thinking changes, dropped reasoning, compaction, or waiting past the cache lifetime; subagent
+  fan-out; and partial responses that were billed anyway (usage is recorded on `interrupted` entries).
 
-`validateConfig(config, adapters, secrets, conversation)` returns issues `{severity, path, message}`, like
-`verifyHistory`. Errors block `changeConfig`; warnings are returned with the result and shown. Checks that
-need the conversation itself: current context size against the new model's window (error if it no longer
-fits), a provider switch dropping reasoning that the next turn needs (warning), and the cost comparison in P9.
+### P10. Pinned definitions: tools, instructions, skills, MCP
 
-### P9. Cost: estimate before sending, budget from the transcript, warn on change, never guess silently
+- **A canonical internal format** for tool definitions (name, description, JSON-schema input, behavioural
+  flags); each adapter translates it to its provider's shape deterministically. The **hash** is the hash of
+  the canonical encoding (the transcript codec's canonical emitter, as config hashing already does), so it
+  covers schema, description and implementation identity, because all three change behaviour and cache bytes.
+  The adapter version is also an input to the rendered bytes; it is recorded with the setup.
+- **The setup records `name → { hash, store, ref? }`; presence means enabled.** Two storage modes, host's
+  choice per definition: `store: blob` copies the canonical bytes into `blobs/` (replayable byte-for-byte,
+  checkable by `verifyHistory`), or `store: external` records only the hash and the host's locator (for
+  example a path in a shared submodule of organisation-wide tooling, where copying would be redundant).
+- **The host provides one hook**, so the harness can discover and retrieve definitions and the host handles the
+  wiring:
+  ```ts
+  interface DefinitionSource {
+    list(): Promise<{ kind: "tool"|"instructions"|"skill"|"mcp"; name: string; hash: string; ref?: string }[]>;
+    get(kind, name, hash): Promise<Uint8Array | undefined>;     // the canonical bytes for exactly that hash
+  }
+  ```
+  At the start of each turn the harness recomputes the hashes of everything pinned. A mismatch is
+  `definition_changed`; a pinned name that is no longer listed is `definition_missing`; both fail with the same
+  `ChangeNotAllowed` error as other drift, so detection is safe in either mode. For external pins the verifier
+  can only check what the host's source can serve, and reports the rest as unresolvable.
+- **What happens when these change** (the prefix is pinned within an agent flow):
+  - *Tools* (names, descriptions, schemas, order) are part of both providers' cached prefix, so any tool change
+    is a `cache_break` and costs a full re-read of the conversation. **Removing** a tool is better done as a
+    restriction (OpenAI: `allowed_tools` or `tool_choice: "none"`; Anthropic: `tool_choice`, whether it has an
+    allow-list equivalent is to verify) than by deleting the definition, because history may contain calls to
+    it. Adding a tool changes the prefix and is a mutation.
+  - *System prompt*: part of the prefix; changing it is a `cache_break` mutation.
+  - *Global instructions*: the context has separate slots for `system` (pinned) and `instructions`; the adapter
+    places the latter in the system block or as the first developer or user message, depending on provider and
+    model, deterministically from the setup. An edit mid-conversation **defaults to appending a short "your
+    instructions were updated" message at the tail** (cache-friendly; the old text stays in context); a
+    re-render of the prefix is an explicit `cache_break` mutation.
+  - *Skills and MCP*: the same shape. An MCP server's tool list can change under us; the hash of the list it
+    presents is pinned, and a difference is drift like any other.
+  - Whether a given change is free, cache-breaking or incompatible is the **adapter's classification** (P8).
 
-No provider API returns prices, so cost is computed from **usage × a price table**, and everything below
-treats the table as data with provenance, not as truth.
+### P11. Entry changes (in place, no version bump)
 
-- **Price table.** Per model: input, cached input, cache write (by TTL, Anthropic), output, long-context
-  threshold and multipliers, tier multipliers. Shipped with the adapters with an `asOf` date, overridable in
-  config, and a warning when it is older than 90 days. A model with no price is shown as **unknown cost**,
-  never as zero; a limit `unknown_price: warn | block` decides what happens next.
-- **Pre-flight estimate** for every request: input tokens (the provider's token-counting endpoint if cheap, a
-  conservative character heuristic otherwise, labelled as an estimate) plus **`max_output_tokens`** priced as if
-  fully used. This is the worst case, and it is why `max_output_tokens` is **required** in config: no provider
-  default unbounded.
-- **The ledger** is a fold over the transcript: sum of each `assistant` entry's usage priced at the table
-  version recorded with it, plus the rollup recorded in `subagent_result` / `fork_merge` (P10), because a
-  subagent's own entries live on its branch. Budgets therefore survive restarts and forks (a fork inherits what
-  was spent before it), and `verifyHistory` can recompute it.
-- **Limits** (config): `max_request_usd` (checked against the estimate, blocks the request), `max_turn_usd` (a
-  tool loop is many requests, and `max_tokens` is per request), `max_conversation_usd`, plus
-  `max_requests_per_turn` and a wall-clock cap. `warn_at` fires a `cost` event before the limit is reached. An
-  interactive host can answer the event with proceed or abort.
-- **Surprises the library checks for specifically**, because they are the ones that actually bite:
-  - *Model or tier switch*: "the next turn is estimated at $0.04 on the current model and $1.20 on the new one
-    (30x), for this conversation's current size." Computed from the real context, not a price list.
-  - *Price spread*: the listed OpenAI models span about 300x in input price between the cheapest and the
-    "pro" tier, so a one-line config edit can change spend by two orders of magnitude.
-  - *Long-context cliff*: one provider moves the **whole** request to a higher rate above a size threshold; the
-    estimate warns when a request is within 10% of the threshold or over it.
-  - *Cache loss*: changing effort or thinking settings (Anthropic), dropping reasoning items, compaction, or
-    waiting past the cache lifetime makes the next request pay full input price; the estimate reports it.
-  - *Fan-out*: N subagents multiply a loop's spend; `max_subagent_usd` caps each, the conversation limit caps
-    the sum.
-  - *Paid partials*: a failed or interrupted response was still billed; usage on `interrupted` entries is
-    recorded (P10), not lost.
-
-### P10. Entry format changes (additive, format 1.3)
-
+- **Added**: `agent_setup` (P8). **Removed**: `config_changed`.
 - `assistant`: `usage` normalised to `input_tokens`, `output_tokens`, `cache_read_tokens`,
-  `cache_write_tokens`, `reasoning_tokens` with the provider's raw usage kept in `ext`; optional
-  `cost: { usd, table: "<asOf>", estimated: true }` so history stays interpretable after prices change;
-  optional `request: { service_tier, effort, max_output_tokens }` as actually sent.
-- Content blocks get an optional `ext` so a provider can keep what replay needs (OpenAI's item `id` next to
-  `call_id`); reasoning keeps its opaque `payload`.
-- `interrupted`: optional `usage` and `cost`.
-- `subagent_result` / `fork_merge`: optional `usage` and `cost` rollups of the child branch.
-- `stop_reason` stays a string, normalised, with the raw value in `ext`.
-- All fields optional, so older readers ignore them.
+  `cache_write_tokens`, `reasoning_tokens` with the raw provider usage in `ext`; settings no longer repeated (P8);
+  content blocks get an optional `ext` so a provider can keep what replay needs (OpenAI's item `id` beside
+  `call_id`); a provider-tagged opaque `compaction` block kind (P4); `ext` also holds the response id and prefix
+  digest (P4).
+- `interrupted`: optional `usage`. `subagent_result` / `fork_merge`: optional `usage` rollup of the child.
+- `stop_reason` stays a string, normalised, raw value in `ext`.
+- `verifyHistory` loses the config-chain check and gains: setup folds are valid, a `provider` setup precedes the
+  assistant entry it explains, every pinned `blob` definition matches its hash, subagents start with a complete
+  setup.
 
-### P11. Testing without calling the providers
+### P12. Testing without calling the providers
 
-- **Recorded fixtures.** Real streams (text, tool calls, thinking, errors, mid-stream failure) captured once,
-  redacted, committed as SSE files. Each adapter must turn each fixture into the expected neutral events.
-- **Chunking property test.** Any split of a fixture into network chunks, including mid-line and mid-UTF-8,
-  must yield identical events (the same idea as the transcript framing fuzz).
-- **Fake server** in `node:http` for transport behaviour: retry before first content only, `retry-after`,
-  idle timeout, abort, 429 and 5xx, a connection reset mid-stream.
-- **Replay round trip.** `assistant` entry → context builder → request body: reasoning blocks come back
-  byte-identical, tool calls and results are paired, foreign reasoning is dropped.
-- **Conformance suite** every adapter (ours or third-party) runs: exactly one terminal state, cumulative
-  usage never decreases, complete blocks match the deltas, secrets never appear in any event or error.
-- **Live tests**, opt-in by environment variable, tiny `max_output_tokens`, a hard spend cap in the test.
-- **Journal** crash sweeps like the ones for `append`: fail at every operation, reopen, history verifies, an
-  interrupted entry exists for any orphan journal.
+- **Recorded fixtures** (text, tool calls, thinking, errors, mid-stream failure, fallback, compaction items),
+  captured with the recorder, redacted, committed as SSE files.
+- **Chunking property test**: any split of a fixture into network chunks, including mid-line and mid-UTF-8,
+  yields identical events.
+- **Fake server** in `node:http`: retry before first content only, `retry-after`, idle timeout, abort, 429 and
+  5xx, a reset mid-stream; for OpenAI also `previous_response_id` chaining, an expired id, `store` forced off,
+  and retrieval by id.
+- **Replay round trip**: `assistant` entry → builder → request body: reasoning byte-identical, tool calls and
+  results paired, foreign reasoning dropped, chaining used only when the prefix digest matches.
+- **Conformance suite** every adapter runs: one terminal state, cumulative usage never decreases, complete blocks
+  match deltas, secrets never appear in any event or error, `classify` is symmetric where it should be.
+- **Mutation tests**: every change kind allowed, refused and acknowledged; a provider change written before its
+  assistant entry atomically; crash sweeps over that `appendMany`, and over the journal.
+- **llama-server early**: a probe test against a local build (tool calls need `--jinja` as I understand it,
+  reasoning arrives in `reasoning_content`, context size from `/props`) before the compatible adapter is
+  designed in detail.
+- **Live tests** against the real providers are opt-in by environment variable with a hard spend cap; none are
+  required for the build (no API key is available at present).
 
 ## 4. Layout
 
 ```
-harness/context-builder.ts     P1  entries -> ModelContext
-harness/ledger.ts              P9  cost fold over a transcript
-harness/secrets.ts             P7  SecretSource, repo-local env, redaction wiring
-harness/config.ts              P6  version 2 core schema + migration
-harness/validate.ts            P8  validateConfig
-harness/turn.ts                P5  context -> adapter -> journal tee -> commit (single request; the tool loop is later)
-harness/journal.ts             P5  append, replay, recovery
-providers/types.ts             P2  interfaces and neutral events
-providers/http.ts, sse.ts      P3  shared transport, SSE parser
-providers/anthropic/           P3  request/response mapping, catalog, prices
-providers/openai/              P3  Responses mapping (Chat Completions for compatible servers later)
-test/providers/fixtures/       P11 recorded streams
+harness/context-builder.ts      P1   setup + entries -> ModelContext
+harness/setup.ts                P8   agent_setup fold, ChangeNotAllowed, mutations
+harness/definitions.ts          P10  canonical formats, hashing, DefinitionSource, drift checks
+harness/ledger.ts               P9   cost fold
+harness/secrets.ts              P7
+harness/config.ts               P6   harness.yml (providers, limits) + JSON Schema generation
+harness/turn.ts, journal.ts     P5   context -> adapter -> journal tee -> commit (one request)
+providers/types.ts              P2   interfaces, events, errors
+providers/http.ts, sse.ts       P3   shared transport and its extension points
+providers/anthropic/            P3   mapping, catalog, prices
+providers/openai/               P3   Responses mapping; chaining, compaction, retrieval
+providers/openai-compatible/    P3   Chat Completions for llama-server and friends
+docs/writing-an-adapter.md      P3
+tools/record-fixture.ts         P3   capture and redact a real stream
+test/providers/fixtures/        P12
 ```
 
 `src/` (the core) is untouched: no provider code, no `process.env`, `fetch` injected.
 
 ## 5. Build order
 
-1. **Context builder** and golden tests (P1). Needed by everything; no network.
-2. **Provider types, SSE parser, HTTP base, fake server, conformance suite** (P2, P3, P11).
-3. **Anthropic adapter** against fixtures; then **OpenAI Responses adapter**.
-4. **Config v2, secrets, registry schemas, validation with severities** (P6–P8), with migration of the
-   existing `harness.yml`.
-5. **Catalog, price table, ledger, estimate, limits, warnings** (P9, P10 format 1.3).
-6. **Turn runner and journal** with recovery in `open` and crash sweeps (P5).
-7. **Live smoke tests**, docs, and an example in the lifecycle test using a fake provider.
-
-The tool-execution loop, system-prompt assembly from skills, and MCP are separate from this plan.
+1. **Format and setup first**: `agent_setup` entry and fold, remove `config_changed`, slim `assistant`, the
+   mutation machinery and `ChangeNotAllowed` (P8, P11), reusing what `changeConfig` had. No network.
+2. **Context builder** and golden tests (P1), **definitions and the `DefinitionSource` hook** (P10).
+3. **Provider types, SSE parser, HTTP base, fake server, conformance suite, fixture recorder** (P2, P3, P12).
+4. **Anthropic adapter** against fixtures, then **OpenAI Responses** (chaining, compaction, retrieval).
+5. **`harness.yml` v-next, secrets, JSON Schema generation and the editor marker** (P6, P7).
+6. **Catalog, pricing tables, ledger, estimates, limits** (P9).
+7. **Turn runner and journal**, recovery (including retrieval) in `open`, crash sweeps (P5).
+8. **`openai-compatible`** with the llama-server probe, then docs and an example in the lifecycle test using a fake
+   provider.
 
 ## 6. Out of scope here
 
-The tool loop and permissions; skills and MCP; context-window management policy (when to compact); a
-Chat Completions adapter for llama.cpp, vLLM and similar (designed for, built after Responses: the
-`openai-compatible` type in the config above is that adapter); prompt-cache tuning beyond hints; batch APIs.
+The tool-execution loop and permissions; skills and MCP implementations (only their pinning); when to compact;
+prompt-cache tuning beyond hints; batch APIs; hosted tools (web search, code interpreter) on OpenAI.
 
-## 7. Questions for you
+## 7. Parked (recorded in `parking-lot.md`)
 
-- **Q1. Journal location.** Under the git directory (my recommendation, never committed, shared across
-  worktrees), or a gitignored dotfile in each worktree?
-- **Q2. Raw `fetch` or the vendor SDKs?** I recommend raw `fetch` plus our own SSE parsing (P3).
-- **Q3. Config discriminator.** A `type:` key (my recommendation) or YAML `!tags`? And is moving to config
-  `version: 2` with a migration acceptable?
-- **Q4. Cost in the transcript.** Record an estimated `cost` and the price-table date in each `assistant` entry
-  (self-contained history), or record usage only and price it when read?
-- **Q5. Budget enforcement.** Hard limits enforced by the library (a request over the limit is not sent), or
-  advisory events the host may ignore? I'd make limits hard and warnings advisory.
-- **Q6. Stateless only.** Are you happy to give up OpenAI's stored conversations and `previous_response_id`
-  completely (P4)?
-- **Q7. Where tool schemas and the system prompt come from.** Today config has tool *names* only. I assume the
-  agent loop owns tool definitions and a prompt assembler builds `system`; the adapters just receive them.
-- **Q8. Price table maintenance.** Bundled with a date and overridable (my recommendation), or fetched at
-  runtime from somewhere? Bundled means someone has to update it.
-- **Q9. Provider switch mid-conversation.** Drop reasoning silently and warn (my recommendation), or refuse the
-  switch while a tool loop is in flight?
-- **Q10. Scope of the first release.** Anthropic and OpenAI Responses only, with `openai-compatible` (and the
-  existing `llama.cpp` value) deferred?
+The live comparison of stored versus replayed OpenAI state (cost, cached tokens, latency); verifying Anthropic's
+caching and pricing pages and the cache order; whether hosted tools need server state; OpenAI's WebSocket
+continuation cache; a VS Code helper for custom tags; `allowed_tools`-style restriction on Anthropic.
 
-## 8. Sources and what I could not check
+## 8. Still open
 
-Checked in this session:
+- **Q1.** Keep the **served model id** on the `assistant` entry (a few bytes; the fold would then not be needed
+  to attribute a block, replay validity, git author and drift checks stay local), or derive it only from the
+  fold? I recommend keeping that one field and nothing else of the settings.
+- **Q2.** Where does **compaction policy** (`threshold_tokens`, `keep_recent`) live: `harness.yml` (the harness's
+  disposition) or the setup (per agent)? I lean to `harness.yml`.
+- **Q3.** For a `provider`-reason change, should the gate on the next request apply by default, with hosts
+  opting into standing allowances, or never gate and only notify? The plan says gate by default.
 
-- Anthropic, [streaming messages](https://platform.claude.com/docs/en/api/messages-streaming): events, delta
-  types, cumulative usage, mid-stream errors, partial-response recovery.
-- Anthropic, [thinking with tool use](https://platform.claude.com/docs/en/build-with-claude/thinking-tool-workflows)
-  and [thinking cost and effort](https://platform.claude.com/docs/en/build-with-claude/thinking-steering-and-cost):
-  verbatim replay, `display`, `output_config.effort`, thinking-token billing, forced tool choice restrictions,
-  cache invalidation on effort change.
-- OpenAI, [Responses streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events),
-  [reasoning items](https://developers.openai.com/cookbook/examples/responses_api/reasoning_items) and
-  [Responses vs Chat Completions](https://developers.openai.com/api/docs/guides/responses-vs-chat-completions?api-mode=responses).
-- OpenAI price spread, long-context threshold and tier multipliers:
-  [a third-party price table dated 20 October 2026](https://developer.puter.com/tutorials/openai-api-pricing/).
-  **Treat it as illustrative**; the real table must come from the provider's own pricing page.
+## 9. What changed since v1
 
-**Not verified** (the pages were not reachable from this session):
+Added: `agent_setup` and folding, mutation machinery with typed allow flags, provider-observed changes written
+before the assistant entry, alias pinning, pinned definitions with a host hook and two storage modes,
+pricing through the provider interface and pinned by hash, OpenAI stored by default with verified replay
+fallback, compaction as an opaque block, retrieval-based crash recovery, an extensible and documented HTTP
+layer with a fixture recorder, `$tag` as the config discriminator with a JSON Schema marker, `openai-compatible`
+in scope. Removed: `config_changed`, the `models` section of `harness.yml`, per-entry settings, migration and
+version bumps. Changed: limits are hard; cost is derived from usage and the pinned table rather than stored per
+entry.
 
-- Anthropic's **prompt caching** details (breakpoint limits, TTL options, write/read multipliers, minimum
-  lengths) and its **price table**. P4 and P9 describe the cache design in general terms only; the numbers need
-  a pass against the official pages before the catalog is written.
-- Whether OpenAI requires a replayed reasoning item to travel with the item that followed it in every case
-  (it is reported to), and whether message item ids are needed for stateless replay. The first live tests
-  must settle both before the OpenAI replay path is trusted.
+## 10. Sources and what I could not check
+
+Checked in this session: Anthropic
+[streaming messages](https://platform.claude.com/docs/en/api/messages-streaming),
+[thinking with tool use](https://platform.claude.com/docs/en/build-with-claude/thinking-tool-workflows) and
+[thinking cost and effort](https://platform.claude.com/docs/en/build-with-claude/thinking-steering-and-cost);
+OpenAI [streaming events](https://developers.openai.com/api/reference/resources/responses/streaming-events),
+[reasoning items](https://developers.openai.com/cookbook/examples/responses_api/reasoning_items),
+[Responses vs Chat Completions](https://developers.openai.com/api/docs/guides/responses-vs-chat-completions?api-mode=responses),
+[conversation state](https://developers.openai.com/api/docs/guides/conversation-state),
+[prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching),
+[compaction](https://developers.openai.com/api/docs/guides/compaction) and
+[background mode](https://developers.openai.com/api/docs/guides/background). The price spread comes from
+[a third-party table dated 20 October 2026](https://developer.puter.com/tutorials/openai-api-pricing/) and is
+illustrative only.
+
+**Not verified**: Anthropic's prompt-caching page (breakpoints, lifetimes, multipliers, the tools, system,
+messages order) and price table, which were not reachable; whether OpenAI requires a replayed reasoning item to
+travel with the item after it, and whether message item ids are needed for stateless replay; whether
+`previous_response_id` works with `store: false` (the guide does not say, so the plan assumes not); that the
+response reports the service tier actually used; whether Anthropic has an allow-list equivalent to
+`allowed_tools`; every llama-server detail above (from memory).

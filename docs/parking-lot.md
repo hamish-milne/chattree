@@ -112,3 +112,13 @@ agent loop shows process start-up dominating.
 - **Context building for models.** `contextEntries` defines what is visible; turning `subagent_result` and
   `fork_merge` into prose for a model ("the user forked this conversation here, discussed X, and changed Y"),
   token counting, and provider adapters belong to the agent loop on top of this library.
+
+## Provider adapters (from docs/providers.md v2)
+
+- Live A/B of OpenAI stored (previous_response_id) versus stateless replay: cost, cached tokens, latency. Needs an API key.
+- Verify Anthropic prompt caching (breakpoints, lifetimes, multipliers, tools/system/messages order) and price table.
+- Probe llama-server: Chat Completions with --jinja tools, reasoning_content, context size from /props.
+- VS Code helper that adds the `!tag` custom tags to settings (yaml.customTags).
+- Do OpenAI hosted tools (web search, code interpreter) need server-side state?
+- OpenAI WebSocket continuation cache.
+- Anthropic equivalent of allowed_tools for restricting tools without changing the prefix.
