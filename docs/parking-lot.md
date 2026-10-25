@@ -157,3 +157,16 @@ agent loop shows process start-up dominating.
 - Ollama (gemma4:12b, live run 2026-10-25): its Anthropic `message_start` input count is provisional and is revised
   down in `message_delta` (fixed: start usage is no longer emitted). Reasoning arrives before text, so the abort check now
   triggers on either. OpenAI Responses passed all scenarios.
+
+## From step 7 (turn runner and journal)
+
+- "Continue from where it left off" after an `interrupted` entry: an explicit action that asks the model to resume
+  (the context builder already shows the partial text and a note for a cut-off call); never done silently.
+- Journal retention for debugging (keep a copy of the events of failed requests outside the repository), and a `follow`
+  helper so a second process can tail a request's journal (the format allows it; nothing reads it live yet).
+- The recovered response's chaining digest: the journal could record the digest the adapter computed for the request
+  (an optional `ext` on the start record) so a recovered OpenAI response can still be chained from.
+- Raising `cost` warnings as events from `Prepared.warnings`, and the tool loop that owns the turn's deadline, the
+  `max_requests_per_turn` limit and tool results: the next layer above `requestStream`.
+- The heartbeat touches the file only while the process runs; a host that suspends a laptop mid-request will see the
+  request recovered as `interrupted` after `journalStaleMs` once another process opens the branch.

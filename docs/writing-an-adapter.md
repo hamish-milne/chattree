@@ -78,6 +78,11 @@ reported) and may chain requests. Chaining must be an optimisation with a proof:
 in `Completed.ext`, continue only when the next context's prefix has the same digest, and fall back to a full replay
 when the provider has forgotten the state (see `planChain` in `providers/openai-responses.ts`).
 
+The turn runner (`harness/turn.ts`) is the only caller of `stream`. It journals every event you yield, so keep `block.done`
+blocks complete and put the response id in `observed` as early as you know it: after a crash, `open` uses it to call
+`retrieve` and commit the finished response instead of an `interrupted` entry. If the stream is aborted, throw
+`ProviderError` of kind `aborted` promptly; the runner records what had arrived.
+
 A provider that is not HTTP and SSE (an in-process engine, a socket protocol) implements `ProviderAdapter`
 directly and ignores all this. The conformance checks below apply to it all the same.
 

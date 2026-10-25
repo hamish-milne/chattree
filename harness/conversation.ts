@@ -32,6 +32,10 @@ import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineC
 import { DEFAULT_RENDERER } from "./renderer.ts";
 import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type SetupChange } from "./setup.ts";
 import { createUlid } from "./ulid.ts";
+import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
+import { StreamAccumulator } from "./partial.ts";
+import { journalIsLive, readJournal } from "./journal.ts";
+import { usageRecord } from "./ledger.ts";
 
 /** The transcript, relative to the repository root. */
 export const CHAT_FILE = "chat.yml";
@@ -92,6 +96,14 @@ export interface ConversationOptions {
    * redact every resolved secret from what is written to the transcript, and write the editor schema.
    */
   providers?: { registry: AdapterRegistry; secrets: SecretSource };
+  /**
+   * How long a request's journal may go without a write before `open` takes its owner to be dead and recovers it
+   * (the journal is touched at least every 15 s while a request runs). Default 60 s; 0 recovers any journal at once,
+   * which is only right when no other process can be streaming on the branch.
+   */
+  journalStaleMs?: number;
+  /** How long `open` waits for a provider to hand back a stored response while recovering. Default 10 s. */
+  recoveryTimeoutMs?: number;
   /** Set by `open` so forks and subagents share the adapters (and their concurrency limits). Not for callers. */
   built?: BuiltProviders;
 }
@@ -152,6 +164,22 @@ export interface RecoveryReport {
   recovered: Appended[];
   /** Leftovers of interrupted work that `open` removed (temporary files, stale lock remnants), as repository-relative or `.git/` paths. */
   cleaned: string[];
+  /** What was done about a request that was in flight when the process died (see `docs/providers.md`, P5). */
+  journal?: JournalRecovery;
+}
+
+export interface JournalRecovery {
+  /**
+   * - `completed`: the stream had finished; its response is now committed.
+   * - `retrieved`: the provider still had the response; it was fetched and committed.
+   * - `interrupted`: what had been received is committed as an `interrupted` entry (`by: error`).
+   * - `already_committed`: the process died after the commit; the journal was only deleted.
+   * - `discarded`: nothing worth recording had arrived (or the journal could not be used); it was deleted.
+   * - `in_flight`: the journal is recent, so another process may still be running the request; it was left alone.
+   */
+  outcome: "completed" | "retrieved" | "interrupted" | "already_committed" | "discarded" | "in_flight";
+  entries: Appended[];
+  note?: string;
 }
 
 /** An entry's place in a branch's history. */
@@ -489,6 +517,16 @@ export class Conversation {
     return this.#opts.built?.adapters ?? new Map();
   }
 
+  /** The clock the conversation was opened with. */
+  get now(): () => number {
+    return this.#opts.now ?? Date.now;
+  }
+
+  /** See `ConversationOptions.journalStaleMs`. */
+  get journalStaleMs(): number {
+    return this.#opts.journalStaleMs ?? 60_000;
+  }
+
   /** One provider's adapter by the name used in `harness.yml` and in `agent_setup.model.provider`. */
   provider(name: string): ProviderAdapter {
     const a = this.providers.get(name);
@@ -516,17 +554,95 @@ export class Conversation {
     if ((await host.fs.stat(host.path.join(gitDir, "MERGE_HEAD"))) !== undefined) throw new ConversationError("a merge is in progress; finish or abort it first");
     const lockPath = await Conversation.#lockPathFor(host, git, branch);
     const lock = await acquireLock(host.fs, lockPath, { ...opts.lock, ...(opts.now === undefined ? {} : { now: opts.now }) });
+    let convo: Conversation;
     try {
       const cleaned = await Conversation.#tidy(host, git, dir, opts);
       const { size, report, recoveredEntries } = await Conversation.#recover(host, git, dir, opts);
       report.cleaned = cleaned;
-      const convo = await Conversation.#load(host, git, dir, branch, opts, size, report);
+      convo = await Conversation.#load(host, git, dir, branch, opts, size, report);
       if (report.truncatedBytes > 0 || report.recovered.length > 0 || report.cleaned.length > 0) convo.#emit({ type: "recovery", branch, report });
       for (const [i, r] of report.recovered.entries()) convo.#emitEntry(branch, r, recoveredEntries[i] as ChatEntry, true);
-      return convo;
     } finally {
       await lock.release();
     }
+    await convo.#recoverJournal();
+    return convo;
+  }
+
+  /** Where this branch's request journal lives (see `harness/journal.ts`). */
+  async journalPath(): Promise<string> {
+    return this.host.path.join(await this.git.commonDir(), "chattree", "journal", `${encodeURIComponent(this.branch)}.jsonl`);
+  }
+
+  /**
+   * A request that was in flight when the process died left a journal. Turn it into the transcript: the finished
+   * response if the stream had completed, else the stored response fetched from the provider (when the adapter can
+   * and the id is known), else an `interrupted` entry holding what had arrived. A journal recent enough that its
+   * owner may be alive is left alone.
+   */
+  async #recoverJournal(): Promise<void> {
+    const path = await this.journalPath();
+    if ((await this.host.fs.stat(path)) === undefined) return;
+    const stale = this.#opts.journalStaleMs ?? 60_000;
+    const report = this.recovery;
+    const finish = (r: JournalRecovery): void => {
+      report.journal = r;
+      this.#emit({ type: "recovery", branch: this.branch, report });
+    };
+    if (await journalIsLive(this.host, path, stale, this.#opts.now)) return finish({ outcome: "in_flight", entries: [], note: "a request on this branch is probably still running in another process" });
+    const j = await readJournal(this.host, path);
+    if (j === undefined) {
+      await this.host.fs.remove(path);
+      return finish({ outcome: "discarded", entries: [], note: "the journal had no usable start record" });
+    }
+    const acc = new StreamAccumulator();
+    for (const e of j.events) acc.add(e);
+    const { provider, model } = j.start;
+    const committed = async (entries: readonly ChatEntry[]): Promise<boolean | "gone"> => {
+      const at = j.start.after === undefined ? 0 : entries.findIndex((e) => (e as { id?: string }).id === j.start.after);
+      if (at < 0) return "gone";
+      return entries.slice(at + 1).some((e) => e.$tag === "assistant" || e.$tag === "interrupted");
+    };
+    const readAll = async (): Promise<ChatEntry[]> => (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+
+    // The network, if it is needed, before the lock is taken.
+    let completed = j.done;
+    let how: "completed" | "retrieved" = "completed";
+    let note: string | undefined;
+    if (completed === undefined && acc.observed.response_id !== undefined && (await committed(await readAll())) === false) {
+      const adapter = this.providers.get(provider);
+      if (adapter?.retrieve !== undefined) {
+        try {
+          const setup = await this.setup();
+          completed = await adapter.retrieve({ responseId: acc.observed.response_id, setup, signal: AbortSignal.timeout(this.#opts.recoveryTimeoutMs ?? 10_000) });
+          how = "retrieved";
+          if (completed === undefined) note = "the provider no longer has the response";
+        } catch (e) {
+          note = `the response could not be retrieved: ${e instanceof Error ? e.message : String(e)}`;
+        }
+      }
+    }
+
+    const result = await this.#transaction(async (): Promise<JournalRecovery> => {
+      const state = await committed(await readAll());
+      if (state === true) return { outcome: "already_committed", entries: [] };
+      if (state === "gone") return { outcome: "discarded", entries: [], note: "the branch no longer contains the entry the request followed" };
+      if (completed !== undefined) {
+        const entries = await this.#appendResponseLocked(assistantFromCompleted(provider, model, completed), { model: completed.observed.model ?? model });
+        return { outcome: how, entries, ...(note === undefined ? {} : { note }) };
+      }
+      if (!acc.hasContent) return { outcome: "discarded", entries: [], note: "nothing had arrived" };
+      const entry = await this.#appendLocked({
+        $tag: "interrupted",
+        by: "error",
+        partial: toEntryBlocks(acc.blocks()),
+        error: `the process ended while the response was being received${note === undefined ? "" : `; ${note}`} (recovered from the journal)`,
+        ...(acc.usage === undefined ? {} : { usage: usageRecord(acc.usage) }),
+      });
+      return { outcome: "interrupted", entries: [entry], ...(note === undefined ? {} : { note }) };
+    });
+    await this.host.fs.remove(path);
+    finish(result);
   }
 
   static async #load(host: Host, git: Git, dir: string, branch: string, opts: ConversationOptions, size: number, report: RecoveryReport): Promise<Conversation> {
@@ -974,7 +1090,11 @@ export class Conversation {
    * (see `checkRequest`). It is recorded either way: the response was already paid for.
    */
   appendResponse(response: NewEntry & { $tag: "assistant" }, observed: { model?: string } = {}): Promise<Appended[]> {
-    return this.#transaction(async () => {
+    return this.#transaction(() => this.#appendResponseLocked(response, observed));
+  }
+
+  async #appendResponseLocked(response: NewEntry & { $tag: "assistant" }, observed: { model?: string }): Promise<Appended[]> {
+    {
       const { setup, entries } = await this.#foldedSetup();
       const served = observed.model ?? response.model;
       const out: NewEntry[] = [];
@@ -988,7 +1108,7 @@ export class Conversation {
       }
       out.push({ ...response, model: served });
       return this.#appendManyLocked(out);
-    });
+    }
   }
 
   // ---- branches --------------------------------------------------------------------------------------------

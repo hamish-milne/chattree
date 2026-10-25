@@ -393,7 +393,8 @@ harness/definitions.ts          P10  canonical formats, hashing, DefinitionSourc
 harness/ledger.ts               P9   cost fold
 harness/secrets.ts              P7
 harness/config.ts               P6   harness.yml (providers, limits) + JSON Schema generation
-harness/turn.ts, journal.ts     P5   context -> adapter -> journal tee -> commit (one request)
+harness/turn.ts, journal.ts,
+  partial.ts                    P5   context -> adapter -> journal tee -> commit (one request); recovery is in `open`
 providers/types.ts              P2   interfaces, events, errors
 providers/http.ts, sse.ts       P3   shared transport and its extension points
 providers/anthropic/            P3   mapping, catalog, prices
@@ -518,7 +519,34 @@ test/providers/fixtures/        P12
    the `providers` option or with `cost: false`. Not done: an API-backed catalog (`/models`, llama-server's `/props`)
    and token-counting endpoints for better estimates (parking lot); the wall-clock cap `max_turn_seconds` is in the
    config but enforced by the turn runner (step 7); `max_subagent_usd` belongs to the subagent tool's configuration.
-7. **Turn runner and journal**, recovery (including retrieval) in `open`, crash sweeps (P5).
+7. **Turn runner and journal**, recovery (including retrieval) in `open`, crash sweeps (P5). **Done.**
+   `harness/turn.ts`: `requestStream(convo, opts)` (an async generator of the provider's events that returns how the
+   request ended) and `runRequest` (drains it into `onEvent`). One request, not the tool loop: `prepareContext`, the
+   stream teed into the journal, then the commit: `assistant` (with the `agent_setup` entry for a model the provider
+   changed, atomically, as `appendResponse` already did) when it completes; an `interrupted` entry with what
+   arrived and the tokens when it does not. Outcomes: `completed`, `interrupted` (`by: user` for the caller's
+   signal or for stopping the iteration, `by: error` for a provider failure or the deadline) and `cancelled` (the user
+   stopped it before anything arrived: nothing is recorded). A provider failure before anything arrived **throws** the
+   `ProviderError` and leaves the transcript untouched, so asking again is safe. The deadline is `opts.deadline` or
+   `limits.max_turn_seconds` counted from the start of the request; a loop passes one deadline to every request of a turn.
+   `harness/partial.ts` (`StreamAccumulator`) is the one rule for "what had arrived": complete blocks, the text of an
+   unfinished block, a started tool call (shown as a note, never as a call); unfinished reasoning is dropped.
+   `harness/journal.ts`: the file is `<git-common-dir>/chattree/journal/<branch>.jsonl`, created exclusively (a second
+   request on the branch gets `JournalBusy`), buffered and flushed every 250 ms or 64 KiB, with a heartbeat line every
+   15 s. Two changes from the plan above: the journal ends with a `done` record holding the whole `Completed`, flushed
+   *before* the transcript is touched (so a crash between the end of the stream and the commit loses nothing, which the
+   `assistant` entry alone could not promise), and a recent journal means *live*: `open` leaves a journal whose
+   modification time is within `journalStaleMs` (default 60 s) alone and reports `in_flight`, because the branch lock is
+   not held while streaming and another process may still be running the request. If the commit fails the journal is
+   kept for recovery. `open` recovers a stale journal in this order: already committed (an `assistant` or
+   `interrupted` entry follows the entry the journal began after: only the file is deleted), `done` present (commit it),
+   a response id and an adapter that can `retrieve` (fetch with `recoveryTimeoutMs`, before taking the lock; gone or a
+   failure falls through with a note), else `interrupted` by error with what the journal holds, else nothing worth keeping
+   (discarded). The result is `convo.recovery.journal` and a second `recovery` event. Tests: scripted provider, early
+   ends of every kind, every recovery outcome, a heartbeat, and a sweep that cuts a journal at line boundaries and
+   inside lines.
+   Not done: a recovered response does not carry the adapter's chaining digest (it is computed from the request, which
+   the journal does not keep), so the next request replays instead of chaining; that is always correct, only less cheap.
 8. **`openai-compatible`** with the llama-server probe, then docs and an example in the lifecycle test using a fake
    provider.
 
