@@ -8,7 +8,7 @@ import { contextEntries } from "../../harness/context.ts";
 import { ChangeNotAllowed, Conversation, type ConversationEvent, type NewEntry } from "../../harness/conversation.ts";
 import { readCommitGraph, toMermaid } from "../../harness/graph.ts";
 import { verifyHistory } from "../../harness/verify.ts";
-import { assertHistoryInvariants } from "../support/history.ts";
+import { assertContextBuilds, assertHistoryInvariants } from "../support/history.ts";
 import { faultyHost } from "../support/hosts.ts";
 import { tempDir } from "../support/tmp.ts";
 
@@ -168,6 +168,7 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   const branches = (await main.listBranches()).map((b) => b.name).sort();
   assert.deepEqual(branches, ["fork/abandoned", "fork/rethink", "main", "sub/docs", "sub/tests"]);
   for (const b of branches) assert.deepEqual(await verifyHistory(main, { rev: b, deep: true }), [], `branch ${b} verifies`);
+  for (const b of branches) await assertContextBuilds(main, b);
   await real.exec("git", ["fsck", "--strict", "--no-dangling"], { cwd: dir }).then((r) => assert.equal(r.exitCode, 0, new TextDecoder().decode(r.stderr)));
 
   // The events, delivered across a crash and a reopen, add up to the history of every branch.

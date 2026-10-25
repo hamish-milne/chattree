@@ -1,0 +1,98 @@
+{
+  "system": "sys",
+  "instructions": "Be brief.",
+  "turns": [
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "[Summary of the earlier conversation]\nUser wants the tokenizer fixed; two files were read."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "provider": "anthropic",
+      "model": "sonnet",
+      "blocks": [
+        {
+          "type": "text",
+          "text": "Found it."
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Now add tests."
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "provider": "anthropic",
+      "model": "sonnet",
+      "blocks": [
+        {
+          "type": "tool_call",
+          "call_id": "t3",
+          "name": "subagent",
+          "args": {
+            "x": 1
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool_results",
+      "results": [
+        {
+          "call_id": "t3",
+          "is_error": false,
+          "content": "Tests written.\n[Files: added: t.test.ts]",
+          "truncated": false
+        }
+      ]
+    },
+    {
+      "role": "assistant",
+      "provider": "",
+      "model": "",
+      "blocks": [
+        {
+          "type": "text",
+          "text": "Great, I will"
+        },
+        {
+          "type": "text",
+          "text": "[A call to write was cut off before it finished and did not run]"
+        }
+      ]
+    },
+    {
+      "role": "user",
+      "parts": [
+        {
+          "type": "text",
+          "text": "Never mind, stop."
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "name": "read",
+      "description": "Read a file",
+      "input_schema": {
+        "type": "object"
+      }
+    }
+  ],
+  "cacheHints": [
+    5,
+    6
+  ]
+}

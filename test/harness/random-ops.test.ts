@@ -8,7 +8,7 @@ import { Conversation, type NewEntry } from "../../harness/conversation.ts";
 import { CHANGE_KINDS } from "../../harness/entries.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import { Rng } from "../support/gen.ts";
-import { assertHistoryInvariants } from "../support/history.ts";
+import { assertContextBuilds, assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
@@ -106,6 +106,7 @@ async function run(seed: number, steps: number): Promise<void> {
     for (const b of await convo.listBranches()) {
       const problems = await verifyHistory(convo, { rev: b.name, deep });
       assert.deepEqual(problems, [], `branch ${b.name}`);
+      await assertContextBuilds(convo, b.name);
     }
   }
 }

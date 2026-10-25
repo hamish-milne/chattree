@@ -1,6 +1,6 @@
 # Provider adapters: plan (v2)
 
-Status: **step 1 of the build order is done** (the `agent_setup` entry, fold, mutations, `config_changed` removed; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
+Status: **steps 1 and 2 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
 P1–P12 so they can be accepted or changed one by one, as with `git-integration.md`. What changed since v1 is in
 section 9; the few questions still open are in section 8.
 
@@ -412,7 +412,18 @@ test/providers/fixtures/        P12
    hash chain removed; `harness.yml` reduced to providers, limits and compaction; `$tag` and `!tag` sugar in
    the config reader; verifier checks for setups. Not yet: usage normalisation and the optional block `ext`
    (P11), which wait for the first adapter. The `assistant` entry never carried settings, so there was nothing to slim.
-2. **Context builder** and golden tests (P1), **definitions and the `DefinitionSource` hook** (P10).
+2. **Context builder and definitions. Done**: `harness/context-builder.ts` (`buildContext`, `contextProblems`; wording
+   for compaction, fork merge, subagent result and cut-off calls is fixed in `wording`; calls and results always
+   pair; reasoning only to the model that wrote it; texts read in from blobs), `harness/definitions.ts` (canonical
+   tool format, hashes, `pinDefinition` for `blob` and `external`, the `DefinitionSource` hook, `checkDefinitions` /
+   `assertDefinitions` drift detection, `loadDefinitions` with hash verification), and `harness/request.ts`
+   (`prepareContext`: gate on unacknowledged provider changes, check drift, load definitions, build the context for
+   the dated model). A golden file (`test/harness/golden/context-rich.json`, rewritten with
+   `CHATTREE_UPDATE_GOLDEN=1`) and a structural check in the fuzz and lifecycle tests guard it.
+   Conventions fixed on the way: a definition's hash is the SHA-256 of its canonical bytes (sorted-key JSON; the
+   text itself for instructions), so a `blob` pin's hash is the blob's hash; `provider` on setup and assistant
+   entries is the **name** of the provider in `harness.yml`, not the adapter tag; drift of any definition is the
+   `tools_changed` or `instructions_changed` kind, so one `ChangeNotAllowed` covers all of it.
 3. **Provider types, SSE parser, HTTP base, fake server, conformance suite, fixture recorder** (P2, P3, P12).
 4. **Anthropic adapter** against fixtures, then **OpenAI Responses** (chaining, compaction, retrieval).
 5. **`harness.yml` v-next, secrets, JSON Schema generation and the editor marker** (P6, P7).
