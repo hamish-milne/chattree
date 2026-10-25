@@ -1,9 +1,51 @@
 # Parking lot
 
-Things deliberately left out of the MVP, with enough context to pick them up later. Each entry says what it is,
-why it waited, and what a first step would be. Nothing here is needed for correctness today.
+Things deliberately left out, with enough context to pick them up later, grouped by priority:
 
-## 1. Merge policy per environment, file or hunk (the main one)
+- **High**: correctness. Left alone, it could lose data, show wrong output or block the user.
+- **Medium**: features and support. Wider application or significant functionality, weighed against the cost.
+- **Low**: small conveniences, unusual edge cases, minor performance gains.
+- **Deferred**: pricing data that comes from external pages. It affects no other code, so it is cleaned up close to release.
+
+Each entry says what it is and what a first step would be. Within a group, the order is the order of intent.
+
+## High
+
+- **A recovered `interrupted` entry can duplicate a request that is still running.** If a host suspends mid-request for
+  longer than `journalStaleMs` (60 s) and another process then opens the branch, that process commits `interrupted` for
+  the journal; when the first process wakes it commits its own `assistant` entry, so the transcript holds both. Needs a
+  second process and a suspend, so it is rare, but the result is a wrong transcript. First step: before committing, a
+  request checks that its journal is still the one it started (the file exists and its start record is unchanged) and
+  otherwise drops its result into an `interrupted` entry marked as superseded, or discards it.
+- **Verify the Anthropic adapter against the real API.** No free tier, so today it is only checked against Ollama's
+  compatible endpoint. From memory: the request shapes for `system` and `cache_control`, breakpoints, lifetimes and
+  multipliers. If one is wrong, the paid provider's requests fail. Needs a key and a small spend.
+
+## Medium
+
+- **`<think>` splitting** (top of Medium: without it a thinking model's reasoning shows up as answer text on some servers).
+- **Token counting**: Anthropic `count_tokens` and OpenAI input-token endpoints in place of the pessimistic bytes-per-token
+  estimate, which can refuse a request that would have fit.
+- **Repository maintenance**: `gc.auto` is off so git never rewrites the repository behind a running conversation, so loose
+  objects accumulate (every commit writes a few). Needs an automatic `maintain()` under the branch locks.
+- **"Continue from where it left off"** after an `interrupted` entry: an explicit mutation, never silent.
+- **Attachments** (images, files): refused today by all three adapters.
+- **Tool loop above `requestStream`**: the turn's deadline, `max_requests_per_turn`, tool results, and raising `cost`
+  warnings as events from `Prepared.warnings`. The next layer rather than a gap in this phase.
+- Merge policy per environment (below), and the production workspace split (below).
+- **OpenAI compaction on the real API**: check `context_management`, dropping items before a compaction item, and the
+  not-found error the chain fallback matches. Opt-in features. Spend sparingly: the free tier is limited, so use
+  `--only` to pick scenarios.
+- **API-backed model catalog**: `/models`, and llama-server's `/props` for the context size.
+- **Check the `openai-compatible` adapter against a real llama-server** (`--jinja` tools, `reasoning_content`, the usage
+  chunk; the list is in docs/providers.md step 8).
+- **Windows**: the `Host` seam keeps Node-specific code out of the core, and paths go through `host.path`, but the suite has
+  only been run on Linux.
+- **A `chattree` command** that creates `.chattree/env`, with a `secrets check` that lists the variables each provider needs.
+- **A command-line verifier**: `chattree verify` and `chattree graph` over `verifyHistory` and `readCommitGraph`, so they
+  work on any conversation repository.
+
+### Merge policy per environment, file or hunk (the main one)
 
 **Today.** Merging a subagent or a fork (D6, `finishSubagent`, `mergeFork`) has one policy: *trunk wins, per
 file*. Files only the child changed come across; a file both sides changed keeps the trunk's version whole, and
@@ -72,101 +114,65 @@ valid and is simply the default rule.
 default identical to today's, and add hunk granularity with `merge-file` behind it, with a test per row of the
 table above.
 
-## 2. Repository maintenance
-
-`gc.auto` is off so git never rewrites the repository behind a running conversation. Loose objects (every
-commit writes a few) accumulate. A `maintain()` that runs `git gc` or `git repack` under all branch locks, from
-an explicit call or an idle moment, is the missing piece. History is never rewritten by the library; blob GC
-(`gcBlobs`) only changes the current tree.
-
-## 3. Production workspace split (D8)
+### Production workspace split (D8)
 
 The MVP keeps chat and project files in one repository. The production shape keeps the project in a submodule
 with the pointer tracked in the chat repository (plus branch name and a saved diff of uncommitted changes). This
 also lets one agent flow work across several repositories. It touches snapshots, forks, merges and verification.
 
-## 4. A persistent `fast-import` process
+## Low
 
-Considered and parked on measurement. An append costs two short git processes (stage, commit), about 12 ms; the
-floor is git's own index and commit work. A long-lived `fast-import` would need `checkpoint`/`get-mark` round
-trips for the hash, would leave the index behind the commit (needing `reset` anyway), and would add a process to
-supervise on every handle. `appendMany` already makes bulk writes constant-cost. Revisit only if profiling a real
-agent loop shows process start-up dominating.
-
-## 5. Smaller items
-
-- **Events are in memory.** `onEvent` is delivered after commit, but a crash between commit and delivery loses
-  the event. Consumers that must not miss anything should rebuild from history (`index()`, the `recovery`
-  event); an at-least-once persisted outbox is possible if needed.
-- **Index cache assumption.** A cached index is extended when its tip is an ancestor of HEAD, which for a branch
-  that has only ever advanced is also on its first-parent line. A branch reset to a sibling line that still
-  contains the old tip would be indexed from a longer `git log`, not wrongly, but a first-parent check would
-  make that explicit. `verifyHistory` never uses the cache.
-- **Locks across machines.** Locks are files, which is right for one machine and for local-disk worktrees; a
-  network file system with weak `link`/`rename` semantics is not supported.
-- **Windows.** The `Host` seam keeps Node-specific code out of the core, and paths are built through
-  `host.path`, but the suite has only been run on Linux.
-- **A command-line verifier.** `verifyHistory` and `readCommitGraph` are library calls; a thin CLI over them
-  (`chattree verify`, `chattree graph`) would make them usable on any conversation repository.
-
-## Provider adapters (from docs/providers.md v2)
-
-- Live A/B of OpenAI stored (previous_response_id) versus stateless replay: cost, cached tokens, latency. Needs an API key.
-- Verify the Anthropic adapter against the real API (no free tier, so today it is only checked against Ollama's compatible endpoint): request shapes for `system` and `cache_control`, breakpoints, lifetimes and multipliers, and the price table.
-- Check the `openai-compatible` adapter against a real llama-server (`--jinja` tools, `reasoning_content`, usage chunk; the list is in docs/providers.md step 8).
-- VS Code helper that adds the `!tag` custom tags to settings (yaml.customTags).
-- Do OpenAI hosted tools (web search, code interpreter) need server-side state?
-- OpenAI WebSocket continuation cache.
-- Anthropic equivalent of allowed_tools for restricting tools without changing the prefix.
-- Attachments (images, files) in both adapters; they are refused today.
-- OpenAI standalone compaction (`/responses/compact`), for compacting on demand rather than at a threshold.
-- Verify against the real API (chaining and retrieval are verified): `context_management`, dropping items before a
-  compaction item, the not-found error the chain fallback matches. Spend sparingly: the free tier is limited, so use
-  `--only` to pick scenarios.
-- Pricing and catalog: the Anthropic table came from a summarising read of the pricing page (the OpenAI one was read in a
-  browser; check Anthropic's against the page, and add the older models once their API ids are confirmed); an API-backed catalog (`/models`, llama-server's
-  `/props` for the context size); token-counting endpoints (Anthropic `count_tokens`, OpenAI input tokens) to replace the
-  bytes-per-token estimate; calibrating the estimate from the last response's real usage; Anthropic's `inference_geo`
-  1.1x multiplier and batch discounts; OpenAI's regional-processing uplift.
-- Pricing data gaps (2026-10-25): the OpenAI table was re-read in a browser with every Speed tab and the Short/Long toggle
-  clicked; the tier-to-table binding is confirmed (the page's URL carries `latest-pricing=standard|batch|fast|ultrafast`,
-  our tier `flex` is the page's "Flex/Batch"). Still open: the long-context **threshold is not stated** on the page (272k
-  is assumed, from earlier GPT-5.x models); `gpt-5.4-mini` and other smaller models are no longer on the page; `gpt-6-luna`
-  has no Ultrafast price; the Specialized table's Fast tab lists only `gpt-5.3-codex`; which `service_tier` value selects
-  "Fast" (Priority was renamed Fast on 2026-07-30) is unverified. `chat-latest` (an alias), the cyber (`gpt-5.6-sol`,
-  `gpt-5.6-cyber`) and life-sciences models are left to overrides.
-- Mixed cache lifetimes within one request (the docs allow it: longer ones first), for example the pinned prefix at 1h and
-  the conversation at 5m; OpenAI's per-breakpoint `prompt_cache_breakpoint.ttl`. Today one `cache_ttl` covers every marker.
-- A merge's rollup resolves tables the child pinned only from this conversation's providers and blobs, so a child that
-  pinned a table which no longer exists here is counted as unpriced.
-- A `chattree` command that creates `.chattree/env`, and a `secrets check` that lists which variables each provider needs.
-- Record fixtures from `tools/live-check.ts --record` runs against Ollama. Known Ollama caveats: no `cache_control` or
-  `tool_choice`, in-stream errors are unreliable, small models may not call tools or reason (those scenarios skip).
-
-## Renderers
-
-- Verifying a renderer's output at runtime (a self-test with fixed inputs, output hash recorded in the setup).
-  Decided: stability is part of the renderer interface contract (an id is immutable, renderers are pure), not
+- **Journal extras**: keep a copy of the events of failed requests outside the repository for debugging; a `follow`
+  helper so a second process can tail a request's journal (nothing reads it live yet); record the digest the adapter
+  computed for the request so a recovered OpenAI response can still be chained from.
+- **Usage as it arrives** on `openai-compatible`, not only at the end. A stream that dies mid-way reports no tokens,
+  which matters only for a hosted Chat Completions provider. The alternative is to report running totals as events and
+  let the result differ.
+- **More Chat Completions settings**: `tool_choice`, `parallel_tool_calls`, JSON schema output; an `is_error` prefix for
+  tool results (the API has no flag, so errors are plain text).
+- **Cache and tool options**: mixed cache lifetimes within one request (the docs allow it, longer first: the pinned
+  prefix at 1h and the conversation at 5m; OpenAI's per-breakpoint `prompt_cache_breakpoint.ttl`; today one
+  `cache_ttl` covers every marker); an Anthropic equivalent of `allowed_tools` for restricting tools without changing the
+  prefix; OpenAI standalone compaction (`/responses/compact`) for compacting on demand.
+- **Pricing extras**: calibrate the estimate from the last response's real usage; Anthropic's `inference_geo` 1.1x
+  multiplier and batch discounts; OpenAI's regional-processing uplift.
+- **Provider checks and fixtures**: a live A/B of OpenAI stored (`previous_response_id`) versus stateless replay (cost,
+  cached tokens, latency; needs a key); whether OpenAI hosted tools (web search, code interpreter) need server-side
+  state; the OpenAI WebSocket continuation cache; record fixtures from `tools/live-check.ts --record` runs against
+  Ollama (known caveats: no `cache_control` or `tool_choice`, in-stream errors are unreliable, small models may not call
+  tools or reason, so those scenarios skip).
+- **A merge's rollup** resolves tables the child pinned only from this conversation's providers and blobs, so a child that
+  pinned a table which no longer exists here is counted as unpriced (the safe default: unknown is never zero).
+- **Events are in memory.** `onEvent` is delivered after commit, but a crash between commit and delivery loses the event.
+  Consumers that must not miss anything should rebuild from history (`index()`, the `recovery` event); an at-least-once
+  persisted outbox is possible if needed.
+- **Index cache assumption.** A cached index is extended when its tip is an ancestor of HEAD, which for a branch that has
+  only ever advanced is also on its first-parent line. A branch reset to a sibling line that still contains the old tip
+  would be indexed from a longer `git log`, not wrongly, but a first-parent check would make that explicit.
+  `verifyHistory` never uses the cache.
+- **Locks across machines.** Locks are files, which is right for one machine and for local-disk worktrees; a network file
+  system with weak `link`/`rename` semantics is not supported.
+- **A persistent `fast-import` process.** Considered and parked on measurement. An append costs two short git processes
+  (stage, commit), about 12 ms; the floor is git's own index and commit work. A long-lived `fast-import` would need
+  `checkpoint`/`get-mark` round trips for the hash, would leave the index behind the commit (needing `reset` anyway), and
+  would add a process to supervise on every handle. `appendMany` already makes bulk writes constant-cost. Revisit only if
+  profiling a real agent loop shows process start-up dominating.
+- **Renderers**: verifying a renderer's output at runtime (a self-test with fixed inputs, output hash recorded in the
+  setup). Decided: stability is part of the renderer interface contract (an id is immutable, renderers are pure), not
   something the harness defensively checks, at least for now. Revisit if host-supplied renderers cause drift.
+- **A VS Code helper** that adds the `!tag` custom tags to settings (`yaml.customTags`).
 
-## From step 7 (turn runner and journal)
+## Deferred: pricing data
 
-- "Continue from where it left off" after an `interrupted` entry: an explicit action that asks the model to resume
-  (the context builder already shows the partial text and a note for a cut-off call); never done silently.
-- Journal retention for debugging (keep a copy of the events of failed requests outside the repository), and a `follow`
-  helper so a second process can tail a request's journal (the format allows it; nothing reads it live yet).
-- The recovered response's chaining digest: the journal could record the digest the adapter computed for the request
-  (an optional `ext` on the start record) so a recovered OpenAI response can still be chained from.
-- Raising `cost` warnings as events from `Prepared.warnings`, and the tool loop that owns the turn's deadline, the
-  `max_requests_per_turn` limit and tool results: the next layer above `requestStream`.
-- The heartbeat touches the file only while the process runs; a host that suspends a laptop mid-request will see the
-  request recovered as `interrupted` after `journalStaleMs` once another process opens the branch.
+Prices come from external pages and affect no other code. Accuracy matters for the cost shown and for limits, so clean
+these up together before release.
 
-## From step 8 (openai-compatible)
-
-- `<think>…</think>` inside the text (servers run without a reasoning parser): split it into a reasoning block, as a setting.
-- Usage as it arrives, not only at the end: the alternative is to report running totals as events and let the result
-  differ; needed only if a hosted Chat Completions provider is used and a failure mid-stream must still be billed correctly.
-- llama-server's `/props` (context size) and `/v1/models` as the catalog; `tool_choice`, `parallel_tool_calls` and JSON
-  schema output as settings; attachments (images as `image_url` parts) once the harness has an attachment story.
-- Tool results with `is_error`: Chat Completions has no flag, so errors are plain text; a renderer rule could prefix them.
+- **OpenAI**: the long-context threshold is not stated on the page (272k is assumed, from earlier GPT-5.x models); which
+  `service_tier` value selects "Fast" (Priority was renamed Fast on 2026-07-30) is unverified; `gpt-6-luna` has no Ultrafast
+  price; `gpt-5.4-mini` and other smaller models are no longer on the page; `chat-latest` (an alias) and the cyber
+  (`gpt-5.6-sol`, `gpt-5.6-cyber`) and life-sciences models are left to overrides. The tier-to-table binding is
+  confirmed (the page's URL carries `latest-pricing=standard|batch|fast|ultrafast`; our `flex` is the page's "Flex/Batch").
+- **Anthropic**: the table came from a summarising read of the pricing page; read it in a browser as was done for OpenAI,
+  and add the older models once their API ids are confirmed.
+- **Prompt caching prices and multipliers** for Anthropic (lifetimes, write multipliers) are verified together with the
+  adapter's request shapes (High).
