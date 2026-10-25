@@ -121,7 +121,22 @@ export type ConversationEvent =
   /** A fork or subagent was merged into `branch`. */
   | { type: "merge"; branch: string; child: string; kind: "subagent" | "fork"; entry: Appended; report: MergeReport }
   /** `open` repaired something a crash left behind. */
-  | { type: "recovery"; branch: string; report: RecoveryReport };
+  | { type: "recovery"; branch: string; report: RecoveryReport }
+  /** The repository was repacked (see `Conversation.maintain`). */
+  | { type: "maintenance"; branch: string; report: MaintenanceReport };
+
+export interface RepoStats {
+  looseObjects: number;
+  packs: number;
+  /** Bytes on disk taken by loose objects and packs. */
+  bytes: number;
+}
+
+export interface MaintenanceReport {
+  action: "none" | "pack_loose" | "consolidate";
+  before: RepoStats;
+  after: RepoStats;
+}
 
 export interface CreateOptions extends ConversationOptions {
   /** Name of the first branch. Default "main". */
@@ -408,6 +423,7 @@ export class Conversation {
   readonly #nextId: () => string;
   #size: number;
   #queue: Promise<unknown> = Promise.resolve();
+  #sinceCheck = 0;
   #head: string | undefined;
   #idx: { tip: string; refs: EntryRef[] } | undefined;
   #cache: IndexCache | undefined;
@@ -568,6 +584,7 @@ export class Conversation {
       await lock.release();
     }
     await convo.#recoverJournal();
+    await convo.#transaction(() => convo.#autoMaintain(true).then(() => undefined));
     return convo;
   }
 
@@ -772,13 +789,62 @@ export class Conversation {
     const run = this.#queue.then(async () => {
       const lock = await acquireLock(this.host.fs, this.#lockPath, { ...this.#opts.lock, ...(this.#opts.now === undefined ? {} : { now: this.#opts.now }) });
       try {
-        return await fn();
+        const result = await fn();
+        await this.#autoMaintain();
+        return result;
       } finally {
         await lock.release();
       }
     });
     this.#queue = run.catch(() => undefined);
     return run;
+  }
+
+  // ---- maintenance -----------------------------------------------------------------------------------------
+
+  async #repoStats(): Promise<RepoStats> {
+    const out = await this.git.text(["count-objects", "-v"], { readOnly: true });
+    const n = (k: string): number => Number(new RegExp(`^${k}: (\\d+)$`, "m").exec(out)?.[1] ?? 0);
+    return { looseObjects: n("count"), packs: n("packs"), bytes: (n("size") + n("size-pack")) * 1024 };
+  }
+
+  /** Called inside the branch lock after each transaction, and once at open: look every `check_every` calls. Never fails the caller. */
+  async #autoMaintain(first = false): Promise<void> {
+    try {
+      const cfg = await this.readConfig();
+      const m = cfg?.ok === true ? cfg.value.maintenance : { auto: true, check_every: 200, loose_objects: 1000, packs: 20 };
+      if (!m.auto) return;
+      if (!first && ++this.#sinceCheck < m.check_every) return;
+      this.#sinceCheck = 0;
+      await this.#maintainLocked(false, m);
+    } catch {
+      /* housekeeping is best effort; the next check tries again */
+    }
+  }
+
+  async #maintainLocked(force: boolean, m: { loose_objects: number; packs: number }): Promise<MaintenanceReport> {
+    const before = await this.#repoStats();
+    const action = before.packs > m.packs ? "consolidate" : force || before.looseObjects > m.loose_objects ? "pack_loose" : "none";
+    if (action === "none") return { action, before, after: before };
+    // `repack -d` packs reachable loose objects and removes the ones now packed; objects written but not yet
+    // committed (a blob for an entry being appended elsewhere) are unreachable, so they stay loose and safe.
+    await this.git.run(action === "consolidate" ? ["repack", "-a", "-d", "-q"] : ["repack", "-d", "-q"]);
+    const report: MaintenanceReport = { action, before, after: await this.#repoStats() };
+    this.#emit({ type: "maintenance", branch: this.branch, report });
+    return report;
+  }
+
+  /**
+   * Pack the repository's loose objects now (and merge packs past the `maintenance.packs` threshold), whatever the
+   * thresholds say about loose objects. Runs automatically (see `maintenance` in `harness.yml`); call this to do it
+   * at a moment of the host's choosing. Nothing reachable is ever deleted.
+   */
+  maintain(): Promise<MaintenanceReport> {
+    return this.#transaction(async () => {
+      const cfg = await this.readConfig();
+      const m = cfg?.ok === true ? cfg.value.maintenance : { loose_objects: 1000, packs: 20 };
+      return this.#maintainLocked(true, m);
+    });
   }
 
   /**

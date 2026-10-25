@@ -590,6 +590,17 @@ test/providers/fixtures/        P12
    other two adapters; run `node tools/live-check.ts --flavor openai-compatible --base-url http://localhost:11434/v1 --model <m>`
    to check this one the same way.
 
+### Repository maintenance (added after step 8)
+
+`gc.auto` stays off so git never rewrites the repository behind a running conversation, which left loose objects
+accumulating. The harness now packs them itself: `harness.yml` has a `maintenance:` section (`auto: true`,
+`loose_objects: 1000`, `packs: 20`, `check_every: 200`), and `Conversation` checks `git count-objects -v` at `open` and
+every `check_every` transactions, inside the branch lock. Past `loose_objects` it runs `git repack -d` (packs reachable
+loose objects and removes the packed copies; objects written but not yet committed are unreachable and stay put); past
+`packs` it runs `repack -a -d` to merge packs. It never runs `gc` or `prune`, so nothing is ever deleted that history,
+or an in-flight append, could need. A `maintenance` event reports bytes and counts before and after; `convo.maintain()`
+does it on demand; `auto: false` turns the automatic checks off. A failure is swallowed and retried at the next check.
+
 ## 6. Out of scope here
 
 The tool-execution loop and permissions; skills and MCP implementations (only their pinning); when to compact;

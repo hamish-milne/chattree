@@ -17,8 +17,6 @@ Each entry says what it is and what a first step would be. Within a group, the o
 
 ## Medium
 
-- **Repository maintenance**: `gc.auto` is off so git never rewrites the repository behind a running conversation, so loose
-  objects accumulate (every commit writes a few). Needs an automatic `maintain()` under the branch locks.
 - **"Continue from where it left off"** after an `interrupted` entry: an explicit mutation, never silent.
 - **Attachments** (images, files): refused today by all three adapters.
 - **Tool loop above `requestStream`**: the turn's deadline, `max_requests_per_turn`, tool results, and raising `cost`

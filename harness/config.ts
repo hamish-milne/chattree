@@ -36,6 +36,23 @@ export const harnessConfig = z.object({
       unknown_price: z.enum(["warn", "block"]).optional(),
     })
     .default({}),
+  /**
+   * Keeping the repository small. Git's own `gc.auto` is off so nothing rewrites the repository behind a running
+   * conversation; instead the harness packs loose objects itself (`git repack -d`, which never deletes anything
+   * reachable or unreachable-but-new) when the repository grows past these figures, checked when a conversation
+   * is opened and every `check_every` transactions after.
+   */
+  maintenance: z
+    .object({
+      auto: z.boolean().default(true),
+      /** Pack loose objects once there are more than this many. */
+      loose_objects: z.number().int().positive().default(1000),
+      /** Merge packs into one (`repack -a -d`) once there are more than this many. */
+      packs: z.number().int().positive().default(20),
+      /** Look again after this many appends, snapshots and the like. */
+      check_every: z.number().int().positive().default(200),
+    })
+    .default({ auto: true, loose_objects: 1000, packs: 20, check_every: 200 }),
   compaction: z.object({ threshold_tokens: z.number().int().positive(), keep_recent: z.number().int().nonnegative() }).optional(),
 });
 
