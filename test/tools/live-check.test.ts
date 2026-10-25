@@ -32,7 +32,34 @@ const check = async (flavor: "anthropic" | "openai-responses", script: ReturnTyp
 };
 const byName = (rs: ScenarioResult[]): Record<string, ScenarioResult> => Object.fromEntries(rs.map((r) => [r.name, r]));
 
+/** A pretend Chat Completions server (llama-server style) that answers according to the prompt. */
+const chatChunk = (delta: object, finish: string | null = null): string => `data: ${JSON.stringify({ id: "c1", model: "fake", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+const chatText = (parts: string[]): Reply => ({ acts: [...parts.map((t) => chatChunk({ content: t })), chatChunk({}, "stop"), `data: ${JSON.stringify({ id: "c1", model: "fake", choices: [], usage: { prompt_tokens: 10, completion_tokens: 7 } })}\n\n`, "data: [DONE]\n\n"] });
+const chatPretend = (_n: number, seen: Seen): Reply => {
+  const body = JSON.parse(seen.body) as { model: string; messages: { role: string; content?: string }[]; tools?: unknown[] };
+  if (body.model.includes("no-such")) return { status: 404, acts: [JSON.stringify({ error: { message: "model not found", type: "invalid_request_error", code: "model_not_found" } })] };
+  const last = body.messages[body.messages.length - 1];
+  if (last?.role === "tool") return chatText(["It is ", "18C."]);
+  if (body.tools !== undefined) return { acts: [chatChunk({ tool_calls: [{ index: 0, id: "t1", type: "function", function: { name: "get_weather", arguments: '{"city":"Paris"}' } }] }), chatChunk({}, "tool_calls"), "data: [DONE]\n\n"] };
+  if (last?.content?.includes("fox")) return { acts: [chatChunk({ content: "Once" }), { wait: 5 }, chatChunk({ content: " upon" }), { hang: true }] };
+  if (last?.content?.includes("Count")) return chatText(["1 2 ", "3 4 ", "5 6"]);
+  if (last?.content?.includes("What number")) return chatText(["7421"]);
+  if (last?.content?.includes("remember")) return chatText(["ok"]);
+  return chatText(["pong"]);
+};
+
 describe("runLiveChecks", () => {
+  test("the Chat Completions flavor against a minimal server: retrieval is skipped, chaining falls back to replay", async () => {
+    const server = await FakeServer.start(chatPretend);
+    try {
+      const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake" }));
+      for (const name of ["plain", "usage", "streaming", "tool-call", "chaining", "abort", "bad-model"]) assert.equal(r[name]?.status, "pass", `${name}: ${r[name]?.detail}`);
+      assert.equal(r["retrieve"]?.status, "skip");
+    } finally {
+      await server.close();
+    }
+  });
+
   test("a well-behaved server passes; reasoning is skipped when the model has none", async () => {
     const r = byName(await check("anthropic", pretend()));
     for (const name of ["plain", "usage", "streaming", "tool-call", "abort", "bad-model"]) assert.equal(r[name]?.status, "pass", `${name}: ${r[name]?.detail}`);

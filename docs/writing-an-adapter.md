@@ -121,7 +121,7 @@ with the `providers` option to add more.
 ## Checking against a real server
 
 `node tools/live-check.ts --flavor anthropic --base-url http://localhost:11434 --model <model>` (or
-`--flavor openai-responses --base-url http://localhost:11434/v1`) runs the adapter through a handful of scenarios
+`--flavor openai-responses --base-url http://localhost:11434/v1`, or `--flavor openai-compatible` for Chat Completions) runs the adapter through a handful of scenarios
 and the conformance checks on each. `--api-key-env NAME` reads a key from the environment (never put a key on the
 command line), `--record DIR` saves each scenario's events with secrets scrubbed (a start for a fixture),
 `--only NAME` narrows it, `--list` names the scenarios. A scenario the model cannot do (no tools, no reasoning) is

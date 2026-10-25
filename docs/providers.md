@@ -399,7 +399,7 @@ providers/types.ts              P2   interfaces, events, errors
 providers/http.ts, sse.ts       P3   shared transport and its extension points
 providers/anthropic/            P3   mapping, catalog, prices
 providers/openai/               P3   Responses mapping; chaining, compaction, retrieval
-providers/openai-compatible/    P3   Chat Completions for llama-server and friends
+providers/openai-compatible.ts  P3   Chat Completions for llama-server and friends
 docs/writing-an-adapter.md      P3
 tools/record-fixture.ts         P3   capture and redact a real stream
 test/providers/fixtures/        P12
@@ -548,7 +548,32 @@ test/providers/fixtures/        P12
    Not done: a recovered response does not carry the adapter's chaining digest (it is computed from the request, which
    the journal does not keep), so the next request replays instead of chaining; that is always correct, only less cheap.
 8. **`openai-compatible`** with the llama-server probe, then docs and an example in the lifecycle test using a fake
-   provider.
+   provider. **Done** (`providers/openai-compatible.ts`, `$tag: openai-compatible`, registered in `defaultRegistry()`).
+   Chat Completions for llama-server, Ollama, vLLM, LM Studio and similar: stateless, no cache control, storage or
+   retrieval; every request replays the context. Provider config: `base_url` (required, including `/v1`: there is no
+   default, so a conversation can never go to the wrong place by omission), `api_key_env` (bearer), `max_tokens_param`
+   (`max_tokens`, or `max_completion_tokens` for OpenAI's own models), `include_usage` (`stream_options`), plus the common
+   fields (`pricing: {free: true}` for local). Model settings: `max_output_tokens` (required), `temperature`, `top_p`,
+   `stop`, `seed`, `reasoning_effort`, `replay_reasoning`, `extra` (server extensions such as `top_k` or `chat_template_kwargs`;
+   cannot override owned fields). The mapper is lenient where servers differ: reasoning from `reasoning_content` or
+   `reasoning`; tool calls assembled from `index`-keyed fragments, with a made-up id when the server sends none and
+   arguments accepted as an object; a finished call is `tool_use` whatever `finish_reason` says (Ollama says `stop`);
+   `refusal` becomes text with the `refusal` stop reason; the end is `[DONE]`. Decisions: reasoning is **not** sent back
+   by default (most chat templates drop it; `replay_reasoning` sends the visible text as `reasoning_content` for the models
+   that want it next to tool calls); usage is reported as **one** event at `[DONE]`, because chunks may carry running totals
+   and a cache hit found partway lowers the uncached input, and an event cannot be taken back (so a stream that dies
+   mid-way reports no tokens; fine for local servers, and the parking lot has the alternative); cached tokens are taken
+   out of `prompt_tokens` so the meters stay disjoint; a server that reports no usage gives zero tokens and
+   `ext.usage_reported: false`. `live-check --flavor openai-compatible` runs the same scenarios (retrieval skips; chaining
+   reports that it replayed). Tests: fixtures-by-hand for text, tool calls, both reasoning fields, Ollama's whole-call chunk,
+   invalid arguments, finish reasons, revised usage, chunking invariance, errors, request bodies, the registry, and an
+   end-to-end test (`test/integration/compatible-turn.test.ts`) that drives a conversation through a tool call and back with
+   costs on. **Unverified**, to check with a real llama-server (none was available): that `stream_options.include_usage` and
+   `prompt_tokens_details.cached_tokens` are sent, that `reasoning_content` carries thinking only with
+   `--reasoning-format deepseek` (otherwise `<think>` stays in the text), that tool calls need `--jinja`, and the exact error
+   bodies (the classifier knows `exceed_context_size_error`). Checked live against Ollama only before this step, through the
+   other two adapters; run `node tools/live-check.ts --flavor openai-compatible --base-url http://localhost:11434/v1 --model <m>`
+   to check this one the same way.
 
 ## 6. Out of scope here
 

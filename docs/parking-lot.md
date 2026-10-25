@@ -170,3 +170,12 @@ agent loop shows process start-up dominating.
   `max_requests_per_turn` limit and tool results: the next layer above `requestStream`.
 - The heartbeat touches the file only while the process runs; a host that suspends a laptop mid-request will see the
   request recovered as `interrupted` after `journalStaleMs` once another process opens the branch.
+
+## From step 8 (openai-compatible)
+
+- `<think>…</think>` inside the text (servers run without a reasoning parser): split it into a reasoning block, as a setting.
+- Usage as it arrives, not only at the end: the alternative is to report running totals as events and let the result
+  differ; needed only if a hosted Chat Completions provider is used and a failure mid-stream must still be billed correctly.
+- llama-server's `/props` (context size) and `/v1/models` as the catalog; `tool_choice`, `parallel_tool_calls` and JSON
+  schema output as settings; attachments (images as `image_url` parts) once the harness has an attachment story.
+- Tool results with `is_error`: Chat Completions has no flag, so errors are plain text; a renderer rule could prefix them.

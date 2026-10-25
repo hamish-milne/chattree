@@ -3,6 +3,7 @@
  *
  *   node tools/live-check.ts --flavor anthropic --base-url http://localhost:11434 --model qwen3
  *   node tools/live-check.ts --flavor openai-responses --base-url http://localhost:11434/v1 --model qwen3 --api-key-env OPENAI_API_KEY
+ *   node tools/live-check.ts --flavor openai-compatible --base-url http://localhost:8080/v1 --model qwen3   (llama-server, Ollama, vLLM: Chat Completions)
  *
  * Flags: --flavor, --base-url, --model, --max-tokens (default 512), --api-key-env NAME (the key is read from that
  * environment variable; never pass a key on the command line), --record DIR (save each scenario's events as JSON,
@@ -18,11 +19,12 @@ import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import { emptySetup, type AgentSetup } from "../harness/setup.ts";
 import { anthropicAdapter } from "../providers/anthropic.ts";
 import { collectStream, conformanceProblems, type StreamRun } from "../providers/conformance.ts";
+import { openaiCompatibleAdapter } from "../providers/openai-compatible.ts";
 import { openaiResponsesAdapter } from "../providers/openai-responses.ts";
 import { ProviderError, type ProviderAdapter } from "../providers/types.ts";
 
-export type Flavor = "anthropic" | "openai-responses";
-export const FLAVORS: readonly Flavor[] = ["anthropic", "openai-responses"];
+export type Flavor = "anthropic" | "openai-responses" | "openai-compatible";
+export const FLAVORS: readonly Flavor[] = ["anthropic", "openai-responses", "openai-compatible"];
 
 export interface LiveOptions {
   flavor: Flavor;
@@ -55,6 +57,7 @@ function ok(cond: unknown, msg: string): asserts cond {
 export function makeAdapter(o: Pick<LiveOptions, "flavor" | "baseUrl" | "apiKey">): ProviderAdapter {
   const key = o.apiKey === undefined ? {} : { apiKey: o.apiKey };
   if (o.flavor === "anthropic") return anthropicAdapter({ baseUrl: o.baseUrl, ...key });
+  if (o.flavor === "openai-compatible") return openaiCompatibleAdapter({ baseUrl: o.baseUrl, ...key });
   return openaiResponsesAdapter({ baseUrl: o.baseUrl, ...key });
 }
 
