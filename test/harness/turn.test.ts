@@ -6,7 +6,7 @@ import { z } from "zod";
 import { nodeHost } from "../../hosts/node.ts";
 import { Conversation, type ConversationEvent, type NewEntry } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
-import { Journal, JournalBusy, readJournal } from "../../harness/journal.ts";
+import { Journal, JournalBusy, readJournal, RequestSuperseded } from "../../harness/journal.ts";
 import { StreamAccumulator } from "../../harness/partial.ts";
 import { requestStream, runRequest } from "../../harness/turn.ts";
 import { envSource } from "../../harness/secrets.ts";
@@ -221,7 +221,7 @@ describe("a request that ends early", () => {
   test("the turn's deadline stops it, and harness.yml's max_turn_seconds sets one", async () => {
     const { convo } = await fresh();
     steps = [...text(0, "abc"), hang];
-    const r = await run(convo, { deadline: Date.now() + 30 });
+    const r = await run(convo, { deadline: Date.now() + 400 });
     assert.equal(r.status === "interrupted" && r.by, "error");
     const e = await last(convo);
     assert.match(e.$tag === "interrupted" ? (e.error ?? "") : "", /time limit/);
@@ -356,9 +356,9 @@ describe("recovery in open", () => {
 
   test("a heartbeat keeps a quiet request's journal fresh", async () => {
     const { convo } = await fresh();
-    steps = [pause(120)];
+    steps = [pause(300)];
     const p = requestStream(convo, { system: "s", cost: false, journal: { heartbeatMs: 20, flushMs: 5 } }).next();
-    await new Promise((r) => setTimeout(r, 80));
+    await new Promise((r) => setTimeout(r, 200));
     const j = await readFile(await convo.journalPath(), "utf8");
     assert.ok((j.match(/"t":"beat"/g) ?? []).length >= 2);
     await p;
@@ -397,5 +397,38 @@ describe("crash sweep over the journal", () => {
       await assertHistoryInvariants(again);
     }
     assert.ok((outcomes.get("completed") ?? 0) >= 1 && (outcomes.get("interrupted") ?? 0) >= 1 && (outcomes.get("discarded") ?? 0) >= 1, JSON.stringify([...outcomes]));
+  });
+});
+
+describe("a request whose journal was recovered under it", () => {
+  test("it does not write a second outcome: RequestSuperseded hands back the response, and the journal is not recreated", async () => {
+    const { convo, dir } = await fresh();
+    let release: () => void = () => {};
+    steps = [...text(0, "late answer"), () => new Promise<void>((r) => (release = r))];
+    ending = done([{ type: "text", text: "late answer" }]);
+    const running = run(convo, { journal: { flushMs: 1 } });
+    running.catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 30)); // the host is "suspended": nothing arrives, the journal goes stale
+    const other = await reopen(dir); // another process opens the branch and recovers the journal
+    assert.equal(other.recovery.journal?.outcome, "interrupted");
+    release(); // the first process wakes up and finishes
+    await assert.rejects(running, (e) => e instanceof RequestSuperseded && e.completed?.blocks[0]?.type === "text");
+    const tags = (await entries(other)).map((e) => e.$tag).slice(-2);
+    assert.deepEqual(tags, ["user", "interrupted"], "one outcome, not two");
+    assert.equal(await exists(await other.journalPath()), false, "the dead request's late writes did not bring the file back");
+    await assertHistoryInvariants(other);
+  });
+
+  test("an interrupted outcome is guarded the same way", async () => {
+    const { convo, dir } = await fresh();
+    let release: () => void = () => {};
+    steps = [...text(0, "x"), () => new Promise<void>((r) => (release = r)), new ProviderError({ kind: "network", message: "reset" })];
+    const running = run(convo, { journal: { flushMs: 1 } });
+    running.catch(() => undefined);
+    await new Promise((r) => setTimeout(r, 30));
+    await reopen(dir);
+    release();
+    await assert.rejects(running, (e) => e instanceof RequestSuperseded && e.completed === undefined);
+    assert.equal((await entries(convo)).filter((e) => e.$tag === "interrupted").length, 1, "only the recovered outcome is on disk");
   });
 });

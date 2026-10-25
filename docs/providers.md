@@ -545,6 +545,11 @@ test/providers/fixtures/        P12
    (discarded). The result is `convo.recovery.journal` and a second `recovery` event. Tests: scripted provider, early
    ends of every kind, every recovery outcome, a heartbeat, and a sweep that cuts a journal at line boundaries and
    inside lines.
+   Ownership: each journal's start record carries a random nonce, and the runner checks, under the branch lock and just
+   before committing, that the file still begins with its own start line; if another process took it for dead and
+   recovered it, the request throws `RequestSuperseded` (carrying the completed response, if any) instead of writing a
+   second outcome, and a request never writes into a journal that is no longer its own (so a woken process cannot bring a
+   deleted journal back).
    Not done: a recovered response does not carry the adapter's chaining digest (it is computed from the request, which
    the journal does not keep), so the next request replays instead of chaining; that is always correct, only less cheap.
 8. **`openai-compatible`** with the llama-server probe, then docs and an example in the lifecycle test using a fake

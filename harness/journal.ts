@@ -24,6 +24,8 @@ export interface JournalStart {
   after: string | undefined;
   /** When it began (the host's clock). */
   at: number;
+  /** Random per request: how the request that wrote this file tells, later, that the file is still its own and has not been recovered by someone else. */
+  nonce?: string;
 }
 
 export type JournalRecord =
@@ -42,6 +44,21 @@ export interface JournalOptions {
   /** Told when writing fails. The journal then stops writing and the request carries on without crash protection. */
   onError?: (error: unknown) => void;
   now?: () => number;
+}
+
+/**
+ * A request finished after its journal had been recovered by another process (it was taken for dead, for instance
+ * after the host was suspended): the transcript already holds an `interrupted` entry for it. The response is not
+ * committed, so the transcript has one outcome for the request, and is handed back here for the host to use or drop.
+ */
+export class RequestSuperseded extends Error {
+  override name = "RequestSuperseded";
+  /** The response the request completed, if it did. */
+  readonly completed: Completed | undefined;
+  constructor(completed: Completed | undefined) {
+    super("this request's journal was recovered by another process while it was running; its result was not committed");
+    this.completed = completed;
+  }
 }
 
 export class JournalBusy extends Error {
@@ -63,6 +80,8 @@ export class Journal {
   readonly #host: Host;
   readonly #path: string;
   readonly #opts: JournalOptions;
+  /** The bytes of our start line: the file is ours while it begins with exactly these. */
+  readonly #head: Uint8Array;
   #buffer: string[] = [];
   #size = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -71,20 +90,22 @@ export class Journal {
   #failed = false;
   #closed = false;
 
-  private constructor(host: Host, path: string, opts: JournalOptions) {
+  private constructor(host: Host, path: string, opts: JournalOptions, head: Uint8Array) {
     this.#host = host;
     this.#path = path;
     this.#opts = opts;
+    this.#head = head;
   }
 
   /** Start a journal. Fails with `JournalBusy` if one exists: two requests on one branch would interleave. */
   static async begin(host: Host, path: string, start: JournalStart, opts: JournalOptions = {}, staleMs = 60_000): Promise<Journal> {
-    const line = `${JSON.stringify({ t: "start", v: 1, ...start } satisfies JournalRecord)}\n`;
+    const line = `${JSON.stringify({ t: "start", v: 1, ...start, nonce: crypto.randomUUID() } satisfies JournalRecord)}\n`;
+    const head = enc.encode(line);
     await host.fs.mkdir(host.path.dirname(path));
-    if (!(await host.fs.createExclusive(path, enc.encode(line)))) {
+    if (!(await host.fs.createExclusive(path, head))) {
       throw new JournalBusy(path, await isLive(host, path, staleMs, opts.now));
     }
-    const j = new Journal(host, path, opts);
+    const j = new Journal(host, path, opts, head);
     const beat = opts.heartbeatMs ?? 15_000;
     if (beat > 0) {
       j.#beat = setInterval(() => j.write({ t: "beat", at: (opts.now ?? Date.now)() }), beat);
@@ -103,6 +124,16 @@ export class Journal {
     else this.#timer ??= setTimeout(() => void this.flush(), this.#opts.flushMs ?? 250);
   }
 
+  /** Whether the file at the journal's path is still the one this request created (not deleted, not replaced by a recovery and a new request). */
+  async owned(): Promise<boolean> {
+    try {
+      const got = await this.#host.fs.readRange(this.#path, 0, this.#head.length);
+      return got.length === this.#head.length && got.every((b, i) => b === this.#head[i]);
+    } catch {
+      return false;
+    }
+  }
+
   /** Write what is queued and wait until it is on disk. */
   flush(): Promise<void> {
     if (this.#timer !== undefined) clearTimeout(this.#timer);
@@ -113,6 +144,11 @@ export class Journal {
     if (text === "" || this.#failed) return this.#chain;
     this.#chain = this.#chain.then(async () => {
       try {
+        // Never write into a file that is no longer ours: append would recreate a journal that recovery deleted, or extend another request's.
+        if (!(await this.owned())) {
+          this.#failed = true;
+          return;
+        }
         await this.#host.fs.append(this.#path, enc.encode(text));
       } catch (e) {
         this.#failed = true;
@@ -134,10 +170,10 @@ export class Journal {
     await this.flush();
   }
 
-  /** `abandon`, then delete the file: the request is recorded (or deliberately dropped). */
+  /** `abandon`, then delete the file: the request is recorded (or deliberately dropped). Does nothing to a file that is not ours. */
   async discard(): Promise<void> {
     await this.abandon();
-    await this.#host.fs.remove(this.#path).catch(() => false);
+    if (await this.owned()) await this.#host.fs.remove(this.#path).catch(() => false);
   }
 
   get failed(): boolean {

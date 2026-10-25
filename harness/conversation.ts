@@ -147,6 +147,8 @@ export interface InterruptOptions {
   error?: string;
   /** Tokens of the partial response (billed even though it was cut off), in the normalised names of `assistant.usage`. */
   usage?: Record<string, number>;
+  /** Runs under the branch lock just before the entry is written; throwing from it stops the write (the turn runner checks its journal is still its own). */
+  guard?: () => Promise<void>;
 }
 
 export interface Appended {
@@ -929,7 +931,10 @@ export class Conversation {
 
   /** Record that the turn was cut short, keeping whatever had been received. */
   interrupt(opts: InterruptOptions): Promise<Appended> {
-    return this.append({ $tag: "interrupted", by: opts.by, partial: opts.partial ?? [], ...(opts.error === undefined ? {} : { error: opts.error }), ...(opts.usage === undefined ? {} : { usage: opts.usage }) });
+    return this.#transaction(async () => {
+      await opts.guard?.();
+      return this.#appendLocked({ $tag: "interrupted", by: opts.by, partial: opts.partial ?? [], ...(opts.error === undefined ? {} : { error: opts.error }), ...(opts.usage === undefined ? {} : { usage: opts.usage }) });
+    });
   }
 
   /**
@@ -1089,8 +1094,11 @@ export class Conversation {
    * (expected, never gated); a later mismatch is `reason: provider`, classified, and gates the next request
    * (see `checkRequest`). It is recorded either way: the response was already paid for.
    */
-  appendResponse(response: NewEntry & { $tag: "assistant" }, observed: { model?: string } = {}): Promise<Appended[]> {
-    return this.#transaction(() => this.#appendResponseLocked(response, observed));
+  appendResponse(response: NewEntry & { $tag: "assistant" }, observed: { model?: string } = {}, guard?: () => Promise<void>): Promise<Appended[]> {
+    return this.#transaction(async () => {
+      await guard?.();
+      return this.#appendResponseLocked(response, observed);
+    });
   }
 
   async #appendResponseLocked(response: NewEntry & { $tag: "assistant" }, observed: { model?: string }): Promise<Appended[]> {

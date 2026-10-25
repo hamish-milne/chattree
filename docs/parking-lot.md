@@ -11,12 +11,6 @@ Each entry says what it is and what a first step would be. Within a group, the o
 
 ## High
 
-- **A recovered `interrupted` entry can duplicate a request that is still running.** If a host suspends mid-request for
-  longer than `journalStaleMs` (60 s) and another process then opens the branch, that process commits `interrupted` for
-  the journal; when the first process wakes it commits its own `assistant` entry, so the transcript holds both. Needs a
-  second process and a suspend, so it is rare, but the result is a wrong transcript. First step: before committing, a
-  request checks that its journal is still the one it started (the file exists and its start record is unchanged) and
-  otherwise drops its result into an `interrupted` entry marked as superseded, or discards it.
 - **Verify the Anthropic adapter against the real API.** No free tier, so today it is only checked against Ollama's
   compatible endpoint. From memory: the request shapes for `system` and `cache_control`, breakpoints, lifetimes and
   multipliers. If one is wrong, the paid provider's requests fail. Needs a key and a small spend.
@@ -122,6 +116,9 @@ also lets one agent flow work across several repositories. It touches snapshots,
 
 ## Low
 
+- **Recovery that checks the owner is dead.** A journal that goes quiet is taken for dead after `journalStaleMs`; a suspended
+  but living process is only caught by the commit-time ownership check (`RequestSuperseded`), after its work is wasted.
+  A `Host` method that says whether a process is alive would let recovery on the same machine wait for it.
 - **Journal extras**: keep a copy of the events of failed requests outside the repository for debugging; a `follow`
   helper so a second process can tail a request's journal (nothing reads it live yet); record the digest the adapter
   computed for the request so a recovered OpenAI response can still be chained from.

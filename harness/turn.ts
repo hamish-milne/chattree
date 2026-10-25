@@ -1,7 +1,7 @@
 import type { Conversation } from "./conversation.ts";
 import type { Appended } from "./conversation.ts";
 import { prepareContext, type PrepareOptions, type Prepared } from "./request.ts";
-import { Journal, type JournalOptions } from "./journal.ts";
+import { Journal, RequestSuperseded, type JournalOptions } from "./journal.ts";
 import { StreamAccumulator } from "./partial.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
 import { usageRecord } from "./ledger.ts";
@@ -104,12 +104,17 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
   let completed: Completed | undefined;
   let failure: unknown;
   let finished = false;
+  // Under the branch lock, right before the commit: if another process took this request for dead and recovered its
+  // journal, the transcript already has the outcome, and writing a second one would leave the request recorded twice.
+  const guard = async (): Promise<void> => {
+    if (journal !== undefined && !(await journal.owned())) throw new RequestSuperseded(completed);
+  };
   const settle = async (): Promise<TurnResult> => {
     try {
       if (completed !== undefined) {
         journal?.write({ t: "done", completed });
         await journal?.flush();
-        const entries = await convo.appendResponse(assistantFromCompleted(model.provider, servedModelId(model), completed), { model: completed.observed.model ?? servedModelId(model) });
+        const entries = await convo.appendResponse(assistantFromCompleted(model.provider, servedModelId(model), completed), { model: completed.observed.model ?? servedModelId(model) }, guard);
         await journal?.discard();
         return { status: "completed", entries, completed, prepared };
       }
@@ -121,6 +126,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
       }
       const error = user ? undefined : stopped === "deadline" ? "the turn's time limit passed" : failure instanceof Error ? failure.message : "the response ended early";
       const entry = await convo.interrupt({
+        guard,
         by: user ? "user" : "error",
         partial: toEntryBlocks(acc.blocks()),
         ...(error === undefined ? {} : { error }),
@@ -129,7 +135,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
       await journal?.discard();
       return { status: "interrupted", by: user ? "user" : "error", entry, ...(user ? {} : { error: failure ?? new ProviderError({ kind: "timeout", message: error as string }) }), prepared };
     } catch (e) {
-      await journal?.abandon(); // the commit failed: the journal is what recovery will use
+      await journal?.abandon(); // the commit failed: the journal is what recovery will use (a file that is no longer ours is left alone)
       throw e;
     }
   };
