@@ -8,8 +8,10 @@
   "include": [
     "src",
     "harness",
+    "providers",
     "test",
     "bench",
-    "hosts"
+    "hosts",
+    "tools"
   ]
 }

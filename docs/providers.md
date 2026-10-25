@@ -1,6 +1,6 @@
 # Provider adapters: plan (v2)
 
-Status: **steps 1 and 2 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
+Status: **steps 1 to 3 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
 P1–P12 so they can be accepted or changed one by one, as with `git-integration.md`. What changed since v1 is in
 section 9; the few questions still open are in section 8.
 
@@ -427,7 +427,16 @@ test/providers/fixtures/        P12
    text itself for instructions), so a `blob` pin's hash is the blob's hash; `provider` on setup and assistant
    entries is the **name** of the provider in `harness.yml`, not the adapter tag; drift of any definition is the
    `tools_changed` or `instructions_changed` kind, so one `ChangeNotAllowed` covers all of it.
-3. **Provider types, SSE parser, HTTP base, fake server, conformance suite, fixture recorder** (P2, P3, P12).
+3. **Provider types, SSE parser, HTTP base, fake server, conformance checks, fixture recorder. Done**:
+   `providers/types.ts` (events, `Completed`, `ProviderError` with its kinds, the adapter interface),
+   `providers/sse.ts` (own parser, tested at every split point and at random chunkings, including mid-character and
+   mid-CRLF), `providers/http.ts` (`httpStream` with an `HttpMapper`; per-attempt timeouts; retry before the first
+   content event only, with held-back `started`/`observed`/`usage`; `retry-after`; limiter; scrubbing; hooks that
+   cannot break a request; early `return()` cancels the request and frees the slot),
+   `providers/conformance.ts`, `providers/fixtures.ts` (`recordingFetch`, `replayFetch`), `tools/record-fixture.ts`,
+   `test/support/fake-server.ts` and a made-up `toy-adapter.ts` that exercises all of it, and
+   `docs/writing-an-adapter.md`. The catalog, pricing, estimate and settings-schema parts of the adapter interface
+   are not in `providers/types.ts` yet; they arrive with step 6 and step 5.
 4. **Anthropic adapter** against fixtures, then **OpenAI Responses** (chaining, compaction, retrieval).
 5. **`harness.yml` v-next, secrets, JSON Schema generation and the editor marker** (P6, P7).
 6. **Catalog, pricing tables, ledger, estimates, limits** (P9).

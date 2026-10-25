@@ -121,3 +121,9 @@ agent loop shows process start-up dominating.
 - Do OpenAI hosted tools (web search, code interpreter) need server-side state?
 - OpenAI WebSocket continuation cache.
 - Anthropic equivalent of allowed_tools for restricting tools without changing the prefix.
+
+## Renderers
+
+- Verifying a renderer's output at runtime (a self-test with fixed inputs, output hash recorded in the setup).
+  Decided: stability is part of the renderer interface contract (an id is immutable, renderers are pure), not
+  something the harness defensively checks, at least for now. Revisit if host-supplied renderers cause drift.
