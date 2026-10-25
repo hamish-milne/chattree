@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
+import { defineAdapter, commonProviderFields, envName, httpOptionsFor } from "./registry.ts";
 import { httpStream, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
 import { ProviderError, type Completed, type ErrorKind, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
@@ -367,6 +368,40 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
 }
 
 /** What a setup change does to the prompt cache and the request, beyond what the harness can tell. */
+// ---- registration -----------------------------------------------------------------------------------------------
+
+const anthropicProviderConfig = z.strictObject({
+  $tag: z.literal("anthropic"),
+  /** The NAME of the environment variable holding the key. Omit for a server that needs none. */
+  api_key_env: envName.optional(),
+  base_url: z.string().url().optional(),
+  authorization: z.enum(["x-api-key", "bearer"]).optional(),
+  version: z.string().min(1).optional(),
+  betas: z.array(z.string().min(1)).optional(),
+  cache_control: z.boolean().optional(),
+  ...commonProviderFields,
+});
+
+export const anthropicDefinition = defineAdapter({
+  $tag: "anthropic",
+  config: anthropicProviderConfig,
+  settings: anthropicSettings,
+  jsonSchema: () => ({ config: z.toJSONSchema(anthropicProviderConfig, { io: "input" }), settings: z.toJSONSchema(anthropicSettings, { io: "input" }) }),
+  secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
+  create: (c, secrets) => {
+    const key = c.api_key_env === undefined ? undefined : secrets.get(c.api_key_env);
+    return anthropicAdapter({
+      ...(key === undefined ? {} : { apiKey: key }),
+      ...(c.base_url === undefined ? {} : { baseUrl: c.base_url }),
+      ...(c.authorization === undefined ? {} : { authorization: c.authorization }),
+      ...(c.version === undefined ? {} : { version: c.version }),
+      ...(c.betas === undefined ? {} : { betas: c.betas }),
+      ...(c.cache_control === undefined ? {} : { cacheControl: c.cache_control }),
+      http: httpOptionsFor(c),
+    });
+  },
+});
+
 export function classifyAnthropic(from: AgentSetup, to: AgentSetup): Change[] {
   const out: Change[] = [];
   const f = from.model;

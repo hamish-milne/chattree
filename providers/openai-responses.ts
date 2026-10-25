@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
+import { defineAdapter, commonProviderFields, envName, httpOptionsFor } from "./registry.ts";
 import { classifyStatus, httpStream, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
 import { ProviderError, type Completed, type ErrorKind, type ModelStream, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
@@ -531,6 +532,41 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
 
   return { $tag: "openai", stream, retrieve, classify: classifyOpenAI };
 }
+
+// ---- registration -----------------------------------------------------------------------------------------------
+
+const openaiProviderConfig = z.strictObject({
+  $tag: z.literal("openai"),
+  /** The NAME of the environment variable holding the key. Omit for a server that needs none. */
+  api_key_env: envName.optional(),
+  base_url: z.string().url().optional(),
+  /** `false` opts out of server-side storage of responses (no chaining, no retrieval). */
+  store: z.boolean().optional(),
+  chain: z.boolean().optional(),
+  replay_item_ids: z.boolean().optional(),
+  prune_at_compaction: z.boolean().optional(),
+  ...commonProviderFields,
+});
+
+export const openaiDefinition = defineAdapter({
+  $tag: "openai",
+  config: openaiProviderConfig,
+  settings: openaiSettings,
+  jsonSchema: () => ({ config: z.toJSONSchema(openaiProviderConfig, { io: "input" }), settings: z.toJSONSchema(openaiSettings, { io: "input" }) }),
+  secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
+  create: (c, secrets) => {
+    const key = c.api_key_env === undefined ? undefined : secrets.get(c.api_key_env);
+    return openaiResponsesAdapter({
+      ...(key === undefined ? {} : { apiKey: key }),
+      ...(c.base_url === undefined ? {} : { baseUrl: c.base_url }),
+      ...(c.store === undefined ? {} : { store: c.store }),
+      ...(c.chain === undefined ? {} : { chain: c.chain }),
+      ...(c.replay_item_ids === undefined ? {} : { replayItemIds: c.replay_item_ids }),
+      ...(c.prune_at_compaction === undefined ? {} : { pruneAtCompaction: c.prune_at_compaction }),
+      http: httpOptionsFor(c),
+    });
+  },
+});
 
 /** What a setup change does to the cached prefix. */
 export function classifyOpenAI(from: AgentSetup, to: AgentSetup): Change[] {

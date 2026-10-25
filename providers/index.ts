@@ -1,0 +1,10 @@
+import { anthropicDefinition } from "./anthropic.ts";
+import { openaiDefinition } from "./openai-responses.ts";
+import { AdapterRegistry } from "./registry.ts";
+
+/** A registry with the adapters that ship with chattree. Add your own with `register`. */
+export function defaultRegistry(): AdapterRegistry {
+  return new AdapterRegistry().register(anthropicDefinition).register(openaiDefinition);
+}
+
+export { AdapterRegistry, ProviderSetupError, buildProviders, defineAdapter, validateProviders, type AdapterDefinition, type BuiltProviders } from "./registry.ts";

@@ -20,6 +20,10 @@ import {
 } from "../src/index.ts";
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
+import { SCHEMA_COMMENT, SCHEMA_PATH, configJsonSchema } from "./config-schema.ts";
+import { redactionPatterns, type SecretSource } from "./secrets.ts";
+import { ProviderSetupError, buildProviders, validateProviders, type AdapterRegistry, type BuiltProviders } from "../providers/registry.ts";
+import type { ProviderAdapter } from "../providers/types.ts";
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
@@ -33,6 +37,9 @@ export { BLOBS_DIR };
 /** The harness configuration, relative to the repository root. */
 export const CONFIG_FILE = "harness.yml";
 
+const GITIGNORE = `# chattree: generated files and local secrets stay out of the repository
+/.chattree/
+`;
 const GITATTRIBUTES = `# Transcripts are byte-exact: never convert line endings.
 * -text
 # Branches diverge by appending to the transcript; a merge keeps the receiving branch's version.
@@ -76,6 +83,15 @@ export interface ConversationOptions {
   indexCache?: IndexCache | false;
   /** What a setup change does beyond what the harness can tell itself (cache, cost, capabilities): the provider adapter's `classify`. */
   classify?: Classifier;
+  /**
+   * The adapters that may appear in `harness.yml`, and where secrets come from. With it, `create` and `open` validate
+   * every provider against its adapter's schema, resolve the environment variables it names (a missing one is an error
+   * naming the variable and the provider, here and not at the first request), build the adapters (`convo.providers`),
+   * redact every resolved secret from what is written to the transcript, and write the editor schema.
+   */
+  providers?: { registry: AdapterRegistry; secrets: SecretSource };
+  /** Set by `open` so forks and subagents share the adapters (and their concurrency limits). Not for callers. */
+  built?: BuiltProviders;
 }
 
 /** Something that happened to a conversation. Events are delivered after the change is committed, in order. */
@@ -416,30 +432,80 @@ export class Conversation {
   // ---- create / open ---------------------------------------------------------------------------------------
 
   /** Create a new conversation repository in `dir` (which must not already be a repository) with its header entry. */
-  static async create(host: Host, dir: string, opts: CreateOptions = {}): Promise<Conversation> {
+  static async create(host: Host, dir: string, inOpts: CreateOptions = {}): Promise<Conversation> {
     if ((await host.fs.stat(host.path.join(dir, ".git"))) !== undefined) throw new ConversationError(`${dir} is already a git repository`);
+    let configText = inOpts.config;
+    let opts: CreateOptions = inOpts;
+    if (configText !== undefined) {
+      const parsed = await parseConfig(configText, harnessConfig);
+      if (!parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
+      if (inOpts.providers !== undefined) {
+        opts = { ...inOpts, ...(await Conversation.#withProviders(parsed.value, inOpts)) };
+        if (!configText.includes("yaml-language-server")) configText = `${SCHEMA_COMMENT}\n${configText}`;
+      }
+    }
     const git = await Git.init(host, dir, { branch: opts.branch ?? "main" });
     await git.setConfig("merge.ours.driver", "true");
     await host.fs.writeAtomic(host.path.join(dir, ".gitattributes"), enc.encode(GITATTRIBUTES));
+    await host.fs.writeAtomic(host.path.join(dir, ".gitignore"), enc.encode(GITIGNORE));
     const branch = opts.branch ?? "main";
     const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [], cleaned: [] });
-    if (opts.config !== undefined) {
-      const parsed = await parseConfig(opts.config, harnessConfig);
-      if (!parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
-      await host.fs.writeAtomic(host.path.join(dir, CONFIG_FILE), enc.encode(opts.config));
-    }
+    if (configText !== undefined) await host.fs.writeAtomic(host.path.join(dir, CONFIG_FILE), enc.encode(configText));
+    if (opts.providers !== undefined) await Conversation.#writeSchema(host, git, dir, opts.providers.registry);
     await convo.#transaction(async () => {
       await convo.#appendLocked({ $tag: "header", ...FORMAT });
     });
     return convo;
   }
 
+  /** Validate the providers, resolve their secrets, build them, and add the secrets to the redaction patterns. */
+  static async #withProviders(config: HarnessConfig, opts: ConversationOptions): Promise<Pick<ConversationOptions, "built" | "pipeline">> {
+    const p = opts.providers as NonNullable<ConversationOptions["providers"]>;
+    let built: BuiltProviders;
+    try {
+      built = await buildProviders(config.providers, p.registry, p.secrets);
+    } catch (e) {
+      if (e instanceof ProviderSetupError) throw new ConversationError(`${CONFIG_FILE}: ${e.issues.map((i) => `${i.path}: ${i.message}`).join("; ")}`);
+      throw new ConversationError(`could not resolve the providers' secrets: ${e instanceof Error ? e.message : String(e)}`);
+    }
+    return { built, pipeline: { ...opts.pipeline, redact: [...(opts.pipeline?.redact ?? []), ...redactionPatterns(built.secretValues)] } };
+  }
+
+  /** Write the editor schema, but only where git ignores it (`git add -A` must never commit it). */
+  static async #writeSchema(host: Host, git: Git, dir: string, registry: AdapterRegistry): Promise<void> {
+    if ((await git.run(["check-ignore", "-q", "--", SCHEMA_PATH], { ok: [1], readOnly: true })).exitCode !== 0) return;
+    const path = host.path.join(dir, ...SCHEMA_PATH.split("/"));
+    const data = enc.encode(`${JSON.stringify(configJsonSchema(registry), null, 2)}\n`);
+    const old = (await host.fs.stat(path)) === undefined ? undefined : await host.fs.read(path);
+    if (old === undefined || old.length !== data.length || !old.every((b, i) => b === data[i])) await host.fs.writeAtomic(path, data);
+  }
+
+  /** The adapters built from `harness.yml` at `open`, by provider name. Empty without the `providers` option. */
+  get providers(): ReadonlyMap<string, ProviderAdapter> {
+    return this.#opts.built?.adapters ?? new Map();
+  }
+
+  /** One provider's adapter by the name used in `harness.yml` and in `agent_setup.model.provider`. */
+  provider(name: string): ProviderAdapter {
+    const a = this.providers.get(name);
+    if (a === undefined) throw new ConversationError(`no provider named ${JSON.stringify(name)}${this.providers.size === 0 ? " (open the conversation with the `providers` option)" : ` (have: ${[...this.providers.keys()].join(", ")})`}`);
+    return a;
+  }
+
   /**
    * Open the conversation checked out in `dir`, repairing what a crash can leave behind: an incomplete entry at
    * the end of the transcript is removed, and complete entries that were never committed are committed.
    */
-  static async open(host: Host, dir: string, opts: ConversationOptions = {}): Promise<Conversation> {
+  static async open(host: Host, dir: string, inOpts: ConversationOptions = {}): Promise<Conversation> {
     const git = await Git.open(host, { cwd: dir });
+    let opts = inOpts;
+    if (inOpts.providers !== undefined && inOpts.built === undefined) {
+      const text = (await host.fs.stat(host.path.join(dir, CONFIG_FILE))) === undefined ? undefined : dec.decode(await host.fs.read(host.path.join(dir, CONFIG_FILE)));
+      const parsed = text === undefined ? undefined : await parseConfig(text, harnessConfig);
+      if (parsed !== undefined && !parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
+      opts = { ...inOpts, ...(await Conversation.#withProviders(parsed?.value ?? harnessConfig.parse({}), inOpts)) };
+      await Conversation.#writeSchema(host, git, dir, inOpts.providers.registry);
+    }
     const branch = await git.currentBranch();
     if (branch === undefined) throw new ConversationError("HEAD is detached; check out the conversation's branch first");
     const gitDir = await git.gitDir();
@@ -784,7 +850,10 @@ export class Conversation {
   async readConfig(): Promise<ConfigResult<HarnessConfig> | undefined> {
     const path = this.host.path.join(this.dir, CONFIG_FILE);
     if ((await this.host.fs.stat(path)) === undefined) return undefined;
-    return parseConfig(dec.decode(await this.host.fs.read(path)), harnessConfig);
+    const r = await parseConfig(dec.decode(await this.host.fs.read(path)), harnessConfig);
+    if (!r.ok || this.#opts.providers === undefined) return r;
+    const { issues } = await validateProviders(r.value.providers, this.#opts.providers.registry);
+    return issues.length > 0 ? { ok: false, issues } : r;
   }
 
   // ---- agent setup -----------------------------------------------------------------------------------------

@@ -81,6 +81,22 @@ when the provider has forgotten the state (see `planChain` in `providers/openai-
 A provider that is not HTTP and SSE (an in-process engine, a socket protocol) implements `ProviderAdapter`
 directly and ignores all this. The conformance checks below apply to it all the same.
 
+## Registering the adapter
+
+An adapter becomes usable from `harness.yml` by registering a definition (`defineAdapter` in `providers/registry.ts`):
+
+- `$tag`: what a provider's `$tag` (or `!tag`) says. Lowercase letters, digits, `-`.
+- `config`: a Standard Schema for the provider's keys, `$tag` included. Make it strict so a misspelt key is an error.
+  Use `envName` for any key that names an environment variable (it refuses a pasted key), and spread
+  `commonProviderFields` / `httpOptionsFor` for `max_concurrent`, `timeouts` and `max_attempts`.
+- `settings`: a Standard Schema for the model settings stored in `agent_setup`.
+- `jsonSchema()`: JSON Schema for both (zod's `z.toJSONSchema` does it), used for the editor schema.
+- `secrets(config)`: the environment variable names it needs; `open` fails naming each one that is unset.
+- `create(config, secrets)`: build the adapter. Never put a key in the config, a log, an error or an entry.
+
+`defaultRegistry()` in `providers/index.ts` has the built-in adapters; give `Conversation` a registry of your own
+with the `providers` option to add more.
+
 ## Tests: fixtures, conformance, the fake server
 
 1. **Record** a real response once: `node tools/record-fixture.ts request.json out.fixture.json`

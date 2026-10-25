@@ -1,6 +1,6 @@
 # Provider adapters: plan (v2)
 
-Status: **steps 1 to 4 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
+Status: **steps 1 to 5 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
 P1–P12 so they can be accepted or changed one by one, as with `git-integration.md`. What changed since v1 is in
 section 9; the few questions still open are in section 8.
 
@@ -462,11 +462,28 @@ test/providers/fixtures/        P12
    the latest one (`pruneAtCompaction`, default on). Retrieval: `ProviderAdapter.retrieve` fetches a finished
    response by id into the same `Completed` (`undefined` for 404 or cancelled, a retryable error while it is still
    running); the turn runner will use it for recovery (step 7). `tools/live-check.ts` gained `chaining` and
-   `retrieve` scenarios. **Also unverified**: that `previous_response_id` with only new items continues a stored
-   response, the `context_management` field name, that dropping items before a compaction item is right for a
-   stateless replay, and the not-found error text the fallback matches (`previous_response`). Not done: the
+   `retrieve` scenarios. **Verified live on 2026-10-25** (free tier, `gpt-6-luna`): all scenarios pass, and the `chaining` scenario really
+   chained (`previous_response_id` plus only the new items, the response confirmed `store: true`), and `retrieve`
+   fetched a stored response. **Still unverified**: the `context_management` field name, that dropping items before a
+   compaction item is right for a stateless replay, and the not-found error text the fallback matches
+   (`previous_response`). Not done: the
    standalone `/responses/compact` call.
-5. **`harness.yml` v-next, secrets, JSON Schema generation and the editor marker** (P6, P7).
+5. **`harness.yml` v-next, secrets, JSON Schema generation and the editor marker (P6, P7). Done**:
+   `providers/registry.ts` (`AdapterDefinition`: `$tag`, Standard Schema for the provider's keys and for the model
+   settings, `jsonSchema()`, `secrets(config)` naming the environment variables it needs, `create`; `AdapterRegistry`;
+   `validateProviders` and `buildProviders`, which report every problem at once, including each unset variable by
+   name and provider; `envName`, which refuses a pasted key; the common transport keys `max_concurrent`, `timeouts`,
+   `max_attempts`), `providers/index.ts` (`defaultRegistry()` with `anthropic` and `openai`), `harness/secrets.ts`
+   (`SecretSource`, `repoSecretSource`: environment, then the worktree's `.chattree/env` only if git ignores it, then
+   `.git/chattree/env`; `redactionPatterns`, which skips values under 8 characters), and `harness/config-schema.ts`
+   (`configJsonSchema`: core keys plus one `oneOf` variant per adapter keyed on a `$tag` const). `ConversationOptions.providers`
+   `{registry, secrets}` makes `create` and `open` validate the providers, resolve the secrets (failing at `open`,
+   not at the first request), build the adapters (`convo.providers`, `convo.provider(name)`, shared with forks),
+   add every secret to the transcript's redaction, and write `.chattree/harness.schema.json` (only where git ignores
+   it); `create` also writes `.gitignore` (`/.chattree/`) and the `# yaml-language-server: $schema=` line, and
+   `readConfig` validates provider keys against the adapters. The core still never reads `process.env`: the host
+   passes it to `repoSecretSource`. Not done: the VS Code helper for `yaml.customTags`, and the per-adapter pricing
+   overrides key (step 6).
 6. **Catalog, pricing tables, ledger, estimates, limits** (P9).
 7. **Turn runner and journal**, recovery (including retrieval) in `open`, crash sweeps (P5).
 8. **`openai-compatible`** with the llama-server probe, then docs and an example in the lifecycle test using a fake

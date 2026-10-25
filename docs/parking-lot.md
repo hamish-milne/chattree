@@ -123,8 +123,11 @@ agent loop shows process start-up dominating.
 - Anthropic equivalent of allowed_tools for restricting tools without changing the prefix.
 - Attachments (images, files) in both adapters; they are refused today.
 - OpenAI standalone compaction (`/responses/compact`), for compacting on demand rather than at a threshold.
-- Verify against the real API: chaining with `previous_response_id`, `context_management`, dropping items before a
-  compaction item, the not-found error the chain fallback matches. Use the `chaining` and `retrieve` live-check scenarios.
+- Verify against the real API (chaining and retrieval are verified): `context_management`, dropping items before a
+  compaction item, the not-found error the chain fallback matches. Spend sparingly: the free tier is limited, so use
+  `--only` to pick scenarios.
+- Anthropic has no free API tier, so the Anthropic adapter is only checked against Ollama's compatible endpoint.
+- A `chattree` command that creates `.chattree/env`, and a `secrets check` that lists which variables each provider needs.
 - Run `tools/live-check.ts` against Ollama and record fixtures from it. Known Ollama caveats: no `cache_control` or
   `tool_choice`, in-stream errors are unreliable, small models may not call tools or reason (those scenarios skip).
 - A Chat Completions flavor for the live check, once the `openai-compatible` adapter (step 8) exists.
