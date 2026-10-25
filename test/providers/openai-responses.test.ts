@@ -118,7 +118,11 @@ describe("request body", () => {
     assert.equal(body["model"], "gpt-5.4-2026-03-05");
     const r = await collectStream(replay(TEXT).stream(req(ctx(), emptySetup())));
     assert.ok(r.error instanceof ProviderError && r.error.kind === "invalid_request");
-    assert.throws(() => buildResponsesBody(ctx({ turns: [{ role: "user", parts: [{ type: "attachment", name: "a", data: { $tag: "blob", sha256: "a".repeat(64), bytes: 1 } }] }] }), setupFor(), opts), /attachments/);
+    const body2 = buildResponsesBody(ctx({ turns: [{ role: "user", parts: [{ type: "attachment", kind: "image", name: "a.png", mime: "image/png", sha256: "a".repeat(64), bytes: new Uint8Array([1, 2, 3]) }, { type: "attachment", kind: "pdf", name: "r.pdf", mime: "application/pdf", sha256: "b".repeat(64), bytes: new Uint8Array([4, 5]) }] }] }), setupFor(), opts);
+    assert.deepEqual((body2["input"] as { content: unknown[] }[])[0]?.content, [
+      { type: "input_image", image_url: "data:image/png;base64,AQID" },
+      { type: "input_file", filename: "r.pdf", file_data: "data:application/pdf;base64,BAU=" },
+    ]);
   });
 });
 

@@ -1,3 +1,4 @@
+import { dataUrl } from "../harness/attachments.ts";
 import { z } from "zod";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
@@ -97,11 +98,11 @@ function toMessages(ctx: ModelContext, replayReasoning: boolean): Json[] {
   if (system !== "") out.push({ role: "system", content: system });
   for (const t of ctx.turns as readonly Turn[]) {
     if (t.role === "user") {
-      const parts = t.parts.map((p) => {
-        if (p.type === "text") return p.text;
-        throw new ProviderError({ kind: "invalid_request", message: "attachments are not supported by this adapter yet" });
-      });
-      out.push({ role: "user", content: parts.join("\n\n") });
+      for (const p of t.parts) {
+        if (p.type === "attachment" && p.kind === "pdf") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "a PDF"} cannot be sent: Chat Completions has no portable PDF input; send its text instead` });
+      }
+      if (t.parts.every((p) => p.type === "text")) out.push({ role: "user", content: t.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n\n") });
+      else out.push({ role: "user", content: t.parts.map((p): Json => (p.type === "text" ? { type: "text", text: p.text } : { type: "image_url", image_url: { url: dataUrl(p.mime, p.bytes) } })) });
     } else if (t.role === "tool_results") {
       for (const r of t.results) out.push({ role: "tool", tool_call_id: r.call_id, content: r.content });
     } else {

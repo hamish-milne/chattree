@@ -17,7 +17,6 @@ Each entry says what it is and what a first step would be. Within a group, the o
 
 ## Medium
 
-- **Attachments** (images, files): refused today by all three adapters.
 - **Tool loop above `requestStream`**: the turn's deadline, `max_requests_per_turn`, tool results, and raising `cost`
   warnings as events from `Prepared.warnings`. The next layer rather than a gap in this phase.
 - Merge policy per environment (below), and the production workspace split (below).
@@ -109,6 +108,10 @@ with the pointer tracked in the chat repository (plus branch name and a saved di
 also lets one agent flow work across several repositories. It touches snapshots, forks, merges and verification.
 
 ## Low
+
+- **Attachment capabilities**: a per-model `input: [text, image, pdf]` list so a request with a file the model cannot take
+  is refused early and a model switch warns (`capability_loss`); today the provider's error is the signal, and the
+  Chat Completions adapter refuses PDFs itself. Also: downscaling large images before sending, and SVG (sent as text).
 
 - **Token counting, further**: llama-server `/tokenize` for the openai-compatible adapter (unverified), and calibrating the
   bytes-per-token estimate from the usage of earlier requests for providers with no counting endpoint.

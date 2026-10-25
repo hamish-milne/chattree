@@ -1,3 +1,4 @@
+import { base64 } from "../harness/attachments.ts";
 import { z } from "zod";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
@@ -99,7 +100,7 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: Jso
     if (t.role === "user") {
       push("user", t.parts.map((p): Json => {
         if (p.type === "text") return { type: "text", text: p.text };
-        throw new ProviderError({ kind: "invalid_request", message: "attachments are not supported by this adapter yet" });
+        return { type: p.kind === "image" ? "image" : "document", source: { type: "base64", media_type: p.mime, data: base64(p.bytes) }, ...(p.kind === "pdf" && p.name !== undefined ? { title: p.name } : {}) };
       }), i);
     } else if (t.role === "tool_results") {
       push("user", t.results.map((r): Json => ({ type: "tool_result", tool_use_id: r.call_id, content: r.content, ...(r.is_error ? { is_error: true } : {}) })), i);

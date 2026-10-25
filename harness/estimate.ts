@@ -1,6 +1,7 @@
 import { cacheWriteRate, findModel, ratesFor, ttlMinutes, type ModelPrice, type PriceTable, type Rates } from "../providers/pricing.ts";
 import type { ModelInfo } from "../providers/registry.ts";
 import type { Change } from "./setup.ts";
+import { IMAGE_TOKEN_GUESS, pdfTokenGuess } from "./attachments.ts";
 import type { ModelContext } from "./context-builder.ts";
 
 /**
@@ -34,9 +35,19 @@ function promptRate(r: Rates, cacheTtl: unknown): number | undefined {
   return w === undefined ? r.input : Math.max(r.input, w);
 }
 
+/** JSON for sizing or digesting a context: attachment bytes become their hash and length instead of an array of numbers. */
+export function contextJson(value: unknown): string {
+  return JSON.stringify(value, (_k, v: unknown) => (v instanceof Uint8Array ? `bytes:${v.length}` : v));
+}
+
 export function estimateInputTokens(ctx: ModelContext): number {
-  const text = JSON.stringify({ system: ctx.system, instructions: ctx.instructions, tools: ctx.tools, turns: ctx.turns });
-  return Math.ceil(new TextEncoder().encode(text).length / BYTES_PER_TOKEN);
+  const text = contextJson({ system: ctx.system, instructions: ctx.instructions, tools: ctx.tools, turns: ctx.turns });
+  let attached = 0;
+  for (const t of ctx.turns) {
+    if (t.role !== "user") continue;
+    for (const p of t.parts) if (p.type === "attachment") attached += p.kind === "image" ? IMAGE_TOKEN_GUESS : pdfTokenGuess(p.bytes.length);
+  }
+  return Math.ceil(new TextEncoder().encode(text).length / BYTES_PER_TOKEN) + attached;
 }
 
 export function estimateRequest(ctx: ModelContext, model: { id: string; settings?: unknown }, table: PriceTable | undefined, info?: ModelInfo, counted?: number): Estimate {

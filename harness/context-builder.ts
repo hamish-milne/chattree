@@ -1,3 +1,4 @@
+import { attachmentKind, normalizeMime } from "./attachments.ts";
 import { contextEntries } from "./context.ts";
 import type { ChatEntry } from "./entries.ts";
 import type { ToolDefinition } from "./definitions.ts";
@@ -16,9 +17,11 @@ export type Block =
   | { type: "reasoning"; provider: string; payload: string; visible?: string; ext?: Record<string, unknown> }
   | { type: "provider_compaction"; provider: string; payload: string; ext?: Record<string, unknown> }
   | { type: "tool_call"; call_id: string; name: string; args: Record<string, unknown>; args_raw?: string; ext?: Record<string, unknown> };
-type BlobRef = Extract<ChatEntry, { $tag: "tool_result" }>["content"] & { $tag: "blob" };
+type BlobRef = { $tag: "blob"; sha256: string; bytes: number; mime?: string | undefined };
 
-export type UserPart = { type: "text"; text: string } | { type: "attachment"; name: string | undefined; data: BlobRef };
+/** A file for the model to see. Text files never get here: they are inlined as text (see `Renderer.textAttachment`). */
+export type AttachmentPart = { type: "attachment"; kind: "image" | "pdf"; name: string | undefined; mime: string; sha256: string; bytes: Uint8Array };
+export type UserPart = { type: "text"; text: string } | AttachmentPart;
 
 export type Turn =
   | { role: "user"; parts: UserPart[] }
@@ -47,6 +50,8 @@ export interface BuildInput {
   renderer?: Renderer;
   /** Read a blob-backed text (large values are stored as blobs). Without it, a blob reference is an error. */
   readText?: (ref: { sha256: string; bytes: number }) => Promise<string>;
+  /** Read a blob's bytes, for attachments. Without it, a message with an attachment is an error. */
+  readBytes?: (ref: { sha256: string; bytes: number }) => Promise<Uint8Array>;
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -94,7 +99,20 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
         break;
       case "user": {
         const parts: UserPart[] = [];
-        for (const p of e.content) parts.push(p.$tag === "text" ? { type: "text", text: await text(p.text) } : { type: "attachment", name: p.name, data: p.data as BlobRef });
+        for (const p of e.content) {
+          if (p.$tag === "text") {
+            parts.push({ type: "text", text: await text(p.text) });
+            continue;
+          }
+          const ref = p.data as BlobRef;
+          const mime = ref.mime;
+          const kind = mime === undefined ? undefined : attachmentKind(mime);
+          if (mime === undefined || kind === undefined) throw new Error(`attachment ${p.name ?? ref.sha256.slice(0, 12)} has ${mime === undefined ? "no media type" : `the media type ${mime}, which no model is given`}`);
+          if (input.readBytes === undefined) throw new Error(`an attachment (${ref.sha256.slice(0, 12)}) needs readBytes`);
+          const bytes = await input.readBytes(ref);
+          if (kind === "text") parts.push({ type: "text", text: render.textAttachment(p.name, new TextDecoder().decode(bytes)) });
+          else parts.push({ type: "attachment", kind, name: p.name, mime: normalizeMime(mime) as string, sha256: ref.sha256, bytes });
+        }
         raw.push({ role: "user", parts });
         break;
       }

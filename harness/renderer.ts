@@ -35,6 +35,8 @@ export interface Renderer {
   subagentBrief(brief: string): string;
   /** The user message `continueInterrupted` writes after a cut-off reply (stored as text when written). */
   continueInterrupted(): string;
+  /** A text file attached to a message, shown inline. */
+  textAttachment(name: string | undefined, content: string): string;
 }
 
 /** Looks a renderer up by the id an agent's setup names. */
@@ -59,6 +61,7 @@ export const chattreeEnglishV1: Renderer = Object.freeze({
   cutOffCall: (toolName: string) => `[A call to ${toolName} was cut off before it finished and did not run]`,
   toolDidNotRun: () => "The tool did not run: the conversation was interrupted before it produced a result.",
   subagentBrief: (brief: string) => brief,
+  textAttachment: (name: string | undefined, content: string) => `[Attached file${name === undefined ? "" : `: ${name}`}]\n${content}`,
   continueInterrupted: () => "Your previous reply was cut off. Continue from where it stopped, without repeating what you already wrote.",
 });
 

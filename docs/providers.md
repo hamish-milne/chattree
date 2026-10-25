@@ -388,6 +388,7 @@ limits: { max_request_usd: 1.00, max_turn_usd: 5.00, max_conversation_usd: 50.00
 
 ```
 harness/context-builder.ts      P1   setup + entries -> ModelContext
+harness/attachments.ts          --   media types, kinds, size limit, token guesses for files added to messages
 harness/setup.ts                P8   agent_setup fold, ChangeNotAllowed, mutations
 harness/definitions.ts          P10  canonical formats, hashing, DefinitionSource, drift checks
 harness/ledger.ts               P9   cost fold
@@ -609,6 +610,21 @@ are skipped) must be an `interrupted`, otherwise it throws `ConversationError`. 
 the commit carries `Chattree-Continues: <interrupted id>`; the host then calls `runRequest`. Nothing about the
 transcript format changes: the interrupted entry keeps its partial text, the model sees it and the new message, and
 the wording is stored text, so a later renderer change cannot alter it. Never done silently: the host decides.
+
+### Attachments (added after step 8)
+
+A user entry's `content` may hold `attachment` parts (`{name?, data: !blob {sha256, bytes, mime}}`, already in the
+format). The harness never guesses a file's type: the host passes the media type to `convo.attach(bytes, {mime, name?})`
+(a browser has it; a CLI wrapper detects it, which is the right place for that), which refuses a missing or malformed
+type, a type no model is given, an empty file and one over `attachments.max_bytes` (`harness.yml`, default 20 MiB), then
+stores the bytes as a blob and returns the part for the entry. `harness/attachments.ts` classifies types: png, jpeg, gif
+and webp images; `application/pdf`; text (`text/*`, JSON, XML, YAML, TOML and `+json`/`+xml`/`+yaml` types). The context
+builder (given `readBytes`, which `prepareContext` supplies) inlines text files as text through
+`Renderer.textAttachment` and passes images and PDFs on as `AttachmentPart {kind, name, mime, sha256, bytes}`.
+Adapters: Anthropic `image`/`document` base64 blocks; OpenAI Responses `input_image` (data URL) and `input_file`
+(`file_data` data URL); Chat Completions `image_url` data URLs, PDFs refused with an error that says to send text. The
+pre-flight estimate prices an image at 2000 tokens and a PDF at 1500 plus a token per 25 bytes (high on purpose); the
+counting endpoints replace that near a limit. Unverified against the real APIs: the exact request shapes above.
 
 ## 6. Out of scope here
 

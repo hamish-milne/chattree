@@ -29,6 +29,7 @@ import { computeLedger, priceResolver, type Ledger, type PriceResolver, type Spe
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
+import { DEFAULT_MAX_ATTACHMENT_BYTES, attachmentKind, normalizeMime } from "./attachments.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type SetupChange } from "./setup.ts";
 import { createUlid } from "./ulid.ts";
@@ -799,6 +800,27 @@ export class Conversation {
     });
     this.#queue = run.catch(() => undefined);
     return run;
+  }
+
+  // ---- attachments -----------------------------------------------------------------------------------------
+
+  /**
+   * Store a file and return the part to put in a `user` entry's `content`. The host names the media type (a browser
+   * has it already; a CLI wrapper detects it however it likes); it is required, never guessed here. Refused: a type
+   * no model is given (only images png/jpeg/gif/webp, PDFs and text types are), an empty file, and a file over
+   * `attachments.max_bytes` in `harness.yml` (default 20 MiB). The bytes are written as a blob now and committed with
+   * the entry that refers to them.
+   */
+  async attach(bytes: Uint8Array, opts: { mime: string; name?: string }): Promise<{ $tag: "attachment"; name?: string; data: { $tag: "blob"; sha256: string; bytes: number; mime: string } }> {
+    const mime = normalizeMime(opts.mime ?? "");
+    if (mime === undefined) throw new ConversationError(`attach needs the file's media type as type/subtype, got ${JSON.stringify(opts.mime)}`);
+    if (attachmentKind(mime) === undefined) throw new ConversationError(`${mime} files cannot be given to a model (images: png, jpeg, gif, webp; application/pdf; text types)`);
+    if (bytes.length === 0) throw new ConversationError("the file is empty");
+    const cfg = await this.readConfig();
+    const max = cfg?.ok === true ? cfg.value.attachments.max_bytes : DEFAULT_MAX_ATTACHMENT_BYTES;
+    if (bytes.length > max) throw new ConversationError(`the file is ${bytes.length} bytes, over the limit of ${max} (attachments.max_bytes in harness.yml)`);
+    const sha256 = await this.store.put(bytes);
+    return { $tag: "attachment", ...(opts.name === undefined ? {} : { name: opts.name }), data: { $tag: "blob", sha256, bytes: bytes.length, mime } };
   }
 
   // ---- continuing ------------------------------------------------------------------------------------------

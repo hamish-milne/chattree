@@ -4,7 +4,7 @@ import { buildContext, type ModelContext } from "./context-builder.ts";
 import { assertDefinitions, loadDefinitions, type DefinitionSource } from "./definitions.ts";
 import type { ChangeKind } from "./entries.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
-import { estimateRequest, type Estimate } from "./estimate.ts";
+import { contextJson, estimateRequest, type Estimate } from "./estimate.ts";
 import { computeLedger, type Ledger } from "./ledger.ts";
 import { checkLimits, LimitExceeded, type CostWarning } from "./limits.ts";
 import { ChangeNotAllowed, servedModelId, type AgentSetup } from "./setup.ts";
@@ -67,6 +67,11 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
     instructions: defs.instructions,
     tools: defs.tools,
     target: { provider: setup.model.provider, model: servedModelId(setup.model) },
+    readBytes: async (r) => {
+      const bytes = await convo.store.get(r.sha256);
+      if (bytes === undefined) throw new Error(`blob ${r.sha256} is missing`);
+      return bytes;
+    },
     readText: async (r) => {
       const bytes = await convo.store.get(r.sha256);
       if (bytes === undefined) throw new Error(`blob ${r.sha256} is missing`);
@@ -100,7 +105,7 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const matters = checked.violations.length > 0 || checked.warnings.some((w) => w.kind === "near_limit" || w.kind === "context_window" || w.kind === "long_context") || near(estimate.contextWindow) || near(estimate.longContextAt);
   let countFailed: CostWarning | undefined;
   if (adapter?.countTokens !== undefined && mode !== "never" && (mode === "always" || matters)) {
-    const key = createHash("sha256").update(JSON.stringify([model.provider, modelRef.id, context])).digest("hex");
+    const key = createHash("sha256").update(contextJson([model.provider, modelRef.id, context])).digest("hex");
     const cache = counts.get(convo) ?? new Map<string, number>();
     counts.set(convo, cache);
     try {

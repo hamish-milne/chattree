@@ -126,9 +126,14 @@ describe("request body", () => {
     assert.equal(body["model"], "claude-sonnet-5-5-20260301");
   });
 
-  test("attachments are refused clearly; a missing model or bad settings never reach the network", async () => {
-    const att = ctx({ turns: [{ role: "user", parts: [{ type: "attachment", name: "a.png", data: { $tag: "blob", sha256: "a".repeat(64), bytes: 1 } }] }] });
-    assert.throws(() => buildAnthropicBody(att, setupFor(), { cacheControl: false }), /attachments/);
+  test("images and PDFs go as base64 blocks; a missing model or bad settings never reach the network", async () => {
+    const att = ctx({ turns: [{ role: "user", parts: [{ type: "text", text: "look" }, { type: "attachment", kind: "image", name: "a.png", mime: "image/png", sha256: "a".repeat(64), bytes: new Uint8Array([1, 2, 3]) }, { type: "attachment", kind: "pdf", name: "r.pdf", mime: "application/pdf", sha256: "b".repeat(64), bytes: new Uint8Array([4, 5]) }] }] });
+    const msgs = buildAnthropicBody(att, setupFor(), { cacheControl: false })["messages"] as { content: unknown[] }[];
+    assert.deepEqual(msgs[0]?.content, [
+      { type: "text", text: "look" },
+      { type: "image", source: { type: "base64", media_type: "image/png", data: "AQID" } },
+      { type: "document", source: { type: "base64", media_type: "application/pdf", data: "BAU=" }, title: "r.pdf" },
+    ]);
     const r = await collectStream(replay(TEXT).stream(req(ctx(), emptySetup())));
     assert.ok(r.error instanceof ProviderError && r.error.kind === "invalid_request");
     const r2 = await run(replay(TEXT), ctx(), setupFor({ max_output_tokens: -1 }));
