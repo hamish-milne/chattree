@@ -108,15 +108,12 @@ agent loop shows process start-up dominating.
   `host.path`, but the suite has only been run on Linux.
 - **A command-line verifier.** `verifyHistory` and `readCommitGraph` are library calls; a thin CLI over them
   (`chattree verify`, `chattree graph`) would make them usable on any conversation repository.
-- **Context building for models.** `contextEntries` defines what is visible; turning `subagent_result` and
-  `fork_merge` into prose for a model ("the user forked this conversation here, discussed X, and changed Y"),
-  token counting, and provider adapters belong to the agent loop on top of this library.
 
 ## Provider adapters (from docs/providers.md v2)
 
 - Live A/B of OpenAI stored (previous_response_id) versus stateless replay: cost, cached tokens, latency. Needs an API key.
-- Verify Anthropic prompt caching (breakpoints, lifetimes, multipliers, tools/system/messages order) and price table.
-- Probe llama-server: Chat Completions with --jinja tools, reasoning_content, context size from /props.
+- Verify the Anthropic adapter against the real API (no free tier, so today it is only checked against Ollama's compatible endpoint): request shapes for `system` and `cache_control`, breakpoints, lifetimes and multipliers, and the price table.
+- Check the `openai-compatible` adapter against a real llama-server (`--jinja` tools, `reasoning_content`, usage chunk; the list is in docs/providers.md step 8).
 - VS Code helper that adds the `!tag` custom tags to settings (yaml.customTags).
 - Do OpenAI hosted tools (web search, code interpreter) need server-side state?
 - OpenAI WebSocket continuation cache.
@@ -126,8 +123,8 @@ agent loop shows process start-up dominating.
 - Verify against the real API (chaining and retrieval are verified): `context_management`, dropping items before a
   compaction item, the not-found error the chain fallback matches. Spend sparingly: the free tier is limited, so use
   `--only` to pick scenarios.
-- Pricing and catalog: the bundled tables came from a summarising read of the pricing pages (check them against the
-  pages, and add the older models once their API ids are confirmed); an API-backed catalog (`/models`, llama-server's
+- Pricing and catalog: the Anthropic table came from a summarising read of the pricing page (the OpenAI one was read in a
+  browser; check Anthropic's against the page, and add the older models once their API ids are confirmed); an API-backed catalog (`/models`, llama-server's
   `/props` for the context size); token-counting endpoints (Anthropic `count_tokens`, OpenAI input tokens) to replace the
   bytes-per-token estimate; calibrating the estimate from the last response's real usage; Anthropic's `inference_geo`
   1.1x multiplier and batch discounts; OpenAI's regional-processing uplift.
@@ -142,21 +139,15 @@ agent loop shows process start-up dominating.
   the conversation at 5m; OpenAI's per-breakpoint `prompt_cache_breakpoint.ttl`. Today one `cache_ttl` covers every marker.
 - A merge's rollup resolves tables the child pinned only from this conversation's providers and blobs, so a child that
   pinned a table which no longer exists here is counted as unpriced.
-- Anthropic has no free API tier, so the Anthropic adapter is only checked against Ollama's compatible endpoint.
 - A `chattree` command that creates `.chattree/env`, and a `secrets check` that lists which variables each provider needs.
-- Run `tools/live-check.ts` against Ollama and record fixtures from it. Known Ollama caveats: no `cache_control` or
+- Record fixtures from `tools/live-check.ts --record` runs against Ollama. Known Ollama caveats: no `cache_control` or
   `tool_choice`, in-stream errors are unreliable, small models may not call tools or reason (those scenarios skip).
-- A Chat Completions flavor for the live check, once the `openai-compatible` adapter (step 8) exists.
 
 ## Renderers
 
 - Verifying a renderer's output at runtime (a self-test with fixed inputs, output hash recorded in the setup).
   Decided: stability is part of the renderer interface contract (an id is immutable, renderers are pure), not
   something the harness defensively checks, at least for now. Revisit if host-supplied renderers cause drift.
-
-- Ollama (gemma4:12b, live run 2026-10-25): its Anthropic `message_start` input count is provisional and is revised
-  down in `message_delta` (fixed: start usage is no longer emitted). Reasoning arrives before text, so the abort check now
-  triggers on either. OpenAI Responses passed all scenarios.
 
 ## From step 7 (turn runner and journal)
 
