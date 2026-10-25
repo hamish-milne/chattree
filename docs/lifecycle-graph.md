@@ -17,8 +17,8 @@ CHATTREE_GRAPH_OUT=docs/lifecycle-graph.md pnpm test -- test/integration/lifecyc
   Highlighted squares are structural events: `config`, `compaction`, `interrupted`, and the three merges
   (`fork merge`, `subagent result` x2).
 - A cross marks a commit that is not an ordinary entry: the **workspace snapshot** taken before the subagents
-  started (so they begin from the uncommitted work), and the **recovered** entry committed by `open` after the
-  simulated crash.
+  started (so they begin from the uncommitted work), the **recovered** entry committed by `open` after the
+  simulated crash, and the **blob gc** commit that removed an unreferenced blob a failed append had left behind.
 - Branches are drawn at the commit they started from, whole, even though in time they ran alongside `main`.
   `fork/abandoned` was never merged; its history stays reachable.
 - Both merges that touched a file `main` had also edited (`notes.md`, `README.md`) kept `main`'s version, and
@@ -61,9 +61,9 @@ gitGraph
   commit id: "21 assistant: The flag is in." type: NORMAL
   branch "fork/abandoned"
   checkout "fork/abandoned"
-  commit id: "37 fork starts" tag: "start" type: NORMAL
-  commit id: "38 user: Rewrite it in Rust?" type: NORMAL
-  commit id: "39 assistant: Possible, but out of scop~" type: NORMAL
+  commit id: "40 fork starts" tag: "start" type: NORMAL
+  commit id: "41 user: Rewrite it in Rust?" type: NORMAL
+  commit id: "42 assistant: Possible, but out of scop~" type: NORMAL
   checkout main
   commit id: "22 user: Let's keep the simple version ~" type: NORMAL
   merge "fork/rethink" id: "23 fork merged: Discussed streaming; de~" tag: "fork merge" type: HIGHLIGHT
@@ -86,4 +86,7 @@ gitGraph
   commit id: "34 assistant: Both helpers are done; te~" tag: "recovered" type: REVERSE
   commit id: "35 user: Great, ship it." type: NORMAL
   commit id: "36 assistant: Shipped." type: NORMAL
+  commit id: "37 user: (a later turn, so the orphan b~" type: NORMAL
+  commit id: "38 user: Tidy up." type: NORMAL
+  commit id: "39 remove unreferenced blobs" tag: "blob gc" type: REVERSE
 ```

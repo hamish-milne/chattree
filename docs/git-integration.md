@@ -121,6 +121,9 @@ kept. This separates chat from final code and lets one agent flow work across se
 4. Subagents: worktrees, merge, and the result entry. **Done** (see notes below).
 5. `compact`, `changeConfig`, `interrupt`, `verifyHistory`, and fault injection. **Done** (see notes below).
 6. Events, the index hook, and performance work (persistent `cat-file`, `fast-import`). **Done** (see notes below).
+7. Housekeeping: blob GC, finished worktrees, process and crash-debris cleanup. **Done** (see notes below).
+
+**The MVP is complete with step 7.** What was left out on purpose, with reasons and first steps, is in [parking-lot.md](parking-lot.md).
 
 ### Notes from step 2
 
@@ -245,5 +248,28 @@ the new hash), about 15 ms each.
   conflict, an abandoned fork, two subagents, a crash mid-append and recovery), then checks every branch with
   deep `verifyHistory`, `git fsck --strict`, events against history, and the cache against a rebuild. The graph
   is in `docs/lifecycle-graph.md`.
-- **Not done:** orphaned-blob GC, removing finished child worktrees, and a persistent `fast-import` process
-  (a single batch already makes bulk writes constant-cost; per-append use would need the index kept in step).
+- **Left for step 7:** blob GC, finished worktrees, process cleanup; the persistent `fast-import` was parked (see parking-lot.md).
+
+### Notes from step 7
+
+- **`gcBlobs({dryRun?})`.** A failed append can leave its large values behind as blob files. Untracked ones are
+  just deleted; ones a later commit swept up (every append stages the whole worktree) are tracked but
+  unreferenced, and are removed in a new commit carrying `Chattree-Gc: true` and the unchanged `Chattree-Offset`
+  (`verifyHistory` treats it like a snapshot). Only the current tree changes: older commits keep whatever they
+  had, so forks from earlier entries still see their blobs, and history is never rewritten. The commit uses
+  `git commit --only <paths>`, so pending workspace changes are neither committed nor disturbed. The scan
+  refuses if any entry no longer validates, because it could hide a reference.
+- **Finished worktrees.** `removeWorktree(branch)` refuses a branch that is not merged into the current one or
+  whose worktree has uncommitted changes (unless `force`), and never the handle's own. `finishSubagent` and
+  `mergeFork` take `removeWorktree: true` (default off, so a caller can still look at a child after merging).
+  `pruneWorktrees()` removes every worktree that qualifies and reports why it kept the others.
+- **Crash debris.** `open` removes what an interrupted process leaves behind, and reports it in
+  `recovery.cleaned`: half-written `*.tmp-<12 hex>` files in the worktree root and in `blobs/` (these matter:
+  the next append would have committed them), temporary git indexes older than ten minutes, and lock files set
+  aside during a takeover older than the stale timeout. Only our own naming patterns are touched, and files
+  whose age the host cannot tell are left alone (`FileStat.mtimeMs` is optional).
+- **Processes.** `Git` tracks the `cat-file` sessions it starts; `Conversation.close()` (also
+  `[Symbol.asyncDispose]`) delivers pending events and closes them. A session's `close` first lets requests
+  already made finish, then closes git's input and waits for it to exit, killing it after a timeout if it does
+  not. The handle stays usable afterwards. There is no persistent `fast-import`: every `fast-import` is a
+  one-shot process that ends with its stream.

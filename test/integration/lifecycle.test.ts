@@ -140,7 +140,21 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   await main.append(user("Great, ship it."));
   await main.append(say("Shipped."));
 
-  // ---- 7. everything agrees --------------------------------------------------------------------------------------------------
+  // ---- 7. housekeeping: leftovers from the failed append, finished worktrees, helper processes -----------------------------------
+  await main.append(user("(a later turn, so the orphan below is swept into a commit)"));
+  await main.store.put(new TextEncoder().encode("x".repeat(6000))); // what a failed append would have left behind
+  await main.append(user("Tidy up."));
+  const gc = await main.gcBlobs();
+  assert.equal(gc.tracked.length, 1);
+  assert.ok(gc.commit !== undefined);
+  const cleanup = await main.pruneWorktrees();
+  assert.deepEqual(cleanup.removed.map((r) => r.branch).sort(), ["fork/rethink", "sub/docs", "sub/tests"]);
+  assert.deepEqual(cleanup.kept.map((k) => k.branch), ["fork/abandoned"], "an unmerged branch keeps its worktree");
+  const objects = await main.git.catFile(); // a long-lived reader left open on purpose
+  assert.ok((await objects.read("HEAD:chat.yml")) !== undefined);
+  await main.close(); // ends it
+
+  // ---- 8. everything agrees --------------------------------------------------------------------------------------------------
   await main.flushEvents();
   await assertHistoryInvariants(main);
   const branches = (await main.listBranches()).map((b) => b.name).sort();
@@ -169,7 +183,7 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   assert.ok(!kinds.includes("branch_start"), "a branch's own start marker is not part of the trunk");
   assert.equal(final.filter((e) => e.$tag === "interrupted").length, 1);
 
-  // ---- 8. the picture ------------------------------------------------------------------------------------------------------------
+  // ---- 9. the picture ------------------------------------------------------------------------------------------------------------
   const graph = await readCommitGraph(main);
   const mermaid = toMermaid(graph);
   assert.equal(graph.commits.filter((c) => c.parents.length > 1).length, 3, "one merge commit per merged branch");
@@ -178,7 +192,7 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   assert.equal((mermaid.match(/^ {2}merge /gm) ?? []).length, 3);
   assert.equal((mermaid.match(/^ {2}branch /gm) ?? []).length, 4);
   for (const name of ["fork/rethink", "fork/abandoned", "sub/tests", "sub/docs"]) assert.ok(mermaid.includes(`"${name}"`));
-  assert.ok(mermaid.includes('tag: "recovered"') && mermaid.includes('tag: "compaction"') && mermaid.includes('tag: "config"') && mermaid.includes('tag: "interrupted"'));
+  assert.ok(mermaid.includes('tag: "blob gc"') && mermaid.includes('tag: "recovered"') && mermaid.includes('tag: "compaction"') && mermaid.includes('tag: "config"') && mermaid.includes('tag: "interrupted"'));
 
   const out = process.env["CHATTREE_GRAPH_OUT"];
   if (out !== undefined) {
