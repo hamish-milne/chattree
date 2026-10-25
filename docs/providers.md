@@ -1,6 +1,6 @@
 # Provider adapters: plan (v2)
 
-Status: **steps 1 to 5 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
+Status: **steps 1 to 6 of the build order are done** (`agent_setup` and its mutations, `config_changed` removed; the context builder and pinned definitions; the provider types and HTTP base; see section 5); the rest is a proposal. Version 2 folds in the first round of decisions. Decisions are numbered
 P1–P12 so they can be accepted or changed one by one, as with `git-integration.md`. What changed since v1 is in
 section 9; the few questions still open are in section 8.
 
@@ -484,7 +484,30 @@ test/providers/fixtures/        P12
    `readConfig` validates provider keys against the adapters. The core still never reads `process.env`: the host
    passes it to `repoSecretSource`. Not done: the VS Code helper for `yaml.customTags`, and the per-adapter pricing
    overrides key (step 6).
-6. **Catalog, pricing tables, ledger, estimates, limits** (P9).
+6. **Catalog, pricing tables, ledger, estimates, limits (P9). Done**: `providers/pricing.ts` (the table format:
+   per model, dollars per million tokens for `input`, `output`, `cache_read`, `cache_write`, optional service `tiers`
+   and a `long_context` band; `free: true` is an explicit zero; `costOf` returns `{usd, unknown}` and an unpriced meter
+   with tokens makes the whole request unknown rather than cheaper; `effectiveTable` puts a provider's overrides
+   over the bundled table; `tableHash` is the SHA-256 of the canonical bytes, which is also the blob's hash),
+   `providers/pricing-data.ts` (bundled tables, **read from the pricing pages on 2026-10-25 by a summarising tool and
+   only for models whose ids are known, so check them before relying on a limit**; Anthropic `cache_write` is the
+   5-minute rate), provider config keys `pricing: {free, models}` and `models: {id: {context_window,
+   max_output_tokens}}`, and adapter definitions' optional `prices` and `models`. `harness/ledger.ts` folds the
+   transcript (each response priced under the table pinned by the setup in force at that entry, so history is never
+   repriced; `interrupted.usage`; a merged branch's `spend` rollup on `subagent_result` / `fork_merge`, computed at the
+   merge from the child's own entries since it diverged or was last merged; unknown prices counted as `unpriced`,
+   never as zero). `Conversation.pinPricing()` stores the table as a blob and pins its hash (doing it again after a
+   price change is the explicit mutation that accepts it); `ledger()`, `priceTable()`, `modelInfo()`.
+   `harness/estimate.ts` (pessimistic: about 3 bytes a token, plain input rate, all of `max_output_tokens` used;
+   `costIncrease` says what a model or tier switch does at the current size, for the host's classifier).
+   `harness/limits.ts` (`max_request_usd`, `max_turn_usd`, `max_conversation_usd`, `max_requests_per_turn`,
+   `unknown_price: warn|block`, `warn_at`; warnings for nearing a limit, unknown price, unpriced history, the context
+   window at 90% and the long-context cliff within 10%). `prepareContext` now also requires the pin to match the
+   provider's table (`pricing_changed`, accepted with `allowDrift` or by re-pinning), enforces the limits
+   (`LimitExceeded`, nothing is sent), and returns `estimate`, `ledger` and `warnings`; it does nothing of this without
+   the `providers` option or with `cost: false`. Not done: an API-backed catalog (`/models`, llama-server's `/props`)
+   and token-counting endpoints for better estimates (parking lot); the wall-clock cap `max_turn_seconds` is in the
+   config but enforced by the turn runner (step 7); `max_subagent_usd` belongs to the subagent tool's configuration.
 7. **Turn runner and journal**, recovery (including retrieval) in `open`, crash sweeps (P5).
 8. **`openai-compatible`** with the llama-server probe, then docs and an example in the lifecycle test using a fake
    provider.

@@ -26,8 +26,14 @@ export const harnessConfig = z.object({
       max_request_usd: usd.optional(),
       max_turn_usd: usd.optional(),
       max_conversation_usd: usd.optional(),
+      /** Requests (assistant responses) allowed since the last user message, tool loops included. */
+      max_requests_per_turn: z.number().int().positive().optional(),
+      /** Wall-clock seconds for one turn. Enforced by the turn runner. */
+      max_turn_seconds: z.number().positive().optional(),
       /** Raise a warning when spend reaches this fraction of a limit. */
       warn_at: z.number().gt(0).lt(1).optional(),
+      /** What to do when a request's price is unknown (no table entry): `warn` (default) or `block`. */
+      unknown_price: z.enum(["warn", "block"]).optional(),
     })
     .default({}),
   compaction: z.object({ threshold_tokens: z.number().int().positive(), keep_recent: z.number().int().nonnegative() }).optional(),

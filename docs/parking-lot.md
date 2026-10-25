@@ -126,6 +126,13 @@ agent loop shows process start-up dominating.
 - Verify against the real API (chaining and retrieval are verified): `context_management`, dropping items before a
   compaction item, the not-found error the chain fallback matches. Spend sparingly: the free tier is limited, so use
   `--only` to pick scenarios.
+- Pricing and catalog: the bundled tables came from a summarising read of the pricing pages (check them against the
+  pages, and add the older models once their API ids are confirmed); an API-backed catalog (`/models`, llama-server's
+  `/props` for the context size); token-counting endpoints (Anthropic `count_tokens`, OpenAI input tokens) to replace the
+  bytes-per-token estimate; calibrating the estimate from the last response's real usage; Anthropic's `inference_geo`
+  1.1x multiplier and batch discounts; OpenAI's regional-processing uplift.
+- A merge's rollup resolves tables the child pinned only from this conversation's providers and blobs, so a child that
+  pinned a table which no longer exists here is counted as unpriced.
 - Anthropic has no free API tier, so the Anthropic adapter is only checked against Ollama's compatible endpoint.
 - A `chattree` command that creates `.chattree/env`, and a `secrets check` that lists which variables each provider needs.
 - Run `tools/live-check.ts` against Ollama and record fixtures from it. Known Ollama caveats: no `cache_control` or

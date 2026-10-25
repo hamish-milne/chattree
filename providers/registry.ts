@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Issue } from "../src/errors.ts";
 import type { StandardSchemaV1 } from "../src/standard-schema.ts";
 import { Limiter, type HttpOptions } from "./http.ts";
+import { effectiveTable, emptyTable, pricingConfig, type PriceTable } from "./pricing.ts";
 import type { ProviderAdapter } from "./types.ts";
 
 /**
@@ -10,6 +11,12 @@ import type { ProviderAdapter } from "./types.ts";
  * the secrets it names. The schemas are Standard Schema, so a third-party adapter is not tied to one library, and
  * each adapter must be able to emit JSON Schema for the editor.
  */
+
+/** What is known about a model's size. Unknown fields are unknown; the harness only warns on what it can tell. */
+export interface ModelInfo {
+  context_window?: number | undefined;
+  max_output_tokens?: number | undefined;
+}
 
 export interface AdapterDefinition<C extends { $tag: string } = { $tag: string }> {
   readonly $tag: string;
@@ -21,6 +28,10 @@ export interface AdapterDefinition<C extends { $tag: string } = { $tag: string }
   /** The names of the environment variables this provider needs. Each must resolve, or `open` fails naming it. */
   secrets(config: C): readonly string[];
   create(config: C, secrets: { get(name: string): string | undefined }): ProviderAdapter;
+  /** The prices this provider is costed under: the bundled table with the config's overrides on top. Without it every price is unknown. */
+  prices?(config: C): PriceTable;
+  /** The models it knows about, with the config's overrides on top. */
+  models?(config: C): Record<string, ModelInfo>;
 }
 
 export function defineAdapter<C extends { $tag: string }>(def: AdapterDefinition<C>): AdapterDefinition<C> {
@@ -55,9 +66,15 @@ export const commonProviderFields = {
   timeouts: z.strictObject({ idle_ms: z.number().int().positive().optional(), total_ms: z.number().int().positive().optional() }).optional(),
   /** Attempts per request, retries included (only before any content has arrived). */
   max_attempts: z.number().int().positive().optional(),
+  /** Price overrides, or `free: true` for a local server. Without either, a model with no bundled price has an unknown price. */
+  pricing: pricingConfig.optional(),
+  /** What you know about models the adapter does not (context window, maximum output). */
+  models: z.record(z.string(), z.strictObject({ context_window: z.number().int().positive().optional(), max_output_tokens: z.number().int().positive().optional() })).optional(),
 };
 
 export interface CommonProviderConfig {
+  pricing?: z.infer<typeof pricingConfig> | undefined;
+  models?: Record<string, ModelInfo> | undefined;
   max_concurrent?: number | undefined;
   timeouts?: { idle_ms?: number | undefined; total_ms?: number | undefined } | undefined;
   max_attempts?: number | undefined;
@@ -70,6 +87,10 @@ export function httpOptionsFor(c: CommonProviderConfig): HttpOptions {
     ...(c.max_attempts === undefined ? {} : { retry: { maxAttempts: c.max_attempts } }),
   };
 }
+
+/** For an adapter definition: the bundled table (if any) with this provider's overrides. */
+export const pricesFor = (bundled: PriceTable | undefined, c: CommonProviderConfig): PriceTable => effectiveTable(bundled, c.pricing);
+export const modelsFor = (bundled: Record<string, ModelInfo> | undefined, c: CommonProviderConfig): Record<string, ModelInfo> => ({ ...bundled, ...c.models });
 
 // ---- validating and building ---------------------------------------------------------------------------------------
 
@@ -103,6 +124,9 @@ export class ProviderSetupError extends Error {
 
 export interface BuiltProviders {
   adapters: Map<string, ProviderAdapter>;
+  /** The effective price table of each provider, by provider name. */
+  prices: Map<string, PriceTable>;
+  models: Map<string, Record<string, ModelInfo>>;
   /** The resolved secret values (for redaction and scrubbing). Never log these. */
   secretValues: string[];
 }
@@ -124,6 +148,12 @@ export async function buildProviders(providers: Record<string, { $tag: string }>
   }
   if (issues.length > 0) throw new ProviderSetupError(issues);
   const adapters = new Map<string, ProviderAdapter>();
-  for (const [name, { def, config }] of configs) adapters.set(name, def.create(config as never, { get: (n) => values.get(n) }));
-  return { adapters, secretValues: [...values.values()] };
+  const prices = new Map<string, PriceTable>();
+  const models = new Map<string, Record<string, ModelInfo>>();
+  for (const [name, { def, config }] of configs) {
+    adapters.set(name, def.create(config as never, { get: (n) => values.get(n) }));
+    prices.set(name, def.prices?.(config as never) ?? emptyTable());
+    models.set(name, def.models?.(config as never) ?? {});
+  }
+  return { adapters, prices, models, secretValues: [...values.values()] };
 }

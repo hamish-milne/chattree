@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
-import { defineAdapter, commonProviderFields, envName, httpOptionsFor } from "./registry.ts";
+import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
+import { ANTHROPIC_MODELS, ANTHROPIC_PRICES } from "./pricing-data.ts";
 import { httpStream, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
 import { ProviderError, type Completed, type ErrorKind, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
@@ -388,6 +389,8 @@ export const anthropicDefinition = defineAdapter({
   settings: anthropicSettings,
   jsonSchema: () => ({ config: z.toJSONSchema(anthropicProviderConfig, { io: "input" }), settings: z.toJSONSchema(anthropicSettings, { io: "input" }) }),
   secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
+  prices: (c) => pricesFor(ANTHROPIC_PRICES, c),
+  models: (c) => modelsFor(ANTHROPIC_MODELS, c),
   create: (c, secrets) => {
     const key = c.api_key_env === undefined ? undefined : secrets.get(c.api_key_env);
     return anthropicAdapter({

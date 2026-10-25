@@ -24,6 +24,8 @@ import { SCHEMA_COMMENT, SCHEMA_PATH, configJsonSchema } from "./config-schema.t
 import { redactionPatterns, type SecretSource } from "./secrets.ts";
 import { ProviderSetupError, buildProviders, validateProviders, type AdapterRegistry, type BuiltProviders } from "../providers/registry.ts";
 import type { ProviderAdapter } from "../providers/types.ts";
+import { tableBytes, tableHash, type PriceTable } from "../providers/pricing.ts";
+import { computeLedger, priceResolver, type Ledger, type PriceResolver, type Spend } from "./ledger.ts";
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
@@ -131,6 +133,8 @@ export interface InterruptOptions {
   /** Blocks received before the interruption; may be incomplete (a tool call with partial arguments). */
   partial?: Extract<NewEntry, { $tag: "interrupted" }>["partial"];
   error?: string;
+  /** Tokens of the partial response (billed even though it was cut off), in the normalised names of `assistant.usage`. */
+  usage?: Record<string, number>;
 }
 
 export interface Appended {
@@ -809,7 +813,7 @@ export class Conversation {
 
   /** Record that the turn was cut short, keeping whatever had been received. */
   interrupt(opts: InterruptOptions): Promise<Appended> {
-    return this.append({ $tag: "interrupted", by: opts.by, partial: opts.partial ?? [], ...(opts.error === undefined ? {} : { error: opts.error }) });
+    return this.append({ $tag: "interrupted", by: opts.by, partial: opts.partial ?? [], ...(opts.error === undefined ? {} : { error: opts.error }), ...(opts.usage === undefined ? {} : { usage: opts.usage }) });
   }
 
   /**
@@ -838,6 +842,47 @@ export class Conversation {
         ...(opts.model === undefined ? {} : { model: opts.model }),
       });
     });
+  }
+
+  // ---- cost ------------------------------------------------------------------------------------------------
+
+  /** The effective price table of a provider (bundled plus the config's overrides), as built at `open`. */
+  priceTable(provider: string): PriceTable | undefined {
+    return this.#opts.built?.prices.get(provider);
+  }
+
+  /** What is known about a model of a provider (dated ids match the entry they extend). */
+  modelInfo(provider: string, model: string): { context_window?: number | undefined; max_output_tokens?: number | undefined } | undefined {
+    const all = this.#opts.built?.models.get(provider);
+    if (all === undefined) return undefined;
+    if (all[model] !== undefined) return all[model];
+    const key = Object.keys(all).filter((k) => model.startsWith(k) && /^-(\d{4}-\d{2}-\d{2}|\d{8})$/.test(model.slice(k.length))).sort((a, b) => b.length - a.length)[0];
+    return key === undefined ? undefined : all[key];
+  }
+
+  /** Finds the table a setup is pinned to: a provider's current table, or the blob it was stored in. */
+  priceResolver(): PriceResolver {
+    return priceResolver(this.#opts.built?.prices.values() ?? [], async (hash) => this.store.get(hash));
+  }
+
+  /**
+   * Pin the provider's current price table in the agent's setup, storing the table as a blob so the cost of this
+   * history is the same on every replay. Pins the table of the agent's model's provider unless one is named. Doing
+   * this again after a price change is the explicit mutation that accepts the new prices (`pricing_changed`).
+   */
+  async pinPricing(provider?: string): Promise<Appended | undefined> {
+    const name = provider ?? (await this.setup()).model?.provider;
+    if (name === undefined) throw new ConversationError("this agent has no model, so there is no provider whose prices to pin");
+    const table = this.priceTable(name);
+    if (table === undefined) throw new ConversationError(`no price table for provider ${JSON.stringify(name)} (open the conversation with the \`providers\` option)`);
+    const hash = await this.store.put(tableBytes(table));
+    return this.setupChange({ pricing: { table: hash } }, { allow: ["pricing_changed"] });
+  }
+
+  /** What this branch has cost so far, priced under the tables its setups pinned. */
+  async ledger(): Promise<Ledger> {
+    const entries = (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+    return computeLedger(entries, this.priceResolver());
   }
 
   // ---- configuration ---------------------------------------------------------------------------------------
@@ -1095,6 +1140,7 @@ export class Conversation {
       summary: opts.summary,
       files: m.files,
       merge: m.merge,
+      ...(m.spend === undefined ? {} : { spend: m.spend }),
     }));
   }
 
@@ -1113,13 +1159,14 @@ export class Conversation {
       summary: opts.summary,
       files: m.files,
       merge: m.merge,
+      ...(m.spend === undefined ? {} : { spend: m.spend }),
     }));
   }
 
   async #mergeBranch(
     child: Conversation | string,
     removeWorktree: boolean,
-    build: (m: { branch: string; tip: string; files: { changed: string[]; added: string[]; discarded: string[] }; merge: { policy: "trunk"; base: string; conflicts: MergeConflict[] } }) => NewEntry,
+    build: (m: { branch: string; tip: string; files: { changed: string[]; added: string[]; discarded: string[] }; merge: { policy: "trunk"; base: string; conflicts: MergeConflict[] }; spend?: Spend }) => NewEntry,
   ): Promise<MergeOutcome> {
     const childBranch = typeof child === "string" ? child : child.branch;
     if (childBranch === this.branch) throw new ConversationError("a branch cannot be merged into itself");
@@ -1140,12 +1187,14 @@ export class Conversation {
       const childChanges = await this.git.diff(base, tip, [".", `:(exclude)${CHAT_FILE}`, `:(exclude)${BLOBS_DIR}`]);
       const summary = summarizeMerge(childChanges, merged);
 
+      const spend = await this.#spendSince(base, tip);
       const prepared = await this.#prepare(
         build({
           branch: childBranch,
           tip,
           files: { changed: summary.changed, added: summary.added, discarded: summary.discarded },
           merge: { policy: "trunk", base, conflicts: summary.conflicts },
+          ...(spend === undefined ? {} : { spend }),
         }),
       );
       const transcript = await this.git.readFileAt(head, CHAT_FILE);
@@ -1173,6 +1222,16 @@ export class Conversation {
     });
     if (removeWorktree) await this.removeWorktree(childBranch);
     return outcome;
+  }
+
+  /** What a branch spent after `base` (its own entries since it diverged or was last merged), or undefined if costs are not tracked here. */
+  async #spendSince(base: string, tip: string): Promise<Spend | undefined> {
+    if (this.#opts.built === undefined) return undefined;
+    const decode = async (rev: string) => (await this.readEntriesAt(rev)).flatMap((e) => (e.ok ? [e.value] : []));
+    const [all, before] = await Promise.all([decode(tip), decode(base)]);
+    // Tables the child pinned may only exist in its own tree.
+    const resolver = priceResolver(this.#opts.built.prices.values(), async (hash) => (await this.store.get(hash)) ?? (await this.git.readFileAt(tip, HostBlobStore.relativePath(hash))));
+    return (await computeLedger(all, resolver, { from: before.length })).conversation;
   }
 
   // ---- housekeeping ----------------------------------------------------------------------------------------

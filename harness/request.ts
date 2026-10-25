@@ -3,7 +3,11 @@ import { buildContext, type ModelContext } from "./context-builder.ts";
 import { assertDefinitions, loadDefinitions, type DefinitionSource } from "./definitions.ts";
 import type { ChangeKind } from "./entries.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
-import { servedModelId, type AgentSetup } from "./setup.ts";
+import { estimateRequest, type Estimate } from "./estimate.ts";
+import { computeLedger, type Ledger } from "./ledger.ts";
+import { checkLimits, LimitExceeded, type CostWarning } from "./limits.ts";
+import { ChangeNotAllowed, servedModelId, type AgentSetup } from "./setup.ts";
+import { tableHash } from "../providers/pricing.ts";
 
 export interface PrepareOptions {
   /** The harness's own prompt. Part of the pinned prefix. */
@@ -16,6 +20,22 @@ export interface PrepareOptions {
   renderers?: Renderers;
   /** Definition drift the host accepts for this request. */
   allowDrift?: readonly ChangeKind[];
+  /**
+   * Cost checks run when the conversation was opened with providers: the price table must be the one the agent is
+   * pinned to (`pricing_changed` otherwise, accepted with `allowDrift` or by `pinPricing()`), and the request must fit
+   * the limits in `harness.yml` (`LimitExceeded` otherwise). `false` turns them off.
+   */
+  cost?: false;
+}
+
+export interface Prepared {
+  setup: AgentSetup;
+  context: ModelContext;
+  /** Present when cost checks ran. */
+  estimate?: Estimate;
+  ledger?: Ledger;
+  /** Things to tell the user before sending: nearing a limit, an unknown price, the context window. */
+  warnings: CostWarning[];
 }
 
 /**
@@ -24,7 +44,7 @@ export interface PrepareOptions {
  * once the provider has reported it). Throws `ChangeNotAllowed` for anything the host has not accepted, and
  * `ConversationError` if the agent has no model yet.
  */
-export async function prepareContext(convo: Conversation, opts: PrepareOptions): Promise<{ setup: AgentSetup; context: ModelContext }> {
+export async function prepareContext(convo: Conversation, opts: PrepareOptions): Promise<Prepared> {
   const setup = await convo.checkRequest(opts.standing);
   if (setup.model === undefined) throw new Error("this agent has no model: set one with setupChange first");
   await assertDefinitions(setup, opts.source, opts.allowDrift);
@@ -44,5 +64,24 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
       return dec.decode(bytes);
     },
   });
-  return { setup, context };
+  if (opts.cost === false || convo.providers.size === 0) return { setup, context, warnings: [] };
+
+  // Prices: the agent's pin must be the provider's current table, or the host must have said it accepts the difference.
+  const model = setup.model;
+  const current = convo.priceTable(model.provider);
+  if (current !== undefined) {
+    const pinned = setup.pricing?.table;
+    if (pinned !== tableHash(current) && !(opts.allowDrift ?? []).includes("pricing_changed")) {
+      throw new ChangeNotAllowed([{ kind: "pricing_changed", message: pinned === undefined ? "no price table is pinned for this agent; pin the current one with pinPricing()" : "the provider's price table is not the one this agent is pinned to; pin the new one with pinPricing()" }]);
+    }
+  }
+  const resolver = convo.priceResolver();
+  const pinnedTable = setup.pricing === undefined ? undefined : await resolver.table(setup.pricing.table);
+  const config = await convo.readConfig();
+  const limits = config?.ok === true ? config.value.limits : {};
+  const estimate = estimateRequest(context, { id: servedModelId(model), settings: model.settings }, pinnedTable ?? current, convo.modelInfo(model.provider, servedModelId(model)));
+  const ledger = await computeLedger(entries, resolver);
+  const { violations, warnings } = checkLimits({ limits, ledger, estimate });
+  if (violations.length > 0) throw new LimitExceeded(violations);
+  return { setup, context, estimate, ledger, warnings };
 }

@@ -181,6 +181,14 @@ const mergeReport = z.object({
   conflicts: z.array(z.object({ path: z.string(), kind: z.string() })),
 });
 
+/** What a merged branch cost, so budgets survive the merge: priced under the child's own pinned tables when it was merged. */
+const spendRollup = z.object({
+  usd: z.number().nonnegative(),
+  requests: z.number().int().nonnegative(),
+  /** Requests whose price was unknown (`usd` leaves them out). */
+  unpriced: z.number().int().nonnegative(),
+});
+
 export const subagentResult = z.object({
   $tag: z.literal("subagent_result"),
   id: ulid,
@@ -191,6 +199,8 @@ export const subagentResult = z.object({
   files: mergedFiles,
   /** Format 1.1. */
   merge: mergeReport.optional(),
+  /** What the subagent spent. */
+  spend: spendRollup.optional(),
 });
 
 /**
@@ -205,6 +215,8 @@ export const forkMerge = z.object({
   summary: text,
   files: mergedFiles,
   merge: mergeReport,
+  /** What the fork spent since it diverged, or since it was last merged. */
+  spend: spendRollup.optional(),
 });
 
 export const interrupted = z.object({
@@ -214,6 +226,8 @@ export const interrupted = z.object({
   /** Blocks received before the interruption. They may be incomplete (e.g. a tool call with partial arguments). */
   partial: z.array(assistantBlock),
   error: z.string().optional(),
+  /** Tokens of the partial response, which were billed anyway (normalised names, as in `assistant.usage`). */
+  usage: z.record(z.string(), z.number()).optional(),
 });
 
 export type ChatEntry =
