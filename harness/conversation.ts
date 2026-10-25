@@ -29,7 +29,7 @@ import { computeLedger, priceResolver, type Ledger, type PriceResolver, type Spe
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
-import { DEFAULT_RENDERER } from "./renderer.ts";
+import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type SetupChange } from "./setup.ts";
 import { createUlid } from "./ulid.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
@@ -124,9 +124,6 @@ export type ConversationEvent =
   | { type: "recovery"; branch: string; report: RecoveryReport }
   /** The repository was repacked (see `Conversation.maintain`). */
   | { type: "maintenance"; branch: string; report: MaintenanceReport };
-
-/** What `continueInterrupted` says by default. */
-export const CONTINUE_INSTRUCTION = "Your previous reply was cut off. Continue from where it stopped, without repeating what you already wrote.";
 
 export interface RepoStats {
   looseObjects: number;
@@ -813,7 +810,7 @@ export class Conversation {
    * ordinary stored text (`instruction`, default: say the reply was cut off and to continue from where it stopped),
    * so it never changes meaning when renderers do. The commit carries `Chattree-Continues: <interrupted id>`.
    */
-  continueInterrupted(opts: { instruction?: string } = {}): Promise<Appended> {
+  continueInterrupted(opts: { instruction?: string; renderers?: Renderers } = {}): Promise<Appended> {
     return this.#transaction(async () => {
       const entries = (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
       let last: ChatEntry | undefined;
@@ -824,7 +821,7 @@ export class Conversation {
         break;
       }
       if (last?.$tag !== "interrupted") throw new ConversationError(`there is nothing to continue: the last entry is ${last === undefined ? "missing" : `a ${last.$tag}`}, not an interrupted reply`);
-      const text = opts.instruction ?? CONTINUE_INSTRUCTION;
+      const text = opts.instruction ?? findRenderer(foldSetup(entries).renderer ?? DEFAULT_RENDERER, opts.renderers).continueInterrupted();
       return this.#appendLocked({ $tag: "user", content: [{ $tag: "text", text }] }, [["Chattree-Continues", last.id]]);
     });
   }

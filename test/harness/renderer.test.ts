@@ -25,6 +25,7 @@ describe("chattree-english-v1 is frozen", () => {
     assert.equal(r.cutOffCall("write"), "[A call to write was cut off before it finished and did not run]");
     assert.equal(r.toolDidNotRun(), "The tool did not run: the conversation was interrupted before it produced a result.");
     assert.equal(r.subagentBrief("B"), "B");
+    assert.equal(r.continueInterrupted(), "Your previous reply was cut off. Continue from where it stopped, without repeating what you already wrote.");
     assert.ok(Object.isFrozen(r));
     assert.equal(builtinRenderers[DEFAULT_RENDERER], r);
   });

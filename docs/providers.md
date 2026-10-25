@@ -605,7 +605,7 @@ does it on demand; `auto: false` turns the automatic checks off. A failure is sw
 
 `convo.continueInterrupted({ instruction? })` is the one mutation for resuming: the last entry (setup changes after it
 are skipped) must be an `interrupted`, otherwise it throws `ConversationError`. It appends an ordinary `user` entry
-(default text `CONTINUE_INSTRUCTION`: the reply was cut off, continue from where it stopped without repeating) and
+(default text from the agent's renderer, `Renderer.continueInterrupted()`: the reply was cut off, continue from where it stopped without repeating; written into the entry, so it is stored text) and
 the commit carries `Chattree-Continues: <interrupted id>`; the host then calls `runRequest`. Nothing about the
 transcript format changes: the interrupted entry keeps its partial text, the model sees it and the new message, and
 the wording is stored text, so a later renderer change cannot alter it. Never done silently: the host decides.
