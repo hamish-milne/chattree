@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 import { randomBytes } from "node:crypto";
-import type { ExecOptions, ExecResult, FileStat, Fs, Host, PathOps } from "../src/host.ts";
+import type { ExecOptions, ExecResult, FileStat, Fs, Host, HostProcess, PathOps } from "../src/host.ts";
 
 const DEFAULT_MAX_OUTPUT = 256 * 1024 * 1024;
 
@@ -58,6 +58,52 @@ function exec(program: string, args: readonly string[], opts: ExecOptions): Prom
       else resolve({ exitCode: code ?? (signal === null ? 1 : 128), stdout: concat(out, outBytes), stderr: concat(err, errBytes) });
     });
     child.stdin.end(opts.stdin);
+  });
+}
+
+function spawnProcess(program: string, args: readonly string[], opts: Pick<ExecOptions, "cwd" | "env">): Promise<HostProcess> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(program, [...args], {
+      cwd: opts.cwd,
+      env: opts.env === undefined ? process.env : { ...process.env, ...opts.env },
+      stdio: ["pipe", "pipe", "pipe"],
+      shell: false,
+      windowsHide: true,
+    });
+    const err: Uint8Array[] = [];
+    let errBytes = 0;
+    child.stderr.on("data", (c: Uint8Array) => {
+      if (errBytes < 64 * 1024) {
+        err.push(c);
+        errBytes += c.length;
+      }
+    });
+    child.stdin.on("error", () => {
+      /* the exit code tells the story */
+    });
+    const exit = new Promise<{ exitCode: number; stderr: Uint8Array }>((done) => {
+      child.on("close", (code, signal) => done({ exitCode: code ?? (signal === null ? 1 : 128), stderr: concat(err, errBytes) }));
+    });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.removeListener("error", reject);
+      child.on("error", () => undefined);
+      resolve({
+        write: (data) =>
+          new Promise<void>((ok, bad) => {
+            if (child.stdin.destroyed) bad(new Error(`${program} is no longer running`));
+            else child.stdin.write(data, (e) => (e == null ? ok() : bad(e)));
+          }),
+        closeInput: () =>
+          new Promise<void>((ok) => {
+            if (child.stdin.destroyed || child.stdin.writableEnded) ok();
+            else child.stdin.end(() => ok());
+          }),
+        output: child.stdout,
+        kill: () => void child.kill("SIGKILL"),
+        exit,
+      });
+    });
   });
 }
 
@@ -209,5 +255,5 @@ const nodeFs: Fs = {
 /** A host for the machine this process runs on. Programs run without a shell; the environment is `process.env` plus `opts.env`. */
 export function nodeHost(): Host {
   const path: PathOps = { join: (...s) => nodePath.join(...s), dirname: (p) => nodePath.dirname(p) };
-  return { exec, fs: nodeFs, path, nullDevice: process.platform === "win32" ? "NUL" : "/dev/null" };
+  return { exec, spawn: spawnProcess, fs: nodeFs, path, nullDevice: process.platform === "win32" ? "NUL" : "/dev/null" };
 }

@@ -1,5 +1,6 @@
 import { GitError } from "../errors.ts";
 import type { ExecResult, Host } from "../host.ts";
+import { CatFileSession, assertObjectName, type ObjectReader } from "./cat-file.ts";
 import { MIN_GIT_VERSION, compareVersions, formatVersion, parseGitVersion, type GitVersion } from "./version.ts";
 
 const dec = new TextDecoder("utf-8", { fatal: false });
@@ -82,6 +83,13 @@ export interface CommitOptions {
   /** Fixes both author and committer dates (ISO 8601). For tests and reproducible history. */
   date?: string;
   allowEmpty?: boolean;
+}
+
+export interface ImportCommit extends Omit<CommitOptions, "allowEmpty" | "author" | "committer"> {
+  author: Identity;
+  committer: Identity;
+  /** The files this commit writes (it keeps the rest of its parent's tree). Paths are plain, relative and `/`-separated. */
+  files: ReadonlyArray<{ path: string; data: Uint8Array }>;
 }
 
 export interface ObjectInfo {
@@ -368,10 +376,11 @@ export class Git {
   /** Commit everything staged. Returns the new commit's hash. */
   async commit(opts: CommitOptions): Promise<string> {
     const message = Git.#message(opts);
-    const args = ["commit", "--quiet", "--no-verify", "--no-gpg-sign", "--cleanup=verbatim", "-F", "-"];
+    // The summary line git prints names the new commit; with abbreviation off it is the full hash, which saves a process.
+    const args = ["-c", "core.abbrev=no", "commit", "--no-verify", "--no-gpg-sign", "--cleanup=verbatim", "-F", "-"];
     if (opts.allowEmpty === true) args.push("--allow-empty");
-    await this.run(args, { stdin: enc.encode(message), env: Git.#identityEnv(opts) });
-    const hash = await this.head();
+    const r = await this.run(args, { stdin: enc.encode(message), env: Git.#identityEnv(opts) });
+    const hash = /^\[[^\]]*? ([0-9a-f]{40,64})\]/.exec(dec.decode(r.stdout))?.[1] ?? (await this.head());
     if (hash === undefined) throw new GitError("commit succeeded but HEAD does not resolve");
     return hash;
   }
@@ -393,7 +402,7 @@ export class Git {
    */
   async objectInfo(specs: readonly string[]): Promise<(ObjectInfo | undefined)[]> {
     if (specs.length === 0) return [];
-    for (const sp of specs) if (sp.includes("\n") || sp.includes("\u0000") || sp.startsWith("-")) throw new GitError(`invalid object name: ${JSON.stringify(sp)}`);
+    for (const sp of specs) assertObjectName(sp);
     const r = await this.run(["cat-file", "--batch-check"], { stdin: enc.encode(`${specs.join("\n")}\n`), readOnly: true });
     const lines = dec.decode(r.stdout).split("\n");
     return specs.map((_, i) => {
@@ -405,7 +414,7 @@ export class Git {
   /** The content of many blobs in one command, in the order asked; undefined for any that is missing. */
   async readObjects(specs: readonly string[]): Promise<(Uint8Array | undefined)[]> {
     if (specs.length === 0) return [];
-    for (const sp of specs) if (sp.includes("\n") || sp.includes("\u0000") || sp.startsWith("-")) throw new GitError(`invalid object name: ${JSON.stringify(sp)}`);
+    for (const sp of specs) assertObjectName(sp);
     const out = (await this.run(["cat-file", "--batch"], { stdin: enc.encode(`${specs.join("\n")}\n`), readOnly: true })).stdout;
     const results: (Uint8Array | undefined)[] = [];
     let at = 0;
@@ -424,6 +433,75 @@ export class Git {
       at = nl + 1 + size + 1;
     }
     return results;
+  }
+
+  /**
+   * A session for reading many objects one after another: a single `git cat-file --batch-command` process
+   * when the host can keep one running (`Host.spawn`), otherwise one short process per request. Close it when
+   * done.
+   */
+  async catFile(): Promise<ObjectReader> {
+    if (this.host.spawn === undefined) return fallbackReader(this);
+    const proc = await this.host.spawn(this.#opts.program ?? "git", [...this.#base(), "cat-file", "--batch-command"], {
+      cwd: this.cwd,
+      env: { LC_ALL: "C", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
+    });
+    return new CatFileSession(proc);
+  }
+
+  /** Make the index match HEAD, leaving the working tree alone. Used after commits were written without the index. */
+  async syncIndex(): Promise<void> {
+    await this.run(["reset", "--quiet", "--mixed", "HEAD", "--"]);
+  }
+
+  /**
+   * Write a chain of commits onto `ref` with one `git fast-import` process, however many there are, and return
+   * their hashes. The first commit's parent is `parent` (none if undefined); each next one follows the one
+   * before. The ref moves once, when the stream ends, so a failure leaves it where it was. The index and
+   * working tree are not touched (see `syncIndex`).
+   */
+  async importCommits(ref: string, parent: string | undefined, commits: readonly ImportCommit[]): Promise<string[]> {
+    if (commits.length === 0) return [];
+    assertSafeArg("ref", ref);
+    const parts: Uint8Array[] = [];
+    const text = (t: string): void => void parts.push(enc.encode(t));
+    const data = (b: Uint8Array): void => {
+      text(`data ${b.length}\n`);
+      parts.push(b);
+      text("\n");
+    };
+    const ident = (kind: string, who: Identity, when: string): void => {
+      if (!/^[^<>\n\u0000]+$/.test(who.name) || !/^[^<>\n\u0000 ]+$/.test(who.email)) throw new GitError(`invalid ${kind} identity`);
+      text(`${kind} ${who.name} <${who.email}> ${when}\n`);
+    };
+    for (const [i, c] of commits.entries()) {
+      const ms = c.date === undefined ? Date.now() : Date.parse(c.date);
+      if (!Number.isFinite(ms)) throw new GitError(`invalid commit date ${JSON.stringify(c.date)}`);
+      const when = `${Math.floor(ms / 1000)} +0000`;
+      text(`commit ${ref}\nmark :${i + 1}\n`);
+      ident("author", c.author, when);
+      ident("committer", c.committer, when);
+      data(enc.encode(Git.#message(c)));
+      if (i === 0 && parent !== undefined) text(`from ${parent}\n`);
+      for (const f of c.files) {
+        if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(f.path) || f.path.includes("//") || f.path.includes("..")) throw new GitError(`unsupported path for import: ${JSON.stringify(f.path)}`);
+        text(`M 100644 inline ${f.path}\n`);
+        data(f.data);
+      }
+      text("\n");
+    }
+    for (let i = 0; i < commits.length; i++) text(`get-mark :${i + 1}\n`);
+    text("done\n");
+    const total = parts.reduce((n, p) => n + p.length, 0);
+    const input = new Uint8Array(total);
+    let at = 0;
+    for (const p of parts) {
+      input.set(p, at);
+      at += p.length;
+    }
+    const out = dec.decode((await this.run(["fast-import", "--quiet", "--done"], { stdin: input })).stdout).split("\n").filter((l) => l !== "");
+    if (out.length !== commits.length || !out.every((h) => /^[0-9a-f]{40,64}$/.test(h))) throw new GitError(`git fast-import returned unexpected output: ${out.join(" ").slice(0, 200)}`);
+    return out;
   }
 
   /** The tree a revision points at. */
@@ -656,4 +734,13 @@ export class Git {
   async pruneWorktrees(): Promise<void> {
     await this.run(["worktree", "prune"]);
   }
+}
+
+/** The same interface without a long-running process, for hosts that cannot keep one. */
+function fallbackReader(git: Git): ObjectReader {
+  return {
+    info: async (spec) => (await git.objectInfo([spec]))[0],
+    read: async (spec) => (await git.readObjects([spec]))[0],
+    close: async () => undefined,
+  };
 }

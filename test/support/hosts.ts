@@ -23,11 +23,12 @@ export function faultyHost(inner: Host, failAt: number): Host & { ops: number; l
     get log() { return state.log; },
     /** Fail the Nth operation from now on (1 = the very next one). */
     arm(afterOps: number) { state.failAt = state.ops + afterOps; state.log.length = 0; },
+    ...(inner.spawn === undefined ? {} : { spawn: inner.spawn.bind(inner) }),
     path: inner.path,
     nullDevice: inner.nullDevice,
     exec: (program, args, opts) => {
       // Read-only commands do not count: a crash between them changes nothing.
-      const mutating = args.some((a) => ["add", "commit", "update-index", "hash-object", "restore", "init", "config", "branch", "worktree", "merge", "reset", "read-tree", "write-tree", "commit-tree"].includes(a));
+      const mutating = args.some((a) => ["add", "commit", "update-index", "hash-object", "restore", "init", "config", "branch", "worktree", "merge", "reset", "read-tree", "write-tree", "commit-tree", "fast-import", "update-ref"].includes(a));
       if (mutating) tick(`${program} ${args.filter((a) => !a.startsWith("-") && !a.includes("=")).slice(0, 2).join(" ")}`);
       return inner.exec(program, args, opts);
     },

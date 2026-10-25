@@ -4,6 +4,7 @@ export {
   type CommitOptions,
   type DiffEntry,
   type GitOptions,
+  type ImportCommit,
   type Identity,
   type MergeMessage,
   type MergeTreeResult,
@@ -15,3 +16,4 @@ export {
   type WorktreeInfo,
 } from "./git.ts";
 export { MIN_GIT_VERSION, compareVersions, formatVersion, parseGitVersion, type GitVersion } from "./version.ts";
+export { CatFileSession, type ObjectReader } from "./cat-file.ts";

@@ -25,6 +25,20 @@ export interface ExecResult {
   stderr: Uint8Array;
 }
 
+/** A long-running program started with `Host.spawn`: its input stays open until `closeInput`, its output is streamed. */
+export interface HostProcess {
+  /** Write to the program's stdin. */
+  write(data: Uint8Array): Promise<void>;
+  /** Close stdin, which tells most programs to finish. */
+  closeInput(): Promise<void>;
+  /** The program's stdout as it arrives. Iterate it once. */
+  readonly output: AsyncIterable<Uint8Array>;
+  /** Stop the program. `exit` still settles. */
+  kill(): void;
+  /** Settles when the program has ended. */
+  readonly exit: Promise<{ exitCode: number; stderr: Uint8Array }>;
+}
+
 export interface FileStat {
   size: number;
   isFile: boolean;
@@ -63,6 +77,11 @@ export interface PathOps {
 export interface Host {
   /** Run a program with an argument array (never through a shell). Resolves for any exit code; rejects only if it cannot be started, is aborted, or exceeds `maxOutput`. */
   exec(program: string, args: readonly string[], opts: ExecOptions): Promise<ExecResult>;
+  /**
+   * Start a program and keep it running, for protocols that go back and forth (`git cat-file --batch`).
+   * Optional: without it callers fall back to `exec`, one process per request.
+   */
+  spawn?(program: string, args: readonly string[], opts: Pick<ExecOptions, "cwd" | "env">): Promise<HostProcess>;
   readonly fs: Fs;
   readonly path: PathOps;
   /** The path git should treat as "no directory" (`/dev/null`, or `NUL` on Windows). */
