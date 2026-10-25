@@ -183,6 +183,7 @@ const CONFIG = `providers:
   gpt:
     $tag: openai
     api_key_env: OPENAI_API_KEY
+    pricing: { models: { flat-model: { rates: { standard: { input: 0.1, output: 0.5, cache_read: 0.01 } } } } }
   local:
     $tag: openai
     base_url: http://localhost:11434/v1
@@ -192,8 +193,8 @@ limits:
   max_conversation_usd: 5
 `;
 const opts = () => ({ providers: { registry: defaultRegistry(), secrets: envSource({ OPENAI_API_KEY: KEY }) } });
-const MODEL = { provider: "gpt", id: "gpt-6-luna", settings: { max_output_tokens: 1000 } };
-const say = (usage: Record<string, number>, model = "gpt-6-luna"): Extract<NewEntry, { $tag: "assistant" }> => ({ $tag: "assistant", provider: "gpt", model, blocks: [{ $tag: "text", text: "ok" }], stop_reason: "end_turn", usage });
+const MODEL = { provider: "gpt", id: "flat-model", settings: { max_output_tokens: 1000 } };
+const say = (usage: Record<string, number>, model = "flat-model"): Extract<NewEntry, { $tag: "assistant" }> => ({ $tag: "assistant", provider: "gpt", model, blocks: [{ $tag: "text", text: "ok" }], stop_reason: "end_turn", usage });
 const hi: NewEntry = { $tag: "user", content: [{ $tag: "text", text: "hi" }] };
 
 async function fresh(config = CONFIG) {
@@ -234,7 +235,7 @@ describe("prepareContext with costs", () => {
     const { dir, convo } = await fresh();
     await convo.pinPricing();
     await convo.append(hi);
-    await writeFile(join(dir, CONFIG_FILE), CONFIG.replace("local:", "gpt2:").replace(/(  gpt:\n    \$tag: openai\n    api_key_env: OPENAI_API_KEY\n)/, "$1    pricing: { models: { gpt-6-luna: { rates: { standard: { input: 0.2, output: 1 } } } } }\n"));
+    await writeFile(join(dir, CONFIG_FILE), CONFIG.replace("local:", "gpt2:").replace("input: 0.1, output: 0.5", "input: 0.2, output: 1"));
     const changed = await Conversation.open(host, dir, opts());
     await assert.rejects(prepareContext(changed, { system: "s" }), (e) => e instanceof ChangeNotAllowed && /not the one this agent is pinned to/.test(e.message));
     await prepareContext(changed, { system: "s", allowDrift: ["pricing_changed"] });
@@ -249,7 +250,7 @@ describe("prepareContext with costs", () => {
     const { convo } = await fresh();
     await convo.pinPricing();
     await convo.append(hi);
-    await convo.appendResponse(say({ input_tokens: 90 * M, output_tokens: 0 }, "gpt-6-luna")); // $9
+    await convo.appendResponse(say({ input_tokens: 90 * M, output_tokens: 0 }, "flat-model")); // $9
     await assert.rejects(prepareContext(convo, { system: "s" }), (e) => e instanceof LimitExceeded && e.violations.map((v) => v.limit).join() === "max_conversation_usd" && /over the limit of \$5\.00/.test(e.message));
     await prepareContext(convo, { system: "s", cost: false });
   });

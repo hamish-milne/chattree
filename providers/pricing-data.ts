@@ -27,7 +27,7 @@ export const ANTHROPIC_PRICES: PriceTable = {
 export const OPENAI_PRICES: PriceTable = {
   version: 1,
   as_of: "2026-10-25",
-  source: "https://developers.openai.com/api/docs/pricing (read by a summarising tool; tier names matched to the page's tab order, which the tool could not confirm; cache writes keyed by lifetime in minutes, 30 and 720)",
+  source: "https://developers.openai.com/api/docs/pricing (read in a browser, each Speed tab and Short/Long context toggle clicked; cache writes keyed by lifetime in minutes, 30 and 720; long-context threshold is not stated on the page and is assumed)",
   currency: "USD",
   models: {
     "gpt-6-astra": {
@@ -37,6 +37,16 @@ export const OPENAI_PRICES: PriceTable = {
         fast: { input: 20, cache_read: 2, cache_write: { 30: 25, 720: 50 }, output: 100 },
         ultrafast: { input: 60, cache_read: 6, cache_write: { 30: 75, 720: 150 }, output: 300 },
       },
+      long_context: {
+        // The page does not state the threshold; 272k is an assumption carried over from earlier GPT-5.x models.
+        above_tokens: 272_000,
+        rates: {
+          standard: { input: 20, cache_read: 2, cache_write: { 30: 25, 720: 50 }, output: 75 },
+          flex: { input: 10, cache_read: 1, cache_write: { 30: 12.5, 720: 25 }, output: 37.5 },
+          fast: { input: 40, cache_read: 4, cache_write: { 30: 50, 720: 100 }, output: 150 },
+          ultrafast: { input: 120, cache_read: 12, cache_write: { 30: 150, 720: 300 }, output: 450 },
+        },
+      },
     },
     "gpt-6.1-sol": {
       rates: {
@@ -45,12 +55,31 @@ export const OPENAI_PRICES: PriceTable = {
         fast: { input: 4, cache_read: 0.2, cache_write: { 30: 5, 720: 10 }, output: 20 },
         ultrafast: { input: 12, cache_read: 0.6, cache_write: { 30: 15, 720: 30 }, output: 60 },
       },
+      long_context: {
+        // The page does not state the threshold; 272k is an assumption carried over from earlier GPT-5.x models.
+        above_tokens: 272_000,
+        rates: {
+          standard: { input: 4, cache_read: 0.2, cache_write: { 30: 5, 720: 10 }, output: 15 },
+          flex: { input: 2, cache_read: 0.1, cache_write: { 30: 2.5, 720: 5 }, output: 7.5 },
+          fast: { input: 8, cache_read: 0.4, cache_write: { 30: 10, 720: 20 }, output: 30 },
+          ultrafast: { input: 24, cache_read: 1.2, cache_write: { 30: 30, 720: 60 }, output: 90 },
+        },
+      },
     },
     "gpt-6-luna": {
       rates: {
         standard: { input: 0.1, cache_read: 0.01, cache_write: { 30: 0.125, 720: 0.25 }, output: 0.5 },
         flex: { input: 0.05, cache_read: 0.005, cache_write: { 30: 0.0625, 720: 0.125 }, output: 0.25 },
         fast: { input: 0.2, cache_read: 0.02, cache_write: { 30: 0.25, 720: 0.5 }, output: 1 },
+      },
+      long_context: {
+        // The page does not state the threshold; 272k is an assumption carried over from earlier GPT-5.x models.
+        above_tokens: 272_000,
+        rates: {
+          standard: { input: 0.2, cache_read: 0.02, cache_write: { 30: 0.25, 720: 0.5 }, output: 0.75 },
+          flex: { input: 0.1, cache_read: 0.01, cache_write: { 30: 0.125, 720: 0.25 }, output: 0.375 },
+          fast: { input: 0.4, cache_read: 0.04, cache_write: { 30: 0.5, 720: 1 }, output: 1.5 },
+        },
       },
     },
     // Earlier models have no separate cache-write charge: cached reads are billed at the cached-input rate.

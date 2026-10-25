@@ -125,13 +125,18 @@ describe("tables", () => {
       assert.match(t.source, /^https:\/\//);
       assert.ok(Object.keys(t.models).length > 0);
     }
-    assert.deepEqual(costOf({ input_tokens: M, output_tokens: M, cache_read_tokens: M }, findModel(OPENAI_PRICES, "gpt-6-luna")), { usd: 0.1 + 0.5 + 0.01, unknown: false });
+    const k = M / 10; // 100k each, so the prompt stays under the long-context threshold
+    const luna = costOf({ input_tokens: k, output_tokens: k, cache_read_tokens: k }, findModel(OPENAI_PRICES, "gpt-6-luna"));
+    assert.equal(luna.unknown, false);
+    assert.ok(Math.abs(luna.usd - (0.1 + 0.5 + 0.01) / 10) < 1e-9);
+    const longLuna = costOf({ input_tokens: M, output_tokens: M, cache_read_tokens: M }, findModel(OPENAI_PRICES, "gpt-6-luna"));
+    assert.ok(Math.abs(longLuna.usd - (0.2 + 0.75 + 0.02)) < 1e-9, "past the threshold the long-context rates apply");
     assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "60": M } }, findModel(ANTHROPIC_PRICES, "claude-sonnet-5-5")).usd, 4);
     assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M }, findModel(ANTHROPIC_PRICES, "claude-sonnet-5-5")).usd, 2.5, "the default lifetime is the 5-minute one");
     assert.equal(costOf({ input_tokens: M, output_tokens: 0 }, findModel(OPENAI_PRICES, "gpt-6-luna"), "ultrafast").unknown, true, "gpt-6-luna has no ultrafast price");
-    const w12 = { input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "720": M } };
-    assert.equal(costOf(w12, findModel(OPENAI_PRICES, "gpt-6-astra")).usd, 25);
-    assert.equal(costOf(w12, findModel(OPENAI_PRICES, "gpt-6-astra"), "fast").usd, 50);
+    const w12 = { input_tokens: 0, output_tokens: 0, cache_write_tokens: k, cache_write_by_minutes: { "720": k } };
+    assert.ok(Math.abs(costOf(w12, findModel(OPENAI_PRICES, "gpt-6-astra")).usd - 2.5) < 1e-9);
+    assert.ok(Math.abs(costOf(w12, findModel(OPENAI_PRICES, "gpt-6-astra"), "fast").usd - 5) < 1e-9);
     assert.equal(costOf({ input_tokens: M, output_tokens: M }, findModel(OPENAI_PRICES, "gpt-5.3-codex")).usd, 1.75 + 14);
     for (const [model, price] of Object.entries(OPENAI_PRICES.models)) for (const [tier, r] of Object.entries(price.rates ?? {})) {
       const w = r.cache_write;

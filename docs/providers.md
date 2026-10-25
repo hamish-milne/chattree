@@ -493,8 +493,7 @@ test/providers/fixtures/        P12
    writes with no stated lifetime are priced at the lifetime the request asked for; `free: true` is an explicit zero; `costOf` returns `{usd, unknown}` and an unpriced meter
    with tokens makes the whole request unknown rather than cheaper; `effectiveTable` puts a provider's overrides
    over the bundled table; `tableHash` is the SHA-256 of the canonical bytes, which is also the blob's hash),
-   `providers/pricing-data.ts` (bundled tables, **read from the pricing pages on 2026-10-25 by a summarising tool and
-   only for models whose ids are known, so check them before relying on a limit**; Anthropic `cache_write` is keyed
+   `providers/pricing-data.ts` (bundled tables, **Anthropic's read from the pricing pages on 2026-10-25 by a summarising tool, so check them before relying on a limit; OpenAI's read in a browser the same day with every tab and the Short/Long toggle clicked (the long-context threshold, 272k, is assumed: the page does not state it)**, only for models whose ids are known; Anthropic `cache_write` is keyed
    `{5, 60}`; the adapter reads the split from `usage.cache_creation`, which the caching docs confirm), provider config keys `pricing: {free, models}` and `models: {id: {context_window,
    max_output_tokens}}`, and adapter definitions' optional `prices` and `models`. `harness/ledger.ts` folds the
    transcript (each response priced under the table pinned by the setup in force at that entry, so history is never

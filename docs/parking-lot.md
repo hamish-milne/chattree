@@ -131,12 +131,13 @@ agent loop shows process start-up dominating.
   `/props` for the context size); token-counting endpoints (Anthropic `count_tokens`, OpenAI input tokens) to replace the
   bytes-per-token estimate; calibrating the estimate from the last response's real usage; Anthropic's `inference_geo`
   1.1x multiplier and batch discounts; OpenAI's regional-processing uplift.
-- Pricing data gaps (2026-10-25): `gpt-5.4-mini` and the long-context prices for OpenAI were not found by two automated
-  reads of the pricing page (it has tabs and a Short/Long toggle that a text fetch does not bind); the tier tables are
-  matched to tab names by position. Needs someone to read the tabs in a browser, or paste them. Which `service_tier`
-  value selects "Fast" (the page says Priority was renamed Fast on 2026-07-30) is unknown. Bundled only: the gpt-6
-  family and gpt-5.3-codex; `chat-latest` (an alias) and the restricted cyber and life-sciences models are left to
-  overrides.
+- Pricing data gaps (2026-10-25): the OpenAI table was re-read in a browser with every Speed tab and the Short/Long toggle
+  clicked; the tier-to-table binding is confirmed (the page's URL carries `latest-pricing=standard|batch|fast|ultrafast`,
+  our tier `flex` is the page's "Flex/Batch"). Still open: the long-context **threshold is not stated** on the page (272k
+  is assumed, from earlier GPT-5.x models); `gpt-5.4-mini` and other smaller models are no longer on the page; `gpt-6-luna`
+  has no Ultrafast price; the Specialized table's Fast tab lists only `gpt-5.3-codex`; which `service_tier` value selects
+  "Fast" (Priority was renamed Fast on 2026-07-30) is unverified. `chat-latest` (an alias), the cyber (`gpt-5.6-sol`,
+  `gpt-5.6-cyber`) and life-sciences models are left to overrides.
 - Mixed cache lifetimes within one request (the docs allow it: longer ones first), for example the pinned prefix at 1h and
   the conversation at 5m; OpenAI's per-breakpoint `prompt_cache_breakpoint.ttl`. Today one `cache_ttl` covers every marker.
 - A merge's rollup resolves tables the child pinned only from this conversation's providers and blobs, so a child that
