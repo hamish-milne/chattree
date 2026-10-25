@@ -40,6 +40,11 @@ export const openaiSettings = z.strictObject({
   temperature: z.number().min(0).max(2).optional(),
   top_p: z.number().min(0).max(1).optional(),
   service_tier: z.string().min(1).optional(),
+  /**
+   * How long the prompt cache lives (`prompt_cache_options.ttl`): `30m` (the default; writes cost 1.25x input) or
+   * `12h` (2.5x). For GPT-5.6 and later; earlier models use `prompt_cache_retention`, which you can pass in `extra`.
+   */
+  cache_ttl: z.enum(["30m", "12h"]).optional(),
   /** Let the server compact the conversation once it passes this many tokens (`context_management`). The compaction item is kept and replayed. */
   compact_threshold: z.number().int().positive().optional(),
   /** Extra top-level request fields for servers with extensions (Ollama's `think`). Cannot override the fields the adapter owns. */
@@ -56,7 +61,7 @@ export function parseOpenAISettings(settings: unknown): OpenAISettings {
 // ---- request --------------------------------------------------------------------------------------------------
 
 type Json = Record<string, unknown>;
-const OWNED = new Set(["model", "input", "instructions", "tools", "stream", "store", "include", "max_output_tokens", "reasoning", "previous_response_id", "context_management"]);
+const OWNED = new Set(["model", "input", "instructions", "tools", "stream", "store", "include", "max_output_tokens", "reasoning", "previous_response_id", "context_management", "prompt_cache_options"]);
 
 export interface RequestOptions {
   /** Let the provider keep the response (30 days at OpenAI): needed for retrieval and provider-side features. Default true. */
@@ -117,6 +122,7 @@ export function buildResponsesBody(ctx: ModelContext, setup: AgentSetup, opts: R
     body["reasoning"] = { summary: s.reasoning_summary ?? "auto", ...(s.effort === undefined ? {} : { effort: s.effort }) };
     body["include"] = ["reasoning.encrypted_content"]; // always replayable, whether or not the provider also keeps the response
   } else if (s.effort !== undefined) body["reasoning"] = { effort: s.effort };
+  if (s.cache_ttl !== undefined) body["prompt_cache_options"] = { ttl: s.cache_ttl };
   if (s.compact_threshold !== undefined) body["context_management"] = [{ type: "compaction", compact_threshold: s.compact_threshold }];
   for (const k of ["temperature", "top_p", "service_tier"] as const) if (s[k] !== undefined) body[k] = s[k];
   for (const [k, v] of Object.entries(s.extra ?? {})) if (!OWNED.has(k)) body[k] = v;
@@ -216,12 +222,20 @@ function normaliseUsage(raw: Json): Usage {
   const details = (raw["input_tokens_details"] ?? {}) as Json;
   const cached = num(details["cached_tokens"]) ?? 0;
   const written = num(details["cache_write_tokens"]) ?? 0;
+  // On models with `prompt_cache_options` the writes are split by lifetime.
+  const split = (details["cache_write_tokens_details"] ?? {}) as Json;
+  const by: Record<string, number> = {};
+  const t30 = num(split["ttl_30m_tokens"]);
+  const t12 = num(split["ttl_12h_tokens"]);
+  if (t30 !== undefined) by["30"] = t30;
+  if (t12 !== undefined) by["720"] = t12;
   const reasoning = num(((raw["output_tokens_details"] ?? {}) as Json)["reasoning_tokens"]);
   return {
     input_tokens: Math.max(0, total - cached - written),
     output_tokens: num(raw["output_tokens"]) ?? 0,
     ...(details["cached_tokens"] === undefined ? {} : { cache_read_tokens: cached }),
     ...(details["cache_write_tokens"] === undefined ? {} : { cache_write_tokens: written }),
+    ...(Object.keys(by).length > 0 ? { cache_write_by_minutes: by } : {}),
     ...(reasoning === undefined ? {} : { reasoning_tokens: reasoning }),
     raw,
   };

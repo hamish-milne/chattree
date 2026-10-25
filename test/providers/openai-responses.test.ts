@@ -122,6 +122,23 @@ describe("request body", () => {
   });
 });
 
+describe("cache lifetime", () => {
+  test("cache_ttl becomes prompt_cache_options.ttl; unset leaves it out; other values are refused", () => {
+    assert.deepEqual(buildResponsesBody(ctx(), setupFor({ max_output_tokens: 5, cache_ttl: "12h" }), opts)["prompt_cache_options"], { ttl: "12h" });
+    assert.ok(!("prompt_cache_options" in buildResponsesBody(ctx(), setupFor(), opts)));
+    assert.throws(() => parseOpenAISettings({ max_output_tokens: 5, cache_ttl: "1h" }), (e) => e instanceof ProviderError);
+    assert.equal(buildResponsesBody(ctx(), setupFor({ max_output_tokens: 5, extra: { prompt_cache_options: { ttl: "x" }, prompt_cache_retention: "24h" } }), opts)["prompt_cache_retention"], "24h", "the older parameter goes through extra");
+  });
+
+  test("usage splits cache writes by lifetime when the server says", async () => {
+    const withWrites = { input_tokens: 1000, input_tokens_details: { cached_tokens: 100, cache_write_tokens: 300, cache_write_tokens_details: { ttl_30m_tokens: 100, ttl_12h_tokens: 200 } }, output_tokens: 5 };
+    const r = good(await run(replay([created(), ev("response.output_item.added", { output_index: 0, item: { id: "m", type: "message", content: [] } }), ev("response.output_text.delta", { output_index: 0, delta: "x" }), ev("response.output_item.done", { output_index: 0, item: messageItem("x") }), completed({ usage: withWrites })])));
+    const u = r.completed?.usage;
+    assert.deepEqual([u?.input_tokens, u?.cache_read_tokens, u?.cache_write_tokens], [600, 100, 300]);
+    assert.deepEqual(u?.cache_write_by_minutes, { "30": 100, "720": 200 });
+  });
+});
+
 describe("stream", () => {
   test("text: events, usage normalised (cached tokens separate), observed model and response id", async () => {
     const r = good(await run());

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { ANTHROPIC_PRICES, OPENAI_PRICES } from "../../providers/pricing-data.ts";
-import { costOf, effectiveTable, emptyTable, findModel, parseTable, priceTable, tableBytes, tableHash, type PriceTable } from "../../providers/pricing.ts";
+import { cacheWriteRate, costOf, effectiveTable, emptyTable, findModel, parseTable, priceTable, tableBytes, tableHash, ttlMinutes, type PriceTable } from "../../providers/pricing.ts";
 
 const table = (models: PriceTable["models"]): PriceTable => ({ ...emptyTable(), as_of: "2026-10-25", source: "test", models });
 const M = 1_000_000;
@@ -49,13 +49,27 @@ describe("costOf", () => {
     assert.equal(w(M, { "30": M }).usd, 12.5);
     assert.equal(w(M, { "720": M }).usd, 25);
     assert.equal(w(2 * M, { "30": M, "720": M }).usd, 37.5);
-    assert.equal(w(M).usd, 12.5, "no breakdown: the shortest lifetime, which is the default");
+    assert.equal(w(M).usd, 12.5, "no breakdown and none asked for: the shortest lifetime, which is the default");
+    const asked = (total: number, minutes: number, by?: Record<string, number>) => costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: total, default_cache_minutes: minutes, ...(by === undefined ? {} : { cache_write_by_minutes: by }) }, p);
+    assert.equal(asked(M, 720).usd, 25, "no breakdown: the lifetime the request asked for");
+    assert.equal(asked(2 * M, 720, { "30": M }).usd, 12.5 + 25, "what the breakdown leaves out is the requested lifetime");
+    assert.equal(asked(M, 60).unknown, true, "a requested lifetime the table does not price");
     assert.equal(w(2 * M, { "720": M }).usd, 25 + 12.5, "the part the breakdown does not cover is the default lifetime");
     assert.equal(w(M, { "60": M }).unknown, true, "a lifetime the table does not price");
     assert.equal(w(0).usd, 0);
     assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M }, { rates: { standard: { input: 1 } } }).unknown, true);
     assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "30": M } }, { rates: { standard: { cache_write: 3 } } }).usd, 3, "a single rate ignores the lifetime");
   });
+});
+
+test("lifetimes as the providers write them", () => {
+  assert.deepEqual(["5m", "30m", "1h", "12h", "24h"].map(ttlMinutes), [5, 30, 60, 720, 1440]);
+  for (const bad of ["", "m", "0m", "1d", "1.5h", "30"]) assert.equal(ttlMinutes(bad), undefined, bad);
+  assert.equal(cacheWriteRate({ 30: 1, 720: 2 }, 720), 2);
+  assert.equal(cacheWriteRate({ 30: 1, 720: 2 }), 1);
+  assert.equal(cacheWriteRate(3, 720), 3);
+  assert.equal(cacheWriteRate({ 30: 1 }, 5), undefined);
+  assert.equal(cacheWriteRate(undefined), undefined);
 });
 
 describe("tables", () => {
@@ -115,5 +129,13 @@ describe("tables", () => {
     assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "60": M } }, findModel(ANTHROPIC_PRICES, "claude-sonnet-5-5")).usd, 4);
     assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M }, findModel(ANTHROPIC_PRICES, "claude-sonnet-5-5")).usd, 2.5, "the default lifetime is the 5-minute one");
     assert.equal(costOf({ input_tokens: M, output_tokens: 0 }, findModel(OPENAI_PRICES, "gpt-6-luna"), "ultrafast").unknown, true, "gpt-6-luna has no ultrafast price");
+    const w12 = { input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "720": M } };
+    assert.equal(costOf(w12, findModel(OPENAI_PRICES, "gpt-6-astra")).usd, 25);
+    assert.equal(costOf(w12, findModel(OPENAI_PRICES, "gpt-6-astra"), "fast").usd, 50);
+    assert.equal(costOf({ input_tokens: M, output_tokens: M }, findModel(OPENAI_PRICES, "gpt-5.3-codex")).usd, 1.75 + 14);
+    for (const [model, price] of Object.entries(OPENAI_PRICES.models)) for (const [tier, r] of Object.entries(price.rates ?? {})) {
+      const w = r.cache_write;
+      if (typeof w === "object" && r.input !== undefined) assert.deepEqual([w[30] === r.input * 1.25, w[720] === r.input * 2.5], [true, true], `${model} ${tier}: writes are 1.25x and 2.5x input`);
+    }
   });
 });

@@ -95,6 +95,29 @@ describe("usage records", () => {
   });
 });
 
+describe("cache lifetime in costs", () => {
+  const t: PriceTable = { ...cheap, models: { m: { rates: { standard: { input: 1, output: 1, cache_write: { 30: 1.25, 720: 2.5 } } } } } };
+  const withTtl = (ttl: string | undefined): ChatEntry => ({ $tag: "agent_setup", id: id(), reason: "user", model: { provider: "p", id: "m", settings: ttl === undefined ? { max_output_tokens: 1 } : { max_output_tokens: 1, cache_ttl: ttl } }, pricing: { table: tableHash(t) } }) as ChatEntry;
+  const write = reply({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M });
+
+  test("writes with no stated lifetime are priced at the setting's lifetime, else the shortest", async () => {
+    assert.equal((await computeLedger([withTtl("12h"), user(), write], priceResolver([t]))).conversation.usd, 2.5);
+    assert.equal((await computeLedger([withTtl("30m"), user(), write], priceResolver([t]))).conversation.usd, 1.25);
+    assert.equal((await computeLedger([withTtl(undefined), user(), write], priceResolver([t]))).conversation.usd, 1.25);
+    assert.equal((await computeLedger([withTtl("1h"), user(), write], priceResolver([t]))).conversation.unpriced, 1, "a lifetime the table does not price is unknown");
+  });
+
+  test("the estimate prices the prompt at the cache-write rate when that is dearer than input", () => {
+    const c = ctx("x".repeat(3000));
+    const plain = estimateRequest(c, { id: "m", settings: { max_output_tokens: 0 } }, t);
+    const long = estimateRequest(c, { id: "m", settings: { max_output_tokens: 0, cache_ttl: "12h" } }, t);
+    assert.equal(plain.usd, (plain.inputTokens * 1.25) / M);
+    assert.equal(long.usd, (long.inputTokens * 2.5) / M);
+    const cheapWrite: PriceTable = { ...t, models: { m: { rates: { standard: { input: 1, output: 1, cache_write: 0.5 } } } } };
+    assert.equal(estimateRequest(c, { id: "m", settings: { max_output_tokens: 0 } }, cheapWrite).usd, (plain.inputTokens * 1) / M);
+  });
+});
+
 describe("estimate", () => {
   test("pessimistic: input at the plain rate, all of max output used; unknown stays unknown", () => {
     const e = estimateRequest(ctx("x".repeat(30_000)), { id: "m", settings: { max_output_tokens: 1000 } }, cheap, { context_window: 12_000 });

@@ -1,4 +1,4 @@
-import { findModel, ratesFor, type ModelPrice, type PriceTable } from "../providers/pricing.ts";
+import { cacheWriteRate, findModel, ratesFor, ttlMinutes, type ModelPrice, type PriceTable, type Rates } from "../providers/pricing.ts";
 import type { ModelInfo } from "../providers/registry.ts";
 import type { Change } from "./setup.ts";
 import type { ModelContext } from "./context-builder.ts";
@@ -6,7 +6,8 @@ import type { ModelContext } from "./context-builder.ts";
 /**
  * A pre-flight estimate of one request (docs/providers.md, P9). Deliberately pessimistic, because it guards a
  * spending limit: input tokens are guessed from the size of the context (about 3 bytes a token, more than most
- * text needs), priced at the plain input rate with no cache discount, and the output is priced as if all of
+ * text needs), priced at the plain input rate or, if dearer, the cache-write rate for the requested `cache_ttl` (a write
+ * replaces the plain rate), never at the cache-read discount, and the output is priced as if all of
  * `max_output_tokens` is used. Real counts come back in the response's usage; an adapter with a token-counting
  * endpoint can improve on this later.
  */
@@ -24,6 +25,13 @@ export interface Estimate {
 
 const BYTES_PER_TOKEN = 3;
 
+/** The dearest a prompt token can cost: plain input, or a cache write at the requested lifetime if that is more. */
+function promptRate(r: Rates, cacheTtl: unknown): number | undefined {
+  if (r.input === undefined) return undefined;
+  const w = cacheWriteRate(r.cache_write, typeof cacheTtl === "string" ? ttlMinutes(cacheTtl) : undefined);
+  return w === undefined ? r.input : Math.max(r.input, w);
+}
+
 export function estimateInputTokens(ctx: ModelContext): number {
   const text = JSON.stringify({ system: ctx.system, instructions: ctx.instructions, tools: ctx.tools, turns: ctx.turns });
   return Math.ceil(new TextEncoder().encode(text).length / BYTES_PER_TOKEN);
@@ -38,7 +46,8 @@ export function estimateRequest(ctx: ModelContext, model: { id: string; settings
   if (price?.free === true) usd = 0;
   else if (price !== undefined) {
     const r = ratesFor(price, typeof tier === "string" ? tier : undefined, inputTokens);
-    if (r?.input !== undefined && r.output !== undefined) usd = (inputTokens * r.input + maxOutputTokens * r.output) / 1_000_000;
+    const per = r === undefined ? undefined : promptRate(r, (model.settings as { cache_ttl?: unknown } | undefined)?.cache_ttl);
+    if (r?.output !== undefined && per !== undefined) usd = (inputTokens * per + maxOutputTokens * r.output) / 1_000_000;
   }
   return { inputTokens, maxOutputTokens, usd, contextWindow: info?.context_window, longContextAt: price?.long_context?.above_tokens };
 }

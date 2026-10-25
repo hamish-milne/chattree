@@ -1,4 +1,4 @@
-import { costOf, findModel, parseTable, tableHash, type PriceTable, type Tokens } from "../providers/pricing.ts";
+import { costOf, findModel, parseTable, tableHash, ttlMinutes, type PriceTable, type Tokens } from "../providers/pricing.ts";
 import type { ChatEntry } from "./entries.ts";
 import { applyChange, emptySetup, type AgentSetup } from "./setup.ts";
 
@@ -79,8 +79,10 @@ export async function computeLedger(entries: readonly ChatEntry[], prices: Price
   const spendOf = async (model: string, usage: Record<string, number> | undefined): Promise<Spend> => {
     const hash = setup.pricing?.table;
     const t = hash === undefined ? undefined : await table(hash);
-    const tier = (setup.model?.settings as { service_tier?: unknown } | undefined)?.service_tier;
-    const c = costOf(tokensOf(usage), t === undefined ? undefined : findModel(t, model), typeof tier === "string" ? tier : undefined);
+    const settings = setup.model?.settings as { service_tier?: unknown; cache_ttl?: unknown } | undefined;
+    const tier = settings?.service_tier;
+    const window = typeof settings?.cache_ttl === "string" ? ttlMinutes(settings.cache_ttl) : undefined;
+    const c = costOf({ ...tokensOf(usage), default_cache_minutes: window }, t === undefined ? undefined : findModel(t, model), typeof tier === "string" ? tier : undefined);
     return { usd: c.unknown ? 0 : c.usd, requests: 1, unpriced: c.unknown ? 1 : 0 };
   };
   const count = (s: Spend, model?: string): void => {

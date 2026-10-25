@@ -490,19 +490,26 @@ test/providers/fixtures/        P12
    `cache_write`, which is one number or a map from cache lifetime in minutes to rate (`{ 30: 12.5, 720: 25 }`), plus an
    optional `long_context` band with the same by-tier shape; usage carries the per-lifetime split as
    `cache_write_by_minutes` (entries store it as `cache_write_tokens_<minutes>m`, `usageRecord` / `tokensOf` convert), and
-   writes with no stated lifetime are priced at the shortest one, the default; `free: true` is an explicit zero; `costOf` returns `{usd, unknown}` and an unpriced meter
+   writes with no stated lifetime are priced at the lifetime the request asked for; `free: true` is an explicit zero; `costOf` returns `{usd, unknown}` and an unpriced meter
    with tokens makes the whole request unknown rather than cheaper; `effectiveTable` puts a provider's overrides
    over the bundled table; `tableHash` is the SHA-256 of the canonical bytes, which is also the blob's hash),
    `providers/pricing-data.ts` (bundled tables, **read from the pricing pages on 2026-10-25 by a summarising tool and
    only for models whose ids are known, so check them before relying on a limit**; Anthropic `cache_write` is keyed
-   `{5, 60}`; the adapter reads the split from `usage.cache_creation`, which is from memory of the docs and unverified), provider config keys `pricing: {free, models}` and `models: {id: {context_window,
+   `{5, 60}`; the adapter reads the split from `usage.cache_creation`, which the caching docs confirm), provider config keys `pricing: {free, models}` and `models: {id: {context_window,
    max_output_tokens}}`, and adapter definitions' optional `prices` and `models`. `harness/ledger.ts` folds the
    transcript (each response priced under the table pinned by the setup in force at that entry, so history is never
    repriced; `interrupted.usage`; a merged branch's `spend` rollup on `subagent_result` / `fork_merge`, computed at the
    merge from the child's own entries since it diverged or was last merged; unknown prices counted as `unpriced`,
    never as zero). `Conversation.pinPricing()` stores the table as a blob and pins its hash (doing it again after a
    price change is the explicit mutation that accepts it); `ledger()`, `priceTable()`, `modelInfo()`.
-   `harness/estimate.ts` (pessimistic: about 3 bytes a token, plain input rate, all of `max_output_tokens` used;
+   The lifetime is a **model setting** requested per call, as the providers do it: `cache_ttl` is `5m | 1h` for
+   Anthropic (`cache_control.ttl` on every marker; 5 minutes is the default and is left out) and `30m | 12h` for OpenAI
+   (`prompt_cache_options.ttl`, GPT-5.6 and later; earlier models take `prompt_cache_retention` through `extra`, and have
+   no write charge); a write replaces the plain input charge, which is how usage already splits `input_tokens`. OpenAI's
+   per-lifetime split is read from `input_tokens_details.cache_write_tokens_details`. Writes whose lifetime the usage does
+   not state are priced at the setting's lifetime, else the shortest. (From the providers' caching pages, read by a
+   summarising tool, 2026-10-25.)
+   `harness/estimate.ts` (pessimistic: about 3 bytes a token, plain input rate or the cache-write rate for the requested lifetime if that is dearer, all of `max_output_tokens` used;
    `costIncrease` says what a model or tier switch does at the current size, for the host's classifier).
    `harness/limits.ts` (`max_request_usd`, `max_turn_usd`, `max_conversation_usd`, `max_requests_per_turn`,
    `unknown_price: warn|block`, `warn_at`; warnings for nearing a limit, unknown price, unpriced history, the context

@@ -20,7 +20,8 @@ const rates = z.strictObject({
   cache_read: rate.optional(),
   /**
    * A single rate, or one rate per cache lifetime keyed by minutes (`{ 30: 12.5, 720: 25 }`): writing to a cache
-   * that lasts longer costs more. Tokens whose lifetime the usage does not say are priced at the shortest one.
+   * that lasts longer costs more. Tokens whose lifetime the usage does not say are priced at the lifetime the request
+   * asked for (the `cache_ttl` setting), or at the shortest one if it asked for none.
    */
   cache_write: z.union([rate, z.record(minutes, rate)]).optional(),
 });
@@ -94,14 +95,22 @@ export function findModel(table: PriceTable, id: string): ModelPrice | undefined
   return best === undefined ? table.models["*"] : table.models[best];
 }
 
+/** A cache lifetime as the providers write it (`5m`, `30m`, `1h`, `12h`) in minutes; `undefined` if it is not of that form. */
+export function ttlMinutes(ttl: string): number | undefined {
+  const m = /^([1-9]\d*)([mh])$/.exec(ttl);
+  return m === null ? undefined : Number(m[1]) * (m[2] === "h" ? 60 : 1);
+}
+
 export interface Tokens {
   input_tokens: number;
   output_tokens: number;
   cache_read_tokens?: number | undefined;
   /** All tokens written to a cache. */
   cache_write_tokens?: number | undefined;
-  /** Of those, how many went to a cache of each lifetime (keyed by minutes); the rest are priced at the shortest lifetime. */
+  /** Of those, how many went to a cache of each lifetime (keyed by minutes). */
   cache_write_by_minutes?: Record<string, number> | undefined;
+  /** The lifetime the request asked for (its `cache_ttl` setting): what writes with no stated lifetime are priced at. Unset: the shortest, which is each provider's default. */
+  default_cache_minutes?: number | undefined;
 }
 
 export interface Priced {
@@ -117,15 +126,20 @@ export function ratesFor(price: ModelPrice, tier: string | undefined, promptToke
   return by?.[name];
 }
 
+/** The rate for writes at a lifetime (one number ignores it; a map needs the lifetime, or the shortest if none is asked for). */
+export function cacheWriteRate(rate: Rates["cache_write"], minutes?: number): number | undefined {
+  if (rate === undefined || typeof rate === "number") return rate;
+  const shortest = Object.keys(rate).sort((a, b) => Number(a) - Number(b))[0];
+  const key = minutes === undefined ? shortest : String(minutes);
+  return key === undefined ? undefined : rate[key];
+}
+
 /** Dollars for `tokens` written to caches, given the meter's rate (one number, or one per lifetime). `undefined` if a needed rate is missing. */
 function cacheWriteUsd(tokens: Tokens, rate: Rates["cache_write"]): number | undefined {
   const total = tokens.cache_write_tokens ?? 0;
   if (total === 0) return 0;
   if (rate === undefined) return undefined;
   if (typeof rate === "number") return (total * rate) / 1_000_000;
-  const windows = Object.keys(rate).sort((a, b) => Number(a) - Number(b));
-  const shortest = windows[0];
-  if (shortest === undefined) return undefined;
   let usd = 0;
   let known = 0;
   for (const [w, n] of Object.entries(tokens.cache_write_by_minutes ?? {})) {
@@ -136,7 +150,9 @@ function cacheWriteUsd(tokens: Tokens, rate: Rates["cache_write"]): number | und
     known += n;
   }
   const rest = Math.max(0, total - known);
-  return usd + (rest * (rate[shortest] as number)) / 1_000_000;
+  if (rest === 0) return usd;
+  const per = cacheWriteRate(rate, tokens.default_cache_minutes);
+  return per === undefined ? undefined : usd + (rest * per) / 1_000_000;
 }
 
 export function costOf(tokens: Tokens, price: ModelPrice | undefined, tier?: string): Priced {

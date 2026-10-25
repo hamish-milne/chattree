@@ -37,6 +37,11 @@ export const anthropicSettings = z.strictObject({
   top_p: z.number().min(0).max(1).optional(),
   top_k: z.number().int().positive().optional(),
   stop_sequences: z.array(z.string().min(1)).optional(),
+  /**
+   * How long the prompt cache lives after each use: `5m` (the default, writes cost 1.25x input) or `1h` (writes cost 2x).
+   * Reads cost the same either way. Use `1h` when the gaps between requests are longer than five minutes.
+   */
+  cache_ttl: z.enum(["5m", "1h"]).optional(),
 });
 export type AnthropicSettings = z.infer<typeof anthropicSettings>;
 
@@ -49,7 +54,8 @@ export function parseAnthropicSettings(settings: unknown): AnthropicSettings {
 // ---- request --------------------------------------------------------------------------------------------------
 
 type Json = Record<string, unknown>;
-const CACHE = { type: "ephemeral" } as const;
+/** The cache marker for a lifetime: 5 minutes is the default and is left out, as the docs show. */
+const cacheMark = (ttl: "5m" | "1h" | undefined): Json => (ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" });
 
 export interface RequestOptions {
   /** Mark the end of the pinned prefix and of recent exchanges as cache breakpoints. Default: only for api.anthropic.com. */
@@ -66,11 +72,11 @@ export function buildAnthropicBody(ctx: ModelContext, setup: AgentSetup, opts: R
   if (ctx.system !== "") system.push({ type: "text", text: ctx.system });
   if (ctx.instructions !== undefined && ctx.instructions !== "") system.push({ type: "text", text: ctx.instructions });
   if (system.length > 0) {
-    if (opts.cacheControl) (system[system.length - 1] as Json)["cache_control"] = CACHE;
+    if (opts.cacheControl) (system[system.length - 1] as Json)["cache_control"] = cacheMark(settings.cache_ttl);
     body["system"] = system;
   }
   if (ctx.tools.length > 0) body["tools"] = ctx.tools.map(toTool);
-  body["messages"] = toMessages(ctx.turns, ctx.cacheHints, opts.cacheControl);
+  body["messages"] = toMessages(ctx.turns, ctx.cacheHints, opts.cacheControl ? cacheMark(settings.cache_ttl) : undefined);
 
   if (settings.thinking !== undefined) body["thinking"] = settings.thinking;
   if (settings.effort !== undefined) body["output_config"] = { effort: settings.effort };
@@ -80,7 +86,7 @@ export function buildAnthropicBody(ctx: ModelContext, setup: AgentSetup, opts: R
 
 const toTool = (t: ToolDefinition): Json => ({ name: t.name, description: t.description, input_schema: t.input_schema });
 
-function toMessages(turns: readonly Turn[], hints: readonly number[], cache: boolean): Json[] {
+function toMessages(turns: readonly Turn[], hints: readonly number[], cache: Json | undefined): Json[] {
   const messages: { role: "user" | "assistant"; content: Json[]; turns: number[] }[] = [];
   const push = (role: "user" | "assistant", content: Json[], turn: number): void => {
     const last = messages.at(-1);
@@ -108,12 +114,12 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: boo
       if (content.length > 0) push("assistant", content, i);
     }
   });
-  if (cache) {
+  if (cache !== undefined) {
     // Breakpoints at the ends of the turns the context builder named, as far as the provider allows (system takes one of four).
     for (const h of hints.slice(-2)) {
       const m = messages.find((x) => x.turns.includes(h));
       const last = m?.content.at(-1);
-      if (last !== undefined && last["type"] !== "thinking" && last["type"] !== "redacted_thinking") last["cache_control"] = CACHE;
+      if (last !== undefined && last["type"] !== "thinking" && last["type"] !== "redacted_thinking") last["cache_control"] = cache;
     }
   }
   return messages.map((m) => ({ role: m.role, content: m.content }));

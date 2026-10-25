@@ -203,6 +203,18 @@ describe("stream", () => {
     assert.deepEqual([r.completed?.usage.input_tokens, r.completed?.usage.cache_read_tokens, r.completed?.usage.output_tokens], [25, 33, 75]);
   });
 
+  test("cache_ttl: 1h puts the longer lifetime on every cache marker; 5m (the default) leaves ttl out", () => {
+    const turns = [{ role: "user" as const, parts: [{ type: "text" as const, text: "a" }] }, { role: "assistant" as const, provider: "main", model: "m", blocks: [{ type: "text" as const, text: "b" }] }, { role: "user" as const, parts: [{ type: "text" as const, text: "c" }] }];
+    const marks = (settings: Record<string, unknown>) => {
+      const body = buildAnthropicBody(ctx({ turns, cacheHints: [1, 2] }), setupFor(settings), { cacheControl: true });
+      return JSON.stringify(body).match(/"cache_control":\{[^}]*\}/g);
+    };
+    const one = marks({ max_output_tokens: 10, cache_ttl: "1h" });
+    assert.ok(one !== null && one.length >= 2 && one.every((m) => m === '"cache_control":{"type":"ephemeral","ttl":"1h"}'), String(one));
+    for (const s of [{ max_output_tokens: 10 }, { max_output_tokens: 10, cache_ttl: "5m" }]) assert.ok((marks(s) ?? []).every((m) => m === '"cache_control":{"type":"ephemeral"}'));
+    assert.throws(() => parseAnthropicSettings({ max_output_tokens: 1, cache_ttl: "30m" }), (e) => e instanceof ProviderError);
+  });
+
   test("cache writes are split by lifetime when the provider says", async () => {
     const r = good(await run(replay([start({ input_tokens: 10, cache_creation_input_tokens: 300, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 200 }, output_tokens: 1 }), ev("message_delta", { delta: { stop_reason: "end_turn" }, usage: { output_tokens: 5 } }), ev("message_stop", {})])));
     assert.equal(r.completed?.usage.cache_write_tokens, 300);
