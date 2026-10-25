@@ -1,4 +1,5 @@
 import { CHANGE_KINDS, type ChangeKind, type ChatEntry } from "./entries.ts";
+import { DEFAULT_RENDERER } from "./renderer.ts";
 
 /**
  * An agent's state, as folded from the `agent_setup` entries on its branch (docs/providers.md, P8). Agents are
@@ -11,7 +12,7 @@ export type PinnedDefinition = NonNullable<AgentSetupEntry["instructions"]>;
 export type ModelSetup = NonNullable<AgentSetupEntry["model"]>;
 
 /** The fields of an `agent_setup` entry that describe state; what a mutation changes. */
-export type SetupChange = Pick<AgentSetupEntry, "model" | "tools" | "instructions" | "skills" | "mcp" | "pricing">;
+export type SetupChange = Pick<AgentSetupEntry, "model" | "tools" | "instructions" | "skills" | "mcp" | "pricing" | "renderer">;
 
 export interface AgentSetup {
   model?: ModelSetup;
@@ -20,6 +21,8 @@ export interface AgentSetup {
   skills: Record<string, PinnedDefinition>;
   mcp: Record<string, PinnedDefinition>;
   pricing?: { table: string };
+  /** Id of the renderer for structured entries; undefined means the default (`chattree-english-v1`, which never changes). */
+  renderer?: string;
   /** Provider-observed changes (`reason: provider`) no later entry has acknowledged. */
   unacknowledged: { id: string; changes: ChangeKind[] }[];
 }
@@ -86,6 +89,7 @@ export function applyChange(base: AgentSetup, change: SetupChange): AgentSetup {
     skills: applyDefs(base.skills, change.skills),
     mcp: applyDefs(base.mcp, change.mcp),
     ...(change.pricing === undefined ? {} : { pricing: change.pricing }),
+    ...(change.renderer === undefined ? {} : { renderer: change.renderer }),
   };
 }
 
@@ -137,7 +141,8 @@ export function sameSetup(a: AgentSetup, b: AgentSetup): boolean {
     stable(a.instructions ?? null) === stable(b.instructions ?? null) &&
     sameDefs(a.skills, b.skills) &&
     sameDefs(a.mcp, b.mcp) &&
-    stable(a.pricing ?? null) === stable(b.pricing ?? null)
+    stable(a.pricing ?? null) === stable(b.pricing ?? null) &&
+    (a.renderer ?? null) === (b.renderer ?? null)
   );
 }
 
@@ -160,6 +165,7 @@ export function coreClassify(from: AgentSetup, to: AgentSetup, ctx: ClassifyCont
   if (!sameDefs(from.skills, to.skills) || !sameDefs(from.mcp, to.mcp)) out.push({ kind: "tools_changed", message: "skills or MCP servers differ" });
   if (stable(from.instructions ?? null) !== stable(to.instructions ?? null)) out.push({ kind: "instructions_changed", message: "the instructions differ" });
   if (from.pricing !== undefined && stable(from.pricing) !== stable(to.pricing ?? null)) out.push({ kind: "pricing_changed", message: "the price table differs" });
+  if ((from.renderer ?? DEFAULT_RENDERER) !== (to.renderer ?? DEFAULT_RENDERER)) out.push({ kind: "renderer_changed", message: `renderer ${from.renderer ?? DEFAULT_RENDERER} to ${to.renderer ?? DEFAULT_RENDERER}: every rendered turn changes` });
   if (ctx.midLoop && (out.length > 0 || stable(fm.settings ?? null) !== stable(tm.settings ?? null))) {
     out.push({ kind: "mid_loop", message: "the agent is in the middle of a tool loop" });
   }
@@ -179,6 +185,7 @@ export function minimizeChange(base: AgentSetup, change: SetupChange): SetupChan
   }
   if (change.instructions !== undefined && stable(change.instructions) !== stable(base.instructions ?? null)) out.instructions = change.instructions;
   if (change.pricing !== undefined && stable(change.pricing) !== stable(base.pricing ?? null)) out.pricing = change.pricing;
+  if (change.renderer !== undefined && change.renderer !== (base.renderer ?? null)) out.renderer = change.renderer;
   return out;
 }
 

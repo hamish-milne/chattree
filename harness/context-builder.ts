@@ -1,6 +1,7 @@
 import { contextEntries } from "./context.ts";
 import type { ChatEntry } from "./entries.ts";
 import type { ToolDefinition } from "./definitions.ts";
+import { chattreeEnglishV1, type Renderer } from "./renderer.ts";
 
 /**
  * Turns a branch's entries into what a provider is asked: a provider-neutral `ModelContext`. Pure apart from
@@ -41,6 +42,8 @@ export interface BuildInput {
   tools?: ToolDefinition[];
   /** The model this context is for. Reasoning travels only to the model that produced it. */
   target: { provider: string; model: string };
+  /** Turns structured entries into text for the model. Default: `chattree-english-v1`. See `renderer.ts`. */
+  renderer?: Renderer;
   /** Read a blob-backed text (large values are stored as blobs). Without it, a blob reference is an error. */
   readText?: (ref: { sha256: string; bytes: number }) => Promise<string>;
 }
@@ -48,32 +51,10 @@ export interface BuildInput {
 type Pending = { call_id: string; is_error: boolean; content: string; truncated: boolean; fallback?: string };
 
 /**
- * Rendering of entries that have no provider equivalent. Wording is fixed here so contexts are reproducible.
- */
-export const wording = {
-  compaction: (summary: string) => `[Summary of the earlier conversation]\n${summary}`,
-  fork: (summary: string, files: { changed: string[]; added: string[]; discarded: string[] }) =>
-    `[A side conversation that branched from this one was merged back]\n${summary}${filesNote(files)}`,
-  subagent: (summary: string, files: { changed: string[]; added: string[]; discarded: string[] }) => `${summary}${filesNote(files)}`,
-  subagentOrphan: (summary: string) => `[A subagent finished]\n${summary}`,
-  cutOffCall: (name: string) => `[A call to ${name} was cut off before it finished and did not run]`,
-  notRun: "The tool did not run: the conversation was interrupted before it produced a result.",
-  brief: (brief: string) => brief,
-};
-
-function filesNote(f: { changed: string[]; added: string[]; discarded: string[] }): string {
-  const parts: string[] = [];
-  if (f.added.length > 0) parts.push(`added: ${f.added.join(", ")}`);
-  if (f.changed.length > 0) parts.push(`changed: ${f.changed.join(", ")}`);
-  if (f.discarded.length > 0) parts.push(`not kept (conflicted): ${f.discarded.join(", ")}`);
-  return parts.length === 0 ? "" : `\n[Files: ${parts.join("; ")}]`;
-}
-
-/**
  * Build the context for the next request.
  *
  * - `contextEntries` decides what is visible (fresh-context markers, compactions).
- * - Entries without a provider form are rendered as text (`wording`).
+ * - Entries without a provider form are rendered as text by the renderer (the agent setup's `renderer`).
  * - Reasoning blocks are kept only for the model that produced them (same provider and model).
  * - An interrupted turn keeps its text; a half-received tool call becomes a note, never a live call.
  * - Tool calls and results always pair: a call with no result gets an error result ("did not run"), and a
@@ -81,6 +62,7 @@ function filesNote(f: { changed: string[]; added: string[]; discarded: string[] 
  * - Consecutive user turns are merged.
  */
 export async function buildContext(entries: readonly ChatEntry[], input: BuildInput): Promise<ModelContext> {
+  const render = input.renderer ?? chattreeEnglishV1;
   const text = async (t: string | { sha256: string; bytes: number }): Promise<string> => {
     if (typeof t === "string") return t;
     if (input.readText === undefined) throw new Error(`a blob-backed text (${t.sha256.slice(0, 12)}) needs readText`);
@@ -103,7 +85,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       case "agent_setup":
         break;
       case "branch_start":
-        if (e.context === "fresh" && e.brief !== undefined) userText(wording.brief(await text(e.brief)));
+        if (e.context === "fresh" && e.brief !== undefined) userText(render.subagentBrief(await text(e.brief)));
         break;
       case "user": {
         const parts: UserPart[] = [];
@@ -121,21 +103,21 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
         raw.push({ role: "result", result: { call_id: e.call_id, is_error: e.is_error, content: await text(e.content), truncated: e.truncated === true } });
         break;
       case "compaction":
-        userText(wording.compaction(await text(e.summary)));
+        userText(render.compaction(await text(e.summary)));
         break;
       case "subagent_result": {
         const summary = await text(e.summary);
-        raw.push({ role: "result", result: { call_id: e.call_id, is_error: false, content: wording.subagent(summary, e.files), truncated: false, fallback: wording.subagentOrphan(summary + filesNote(e.files)) } });
+        raw.push({ role: "result", result: { call_id: e.call_id, is_error: false, content: render.subagentResult(summary, e.files), truncated: false, fallback: render.subagentResultUnattached(summary, e.files) } });
         break;
       }
       case "fork_merge":
-        userText(wording.fork(await text(e.summary), e.files));
+        userText(render.forkMerge(await text(e.summary), e.files));
         break;
       case "interrupted": {
         const blocks: Block[] = [];
         for (const b of e.partial) {
           if (b.$tag === "text") blocks.push({ type: "text", text: await text(b.text) });
-          else if (b.$tag === "tool_call") blocks.push({ type: "text", text: wording.cutOffCall(b.name) });
+          else if (b.$tag === "tool_call") blocks.push({ type: "text", text: render.cutOffCall(b.name) });
         }
         if (blocks.length > 0) raw.push({ role: "assistant", provider: "", model: "", blocks });
         break;
@@ -149,7 +131,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
   const answered = new Set<string>();
   const closeOpen = (): void => {
     if (open.size === 0) return;
-    const results = [...open.keys()].map((call_id) => ({ call_id, is_error: true, content: wording.notRun, truncated: false }));
+    const results = [...open.keys()].map((call_id) => ({ call_id, is_error: true, content: render.toolDidNotRun(), truncated: false }));
     const last = turns.at(-1);
     if (last?.role === "tool_results") last.results.push(...results);
     else turns.push({ role: "tool_results", results });

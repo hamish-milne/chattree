@@ -236,6 +236,7 @@ limits: { max_request_usd: 1.00, max_turn_usd: 5.00, max_conversation_usd: 50.00
   instructions: { hash: ..., store: blob }
   skills: { ... }               # same shape as tools
   mcp: { ... }                  # same shape
+  renderer: chattree-english-v1 # how structured entries read to the model; immutable per id (harness/renderer.ts)
   pricing: { table: <hash> }    # the price table this agent is costed under (P9)
   allow: [cache_break]          # change kinds the caller allowed for this mutation
   acknowledges: [<entry id>]    # provider-observed changes this entry accepts
@@ -412,9 +413,11 @@ test/providers/fixtures/        P12
    hash chain removed; `harness.yml` reduced to providers, limits and compaction; `$tag` and `!tag` sugar in
    the config reader; verifier checks for setups. Not yet: usage normalisation and the optional block `ext`
    (P11), which wait for the first adapter. The `assistant` entry never carried settings, so there was nothing to slim.
-2. **Context builder and definitions. Done**: `harness/context-builder.ts` (`buildContext`, `contextProblems`; wording
-   for compaction, fork merge, subagent result and cut-off calls is fixed in `wording`; calls and results always
-   pair; reasoning only to the model that wrote it; texts read in from blobs), `harness/definitions.ts` (canonical
+2. **Context builder and definitions. Done**: `harness/context-builder.ts` (`buildContext`, `contextProblems`; calls and results always
+   pair; reasoning only to the model that wrote it; texts read in from blobs; every piece of wording comes from
+   the setup's **renderer**, `harness/renderer.ts`: `chattree-english-v1` is frozen and pinned by a test, a new
+   wording is a new id, changing it is the `renderer_changed` kind, and an agent's first setup records it
+   explicitly), `harness/definitions.ts` (canonical
    tool format, hashes, `pinDefinition` for `blob` and `external`, the `DefinitionSource` hook, `checkDefinitions` /
    `assertDefinitions` drift detection, `loadDefinitions` with hash verification), and `harness/request.ts`
    (`prepareContext`: gate on unacknowledged provider changes, check drift, load definitions, build the context for

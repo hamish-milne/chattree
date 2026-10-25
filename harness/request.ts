@@ -2,6 +2,7 @@ import type { Conversation } from "./conversation.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
 import { assertDefinitions, loadDefinitions, type DefinitionSource } from "./definitions.ts";
 import type { ChangeKind } from "./entries.ts";
+import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import { servedModelId, type AgentSetup } from "./setup.ts";
 
 export interface PrepareOptions {
@@ -11,6 +12,8 @@ export interface PrepareOptions {
   source?: DefinitionSource;
   /** Change kinds the host accepts without asking, for provider-observed changes (see `Conversation.checkRequest`). */
   standing?: readonly ChangeKind[];
+  /** Renderers beyond the built-in ones, by id. The setup's `renderer` must be among them or built in. */
+  renderers?: Renderers;
   /** Definition drift the host accepts for this request. */
   allowDrift?: readonly ChangeKind[];
 }
@@ -28,7 +31,9 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const defs = await loadDefinitions(setup, { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) });
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const dec = new TextDecoder();
+  const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);
   const context = await buildContext(entries, {
+    renderer,
     system: opts.system,
     instructions: defs.instructions,
     tools: defs.tools,

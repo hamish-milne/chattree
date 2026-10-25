@@ -23,6 +23,7 @@ import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
+import { DEFAULT_RENDERER } from "./renderer.ts";
 import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type SetupChange } from "./setup.ts";
 import { createUlid } from "./ulid.ts";
 
@@ -814,7 +815,9 @@ export class Conversation {
   setupChange(change: SetupChange, opts: { allow?: readonly ChangeKind[]; reason?: "user" | "fork" | "subagent"; acknowledges?: readonly string[] } = {}): Promise<Appended | undefined> {
     return this.#transaction(async () => {
       const { setup, entries } = await this.#foldedSetup();
-      const delta = minimizeChange(setup, change);
+      // An agent's first setup records the renderer explicitly, so what the model is shown never depends on a later default.
+      const first = setup.model === undefined && change.model !== undefined && change.renderer === undefined && setup.renderer === undefined;
+      const delta = minimizeChange(setup, first ? { ...change, renderer: DEFAULT_RENDERER } : change);
       const acknowledges = (opts.acknowledges ?? []).filter((id) => setup.unacknowledged.some((u) => u.id === id));
       for (const id of opts.acknowledges ?? []) if (!acknowledges.includes(id)) throw new ConversationError(`${id} is not an unacknowledged provider change on this branch`);
       if (Object.keys(delta).length === 0 && acknowledges.length === 0) return undefined;

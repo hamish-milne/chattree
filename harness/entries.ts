@@ -99,6 +99,7 @@ export const CHANGE_KINDS = [
   "instructions_changed",
   "pricing_changed",
   "resolved_model_changed",
+  "renderer_changed",
 ] as const;
 export type ChangeKind = (typeof CHANGE_KINDS)[number];
 const changeKind = z.enum(CHANGE_KINDS);
@@ -136,6 +137,8 @@ export const agentSetup = z.object({
   instructions: pinnedDefinition.optional(),
   skills: definitionDelta.optional(),
   mcp: definitionDelta.optional(),
+  /** The renderer that turns structured entries into text for the model (`chattree-english-v1`); immutable per id. Unset means the default. */
+  renderer: z.string().min(1).optional(),
   /** The hash of the price table this agent is costed under. */
   pricing: z.object({ table: sha256 }).optional(),
   /** Change kinds the caller allowed for this mutation. */
