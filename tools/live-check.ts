@@ -46,10 +46,18 @@ export interface LiveOptions {
   maxTokens?: number;
   apiKey?: string;
   only?: readonly string[];
-  /** Called with each scenario's raw run, for recording. */
-  onRun?: (scenario: string, run: StreamRun) => void | Promise<void>;
+  /** Called with the raw run of every request a scenario makes (several per scenario), for recording. `request` says what was asked. */
+  onRun?: (scenario: string, run: StreamRun, request?: RequestSummary) => void | Promise<void>;
+  /** Called with a scenario's own notes (the agent loop's tool calls and results), for recording. */
+  onLog?: (scenario: string, label: string, data: unknown) => void | Promise<void>;
   /** Called as each scenario finishes. */
   onResult?: (r: ScenarioResult) => void;
+}
+
+/** What a request carried, for the record: the last turn and the names of the tools offered. */
+export interface RequestSummary {
+  last: unknown;
+  tools: string[];
 }
 
 export interface ScenarioResult {
@@ -74,6 +82,38 @@ export function makeAdapter(o: Pick<LiveOptions, "flavor" | "baseUrl" | "apiKey"
   return openaiResponsesAdapter({ baseUrl: o.baseUrl, ...key });
 }
 
+const summary = (c: ModelContext): RequestSummary => ({ last: c.turns.at(-1), tools: c.tools.map((t) => t.name) });
+
+/** Passes a stream through unchanged and reports each request's events to `report` when it ends, however it ends. */
+function recording(inner: ProviderAdapter, report: (run: StreamRun, c: ModelContext) => void | Promise<void>): ProviderAdapter {
+  return {
+    ...inner,
+    stream(req) {
+      const events: StreamRun["events"] = [];
+      const source = inner.stream(req);
+      return (async function* () {
+        const run: StreamRun = { events };
+        try {
+          for (;;) {
+            const n = await source.next();
+            if (n.done === true) {
+              run.completed = n.value;
+              return n.value;
+            }
+            events.push(n.value);
+            yield n.value;
+          }
+        } catch (e) {
+          run.error = e;
+          throw e;
+        } finally {
+          await report(run, req.context);
+        }
+      })();
+    },
+  };
+}
+
 const user = (text: string): Turn => ({ role: "user", parts: [{ type: "text", text }] });
 const WEATHER = { name: "get_weather", description: "Get the current weather for a city.", input_schema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } };
 
@@ -86,7 +126,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   let current = "";
   const go = async (c: ModelContext, signal = new AbortController().signal): Promise<StreamRun> => {
     const run = await collectStream(adapter.stream({ context: c, setup, signal }));
-    await o.onRun?.(current, run);
+    await o.onRun?.(current, run, summary(c));
     return run;
   };
   const clean = (run: StreamRun): StreamRun => {
@@ -144,8 +184,9 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       return `${starter.names().length} definitions accepted; read args=${JSON.stringify(call.args)}`;
     }],
     ["tools-parallel", async () => {
+      // `read` takes a list of files, so asking for two reads is rightly one call; two different tools cannot be batched.
       const starter = new ToolRegistry(leafTools());
-      const c1 = ctx([user("Read the files a.txt and b.txt. They are independent, so request both reads in the same step.")], starter.definitions());
+      const c1 = ctx([user("Do two independent things: read the file a.txt, and run `ls -la`. Neither needs the other's result, so request both tools in the same step.")], starter.definitions());
       const r1 = clean(await go(c1));
       const found = (r1.completed?.blocks ?? []).filter((b) => b.type === "tool_call");
       if (found.length === 0) return skip("the model did not call a tool (it may not support tools)");
@@ -155,10 +196,11 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
         const checked = starter.check(c);
         ok(!("error" in checked), `a call fails the schema: ${"error" in checked ? checked.error : ""}`);
       }
-      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? []), { role: "tool_results", results: found.map((b) => ({ call_id: b.call_id, is_error: false, content: "file contents: hello", truncated: false })) }], starter.definitions());
+      const results = found.map((b) => ({ call_id: b.call_id, is_error: false, content: b.name === "read" ? "a.txt:\n1\thello" : "exit 0\ntotal 4\n-rw-r--r-- 1 u u 6 a.txt", truncated: false }));
+      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? []), { role: "tool_results", results }], starter.definitions());
       const r2 = clean(await go(c2));
-      ok((r2.completed?.blocks.length ?? 0) > 0, "no reply after several results");
-      return found.length === 1 ? "one call only (the model did not use parallel calls); round-trip ok" : `${found.length} calls with distinct ids; all results accepted`;
+      ok((r2.completed?.blocks.length ?? 0) > 0, "no reply after the results");
+      return found.length === 1 ? `one call only (${found[0]?.name}); the model did not use parallel calls; round-trip ok` : `${found.length} calls (${found.map((b) => b.name).join(", ")}) with distinct ids; all results accepted`;
     }],
     ["tools-reliability", async () => {
       const starter = new ToolRegistry(leafTools());
@@ -171,6 +213,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
         ["run", "Use the run tool to count the lines in every .ts file under src using wc -l and a glob."],
       ];
       const tally: Record<string, [number, number]> = { edit: [0, 0], run: [0, 0] };
+      const other: string[] = [];
       const bad: string[] = [];
       let any = false;
       for (const [tool, prompt] of prompts) {
@@ -178,15 +221,19 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
         const call = (r.completed?.blocks ?? []).find((b) => b.type === "tool_call");
         if (call?.type !== "tool_call") continue;
         any = true;
+        if (call.name !== tool) {
+          other.push(`${tool} prompt: called ${call.name}`); // a model may reasonably look first; not a malformed call
+          continue;
+        }
         const row = tally[tool] as [number, number];
         row[1]++;
-        const checked = call.name === tool ? starter.check(call) : { error: `called ${call.name}` };
+        const checked = starter.check(call);
         if ("error" in checked) bad.push(`${tool}: ${checked.error.split("\n")[0]}`);
         else row[0]++;
       }
       if (!any) return skip("the model did not call a tool (it may not support tools)");
-      ok(tally["edit"]![0] + tally["run"]![0] > 0, `no valid call at all: ${bad.join("; ")}`);
-      return `edit ${tally["edit"]![0]}/${tally["edit"]![1]} valid, run ${tally["run"]![0]}/${tally["run"]![1]} valid${bad.length > 0 ? `; problems: ${bad.slice(0, 3).join("; ")}` : ""}`;
+      ok(tally["edit"]![0] + tally["run"]![0] > 0 || other.length === 0, `no valid call at all: ${bad.join("; ")}`);
+      return `edit ${tally["edit"]![0]}/${tally["edit"]![1]} valid, run ${tally["run"]![0]}/${tally["run"]![1]} valid${other.length > 0 ? `; ${other.length} chose another tool first (${other.join("; ")})` : ""}${bad.length > 0 ? `; problems: ${bad.slice(0, 3).join("; ")}` : ""}`;
     }],
     ["agent-loop", async () => {
       const registry = new ToolRegistry(leafTools());
@@ -197,7 +244,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
           settings: z.looseObject({}),
           jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
           secrets: () => [],
-          create: () => adapter,
+          create: () => recording(adapter, (run, c) => o.onRun?.("agent-loop", run, summary(c))),
         }),
       );
       const dir = join(await mkdtemp(join(tmpdir(), "chattree-live-")), "c");
@@ -208,6 +255,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       await convo.append({ $tag: "user", content: [{ $tag: "text", text: "Read notes.txt, then use the edit tool to change the word draft to final, then run `cat notes.txt` with the run tool and tell me what it prints." }] });
       let requests = 0;
       const used = new Set<string>();
+      const trail: unknown[] = [];
       const gen = runLoop(convo, { system: "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.", cost: false, registry, signal: AbortSignal.timeout(180_000) });
       for (;;) {
         const n = await gen.next();
@@ -216,11 +264,16 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
           requests = n.value.requests;
           break;
         }
-        if (n.value.type === "tool.start") used.add(n.value.name);
+        const e = n.value;
+        if (e.type === "tool.start") {
+          used.add(e.name);
+          trail.push({ call: e.name, args: e.args });
+        } else if (e.type === "tool.result") trail.push({ result: e.content, is_error: e.is_error });
       }
-      if (used.size === 0) return skip("the model did not call a tool (it may not support tools)");
       const file = await readFile(join(dir, "notes.txt"), "utf8");
-      ok(file.includes("final") && !file.includes("draft"), `notes.txt is ${JSON.stringify(file)}`);
+      await o.onLog?.("agent-loop", "loop", { workspace: dir, trail, notes_txt: file });
+      if (used.size === 0) return skip("the model did not call a tool (it may not support tools)");
+      ok(file.includes("final") && !file.includes("draft"), `notes.txt is ${JSON.stringify(file)} after ${trail.filter((t) => "call" in (t as object)).map((t) => (t as { call: string }).call).join(" → ")}`);
       const problems = await verifyHistory(convo);
       ok(problems.length === 0, `the history does not verify: ${JSON.stringify(problems).slice(0, 300)}`);
       return `${requests} requests, tools used: ${[...used].sort().join(", ")}; file edited; history verifies`;
@@ -356,14 +409,25 @@ async function main(): Promise<void> {
   }
   if (record !== undefined) await mkdir(record, { recursive: true });
   const secrets = options.apiKey === undefined ? [] : [options.apiKey];
+  const counts = new Map<string, number>();
+  const save = async (name: string, data: unknown): Promise<void> => {
+    if (record === undefined) return;
+    let text = JSON.stringify(data, null, 2);
+    for (const s of secrets) text = text.split(s).join("[redacted]");
+    await writeFile(join(record, `${options.flavor}-${name}.json`), text);
+  };
   const results = await runLiveChecks({
     ...options,
     onResult: (r) => console.log(`${r.status.toUpperCase().padEnd(4)} ${r.name.padEnd(17)} ${String(r.ms).padStart(6)}ms  ${r.detail}`),
-    onRun: async (scenario, run) => {
+    // Scenarios make several requests; each is its own file, numbered, so none overwrites another.
+    onRun: async (scenario, run, request) => {
       if (record === undefined) return;
-      let text = JSON.stringify({ events: run.events, completed: run.completed, error: run.error instanceof Error ? { name: run.error.name, message: run.error.message } : undefined }, null, 2);
-      for (const s of secrets) text = text.split(s).join("[redacted]");
-      await writeFile(join(record, `${options.flavor}-${scenario}.json`), text);
+      const n = (counts.get(scenario) ?? 0) + 1;
+      counts.set(scenario, n);
+      await save(`${scenario}-${String(n).padStart(2, "0")}`, { request, events: run.events, completed: run.completed, error: run.error instanceof Error ? { name: run.error.name, message: run.error.message } : undefined });
+    },
+    onLog: async (scenario, label, data) => {
+      if (record !== undefined) await save(`${scenario}-${label}`, data);
     },
   });
   const failed = results.filter((r) => r.status === "fail").length;

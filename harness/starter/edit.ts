@@ -51,8 +51,15 @@ export function applyEdit(original: string, edit: Edit): { text: string; summary
     const at = after !== undefined ? locate(original, after, "after") + after.length : locate(original, before as string, "before");
     return { text: original.slice(0, at) + content + original.slice(at), summary: `inserted ${content.length} characters at line ${lineOf(original, at)}` };
   }
-  const start = after === undefined ? 0 : locate(original, after, "after") + after.length;
-  const end = before === undefined ? original.length : locate(original, before, "before");
+  // A lone anchor is the usual slip (the model names the text it wants gone as the anchor, and the region silently runs to the
+  // start or end of the file), so replace mode wants both and says how to use them.
+  if (after === undefined || before === undefined) {
+    throw new EditFailed(
+      "replace mode needs both `after` and `before`: the text just before and the text just after what is to be replaced (they stay; the text between them is replaced by `content`). They are never the text being replaced itself. For example, to change `draft` in `status: draft` give after \"status: \" and before \"\\n\" with content \"final\". To add text without replacing any, use mode insert with one anchor; to rewrite a whole file, use write.",
+    );
+  }
+  const start = locate(original, after, "after") + after.length;
+  const end = locate(original, before, "before");
   if (end < start) throw new EditFailed("`before` occurs before the end of `after`");
   const removed = original.slice(start, end);
   return {
@@ -66,7 +73,7 @@ export function editTool(): Tool {
     definition: {
       name: "edit",
       description:
-        "Change part of a file without reading all of it first. Each edit gives optional anchors `after` and `before`, exact text that must occur exactly once in the file, and `content`. The text between the end of `after` and the start of `before` is replaced by `content`; the anchors stay. Without `after` the region starts at the beginning of the file, without `before` it runs to the end. With mode `insert`, give exactly one anchor and `content` is added right after `after` or right before `before`, replacing nothing. If an anchor is missing or matches more than once the edit fails and says where the matches are. Edits are applied in order and it stops at the first failure.",
+        "Change part of a file without reading all of it first. Each edit gives optional anchors `after` and `before`, exact text that must occur exactly once in the file, and `content`. The text between the end of `after` and the start of `before` is replaced by `content`; the anchors stay. Both anchors are required: they are the text just before and just after what is to be replaced, never the text being replaced itself (to change `draft` in `status: draft` give after `status: ` and before the text that follows, such as a newline). With mode `insert`, give exactly one anchor and `content` is added right after `after` or right before `before`, replacing nothing. If an anchor is missing or matches more than once the edit fails and says where the matches are. Edits are applied in order and it stops at the first failure.",
       input_schema: {
         type: "object",
         additionalProperties: false,

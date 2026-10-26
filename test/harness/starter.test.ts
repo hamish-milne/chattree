@@ -154,11 +154,13 @@ describe("edit", () => {
     assert.equal(apply(src, { after: "function a() {\n", before: "}\nfunction b", content: "  fresh();\n" }).text, "function a() {\n  fresh();\n}\nfunction b() {}\n");
   });
 
-  test("an omitted anchor means the start or the end of the file", () => {
-    assert.equal(apply("one\ntwo\nthree\n", { before: "three", content: "ONE\nTWO\n" }).text, "ONE\nTWO\nthree\n");
-    assert.equal(apply("one\ntwo\nthree\n", { after: "one\n", content: "rest\n" }).text, "one\nrest\n");
-    assert.equal(apply("one", { content: "all" }).text, "all");
-    assert.equal(apply("one", { after: "", before: "", content: "all" }).text, "all", "empty anchors count as omitted");
+  test("replace needs both anchors: one alone (the model naming the text to remove) is refused with directions, not guessed", () => {
+    const refused = /replace mode needs both `after` and `before`.*never the text being replaced/;
+    assert.throws(() => apply("status: draft\n", { before: "draft", content: "final" }), refused);
+    assert.throws(() => apply("status: draft\n", { after: "status: ", content: "final" }), refused);
+    assert.throws(() => apply("one", { content: "all" }), refused);
+    assert.throws(() => apply("one", { after: "", before: "", content: "all" }), refused, "empty anchors count as omitted");
+    assert.equal(apply("status: draft\n", { after: "status: ", before: "\n", content: "final" }).text, "status: final\n");
   });
 
   test("insert adds after or before the one anchor and replaces nothing", () => {
@@ -169,10 +171,10 @@ describe("edit", () => {
   });
 
   test("an anchor that is missing or matches more than once fails, naming the lines", () => {
-    assert.throws(() => apply("a\nb\n", { after: "zzz", content: "x" }), /`after` "zzz" was not found/);
-    assert.throws(() => apply("x\ny\nx\nz\nx\n", { after: "x", content: "q" }), /`after` "x" occurs 3 times \(lines 1, 3, 5\); make it longer/);
+    assert.throws(() => apply("a\nb\n", { after: "zzz", before: "b", content: "x" }), /`after` "zzz" was not found/);
+    assert.throws(() => apply("x\ny\nx\nz\nx\n", { after: "x", before: "z", content: "q" }), /`after` "x" occurs 3 times \(lines 1, 3, 5\); make it longer/);
     assert.throws(() => apply("a b", { after: "b", before: "a", content: "x" }), /`before` occurs before the end of `after`/);
-    assert.throws(() => apply("a", { before: "x".repeat(100), content: "x" }), /\.\.\./);
+    assert.throws(() => apply("a", { after: "a", before: "x".repeat(100), content: "x" }), /\.\.\./);
   });
 
   test("a file with CRLF line endings keeps them", () => {
@@ -185,13 +187,13 @@ describe("edit", () => {
     assert.equal(ok.is_error, undefined);
     assert.match(ok.content, /edited a.txt: inserted 6 characters at line 2\nedited a.txt: replaced 0 characters with 0/);
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "alpha\ngamma\nbeta\n");
-    const bad = await call("edit", { edits: [{ path: "b.txt", before: "one", content: "zero\n", mode: "insert" }, { path: "b.txt", after: "nope", content: "x" }, { path: "a.txt", content: "z" }] });
+    const bad = await call("edit", { edits: [{ path: "b.txt", before: "one", content: "zero\n", mode: "insert" }, { path: "b.txt", after: "nope", before: "one", content: "x" }, { path: "a.txt", after: "a", before: "b", content: "z" }] });
     assert.equal(bad.is_error, true);
     assert.match(bad.content, /edited b.txt: inserted/);
     assert.match(bad.content, /failed: edit 2 \(b.txt\): `after` "nope" was not found in the file; the other 1 edit was not applied/);
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "alpha\ngamma\nbeta\n");
-    assert.match((await call("edit", { edits: [{ path: "missing.txt", content: "x" }] })).content, /does not exist \(use write to create it\)/);
-    assert.match((await call("edit", { edits: [{ path: "harness.yml", content: "x" }] })).content, /cannot be written/);
+    assert.match((await call("edit", { edits: [{ path: "missing.txt", after: "a", before: "b", content: "x" }] })).content, /does not exist \(use write to create it\)/);
+    assert.match((await call("edit", { edits: [{ path: "harness.yml", after: "a", before: "b", content: "x" }] })).content, /cannot be written/);
   });
 });
 

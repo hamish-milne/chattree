@@ -163,7 +163,7 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean } = {}) => (_n:
     return chatText(["It prints status: final."]);
   }
   if (results > 0) return chatText(["done"]);
-  if (prompt.includes("a.txt and b.txt")) return toolCalls({ id: "p1", name: "read", args: { files: [{ path: "a.txt" }] } }, { id: "p2", name: "read", args: { files: [{ path: "b.txt" }] } });
+  if (prompt.includes("two independent things")) return toolCalls({ id: "p1", name: "read", args: { files: [{ path: "a.txt" }] } }, { id: "p2", name: "run", args: { argv: ["ls", "-la"] } });
   if (prompt.includes("Use the read tool")) return toolCalls({ id: "s1", name: "read", args: { files: [{ path: "notes.txt" }] } });
   if (prompt.includes("edit tool")) return toolCalls({ id: "ed", name: "edit", args: { edits: [{ path: "notes.txt", content: "final", mode: "insert" }] } });
   if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { argv: "ls -la" } : { argv: ["ls", "-la"] } });
@@ -177,7 +177,7 @@ describe("runLiveChecks, tool scenarios", () => {
     try {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: names }));
       for (const name of names) assert.equal(r[name]?.status, "pass", `${name}: ${r[name]?.detail}`);
-      assert.match(r["tools-parallel"]?.detail ?? "", /2 calls with distinct ids/);
+      assert.match(r["tools-parallel"]?.detail ?? "", /2 calls \(read, run\) with distinct ids/);
       assert.match(r["tools-reliability"]?.detail ?? "", /edit 3\/3 valid, run 3\/3 valid/);
       assert.match(r["agent-loop"]?.detail ?? "", /tools used: edit, read, run/);
     } finally {
@@ -201,6 +201,22 @@ describe("runLiveChecks, tool scenarios", () => {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-reliability"] }));
       assert.equal(r["tools-reliability"]?.status, "pass");
       assert.match(r["tools-reliability"]?.detail ?? "", /run 0\/3 valid.*argv must be a list/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("a model that looks first with another tool is not counted as malformed, and every request is recorded in its own file", async () => {
+    const server = await FakeServer.start((n, seen) => (JSON.stringify(JSON.parse(seen.body).messages).includes("edit tool") && !seen.body.includes("Read notes.txt, then") ? toolCalls({ id: "q", name: "read", args: { files: [{ path: "notes.txt" }] } }) : agentPretend()(n, seen)));
+    const runs: string[] = [];
+    const logs: string[] = [];
+    try {
+      const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-reliability", "agent-loop"], onRun: (s, _run, req) => void runs.push(`${s}:${req?.tools.length}`), onLog: (s, label) => void logs.push(`${s}:${label}`) }));
+      assert.equal(r["tools-reliability"]?.status, "pass");
+      assert.match(r["tools-reliability"]?.detail ?? "", /edit 0\/0 valid, run 3\/3 valid; 3 chose another tool first/);
+      assert.equal(runs.filter((x) => x.startsWith("tools-reliability")).length, 6);
+      assert.equal(runs.filter((x) => x.startsWith("agent-loop")).length >= 1, true, "the loop's requests are recorded too");
+      assert.ok(logs.includes("agent-loop:loop"));
     } finally {
       await server.close();
     }
