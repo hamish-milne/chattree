@@ -145,3 +145,64 @@ describe("parseArgs", () => {
     }
   });
 });
+
+// ---- Stage A: the tool scenarios against a pretend Chat Completions server that uses the real starter tools --------
+
+const toolCalls = (...cs: { id: string; name: string; args: unknown }[]): Reply => ({
+  acts: [...cs.map((c, index) => chatChunk({ tool_calls: [{ index, id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } }] })), chatChunk({}, "tool_calls"), "data: [DONE]\n\n"],
+});
+const agentPretend = (opts: { tools?: boolean; badArgv?: boolean } = {}) => (_n: number, seen: Seen): Reply => {
+  const body = JSON.parse(seen.body) as { messages: { role: string; content?: string }[]; tools?: unknown[] };
+  const results = body.messages.filter((m) => m.role === "tool").length;
+  const prompt = body.messages.find((m) => m.role === "user")?.content ?? "";
+  if (opts.tools === false || body.tools === undefined) return chatText(["no tools here"]);
+  if (prompt.includes("Read notes.txt, then use the edit tool")) {
+    if (results === 0) return toolCalls({ id: "r1", name: "read", args: { files: [{ path: "notes.txt" }] } });
+    if (results === 1) return toolCalls({ id: "e1", name: "edit", args: { edits: [{ path: "notes.txt", after: "status: ", before: "\n", content: "final" }] } });
+    if (results === 2) return toolCalls({ id: "x1", name: "run", args: { argv: ["cat", "notes.txt"] } });
+    return chatText(["It prints status: final."]);
+  }
+  if (results > 0) return chatText(["done"]);
+  if (prompt.includes("a.txt and b.txt")) return toolCalls({ id: "p1", name: "read", args: { files: [{ path: "a.txt" }] } }, { id: "p2", name: "read", args: { files: [{ path: "b.txt" }] } });
+  if (prompt.includes("Use the read tool")) return toolCalls({ id: "s1", name: "read", args: { files: [{ path: "notes.txt" }] } });
+  if (prompt.includes("edit tool")) return toolCalls({ id: "ed", name: "edit", args: { edits: [{ path: "notes.txt", content: "final", mode: "insert" }] } });
+  if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { argv: "ls -la" } : { argv: ["ls", "-la"] } });
+  return chatText(["pong"]);
+};
+
+describe("runLiveChecks, tool scenarios", () => {
+  const names = ["tools-schema", "tools-parallel", "tools-reliability", "agent-loop"];
+  test("a model that uses the tools well passes all four, including the real loop in a temporary workspace", async () => {
+    const server = await FakeServer.start(agentPretend());
+    try {
+      const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: names }));
+      for (const name of names) assert.equal(r[name]?.status, "pass", `${name}: ${r[name]?.detail}`);
+      assert.match(r["tools-parallel"]?.detail ?? "", /2 calls with distinct ids/);
+      assert.match(r["tools-reliability"]?.detail ?? "", /edit 3\/3 valid, run 3\/3 valid/);
+      assert.match(r["agent-loop"]?.detail ?? "", /tools used: edit, read, run/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("a model without tool support skips all four", async () => {
+    const server = await FakeServer.start(agentPretend({ tools: false }));
+    try {
+      const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: names }));
+      for (const name of names) assert.equal(r[name]?.status, "skip", `${name}: ${r[name]?.detail}`);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("a model whose run calls break the schema fails the reliability count, and says why", async () => {
+    const server = await FakeServer.start(agentPretend({ badArgv: true }));
+    try {
+      const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-reliability"] }));
+      assert.equal(r["tools-reliability"]?.status, "pass");
+      assert.match(r["tools-reliability"]?.detail ?? "", /run 0\/3 valid.*argv must be a list/);
+    } finally {
+      await server.close();
+    }
+  });
+});

@@ -9,12 +9,25 @@
  * environment variable; never pass a key on the command line), --record DIR (save each scenario's events as JSON,
  * secrets scrubbed), --only NAME (repeatable), --list.
  *
+ * The tools-* and agent-loop scenarios use the real starter tools (docs/tools.md, 3.6); agent-loop runs the whole loop in a
+ * temporary git workspace and checks the file and the history.
+ *
  * Exit code: 1 if any scenario fails; a scenario the server does not support (a model without tools or
  * reasoning) is reported as `skip`, not as a failure. Ollama is a zero-cost stand-in: it speaks the Anthropic
  * and OpenAI Responses shapes. It ignores some fields (cache_control, tool_choice) and may not report in-stream errors.
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { z } from "zod";
+import { nodeHost } from "../hosts/node.ts";
+import { Conversation } from "../harness/conversation.ts";
+import { runLoop, syncTools } from "../harness/loop.ts";
+import { envSource } from "../harness/secrets.ts";
+import { leafTools } from "../harness/starter/index.ts";
+import { ToolRegistry } from "../harness/tools.ts";
+import { verifyHistory } from "../harness/verify.ts";
+import { AdapterRegistry, defineAdapter } from "../providers/registry.ts";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import { emptySetup, type AgentSetup } from "../harness/setup.ts";
 import { anthropicAdapter } from "../providers/anthropic.ts";
@@ -119,6 +132,99 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       ok(text.trim().length > 0, "no answer after the tool result");
       return `args=${JSON.stringify(call.args)} → ${JSON.stringify(text.trim().slice(0, 50))}`;
     }],
+    ["tools-schema", async () => {
+      const starter = new ToolRegistry(leafTools());
+      const c1 = ctx([user("Use the read tool to read the file notes.txt. Do not answer from memory.")], starter.definitions());
+      const r1 = clean(await go(c1));
+      const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
+      if (call?.type !== "tool_call") return skip("the model did not call a tool (it may not support tools)");
+      ok(call.name === "read", `called ${call.name}`);
+      const checked = starter.check(call);
+      ok(!("error" in checked), `the call fails the schema: ${"error" in checked ? checked.error : ""}`);
+      return `${starter.names().length} definitions accepted; read args=${JSON.stringify(call.args)}`;
+    }],
+    ["tools-parallel", async () => {
+      const starter = new ToolRegistry(leafTools());
+      const c1 = ctx([user("Read the files a.txt and b.txt. They are independent, so request both reads in the same step.")], starter.definitions());
+      const r1 = clean(await go(c1));
+      const found = (r1.completed?.blocks ?? []).filter((b) => b.type === "tool_call");
+      if (found.length === 0) return skip("the model did not call a tool (it may not support tools)");
+      const ids = new Set(found.map((b) => b.call_id));
+      ok(ids.size === found.length, "two calls share an id");
+      for (const c of found) {
+        const checked = starter.check(c);
+        ok(!("error" in checked), `a call fails the schema: ${"error" in checked ? checked.error : ""}`);
+      }
+      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? []), { role: "tool_results", results: found.map((b) => ({ call_id: b.call_id, is_error: false, content: "file contents: hello", truncated: false })) }], starter.definitions());
+      const r2 = clean(await go(c2));
+      ok((r2.completed?.blocks.length ?? 0) > 0, "no reply after several results");
+      return found.length === 1 ? "one call only (the model did not use parallel calls); round-trip ok" : `${found.length} calls with distinct ids; all results accepted`;
+    }],
+    ["tools-reliability", async () => {
+      const starter = new ToolRegistry(leafTools());
+      const prompts: [string, string][] = [
+        ["edit", "The file notes.txt contains the line `status: draft`. Use the edit tool to change `draft` to `final`."],
+        ["edit", "In app.ts there is a line `const retries = 3;`. Use the edit tool to make it `const retries = 5;`."],
+        ["edit", "Use the edit tool to insert the line `# Notes` at the top of README.md; do not rewrite the file."],
+        ["run", "Use the run tool to list the files in the current directory with ls -la."],
+        ["run", "Use the run tool to print the word hello with echo, then pipe it through wc -c."],
+        ["run", "Use the run tool to count the lines in every .ts file under src using wc -l and a glob."],
+      ];
+      const tally: Record<string, [number, number]> = { edit: [0, 0], run: [0, 0] };
+      const bad: string[] = [];
+      let any = false;
+      for (const [tool, prompt] of prompts) {
+        const r = clean(await go(ctx([user(prompt)], starter.definitions())));
+        const call = (r.completed?.blocks ?? []).find((b) => b.type === "tool_call");
+        if (call?.type !== "tool_call") continue;
+        any = true;
+        const row = tally[tool] as [number, number];
+        row[1]++;
+        const checked = call.name === tool ? starter.check(call) : { error: `called ${call.name}` };
+        if ("error" in checked) bad.push(`${tool}: ${checked.error.split("\n")[0]}`);
+        else row[0]++;
+      }
+      if (!any) return skip("the model did not call a tool (it may not support tools)");
+      ok(tally["edit"]![0] + tally["run"]![0] > 0, `no valid call at all: ${bad.join("; ")}`);
+      return `edit ${tally["edit"]![0]}/${tally["edit"]![1]} valid, run ${tally["run"]![0]}/${tally["run"]![1]} valid${bad.length > 0 ? `; problems: ${bad.slice(0, 3).join("; ")}` : ""}`;
+    }],
+    ["agent-loop", async () => {
+      const registry = new ToolRegistry(leafTools());
+      const live = new AdapterRegistry().register(
+        defineAdapter({
+          $tag: "live",
+          config: z.strictObject({ $tag: z.literal("live") }),
+          settings: z.looseObject({}),
+          jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+          secrets: () => [],
+          create: () => adapter,
+        }),
+      );
+      const dir = join(await mkdtemp(join(tmpdir(), "chattree-live-")), "c");
+      const convo = await Conversation.create(nodeHost(), dir, { providers: { registry: live, secrets: envSource({}) }, config: "providers:\n  live:\n    $tag: live\n" });
+      await convo.setupChange({ model: setup.model as NonNullable<AgentSetup["model"]> });
+      await syncTools(convo, registry);
+      await writeFile(join(dir, "notes.txt"), "status: draft\n");
+      await convo.append({ $tag: "user", content: [{ $tag: "text", text: "Read notes.txt, then use the edit tool to change the word draft to final, then run `cat notes.txt` with the run tool and tell me what it prints." }] });
+      let requests = 0;
+      const used = new Set<string>();
+      const gen = runLoop(convo, { system: "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.", cost: false, registry, signal: AbortSignal.timeout(180_000) });
+      for (;;) {
+        const n = await gen.next();
+        if (n.done === true) {
+          ok(n.value.status === "completed", `the loop ended with ${n.value.status}`);
+          requests = n.value.requests;
+          break;
+        }
+        if (n.value.type === "tool.start") used.add(n.value.name);
+      }
+      if (used.size === 0) return skip("the model did not call a tool (it may not support tools)");
+      const file = await readFile(join(dir, "notes.txt"), "utf8");
+      ok(file.includes("final") && !file.includes("draft"), `notes.txt is ${JSON.stringify(file)}`);
+      const problems = await verifyHistory(convo);
+      ok(problems.length === 0, `the history does not verify: ${JSON.stringify(problems).slice(0, 300)}`);
+      return `${requests} requests, tools used: ${[...used].sort().join(", ")}; file edited; history verifies`;
+    }],
     ["reasoning-replay", async () => {
       const c1 = ctx([user("What is 17 * 23? Think it through.")]);
       const r1 = clean(await go(c1));
@@ -203,7 +309,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   return results;
 }
 
-export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
+export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "tools-schema", "tools-parallel", "tools-reliability", "agent-loop", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
 
 export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: LiveOptions; record?: string; list: boolean } {
   const flags = new Map<string, string[]>();
