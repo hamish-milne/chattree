@@ -239,4 +239,4 @@ Eight steps, each committed with its tests. All offline tests use the existing f
 
 ## 11. Build status
 
-Nothing built yet.
+- **Step 1 (done, except the reference form).** `harness/tool-schema.ts` (the portable subset: `checkSchema`, `validateArgs`) and `harness/tools.ts` (`Tool`, `ToolRegistry` with name and schema checks, sorted definitions, pinning, `check` for a model's call; `shapeResult` with head and tail truncation on character boundaries and a `keep` hook for the full output). The file-reference form of a result (format bump and verifier support) moves to step 2, where `read` is its only user; large command output already becomes a blob through the write pipeline's own threshold, and `keep` is how a cut result names where the full text is.
