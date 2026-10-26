@@ -176,3 +176,16 @@ these up together before release.
   and add the older models once their API ids are confirmed.
 - **Prompt caching prices and multipliers** for Anthropic (lifetimes, write multipliers) are verified together with the
   adapter's request shapes (High).
+
+## CLI (left after the first complete version)
+
+Low unless noted. The CLI is chat-only: the tool loop is the next big piece (the engine, activity model and renderer leave room for it).
+
+- **Tool loop** (Medium): the CLI notes a `tool_use` stop and stops there.
+- **`chattree doctor`**: git and Node versions, providers and keys, a request to each provider with `--online`.
+- **`--json` output** for the non-interactive verbs, for scripts.
+- **Ghost-text suggestions** and a configurable way to end bare text (today: a blank line sends).
+- **Another session's streaming reply**: a second session shows the finished entries as they land, not the stream (tail the journal).
+- **`/threads`**: how many sessions point at each thread (`/thread` shows it for the current one).
+- **Summaries from `/merge` and `/compact`** are not in the cost ledger (the usage is shown when they are made).
+- **Sessions**: `/sessions` cannot yet delete or adopt one; a stale session file is removed by hand.
