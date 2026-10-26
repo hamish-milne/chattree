@@ -18,6 +18,8 @@ export interface ToolContext {
   /** The thread's worktree: the workspace, and the root every path is relative to. */
   workspace: string;
   host: Host;
+  /** The conversation's blobs, for tools that read stored output (`blob:<sha256>`). */
+  blobs?: BlobStore;
 }
 
 export interface ToolOutput {

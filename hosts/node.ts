@@ -3,7 +3,7 @@ import { constants } from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 import { randomBytes } from "node:crypto";
-import type { ExecOptions, ExecResult, FileStat, Fs, Host, HostProcess, PathOps } from "../src/host.ts";
+import type { ExecOptions, ExecResult, FileStat, Fs, Host, HostProcess, PathOps, RunOutcome, RunSpec } from "../src/host.ts";
 
 const DEFAULT_MAX_OUTPUT = 256 * 1024 * 1024;
 
@@ -107,6 +107,141 @@ function spawnProcess(program: string, args: readonly string[], opts: Pick<ExecO
   });
 }
 
+const DEFAULT_RUN_OUTPUT = 8 * 1024 * 1024;
+
+/** Kill a child and everything it started: its process group on POSIX, its tree on Windows. */
+function killTree(child: ReturnType<typeof spawn>): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  try {
+    if (process.platform === "win32") spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => undefined);
+    else process.kill(-pid, "SIGKILL");
+  } catch {
+    try {
+      child.kill("SIGKILL");
+    } catch {
+      /* already gone */
+    }
+  }
+}
+
+function runCommand(spec: RunSpec): Promise<RunOutcome> {
+  return new Promise((resolve) => {
+    const limit = spec.maxOutput ?? DEFAULT_RUN_OUTPUT;
+    const env: Record<string, string | undefined> = { ...process.env, ...(spec.env ?? {}) };
+    const pattern = spec.unsetEnvPattern === undefined ? undefined : new RegExp(spec.unsetEnvPattern, "i");
+    for (const name of Object.keys(env)) if ((spec.unsetEnv ?? []).includes(name) || (pattern?.test(name) === true && !(name in (spec.env ?? {})))) delete env[name];
+
+    const output: Uint8Array[] = [];
+    const stdoutChunks: Uint8Array[] = [];
+    let outBytes = 0;
+    let stdoutBytes = 0;
+    let dropped = 0;
+    const keep = (into: Uint8Array[], size: number, chunk: Uint8Array): number => {
+      const room = limit - size;
+      if (room <= 0) {
+        dropped += chunk.length;
+        return size;
+      }
+      const part = chunk.length > room ? chunk.subarray(0, room) : chunk;
+      dropped += chunk.length - part.length;
+      into.push(part);
+      return size + part.length;
+    };
+
+    const children: ReturnType<typeof spawn>[] = [];
+    const codes: number[] = new Array<number>(spec.stages.length).fill(-1);
+    let timedOut = false;
+    let aborted = false;
+    let settled = false;
+    let pending = spec.stages.length;
+    const killAll = (): void => {
+      for (const c of children) killTree(c);
+    };
+    let fallback: ReturnType<typeof setTimeout> | undefined;
+    const finish = (): void => {
+      if (settled) return;
+      settled = true;
+      if (timer !== undefined) clearTimeout(timer);
+      if (fallback !== undefined) clearTimeout(fallback);
+      spec.signal?.removeEventListener("abort", onAbort);
+      const last = codes[codes.length - 1] as number;
+      resolve({
+        exitCode: last,
+        stageCodes: codes,
+        output: concat(output, outBytes),
+        ...(spec.captureStdout === true ? { stdout: concat(stdoutChunks, stdoutBytes) } : {}),
+        dropped,
+        timedOut,
+        aborted,
+      });
+    };
+    const stopped = (): void => {
+      // After a kill, wait a moment for the pipes to drain, then give up on any that something else holds open.
+      fallback ??= setTimeout(() => {
+        for (let i = 0; i < codes.length; i++) if (codes[i] === -1) codes[i] = 137;
+        finish();
+      }, 2000);
+    };
+    const onAbort = (): void => {
+      aborted = true;
+      killAll();
+      stopped();
+    };
+    const timer = spec.timeoutMs === undefined ? undefined : setTimeout(() => {
+      timedOut = true;
+      killAll();
+      stopped();
+    }, spec.timeoutMs);
+    if (spec.signal?.aborted === true) {
+      onAbort();
+    }
+    spec.signal?.addEventListener("abort", onAbort, { once: true });
+
+    spec.stages.forEach((stage, i) => {
+      const [program, ...args] = stage as readonly [string, ...string[]];
+      const last = i === spec.stages.length - 1;
+      const child = spawn(program, args, { cwd: spec.cwd, env: env as NodeJS.ProcessEnv, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: process.platform !== "win32", windowsHide: true });
+      children.push(child);
+      let done = false;
+      const end = (code: number): void => {
+        if (done) return;
+        done = true;
+        codes[i] = code;
+        if (--pending === 0) finish();
+      };
+      child.stdin.on("error", () => undefined);
+      child.stdout.on("error", () => undefined);
+      child.stderr.on("error", () => undefined);
+      child.stderr.on("data", (c: Uint8Array) => {
+        outBytes = keep(output, outBytes, c);
+      });
+      if (!last) {
+        const next = i + 1;
+        // The next stage is spawned after this one in the loop; connect once it exists.
+        queueMicrotask(() => {
+          const target = children[next]?.stdin;
+          if (target !== null && target !== undefined) child.stdout.pipe(target);
+        });
+      } else if (spec.captureStdout === true) {
+        child.stdout.on("data", (c: Uint8Array) => {
+          stdoutBytes = keep(stdoutChunks, stdoutBytes, c);
+        });
+      } else {
+        child.stdout.on("data", (c: Uint8Array) => {
+          outBytes = keep(output, outBytes, c);
+        });
+      }
+      if (i === 0) child.stdin.end(spec.stdin);
+      child.on("error", (e: NodeJS.ErrnoException) => {
+        outBytes = keep(output, outBytes, new TextEncoder().encode(e.code === "ENOENT" ? `${program}: command not found\n` : `${program}: ${e.message}\n`));
+        end(127);
+      });
+      child.on("close", (code, signal) => end(code ?? (signal === null ? 1 : 128 + ((signal === "SIGKILL" && 9) || (signal === "SIGTERM" && 15) || 1))));
+    });
+  });
+}
+
 async function writeFlushed(handle: fsp.FileHandle, data: Uint8Array): Promise<void> {
   let at = 0;
   while (at < data.length) at += (await handle.write(data, at, data.length - at)).bytesWritten;
@@ -154,12 +289,14 @@ const nodeFs: Fs = {
       throw e;
     }
   },
-  async writeAtomic(path, data) {
+  async writeAtomic(path, data, opts) {
     const dir = nodePath.dirname(path);
     await fsp.mkdir(dir, { recursive: true });
     const tmp = `${path}.tmp-${randomBytes(6).toString("hex")}`;
+    const mode = opts?.keepMode === true ? await fsp.stat(path).then((s) => s.mode & 0o7777, () => undefined) : undefined;
     const h = await fsp.open(tmp, "wx");
     try {
+      if (mode !== undefined) await h.chmod(mode);
       await writeFlushed(h, data);
       await h.sync();
     } catch (e) {
@@ -250,10 +387,18 @@ const nodeFs: Fs = {
     await fsp.mkdir(path, { recursive: true });
   },
   readdir: (path) => fsp.readdir(path),
+  async realpath(path) {
+    try {
+      return await fsp.realpath(path);
+    } catch (e) {
+      if (isCode(e, "ENOENT") || isCode(e, "ENOTDIR")) return undefined;
+      throw e;
+    }
+  },
 };
 
 /** A host for the machine this process runs on. Programs run without a shell; the environment is `process.env` plus `opts.env`. */
 export function nodeHost(): Host {
-  const path: PathOps = { join: (...s) => nodePath.join(...s), dirname: (p) => nodePath.dirname(p) };
-  return { exec, spawn: spawnProcess, fs: nodeFs, path, nullDevice: process.platform === "win32" ? "NUL" : "/dev/null" };
+  const path: PathOps = { join: (...s) => nodePath.join(...s), dirname: (p) => nodePath.dirname(p), resolve: (...s) => nodePath.resolve(...s), relative: (a, b) => nodePath.relative(a, b), isAbsolute: (p) => nodePath.isAbsolute(p) };
+  return { exec, spawn: spawnProcess, run: runCommand, fs: nodeFs, path, nullDevice: process.platform === "win32" ? "NUL" : "/dev/null" };
 }

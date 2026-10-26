@@ -54,8 +54,8 @@ export interface Fs {
   readRange(path: string, offset: number, length: number): Promise<Uint8Array>;
   /** Undefined if the path does not exist. */
   stat(path: string): Promise<FileStat | undefined>;
-  /** Replace the file's content atomically (write a temporary file, flush, rename), creating parent directories. */
-  writeAtomic(path: string, data: Uint8Array): Promise<void>;
+  /** Replace the file's content atomically (write a temporary file, flush, rename), creating parent directories. With `keepMode`, an existing file's permission bits (the executable bit of a script) carry over. */
+  writeAtomic(path: string, data: Uint8Array, opts?: { keepMode?: boolean }): Promise<void>;
   /** Append bytes, creating the file (and parent directories) if needed. With `sync`, flush to stable storage before resolving. */
   append(path: string, data: Uint8Array, opts?: { sync?: boolean }): Promise<void>;
   /** Create the file with this content only if it does not exist (the basis of lock files). Resolves false if it exists. */
@@ -69,11 +69,56 @@ export interface Fs {
   mkdir(path: string): Promise<void>;
   /** Names (not paths) of a directory's entries. Rejects if it does not exist. */
   readdir(path: string): Promise<string[]>;
+  /** The path with every symbolic link resolved, or undefined if it does not exist. */
+  realpath(path: string): Promise<string | undefined>;
 }
 
 export interface PathOps {
   join(...segments: string[]): string;
   dirname(path: string): string;
+  /** Resolve segments right to left into an absolute path, normalised (no `.` or `..` left). */
+  resolve(...segments: string[]): string;
+  /** The path from `from` to `to`; starts with `..` when `to` is outside `from`. */
+  relative(from: string, to: string): string;
+  isAbsolute(path: string): boolean;
+}
+
+/** A command (or a pipeline of commands) for `Host.run`: what an agent's `run` and `script` tools need and `exec` does not give. */
+export interface RunSpec {
+  /** One or more commands, each `[program, ...args]`, started directly (no shell). The stdout of one feeds the stdin of the next. */
+  stages: readonly (readonly string[])[];
+  cwd: string;
+  /** Added to the base environment. */
+  env?: Readonly<Record<string, string>>;
+  /** Names removed from the base environment (secrets the command should not see). */
+  unsetEnv?: readonly string[];
+  /** Regular expression source (case-insensitive) for more names to remove. */
+  unsetEnvPattern?: string;
+  /** Input for the first stage. Default: none (stdin is closed). */
+  stdin?: Uint8Array;
+  /** Keep the last stage's stdout apart from `output`, so the caller can send it to a file. */
+  captureStdout?: boolean;
+  /** Kill the whole process group after this long. */
+  timeoutMs?: number;
+  /** The most bytes kept of `output` (and of `stdout`); the rest is counted in `dropped` and discarded. Default 8 MiB. */
+  maxOutput?: number;
+  /** Aborting kills the whole process group. */
+  signal?: AbortSignal;
+}
+
+export interface RunOutcome {
+  /** The last stage's exit code (128 + n for signal n, 127 when the program could not be started). */
+  exitCode: number;
+  /** Every stage's code, in order. */
+  stageCodes: number[];
+  /** stderr of every stage and, unless `captureStdout`, the last stage's stdout, in the order the bytes arrived. */
+  output: Uint8Array;
+  /** The last stage's stdout, when `captureStdout` was set. */
+  stdout?: Uint8Array;
+  /** Bytes discarded because they were past `maxOutput`. */
+  dropped: number;
+  timedOut: boolean;
+  aborted: boolean;
 }
 
 export interface Host {
@@ -84,6 +129,12 @@ export interface Host {
    * Optional: without it callers fall back to `exec`, one process per request.
    */
   spawn?(program: string, args: readonly string[], opts: Pick<ExecOptions, "cwd" | "env">): Promise<HostProcess>;
+  /**
+   * Run a command or a pipeline in its own process group, collecting stdout and stderr in arrival order. It resolves for
+   * any outcome (a failing, killed or unstartable command is an outcome, not an error). Optional: a host without it
+   * cannot run agent commands.
+   */
+  run?(spec: RunSpec): Promise<RunOutcome>;
   readonly fs: Fs;
   readonly path: PathOps;
   /** The path git should treat as "no directory" (`/dev/null`, or `NUL` on Windows). */

@@ -201,3 +201,4 @@ Not part of the first tool loop.
 - **MCP servers and user-defined tools**: the registry is shaped for them.
 - **Detached jobs** that outlive the CLI process (today a crash marks them lost).
 - **Strict mode for Responses** (`strict: true`) for definitions that fit it.
+- **Use a validation library for tool schemas** instead of `harness/tool-schema.ts`. `zod` is already a dependency (4.6.7, which has `z.fromJSONSchema`), but it is listed under `devDependencies` while the harness imports it at runtime, so that needs fixing first. An off-the-shelf validator would also take on keywords beyond the portable subset; the subset check at registration would stay, since it is about provider portability, not validity.
