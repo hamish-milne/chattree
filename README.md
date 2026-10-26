@@ -38,7 +38,7 @@ developed on 22.23 because that is what the sandbox had.
 | `hosts/node.ts` | The local-machine `Host`; the only code that imports Node |
 | `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork, subagents, fork merge, compact, interrupt, `agent_setup` changes and provider-observed model changes), the context view (`contextEntries`), `appendMany`, `onEvent` events, the entry-index cache, `gcBlobs`, `pruneWorktrees`, `close`, the turn runner (`requestStream`/`runRequest`: one model request, journaled beside the repository and committed as `assistant` or `interrupted`; `open` recovers a request the process died in), `verifyHistory`, `readCommitGraph`/`toMermaid` (see `docs/lifecycle-graph.md`), and the file-backed blob store |
 | `providers/` | The provider seam: neutral stream events and errors, an SSE parser, the shared HTTP transport (retry, timeouts, limits, scrubbing), conformance checks, fixture record and replay; the Anthropic, OpenAI Responses and OpenAI-compatible (Chat Completions) adapters and the registry that `harness.yml` providers are checked against (see `docs/providers.md`, `docs/writing-an-adapter.md`). `tools/live-check.ts` validates an adapter against a real or local server |
-| `cli/` | The CLI host (`chattree`; see `docs/cli.md`): project detection, `init`, the engine and command registry, the plain renderer, and the non-interactive verbs (`say`, `show`, `status`, `history`, `threads`, `usage`, `verify`, ...). Sessions and the interactive `chat` follow |
+| `cli/` | The CLI host (`chattree`; see `docs/cli.md`): project detection, `init`, the engine and command registry, the plain renderer, and the non-interactive verbs (`say`, `show`, `status`, `history`, `threads`, `usage`, `verify`, ...). Session files (`cli/session.ts`) are done; the interactive `chat` follows |
 
 `src/` uses only web-standard globals (`TextEncoder`, `TextDecoder`, `crypto.subtle`), so it should run
 unchanged on Node, Deno, Bun and browsers. Its tsconfig has `types: []` to enforce that.
@@ -58,7 +58,7 @@ imports none of them) and a list of transforms.
 - **Plain-object form.** Validators see `{ $tag: "user", ...fields }`, tagged lists and strings as
   `{ $tag, $value }`, blob references as `{ $tag: "blob", ... }`, so discriminated unions on `$tag` just work.
   JavaScript orders integer-like keys first, so such keys are reordered in this form.
-- zod is a dev dependency, used only by `harness/`.
+- zod is a dev dependency, used only by `harness/` and `cli/session.ts`.
 
 ## Config files
 

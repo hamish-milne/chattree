@@ -5,6 +5,7 @@ import { Engine } from "./engine.ts";
 import { defaultCommands } from "./commands/index.ts";
 import { PlainRenderer, type Thinking } from "./output.ts";
 import { findProject, openThread } from "./project.ts";
+import { SessionStore } from "./session.ts";
 import { Registry } from "./registry.ts";
 
 const OPTIONS = {
@@ -92,7 +93,8 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     const needsProviders = ["say", "retry", "continue"].includes(verb);
     const project = await findProject(where, start);
     const opened = await openThread(where, project, values.thread, { providers: needsProviders ? "required" : "optional" });
-    const engine = new Engine({ io: where, project, opened, confirm: async () => values.yes === true });
+    const sessions = await SessionStore.open(where, project.git);
+    const engine = new Engine({ io: where, project, opened, sessions, confirm: async () => values.yes === true });
     if (values.thinking !== undefined) {
       if (!["on", "off", "brief"].includes(values.thinking)) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
       engine.state.thinking = values.thinking as Thinking;

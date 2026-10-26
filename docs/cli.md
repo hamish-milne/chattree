@@ -196,4 +196,4 @@ Decided in review: tool loop after the CLI; daemon not now; abort by marker file
 
 ## 12. Build status
 
-Steps 1 (probes), 2 (library) and 3 (skeleton: project detection, `init`, engine, registry, plain renderer, non-interactive verbs; tests in `test/cli/`) are done. Next: 4 (sessions), 5 (`chat`), 6 (remaining commands).
+Steps 1 (probes), 2 (library), 3 (skeleton) and 4 (sessions) are done; tests are in `test/cli/`. Step 4 added `Lock.refresh()` to the library (the session's heartbeat), `cli/session.ts` (the store, the `Session` handle with debounced atomic writes, resume by thread, id or prefix, `--fresh`), the `/sessions` command and the `session:` line in `/status`. The session file is a single `!session` entry in the canonical format; unreadable files are skipped with the reason and never deleted. Prompt history is stored with the session but does not by itself keep it. Next: 5 (`chat`: terminal layer, `--session`/`--new-session` wiring, signal flush), 6 (remaining commands).

@@ -107,7 +107,8 @@ const status: Command = {
       `prices:      ${setup.pricing === undefined ? "not pinned (costs are unknown until /pricing pin)" : `pinned ${setup.pricing.table.slice(0, 12)}`}`,
       `spend:       ${l === undefined ? "unknown" : `$${l.conversation.usd.toFixed(4)}${l.conversation.unpriced > 0 ? "+" : ""} this thread, $${l.turn.usd.toFixed(4)} this turn`}`,
       `activity:    ${act.state === "idle" ? "idle" : act.live ? `a request to ${act.model} is running${act.owner?.pid === undefined ? "" : ` (process ${act.owner.pid})`}` : `a request to ${act.model} died; it is recorded when the thread is next used`}`,
-      `staged:      ${engine.state.attachments.length} file${engine.state.attachments.length === 1 ? "" : "s"}, draft ${engine.state.draft.length} characters`,
+      `session:     ${engine.sessionId ?? "(none: one-shot)"}`,
+      `staged:      ${engine.state.attachments.length} file${engine.state.attachments.length === 1 ? "" : "s"}, draft ${engine.state.draft.length} characters, thinking ${engine.state.thinking}`,
     ];
     if (engine.degraded !== undefined) lines.push(`providers:   unavailable (${engine.degraded})`);
     if (setup.unacknowledged.length > 0) lines.push(`attention:   the provider changed the agent; /accept it to carry on`);

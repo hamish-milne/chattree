@@ -33,6 +33,8 @@ export class LockHeldError extends Error {
 
 export interface Lock {
   readonly info: LockInfo;
+  /** Stamp the lock with the current time so it is not taken as stale; for a lock held a long time. Resolves false if it was no longer ours. */
+  refresh(): Promise<boolean>;
   /** Release the lock. Resolves false if it was no longer ours (it had been taken over as stale). */
   release(): Promise<boolean>;
 }
@@ -81,6 +83,12 @@ export async function acquireLock(fs: Fs, path: string, opts: LockOptions = {}):
     if (await fs.createExclusive(path, enc.encode(JSON.stringify(info)))) {
       return {
         info,
+        async refresh() {
+          const cur = await readInfo(fs, path);
+          if (cur.info?.token !== token) return false;
+          await fs.writeAtomic(path, enc.encode(JSON.stringify({ ...info, createdAt: now() })));
+          return true;
+        },
         async release() {
           const cur = await readInfo(fs, path);
           if (cur.info?.token !== token) return false;

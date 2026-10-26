@@ -5,6 +5,7 @@ import type { OpenedThread, Project } from "./project.ts";
 import type { Output, Thinking } from "./output.ts";
 import { parseCommand, Registry, tokenize } from "./registry.ts";
 import { defaultCommands } from "./commands/index.ts";
+import type { Session, SessionStore } from "./session.ts";
 
 /** A file staged for the next prompt. Only the path and what was decided about it are kept; the blob is made when the prompt is sent. */
 export interface StagedAttachment {
@@ -21,9 +22,14 @@ export interface SessionState {
   draft: string;
   attachments: StagedAttachment[];
   thinking: Thinking;
+  /** What the user has entered, oldest first (for the up arrow). */
+  history: string[];
 }
 
-export const emptyState = (): SessionState => ({ draft: "", attachments: [], thinking: "off" });
+export const emptyState = (): SessionState => ({ draft: "", attachments: [], thinking: "off", history: [] });
+
+/** Nothing waiting to be sent: a session in this state is not worth keeping. (Preferences and history alone are not.) */
+export const hasPendingState = (s: SessionState): boolean => s.draft.trim() !== "" || s.attachments.length > 0;
 
 export interface Ctx {
   engine: Engine;
@@ -41,8 +47,9 @@ export interface EngineOptions {
   system?: string;
   /** Asked before a change the library classified is allowed. Default: no. */
   confirm?: (question: string) => Promise<boolean>;
-  sessionId?: string;
-  state?: SessionState;
+  /** The stored session this engine runs in, if any: its state is the engine's state, and it is saved after every line. */
+  session?: Session;
+  sessions?: SessionStore;
 }
 
 export const DEFAULT_SYSTEM = "You are a helpful assistant. The conversation is stored in a git repository; be concise and say plainly when you are unsure.";
@@ -56,7 +63,8 @@ export class Engine {
   readonly project: Project;
   readonly registry: Registry;
   readonly system: string;
-  readonly sessionId: string | undefined;
+  readonly session: Session | undefined;
+  readonly sessions: SessionStore | undefined;
   state: SessionState;
   convo: Conversation;
   thread: string;
@@ -77,10 +85,15 @@ export class Engine {
     this.thread = o.opened.thread;
     this.degraded = o.opened.degraded;
     this.system = o.system ?? DEFAULT_SYSTEM;
-    this.sessionId = o.sessionId;
-    this.state = o.state ?? emptyState();
+    this.session = o.session;
+    this.sessions = o.sessions;
+    this.state = o.session?.state ?? emptyState();
     this.registry = new Registry(defaultCommands());
     this.#confirm = o.confirm ?? (async () => false);
+  }
+
+  get sessionId(): string | undefined {
+    return this.session?.id;
   }
 
   /** Point the session at another thread. Draft, staged files and preferences stay. */
@@ -88,6 +101,7 @@ export class Engine {
     this.convo = opened.convo;
     this.thread = opened.thread;
     this.degraded = opened.degraded;
+    this.session?.point(opened.thread);
   }
 
   get ctx(): Ctx {
@@ -95,6 +109,14 @@ export class Engine {
   }
 
   async *submit(line: string): AsyncGenerator<Output, void> {
+    try {
+      yield* this.#submit(line);
+    } finally {
+      this.session?.touch();
+    }
+  }
+
+  async *#submit(line: string): AsyncGenerator<Output, void> {
     const trimmed = line.replace(/\s+$/, "");
     if (trimmed === "") return;
     const parsed = parseCommand(trimmed);
