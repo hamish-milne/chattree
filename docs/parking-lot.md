@@ -181,7 +181,7 @@ these up together before release.
 
 Low unless noted. The CLI is chat-only: the tool loop is the next big piece (the engine, activity model and renderer leave room for it).
 
-- **Tool loop** (Medium): the CLI notes a `tool_use` stop and stops there.
+- **Tool loop** (Medium): planned in `docs/tools.md`; the CLI notes a `tool_use` stop and stops there until it is built.
 - **`chattree doctor`**: git and Node versions, providers and keys, a request to each provider with `--online`.
 - **`--json` output** for the non-interactive verbs, for scripts.
 - **Ghost-text suggestions** and a configurable way to end bare text (today: a blank line sends).
@@ -189,3 +189,15 @@ Low unless noted. The CLI is chat-only: the tool loop is the next big piece (the
 - **`/threads`**: how many sessions point at each thread (`/thread` shows it for the current one).
 - **Summaries from `/merge` and `/compact`** are not in the cost ledger (the usage is shown when they are made).
 - **Sessions**: `/sessions` cannot yet delete or adopt one; a stale session file is removed by hand.
+
+## Tools (follow-ups from docs/tools.md)
+
+Not part of the first tool loop.
+
+- **OS-level sandbox** for `run` and `script` (container or restricted user): the real answer to approved commands having the user's permissions (Medium).
+- **Search and web tools** (`grep`, `fetch`) if `run` proves awkward for them.
+- **Image and PDF results** from `read`: a tool result that carries an image needs adapter work.
+- **Parallel foreground calls**: today they run in order; background jobs are the concurrency story.
+- **MCP servers and user-defined tools**: the registry is shaped for them.
+- **Detached jobs** that outlive the CLI process (today a crash marks them lost).
+- **Strict mode for Responses** (`strict: true`) for definitions that fit it.
