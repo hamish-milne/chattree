@@ -1,5 +1,6 @@
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool, ToolContext } from "../tools.ts";
+import { versionOf } from "./version.ts";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_LINES = 2000;
@@ -56,7 +57,8 @@ async function readOne(ctx: ToolContext, item: Item): Promise<{ text: string; ok
   } catch {
     return failed(name, "not UTF-8 text");
   }
-  if (text === "") return { text: `=== ${name} (empty file) ===`, ok: true };
+  const v = item.path.startsWith("blob:") ? "" : `, v ${await versionOf(bytes)}`;
+  if (text === "") return { text: `=== ${name} (empty file${v}) ===`, ok: true };
   const all = text.split("\n");
   if (all.at(-1) === "") all.pop();
   const offset = item.offset ?? 0;
@@ -64,7 +66,7 @@ async function readOne(ctx: ToolContext, item: Item): Promise<{ text: string; ok
   if (offset >= all.length) return failed(name, `only ${all.length} lines; offset ${offset} is past the end`);
   const slice = all.slice(offset, offset + limit);
   const partial = offset > 0 || offset + limit < all.length;
-  const head = partial ? `lines ${offset + 1}-${offset + slice.length} of ${all.length}` : `${all.length} line${all.length === 1 ? "" : "s"}`;
+  const head = (partial ? `lines ${offset + 1}-${offset + slice.length} of ${all.length}` : `${all.length} line${all.length === 1 ? "" : "s"}`) + v;
   const more = offset + slice.length < all.length ? `\n... ${all.length - offset - slice.length} more lines; read again with offset ${offset + slice.length} for the rest` : "";
   return { text: `=== ${name} (${head}) ===\n${lineNumbered(slice, offset + 1)}${more}`, ok: true };
 }
@@ -74,7 +76,7 @@ export function readTool(): Tool {
     definition: {
       name: "read",
       description:
-        "Read text files from the workspace. Takes a list of files so several can be fetched in one call. Each file is returned as numbered lines under its own header. A file longer than `limit` lines (default 2000) is cut and the result says which `offset` to use for the rest. A directory returns a listing. A path of the form blob:<sha256> reads stored output that an earlier result named. One file failing does not stop the others.",
+        "Read text files from the workspace. Takes a list of files so several can be fetched in one call. Each file is returned as numbered lines under its own header, which also gives the file's version (`v ...`): edit needs it. A file longer than `limit` lines (default 2000) is cut and the result says which `offset` to use for the rest. A directory returns a listing. A path of the form blob:<sha256> reads stored output that an earlier result named. One file failing does not stop the others.",
       input_schema: {
         type: "object",
         additionalProperties: false,

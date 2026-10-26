@@ -151,41 +151,67 @@ describe("parseArgs", () => {
 const toolCalls = (...cs: { id: string; name: string; args: unknown }[]): Reply => ({
   acts: [...cs.map((c, index) => chatChunk({ tool_calls: [{ index, id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } }] })), chatChunk({}, "tool_calls"), "data: [DONE]\n\n"],
 });
-const agentPretend = (opts: { tools?: boolean; badArgv?: boolean } = {}) => (_n: number, seen: Seen): Reply => {
+const lastVersion = (body: { messages: { role: string; content?: string }[] }): string => {
+  const tools = body.messages.filter((m) => m.role === "tool");
+  return /v ([0-9a-f]{8})/.exec(tools.at(-1)?.content ?? "")?.[1] ?? "00000000";
+};
+const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: boolean } = {}) => (_n: number, seen: Seen): Reply => {
   const body = JSON.parse(seen.body) as { messages: { role: string; content?: string }[]; tools?: unknown[] };
   const results = body.messages.filter((m) => m.role === "tool").length;
   const prompt = body.messages.find((m) => m.role === "user")?.content ?? "";
   if (opts.tools === false || body.tools === undefined) return chatText(["no tools here"]);
+  const read = (path: string) => toolCalls({ id: `r${results}`, name: "read", args: { files: [{ path }] } });
+  const edit = (path: string, changes: unknown[]) => toolCalls({ id: `e${results}`, name: "edit", args: { files: [{ path, version: lastVersion(body), changes }] } });
   if (prompt.includes("Read notes.txt, then use the edit tool")) {
-    if (results === 0) return toolCalls({ id: "r1", name: "read", args: { files: [{ path: "notes.txt" }] } });
-    if (results === 1) return toolCalls({ id: "e1", name: "edit", args: { edits: [{ path: "notes.txt", after: "status: ", before: "\n", content: "final" }] } });
+    if (results === 0) return read("notes.txt");
+    if (results === 1) return edit("notes.txt", [{ start: 1, end: 1, content: "status: final" }]);
     if (results === 2) return toolCalls({ id: "x1", name: "run", args: { argv: ["cat", "notes.txt"] } });
     return chatText(["It prints status: final."]);
   }
+  // tools-edit cases: read the file, then edit it with the version read showed
+  const cases: [string, string, unknown[]][] = [
+    ["change the word draft", "notes.txt", [{ start: 1, end: 1, content: opts.wrongLines === true ? "oops" : "status: final" }]],
+    ["set retries to 5", "app.conf", [{ start: 2, end: 2, content: "retries = 5" }, { start: 3, end: 3, content: "verbose = true" }]],
+    ["start with `drop`", "list.txt", [{ start: 2, end: 4, content: "" }]],
+    ["import sys", "main.py", [{ after: 1, content: "import sys" }, { after: 4, content: "main()" }]],
+  ];
+  for (const [key, path, changes] of cases) if (prompt.includes(key)) return results === 0 ? read(path) : results === 1 ? edit(path, changes) : chatText(["done"]);
+  if (prompt.includes("insert the line `# v2`")) return results === 0 ? read("f.txt") : results === 1 ? edit("f.txt", [{ after: 0, content: "# v2" }]) : results === 2 ? edit("f.txt", [{ start: 4, end: 4, content: "GAMMA" }]) : chatText(["done"]);
   if (results > 0) return chatText(["done"]);
   if (prompt.includes("two independent things")) return toolCalls({ id: "p1", name: "read", args: { files: [{ path: "a.txt" }] } }, { id: "p2", name: "run", args: { argv: ["ls", "-la"] } });
   if (prompt.includes("Use the read tool")) return toolCalls({ id: "s1", name: "read", args: { files: [{ path: "notes.txt" }] } });
-  if (prompt.includes("edit tool")) return toolCalls({ id: "ed", name: "edit", args: { edits: [{ path: "notes.txt", content: "final", mode: "insert" }] } });
   if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { argv: "ls -la" } : { argv: ["ls", "-la"] } });
   return chatText(["pong"]);
 };
 
 describe("runLiveChecks, tool scenarios", () => {
-  const names = ["tools-schema", "tools-parallel", "tools-reliability", "agent-loop"];
+  const names = ["tools-schema", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop"];
   test("a model that uses the tools well passes all four, including the real loop in a temporary workspace", async () => {
     const server = await FakeServer.start(agentPretend());
     try {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: names }));
       for (const name of names) assert.equal(r[name]?.status, "pass", `${name}: ${r[name]?.detail}`);
       assert.match(r["tools-parallel"]?.detail ?? "", /2 calls \(read, run\) with distinct ids/);
-      assert.match(r["tools-reliability"]?.detail ?? "", /edit 3\/3 valid, run 3\/3 valid/);
+      assert.match(r["tools-reliability"]?.detail ?? "", /run 4\/4 valid/);
+      assert.match(r["tools-edit"]?.detail ?? "", /^5\/5 correct/);
       assert.match(r["agent-loop"]?.detail ?? "", /tools used: edit, read, run/);
     } finally {
       await server.close();
     }
   });
 
-  test("a model without tool support skips all four", async () => {
+  test("tools-edit scores the file, not the call: a call that passes the schema but changes the wrong text is wrong", async () => {
+    const server = await FakeServer.start(agentPretend({ wrongLines: true }));
+    try {
+      const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-edit"] }));
+      assert.equal(r["tools-edit"]?.status, "pass");
+      assert.match(r["tools-edit"]?.detail ?? "", /^4\/5 correct; one line: WRONG.*"notes.txt":"oops/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("a model without tool support skips all of them", async () => {
     const server = await FakeServer.start(agentPretend({ tools: false }));
     try {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: names }));
@@ -195,26 +221,26 @@ describe("runLiveChecks, tool scenarios", () => {
     }
   });
 
-  test("a model whose run calls break the schema fails the reliability count, and says why", async () => {
+  test("a model whose run calls all break the schema fails the reliability check, and says why", async () => {
     const server = await FakeServer.start(agentPretend({ badArgv: true }));
     try {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-reliability"] }));
-      assert.equal(r["tools-reliability"]?.status, "pass");
-      assert.match(r["tools-reliability"]?.detail ?? "", /run 0\/3 valid.*argv must be a list/);
+      assert.equal(r["tools-reliability"]?.status, "fail");
+      assert.match(r["tools-reliability"]?.detail ?? "", /no valid run call.*argv must be a list/);
     } finally {
       await server.close();
     }
   });
 
-  test("a model that looks first with another tool is not counted as malformed, and every request is recorded in its own file", async () => {
-    const server = await FakeServer.start((n, seen) => (JSON.stringify(JSON.parse(seen.body).messages).includes("edit tool") && !seen.body.includes("Read notes.txt, then") ? toolCalls({ id: "q", name: "read", args: { files: [{ path: "notes.txt" }] } }) : agentPretend()(n, seen)));
+  test("a model that uses another tool is not counted as malformed, and every request is recorded in its own file", async () => {
+    const server = await FakeServer.start((n, seen) => (JSON.stringify(JSON.parse(seen.body).messages).includes("run tool") && !seen.body.includes("Read notes.txt, then") ? toolCalls({ id: "q", name: "read", args: { files: [{ path: "notes.txt" }] } }) : agentPretend()(n, seen)));
     const runs: string[] = [];
     const logs: string[] = [];
     try {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-reliability", "agent-loop"], onRun: (s, _run, req) => void runs.push(`${s}:${req?.tools.length}`), onLog: (s, label) => void logs.push(`${s}:${label}`) }));
       assert.equal(r["tools-reliability"]?.status, "pass");
-      assert.match(r["tools-reliability"]?.detail ?? "", /edit 0\/0 valid, run 3\/3 valid; 3 chose another tool first/);
-      assert.equal(runs.filter((x) => x.startsWith("tools-reliability")).length, 6);
+      assert.match(r["tools-reliability"]?.detail ?? "", /run 0\/0 valid; 4 used another tool \(read, read, read, read\)/);
+      assert.equal(runs.filter((x) => x.startsWith("tools-reliability")).length, 4);
       assert.equal(runs.filter((x) => x.startsWith("agent-loop")).length >= 1, true, "the loop's requests are recorded too");
       assert.ok(logs.includes("agent-loop:loop"));
     } finally {

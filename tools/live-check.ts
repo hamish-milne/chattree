@@ -9,7 +9,7 @@
  * environment variable; never pass a key on the command line), --record DIR (save each scenario's events as JSON,
  * secrets scrubbed), --only NAME (repeatable), --list.
  *
- * The tools-* and agent-loop scenarios use the real starter tools (docs/tools.md, 3.6); agent-loop runs the whole loop in a
+ * The tools-* and agent-loop scenarios (tools-edit scores edits by whether the file ended up right) use the real starter tools (docs/tools.md, 3.6); agent-loop runs the whole loop in a
  * temporary git workspace and checks the file and the history.
  *
  * Exit code: 1 if any scenario fails; a scenario the server does not support (a model without tools or
@@ -138,6 +138,55 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   const assistantTurn = (blocks: Block[], ext?: Record<string, unknown>): Turn => ({ role: "assistant", provider: "live", model: o.model, blocks, ...(ext === undefined ? {} : { ext }) });
   const textOf = (blocks: readonly Block[]): string => blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
 
+  /** One agent task in a fresh temporary workspace, through the real loop. Never throws for a model's failure: the caller scores the outcome. */
+  const agent = async (scenario: string, label: string, files: Record<string, string>, prompt: string) => {
+    const registry = new ToolRegistry(leafTools());
+    const live = new AdapterRegistry().register(
+      defineAdapter({
+        $tag: "live",
+        config: z.strictObject({ $tag: z.literal("live") }),
+        settings: z.looseObject({}),
+        jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+        secrets: () => [],
+        create: () => recording(adapter, (run, c) => o.onRun?.(scenario, run, summary(c))),
+      }),
+    );
+    const dir = join(await mkdtemp(join(tmpdir(), "chattree-live-")), "c");
+    const convo = await Conversation.create(nodeHost(), dir, { providers: { registry: live, secrets: envSource({}) }, config: "providers:\n  live:\n    $tag: live\n" });
+    await convo.setupChange({ model: setup.model as NonNullable<AgentSetup["model"]> });
+    await syncTools(convo, registry);
+    for (const [name, text] of Object.entries(files)) await writeFile(join(dir, name), text);
+    await convo.append({ $tag: "user", content: [{ $tag: "text", text: prompt }] });
+    const used = new Set<string>();
+    const trail: unknown[] = [];
+    let errors = 0;
+    let status = "";
+    let requests = 0;
+    const gen = runLoop(convo, { system: "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.", cost: false, registry, signal: AbortSignal.timeout(180_000) });
+    for (;;) {
+      const n = await gen.next();
+      if (n.done === true) {
+        status = n.value.status;
+        requests = n.value.requests;
+        break;
+      }
+      const e = n.value;
+      if (e.type === "tool.start") {
+        used.add(e.name);
+        trail.push({ call: e.name, args: e.args });
+      } else if (e.type === "tool.result") {
+        trail.push({ result: e.content, is_error: e.is_error });
+        if (e.is_error) errors++;
+      }
+    }
+    const read = async (name: string): Promise<string> => readFile(join(dir, name), "utf8").catch(() => "");
+    const after: Record<string, string> = {};
+    for (const name of Object.keys(files)) after[name] = await read(name);
+    await o.onLog?.(scenario, label, { workspace: dir, prompt, status, trail, files: after });
+    const problems = await verifyHistory(convo);
+    return { dir, status, requests, used, errors, after, calls: trail.filter((t) => "call" in (t as object)).map((t) => (t as { call: string }).call), problems };
+  };
+
   const scenarios: [string, () => Promise<string>][] = [
     ["plain", async () => {
       const r = clean(await go(ctx([user("Reply with the single word: pong")])));
@@ -203,80 +252,87 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       return found.length === 1 ? `one call only (${found[0]?.name}); the model did not use parallel calls; round-trip ok` : `${found.length} calls (${found.map((b) => b.name).join(", ")}) with distinct ids; all results accepted`;
     }],
     ["tools-reliability", async () => {
+      // Schema validity of `run` calls (argv, pipes, globs). What `edit` calls achieve is scored by tools-edit.
       const starter = new ToolRegistry(leafTools());
-      const prompts: [string, string][] = [
-        ["edit", "The file notes.txt contains the line `status: draft`. Use the edit tool to change `draft` to `final`."],
-        ["edit", "In app.ts there is a line `const retries = 3;`. Use the edit tool to make it `const retries = 5;`."],
-        ["edit", "Use the edit tool to insert the line `# Notes` at the top of README.md; do not rewrite the file."],
-        ["run", "Use the run tool to list the files in the current directory with ls -la."],
-        ["run", "Use the run tool to print the word hello with echo, then pipe it through wc -c."],
-        ["run", "Use the run tool to count the lines in every .ts file under src using wc -l and a glob."],
+      const prompts = [
+        "Use the run tool to list the files in the current directory with ls -la.",
+        "Use the run tool to print the word hello with echo, then pipe it through wc -c.",
+        "Use the run tool to count the lines in every .ts file under src using wc -l and a glob.",
+        "Use the run tool to find lines containing TODO in notes.txt with grep -n, and save the output to todo.txt.",
       ];
-      const tally: Record<string, [number, number]> = { edit: [0, 0], run: [0, 0] };
+      let valid = 0;
+      let made = 0;
       const other: string[] = [];
       const bad: string[] = [];
-      let any = false;
-      for (const [tool, prompt] of prompts) {
+      for (const prompt of prompts) {
         const r = clean(await go(ctx([user(prompt)], starter.definitions())));
         const call = (r.completed?.blocks ?? []).find((b) => b.type === "tool_call");
         if (call?.type !== "tool_call") continue;
-        any = true;
-        if (call.name !== tool) {
-          other.push(`${tool} prompt: called ${call.name}`); // a model may reasonably look first; not a malformed call
+        if (call.name !== "run") {
+          other.push(call.name); // a model may reasonably choose script or look first; not a malformed call
           continue;
         }
-        const row = tally[tool] as [number, number];
-        row[1]++;
+        made++;
         const checked = starter.check(call);
-        if ("error" in checked) bad.push(`${tool}: ${checked.error.split("\n")[0]}`);
-        else row[0]++;
+        if ("error" in checked) bad.push(checked.error.split("\n")[0] as string);
+        else valid++;
       }
-      if (!any) return skip("the model did not call a tool (it may not support tools)");
-      ok(tally["edit"]![0] + tally["run"]![0] > 0 || other.length === 0, `no valid call at all: ${bad.join("; ")}`);
-      return `edit ${tally["edit"]![0]}/${tally["edit"]![1]} valid, run ${tally["run"]![0]}/${tally["run"]![1]} valid${other.length > 0 ? `; ${other.length} chose another tool first (${other.join("; ")})` : ""}${bad.length > 0 ? `; problems: ${bad.slice(0, 3).join("; ")}` : ""}`;
+      if (made + other.length === 0) return skip("the model did not call a tool (it may not support tools)");
+      ok(valid > 0 || made === 0, `no valid run call: ${bad.join("; ")}`);
+      return `run ${valid}/${made} valid${other.length > 0 ? `; ${other.length} used another tool (${other.join(", ")})` : ""}${bad.length > 0 ? `; problems: ${bad.slice(0, 3).join("; ")}` : ""}`;
+    }],
+    ["tools-edit", async () => {
+      // Scored by outcome: did the file end up right? Each case is a fresh workspace and the real loop (read first, then edit).
+      const cases: { name: string; files: Record<string, string>; prompt: string; want: Record<string, string> }[] = [
+        { name: "one line", files: { "notes.txt": "status: draft\n" }, prompt: "In notes.txt change the word draft to final.", want: { "notes.txt": "status: final\n" } },
+        {
+          name: "two places",
+          files: { "app.conf": "name = demo\nretries = 3\nverbose = false\ntimeout = 10\n" },
+          prompt: "In app.conf set retries to 5 and verbose to true. Change nothing else.",
+          want: { "app.conf": "name = demo\nretries = 5\nverbose = true\ntimeout = 10\n" },
+        },
+        {
+          name: "delete a block",
+          files: { "list.txt": "keep 1\ndrop a\ndrop b\ndrop c\nkeep 2\nkeep 3\n" },
+          prompt: "Remove the three lines that start with `drop` from list.txt.",
+          want: { "list.txt": "keep 1\nkeep 2\nkeep 3\n" },
+        },
+        {
+          name: "insert and append",
+          files: { "main.py": "import os\n\ndef main():\n    print('hi')\n" },
+          prompt: "In main.py add the line `import sys` right after `import os`, and add a final line `main()` at the end of the file.",
+          want: { "main.py": "import os\nimport sys\n\ndef main():\n    print('hi')\nmain()\n" },
+        },
+        {
+          name: "edit after edit",
+          files: { "f.txt": "alpha\nbeta\ngamma\n" },
+          prompt: "In f.txt first insert the line `# v2` at the top. Once that is done, change the line `gamma` to `GAMMA`.",
+          want: { "f.txt": "# v2\nalpha\nbeta\nGAMMA\n" },
+        },
+      ];
+      let right = 0;
+      let attempted = 0;
+      const notes: string[] = [];
+      for (const c of cases) {
+        const r = await agent("tools-edit", c.name.replaceAll(" ", "-"), c.files, c.prompt);
+        if (r.used.size === 0) continue;
+        attempted++;
+        const correct = Object.entries(c.want).every(([f, text]) => r.after[f] === text);
+        if (correct) right++;
+        notes.push(`${c.name}: ${correct ? "ok" : `WRONG ${JSON.stringify(r.after)}`}${r.errors > 0 ? ` (${r.errors} tool error${r.errors === 1 ? "" : "s"})` : ""}`);
+      }
+      if (attempted === 0) return skip("the model did not call a tool (it may not support tools)");
+      ok(right > 0, `no case came out right: ${notes.join("; ")}`);
+      return `${right}/${attempted} correct; ${notes.join("; ")}`;
     }],
     ["agent-loop", async () => {
-      const registry = new ToolRegistry(leafTools());
-      const live = new AdapterRegistry().register(
-        defineAdapter({
-          $tag: "live",
-          config: z.strictObject({ $tag: z.literal("live") }),
-          settings: z.looseObject({}),
-          jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
-          secrets: () => [],
-          create: () => recording(adapter, (run, c) => o.onRun?.("agent-loop", run, summary(c))),
-        }),
-      );
-      const dir = join(await mkdtemp(join(tmpdir(), "chattree-live-")), "c");
-      const convo = await Conversation.create(nodeHost(), dir, { providers: { registry: live, secrets: envSource({}) }, config: "providers:\n  live:\n    $tag: live\n" });
-      await convo.setupChange({ model: setup.model as NonNullable<AgentSetup["model"]> });
-      await syncTools(convo, registry);
-      await writeFile(join(dir, "notes.txt"), "status: draft\n");
-      await convo.append({ $tag: "user", content: [{ $tag: "text", text: "Read notes.txt, then use the edit tool to change the word draft to final, then run `cat notes.txt` with the run tool and tell me what it prints." }] });
-      let requests = 0;
-      const used = new Set<string>();
-      const trail: unknown[] = [];
-      const gen = runLoop(convo, { system: "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.", cost: false, registry, signal: AbortSignal.timeout(180_000) });
-      for (;;) {
-        const n = await gen.next();
-        if (n.done === true) {
-          ok(n.value.status === "completed", `the loop ended with ${n.value.status}`);
-          requests = n.value.requests;
-          break;
-        }
-        const e = n.value;
-        if (e.type === "tool.start") {
-          used.add(e.name);
-          trail.push({ call: e.name, args: e.args });
-        } else if (e.type === "tool.result") trail.push({ result: e.content, is_error: e.is_error });
-      }
-      const file = await readFile(join(dir, "notes.txt"), "utf8");
-      await o.onLog?.("agent-loop", "loop", { workspace: dir, trail, notes_txt: file });
-      if (used.size === 0) return skip("the model did not call a tool (it may not support tools)");
-      ok(file.includes("final") && !file.includes("draft"), `notes.txt is ${JSON.stringify(file)} after ${trail.filter((t) => "call" in (t as object)).map((t) => (t as { call: string }).call).join(" → ")}`);
-      const problems = await verifyHistory(convo);
-      ok(problems.length === 0, `the history does not verify: ${JSON.stringify(problems).slice(0, 300)}`);
-      return `${requests} requests, tools used: ${[...used].sort().join(", ")}; file edited; history verifies`;
+      const r = await agent("agent-loop", "loop", { "notes.txt": "status: draft\n" }, "Read notes.txt, then use the edit tool to change the word draft to final, then run `cat notes.txt` with the run tool and tell me what it prints.");
+      if (r.used.size === 0) return skip("the model did not call a tool (it may not support tools)");
+      ok(r.status === "completed", `the loop ended with ${r.status}`);
+      const file = r.after["notes.txt"];
+      ok(file === "status: final\n", `notes.txt is ${JSON.stringify(file)} after ${r.calls.join(" → ")}`);
+      ok(r.problems.length === 0, `the history does not verify: ${JSON.stringify(r.problems).slice(0, 300)}`);
+      return `${r.requests} requests, tools used: ${[...r.used].sort().join(", ")}${r.errors > 0 ? `, ${r.errors} tool error(s) recovered` : ""}; file edited; history verifies`;
     }],
     ["reasoning-replay", async () => {
       const c1 = ctx([user("What is 17 * 23? Think it through.")]);
@@ -362,7 +418,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   return results;
 }
 
-export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "tools-schema", "tools-parallel", "tools-reliability", "agent-loop", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
+export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "tools-schema", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
 
 export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: LiveOptions; record?: string; list: boolean } {
   const flags = new Map<string, string[]>();

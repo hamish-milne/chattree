@@ -1,71 +1,106 @@
-import { display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool } from "../tools.ts";
+import { versionOf } from "./version.ts";
+import { display, resolveInWorkspace } from "./workspace.ts";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder("utf-8", { fatal: true });
 
-interface Edit {
-  path: string;
+/**
+ * Edit by line number (docs/tools.md, 4.1). `read` numbers every line and gives the file's version; a change names lines
+ * of the file as it was read, so nothing the model does earlier in the same call can shift them. Two shapes:
+ *   replace lines `start`..`end` (inclusive) with `content` (empty content deletes them);
+ *   insert `content` after line `after` (0 is the top of the file, the last line number appends).
+ */
+export interface Change {
+  start?: number;
+  end?: number;
+  after?: number;
   content: string;
-  after?: string;
-  before?: string;
-  mode?: "replace" | "insert";
 }
 
-class EditFailed extends Error {}
+export class EditFailed extends Error {}
 
-const lineOf = (text: string, index: number): number => {
-  let n = 1;
-  for (let i = text.indexOf("\n"); i !== -1 && i < index; i = text.indexOf("\n", i + 1)) n++;
-  return n;
+interface Line {
+  text: string;
+  /** The line's own terminator; empty on an unterminated last line. */
+  eol: string;
+}
+
+const SHOWN = 6;
+const clip = (s: string): string => (s.length > 100 ? `${s.slice(0, 97)}...` : s);
+
+function splitLines(text: string): { lines: Line[]; finalNewline: boolean; eol: string } {
+  if (text === "") return { lines: [], finalNewline: true, eol: "\n" };
+  const finalNewline = text.endsWith("\n");
+  const parts = text.split("\n");
+  if (finalNewline) parts.pop();
+  const lines = parts.map((p, k): Line => {
+    const terminated = k < parts.length - 1 || finalNewline;
+    if (!terminated) return { text: p, eol: "" };
+    return p.endsWith("\r") ? { text: p.slice(0, -1), eol: "\r\n" } : { text: p, eol: "\n" };
+  });
+  return { lines, finalNewline, eol: lines.find((l) => l.eol !== "")?.eol ?? "\n" };
+}
+
+/** `content` as lines: empty means none; one trailing newline is ignored. */
+function contentLines(content: string): string[] {
+  if (content === "") return [];
+  return content.replace(/\r?\n$/, "").split(/\r?\n/);
+}
+
+const numbered = (rows: string[], first: number, sign: string): string[] => {
+  const shown = rows.slice(0, SHOWN).map((t, i) => `${sign} ${first + i}\t${clip(t)}`);
+  if (rows.length > SHOWN) shown.push(`${sign} ... ${rows.length - SHOWN} more line${rows.length - SHOWN === 1 ? "" : "s"}`);
+  return shown;
 };
 
-/** Where `anchor` occurs, counting overlapping occurrences. */
-function occurrences(text: string, anchor: string): number[] {
-  const at: number[] = [];
-  for (let i = text.indexOf(anchor); i !== -1; i = text.indexOf(anchor, i + 1)) at.push(i);
-  return at;
+/** Apply the changes to the text as one numbering, top to bottom. Returns the new text and a report of what happened, in the new numbering. */
+export function applyChanges(original: string, changes: readonly Change[]): { text: string; report: string[]; lines: number } {
+  const { lines, finalNewline, eol } = splitLines(original);
+  const n = lines.length;
+  const ops = changes.map((c, index) => {
+    const where = `change ${index + 1}`;
+    const isInt = (x: unknown): x is number => typeof x === "number" && Number.isInteger(x);
+    if (c.after !== undefined) {
+      if (c.start !== undefined || c.end !== undefined) throw new EditFailed(`${where}: give either \`start\` and \`end\` (replace lines) or \`after\` (insert), not both`);
+      if (!isInt(c.after) || c.after < 0 || c.after > n) throw new EditFailed(`${where}: \`after\` ${String(c.after)} is not between 0 and ${n} (the file has ${n} line${n === 1 ? "" : "s"}; 0 inserts at the top, ${n} appends)`);
+      if (c.content === "") throw new EditFailed(`${where}: an insert needs \`content\``);
+      return { index, key: c.after, end: c.after, kind: 0, c };
+    }
+    if (!isInt(c.start) || !isInt(c.end)) throw new EditFailed(`${where}: give \`start\` and \`end\` line numbers (to replace or delete lines), or \`after\` (to insert)`);
+    if (c.start < 1 || c.end < c.start || c.end > n) throw new EditFailed(`${where}: lines ${c.start}-${c.end} are not within the file's ${n} line${n === 1 ? "" : "s"} (start must be at least 1 and end at least start)${n === 0 ? "; the file is empty, so use \`after\`: 0 to add text" : ""}`);
+    return { index, key: c.start - 1, end: c.end, kind: 1, c };
+  });
+  ops.sort((a, b) => a.key - b.key || a.kind - b.kind || a.index - b.index);
+
+  const out: Line[] = [];
+  const report: string[] = [];
+  let i = 0;
+  for (const op of ops) {
+    if (op.key < i) throw new EditFailed(`change ${op.index + 1} overlaps another change (lines are numbered as they were read, and each line may be changed once per call)`);
+    out.push(...lines.slice(i, op.key));
+    const added = contentLines(op.c.content);
+    const first = out.length + 1;
+    const removed = op.kind === 1 ? lines.slice(op.key, op.end).map((l) => l.text) : [];
+    for (const t of added) out.push({ text: t, eol: "" });
+    i = op.kind === 1 ? op.end : op.key;
+    const head =
+      op.kind === 0
+        ? `change ${op.index + 1}: inserted ${added.length} line${added.length === 1 ? "" : "s"} after line ${op.c.after}; now lines ${first}-${first + added.length - 1}`
+        : added.length === 0
+          ? `change ${op.index + 1}: deleted lines ${op.c.start}-${op.c.end}; line ${first} is now what followed them`
+          : `change ${op.index + 1}: replaced lines ${op.c.start}-${op.c.end} with ${added.length} line${added.length === 1 ? "" : "s"}; now lines ${first}-${first + added.length - 1}`;
+    report.push([head, ...numbered(removed, op.c.start ?? 0, "-"), ...numbered(added, first, "+")].join("\n"));
+  }
+  out.push(...lines.slice(i));
+  const text = out.map((l, k) => l.text + (k === out.length - 1 && !finalNewline ? "" : l.eol === "" ? eol : l.eol)).join("");
+  return { text, report, lines: out.length };
 }
 
-const quote = (s: string): string => JSON.stringify(s.length > 60 ? `${s.slice(0, 57)}...` : s);
-
-function locate(text: string, anchor: string, which: "after" | "before"): number {
-  const at = occurrences(text, anchor);
-  if (at.length === 0) throw new EditFailed(`\`${which}\` ${quote(anchor)} was not found in the file`);
-  if (at.length > 1) throw new EditFailed(`\`${which}\` ${quote(anchor)} occurs ${at.length} times (lines ${at.slice(0, 8).map((i) => lineOf(text, i)).join(", ")}${at.length > 8 ? ", ..." : ""}); make it longer so it matches once`);
-  return at[0] as number;
-}
-
-/** Apply one edit to the file's text; returns the new text and a one-line description. */
-export function applyEdit(original: string, edit: Edit): { text: string; summary: string } {
-  // A CRLF file keeps its line endings: the model writes \n, so translate what it sent.
-  const crlf = original.includes("\r\n");
-  const fix = (s: string): string => (crlf ? s.replace(/\r?\n/g, "\r\n") : s);
-  const after = edit.after === undefined || edit.after === "" ? undefined : fix(edit.after);
-  const before = edit.before === undefined || edit.before === "" ? undefined : fix(edit.before);
-  const content = fix(edit.content);
-  const mode = edit.mode ?? "replace";
-
-  if (mode === "insert") {
-    if ((after === undefined) === (before === undefined)) throw new EditFailed("insert mode takes exactly one of `after` and `before`");
-    const at = after !== undefined ? locate(original, after, "after") + after.length : locate(original, before as string, "before");
-    return { text: original.slice(0, at) + content + original.slice(at), summary: `inserted ${content.length} characters at line ${lineOf(original, at)}` };
-  }
-  // A lone anchor is the usual slip (the model names the text it wants gone as the anchor, and the region silently runs to the
-  // start or end of the file), so replace mode wants both and says how to use them.
-  if (after === undefined || before === undefined) {
-    throw new EditFailed(
-      "replace mode needs both `after` and `before`: the text just before and the text just after what is to be replaced (they stay; the text between them is replaced by `content`). They are never the text being replaced itself. For example, to change `draft` in `status: draft` give after \"status: \" and before \"\\n\" with content \"final\". To add text without replacing any, use mode insert with one anchor; to rewrite a whole file, use write.",
-    );
-  }
-  const start = locate(original, after, "after") + after.length;
-  const end = locate(original, before, "before");
-  if (end < start) throw new EditFailed("`before` occurs before the end of `after`");
-  const removed = original.slice(start, end);
-  return {
-    text: original.slice(0, start) + content + original.slice(end),
-    summary: `replaced ${removed.length} characters with ${content.length} (from line ${lineOf(original, start)})`,
-  };
+interface FileEdit {
+  path: string;
+  version: string;
+  changes: Change[];
 }
 
 export function editTool(): Tool {
@@ -73,27 +108,41 @@ export function editTool(): Tool {
     definition: {
       name: "edit",
       description:
-        "Change part of a file without reading all of it first. Each edit gives optional anchors `after` and `before`, exact text that must occur exactly once in the file, and `content`. The text between the end of `after` and the start of `before` is replaced by `content`; the anchors stay. Both anchors are required: they are the text just before and just after what is to be replaced, never the text being replaced itself (to change `draft` in `status: draft` give after `status: ` and before the text that follows, such as a newline). With mode `insert`, give exactly one anchor and `content` is added right after `after` or right before `before`, replacing nothing. If an anchor is missing or matches more than once the edit fails and says where the matches are. Edits are applied in order and it stops at the first failure.",
+        "Change lines of existing files, using the line numbers and version that read shows (read the file first; the numbers are only valid for that version). Each change is either `start` and `end` (inclusive line numbers) with `content` replacing those lines (empty `content` deletes them), or `after` with `content` inserted after that line (0 is the top, the last line number appends). `content` is the new lines as plain text, without line numbers. All changes to a file in one call use the numbering you read, so do not adjust for earlier changes; they must not overlap. Whole files are applied or not at all. The result shows what was removed and added, with the new line numbers and the new version. To create a file or rewrite one entirely, use write.",
       input_schema: {
         type: "object",
         additionalProperties: false,
-        required: ["edits"],
+        required: ["files"],
         properties: {
-          edits: {
+          files: {
             type: "array",
             minItems: 1,
-            maxItems: 50,
-            description: "The edits, applied in order.",
+            maxItems: 20,
+            description: "The files to change, in order.",
             items: {
               type: "object",
               additionalProperties: false,
-              required: ["path", "content"],
+              required: ["path", "version", "changes"],
               properties: {
                 path: { type: "string", description: "Path relative to the workspace root." },
-                content: { type: "string", description: "The new text." },
-                after: { type: "string", description: "Exact text that ends just before the region to replace (or the insert point). Must occur once." },
-                before: { type: "string", description: "Exact text that begins just after the region to replace (or the insert point). Must occur once." },
-                mode: { type: "string", enum: ["replace", "insert"], description: "replace (default) or insert." },
+                version: { type: "string", description: "The file's version as read showed it (`v ...` in its header)." },
+                changes: {
+                  type: "array",
+                  minItems: 1,
+                  maxItems: 100,
+                  description: "The changes, numbered as the file was read.",
+                  items: {
+                    type: "object",
+                    additionalProperties: false,
+                    required: ["content"],
+                    properties: {
+                      start: { type: "integer", minimum: 1, description: "First line to replace." },
+                      end: { type: "integer", minimum: 1, description: "Last line to replace (inclusive)." },
+                      after: { type: "integer", minimum: 0, description: "Insert after this line instead of replacing." },
+                      content: { type: "string", description: "The new text; empty to delete the lines." },
+                    },
+                  },
+                },
               },
             },
           },
@@ -102,28 +151,32 @@ export function editTool(): Tool {
     },
     async execute(args, ctx) {
       const { host, workspace } = ctx;
-      const edits = args["edits"] as Edit[];
+      const files = args["files"] as FileEdit[];
       const lines: string[] = [];
-      for (const [i, e] of edits.entries()) {
+      for (const [i, f] of files.entries()) {
         try {
-          const abs = await resolveInWorkspace(host, workspace, e.path, "write");
+          const abs = await resolveInWorkspace(host, workspace, f.path, "write");
           const name = display(host, workspace, abs);
           const st = await host.fs.stat(abs);
           if (st === undefined) throw new EditFailed(`${name} does not exist (use write to create it)`);
           if (st.isDirectory) throw new EditFailed(`${name} is a directory`);
+          const bytes = await host.fs.read(abs);
           let original: string;
           try {
-            original = dec.decode(await host.fs.read(abs));
+            original = dec.decode(bytes);
           } catch {
             throw new EditFailed(`${name} is not UTF-8 text`);
           }
-          const out = applyEdit(original, e);
-          await host.fs.writeAtomic(abs, enc.encode(out.text), { keepMode: true });
-          lines.push(`edited ${name}: ${out.summary}`);
+          const now = await versionOf(bytes);
+          if (f.version !== now) throw new EditFailed(`${name} is not the version you read (you gave v ${f.version}, it is now v ${now}); read it again and use its numbers`);
+          const out = applyChanges(original, f.changes);
+          const written = enc.encode(out.text);
+          await host.fs.writeAtomic(abs, written, { keepMode: true });
+          lines.push(`edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, v ${await versionOf(written)})`, ...out.report);
         } catch (err) {
           if (!(err instanceof EditFailed) && !(err instanceof Error && err.name === "PathRefused")) throw err;
-          const rest = edits.length - i - 1;
-          lines.push(`failed: edit ${i + 1} (${e.path}): ${err.message}${rest > 0 ? `; the other ${rest} edit${rest === 1 ? " was" : "s were"} not applied` : ""}`);
+          const rest = files.length - i - 1;
+          lines.push(`failed: ${f.path}: ${err.message}; nothing in it was changed${rest > 0 ? `; the other ${rest} file${rest === 1 ? " was" : "s were"} not edited` : ""}`);
           return { content: lines.join("\n"), is_error: true };
         }
       }
