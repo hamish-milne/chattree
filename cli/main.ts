@@ -6,12 +6,15 @@ import { defaultCommands } from "./commands/index.ts";
 import { PlainRenderer, type Thinking } from "./output.ts";
 import { findProject, openThread } from "./project.ts";
 import { SessionStore } from "./session.ts";
+import { runChat } from "./chat.ts";
 import { Registry } from "./registry.ts";
 
 const OPTIONS = {
   C: { type: "string", short: "C" },
   thread: { type: "string", short: "t" },
   plain: { type: "boolean" },
+  session: { type: "string" },
+  "new-session": { type: "boolean" },
   yes: { type: "boolean", short: "y" },
   help: { type: "boolean", short: "h" },
   thinking: { type: "string" },
@@ -33,7 +36,8 @@ usage: chattree [-C dir] [-t thread] <verb> [arguments]
 
   init [dir]         start a conversation (--provider anthropic|openai|compatible, --model, --base-url,
                      --key-env, --name <first thread>, --adopt for an existing repository, --force for a nested one)
-  chat [thread]      the interactive session
+  chat [thread]      the interactive session (--session <id> resumes one, --new-session starts another;
+                     --plain reads lines from standard input: for scripts)
   say <text>         send a message and print the reply ("-" reads standard input; --attach <file> may repeat)
 
 Any session command works as a verb too (chattree status, chattree history 20, chattree threads archived,
@@ -83,8 +87,15 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     }
     const registry = new Registry(defaultCommands());
     if (verb === "chat") {
-      io.err("error: the interactive session is not built yet in this version; use `chattree say <text>` and the other verbs\n");
-      return 2;
+      if (values.thinking !== undefined && !["on", "off", "brief"].includes(values.thinking)) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
+      return await runChat(where, start, {
+        thread: values.thread ?? args[0],
+        session: values.session,
+        newSession: values["new-session"] === true,
+        plain: values.plain === true,
+        thinking: values.thinking as Thinking | undefined,
+        yes: values.yes === true,
+      });
     }
     if (registry.find(verb) === undefined) {
       io.err(`error: ${verb} is not a verb\n${HELP}`);

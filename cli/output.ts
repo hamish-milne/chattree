@@ -82,14 +82,25 @@ export interface PlainSink {
   err(text: string): void;
 }
 
+/** How a renderer marks up what it says: plain text by default, ANSI colours on a terminal. */
+export interface Style {
+  dim(s: string): string;
+  red(s: string): string;
+  yellow(s: string): string;
+}
+export const plainStyle: Style = { dim: (s) => s, red: (s) => s, yellow: (s) => s };
+export const ansiStyle: Style = { dim: (s) => `\x1b[2m${s}\x1b[22m`, red: (s) => `\x1b[31m${s}\x1b[39m`, yellow: (s) => `\x1b[33m${s}\x1b[39m` };
+
 export class PlainRenderer {
   readonly #sink: PlainSink;
   readonly #convo: () => Conversation;
   readonly thinking: Thinking;
+  readonly #style: Style;
   #open: "text" | "reasoning" | undefined;
   #atLineStart = true;
 
-  constructor(sink: PlainSink, convo: () => Conversation, thinking: Thinking = "off") {
+  constructor(sink: PlainSink, convo: () => Conversation, thinking: Thinking = "off", style: Style = plainStyle) {
+    this.#style = style;
     this.#sink = sink;
     this.#convo = convo;
     this.thinking = thinking;
@@ -103,15 +114,15 @@ export class PlainRenderer {
         return;
       case "notice":
         this.#flush();
-        this.#sink.err(`${o.message}\n`);
+        this.#sink.err(`${this.#style.dim(o.message)}\n`);
         return;
       case "warning":
         this.#flush();
-        this.#sink.err(`warning: ${o.message}\n`);
+        this.#sink.err(`${this.#style.yellow(`warning: ${o.message}`)}\n`);
         return;
       case "error":
         this.#flush();
-        this.#sink.err(`error: ${o.message}\n${o.hint === undefined ? "" : `  ${o.hint}\n`}`);
+        this.#sink.err(`${this.#style.red(`error: ${o.message}`)}\n${o.hint === undefined ? "" : `${this.#style.dim(`  ${o.hint}`)}\n`}`);
         return;
       case "entry": {
         this.#flush();
@@ -124,9 +135,9 @@ export class PlainRenderer {
       case "stream":
         if (o.kind === "reasoning") {
           if (this.thinking === "off") return;
-          if (this.#open !== "reasoning") this.#sink.err(this.#atLineStart ? "(thinking) " : "\n(thinking) ");
+          if (this.#open !== "reasoning") this.#sink.err(this.#style.dim(this.#atLineStart ? "(thinking) " : "\n(thinking) "));
           this.#open = "reasoning";
-          this.#sink.err(o.text);
+          this.#sink.err(this.#style.dim(o.text));
           return;
         }
         if (this.#open === "reasoning") this.#sink.err("\n");
@@ -143,7 +154,7 @@ export class PlainRenderer {
         if (o.usage !== undefined) bits.push(`${o.usage.input} in${o.usage.cached > 0 ? ` (${o.usage.cached} cached)` : ""}, ${o.usage.output} out`);
         if (o.turnUsd !== undefined) bits.push(`turn $${o.turnUsd.toFixed(4)}`);
         if (o.threadUsd !== undefined) bits.push(`thread $${o.threadUsd.toFixed(4)}${o.unpriced === true ? "+" : ""}`);
-        if (bits.length > 0) this.#sink.err(`[${bits.join(" · ")}]\n`);
+        if (bits.length > 0) this.#sink.err(`${this.#style.dim(`[${bits.join(" · ")}]`)}\n`);
         return;
       }
     }

@@ -196,4 +196,12 @@ Decided in review: tool loop after the CLI; daemon not now; abort by marker file
 
 ## 12. Build status
 
-Steps 1 (probes), 2 (library), 3 (skeleton) and 4 (sessions) are done; tests are in `test/cli/`. Step 4 added `Lock.refresh()` to the library (the session's heartbeat), `cli/session.ts` (the store, the `Session` handle with debounced atomic writes, resume by thread, id or prefix, `--fresh`), the `/sessions` command and the `session:` line in `/status`. The session file is a single `!session` entry in the canonical format; unreadable files are skipped with the reason and never deleted. Prompt history is stored with the session but does not by itself keep it. Next: 5 (`chat`: terminal layer, `--session`/`--new-session` wiring, signal flush), 6 (remaining commands).
+Steps 1 to 5 are done; tests are in `test/cli/`. Step 4: `Lock.refresh()`, `cli/session.ts`, `/sessions`. Step 5: `chattree chat`.
+
+- `cli/prompt.ts` holds the prompt rules with no terminal in them (blank line sends, trailing `\\` continues, `//` is a literal slash, pasted lines are taken whole, a recalled multi-line message sends again).
+- `cli/terminal.ts` is the `readline` layer: bracketed paste, tab completion (command names, and per-command `complete` hooks: `/attach` paths and options, `/detach`, `/thinking`, `/threads`), a spinner while a blocking command runs, Ctrl-C (stops a running request; otherwise clears the draft; twice in 3 s leaves), Ctrl-D, live display of entries other sessions add (`convo.watch`), colour. Readline draws on a gated stream: while a request streams its echo is dropped and output goes straight through, so keys typed meanwhile are kept (not echoed) and messages typed ahead are sent in order afterwards; commands marked `allowed` still run at once.
+- `cli/chat.ts` opens or resumes the session (`--session <id>`, `--new-session`), prints the exchange since the last message and a status line, and runs the terminal or, for `--plain` or no terminal, a line-oriented mode (each line a command or message, `\\` continues, exit status 1 if anything failed).
+- Deviation from section 4: `NO_COLOR` (and `TERM=dumb`) turns colour off but keeps the editor; only `--plain` or a missing terminal selects plain mode.
+- Checked on a real pty (a python `pty` driver against a fake server) as well as in-process with streams.
+
+Next: 6 (remaining commands: `/thread`, `/fork`, `/merge`, `/compact`, `/export`, `/log`, `/model`, `/set`, `/instructions`, `/providers`, `/pricing`, `/accept`, `/config`, `/clear`, `/draft edit`, thread archiving).

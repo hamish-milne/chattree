@@ -14,6 +14,8 @@ export interface Command {
   busy: "allowed" | "blocked";
   stages?: { show: string; clear: string };
   run(ctx: Ctx, args: string[], rest: string): AsyncGenerator<Output, void>;
+  /** Tab completion for the last word: `previous` are the words before it, `partial` what has been typed of it. Return whole words. */
+  complete?(ctx: Ctx, previous: string[], partial: string): Promise<string[]>;
 }
 
 export class Registry {

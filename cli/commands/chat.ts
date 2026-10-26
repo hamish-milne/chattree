@@ -112,6 +112,21 @@ const attach: Command = {
   usage: "/attach <path> [--mime type/subtype] [--charset label] [--name name]",
   busy: "allowed",
   stages: { show: "attachments", clear: "detach" },
+  async complete(ctx, _previous, partial) {
+    if (partial.startsWith("-")) return ["--mime", "--charset", "--name"].filter((o) => o.startsWith(partial));
+    const slash = partial.lastIndexOf("/");
+    const typedDir = slash < 0 ? "" : partial.slice(0, slash + 1);
+    const base = partial.slice(slash + 1);
+    const dir = resolve(ctx.io.cwd, typedDir === "" ? "." : typedDir);
+    const names = await ctx.io.host.fs.readdir(dir).catch(() => [] as string[]);
+    const out: string[] = [];
+    for (const n of names.sort()) {
+      if (!n.startsWith(base) || (n.startsWith(".") && !base.startsWith("."))) continue;
+      const st = await ctx.io.host.fs.stat(resolve(dir, n));
+      out.push(`${typedDir}${n}${st?.isDirectory === true ? "/" : ""}`);
+    }
+    return out;
+  },
   async *run(ctx, args) {
     let parsed;
     try {
@@ -161,6 +176,9 @@ const detach: Command = {
   summary: "unstage a file (by number or name) or all of them",
   usage: "/detach <n|name|all>",
   busy: "allowed",
+  async complete(ctx, _previous, partial) {
+    return ["all", ...ctx.state.attachments.map((a) => a.name)].filter((n) => n.startsWith(partial));
+  },
   async *run(ctx, args) {
     const which = args[0];
     if (which === undefined) {

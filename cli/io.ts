@@ -16,8 +16,17 @@ export interface Io {
   /** Read all of standard input (for `say -`). */
   readStdin(): Promise<Uint8Array>;
   now(): number;
+  /** The terminal's streams, present when `interactive`; tests supply their own. */
+  tty?: Tty;
+  /** Run `fn` when the process is asked to stop (SIGTERM, SIGHUP, SIGINT); returns the way to stop listening. Absent in tests. */
+  onSignal?(fn: (signal: string) => void): () => void;
   /** Ask the user a question and return the answer (the default when they just press Enter). Present only when `interactive`. */
   ask?(question: string, fallback?: string): Promise<string>;
+}
+
+export interface Tty {
+  input: NodeJS.ReadableStream & { setRawMode?: (mode: boolean) => unknown; isTTY?: boolean };
+  output: NodeJS.WritableStream & { columns?: number };
 }
 
 export function nodeIo(): Io {
@@ -34,6 +43,16 @@ export function nodeIo(): Io {
       return Buffer.concat(chunks);
     },
     now: Date.now,
+    tty: { input: process.stdin, output: process.stdout },
+    onSignal(fn) {
+      const names = ["SIGINT", "SIGTERM", "SIGHUP"] as const;
+      const handlers = names.map((n) => {
+        const h = (): void => fn(n);
+        process.on(n, h);
+        return h;
+      });
+      return () => names.forEach((n, i) => process.off(n, handlers[i] as () => void));
+    },
     async ask(question, fallback) {
       const { createInterface } = await import("node:readline/promises");
       const rl = createInterface({ input: process.stdin, output: process.stderr });

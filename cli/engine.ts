@@ -76,6 +76,8 @@ export class Engine {
   /** Change kinds the user accepted for the rest of the session (`/accept`). */
   standing: ChangeKind[] = [];
   quit = false;
+  /** Called after the session is pointed at another thread (the terminal layer re-watches it). */
+  onRebind: (() => void) | undefined;
   readonly #confirm: (q: string) => Promise<boolean>;
 
   constructor(o: EngineOptions) {
@@ -102,6 +104,7 @@ export class Engine {
     this.thread = opened.thread;
     this.degraded = opened.degraded;
     this.session?.point(opened.thread);
+    this.onRebind?.();
   }
 
   get ctx(): Ctx {
@@ -128,7 +131,7 @@ export class Engine {
       return;
     }
     if (cmd.busy === "blocked") {
-      const reason = await this.#busyReason();
+      const reason = await this.busyReason();
       if (reason !== undefined) {
         yield { type: "error", message: `/${cmd.name} is not available: ${reason}`, hint: "wait for it to finish, or /abort" };
         return;
@@ -144,7 +147,7 @@ export class Engine {
     yield* cmd.run(this.ctx, args, rest);
   }
 
-  async #busyReason(): Promise<string | undefined> {
+  async busyReason(): Promise<string | undefined> {
     if (this.running) return "a request is running in this session";
     const a = await this.convo.activity();
     if (a.state === "request" && a.live) {

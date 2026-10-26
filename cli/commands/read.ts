@@ -56,6 +56,9 @@ const show: Command = {
 
 const thinking: Command = {
   name: "thinking",
+  async complete(_ctx, previous, partial) {
+    return previous.length > 0 ? [] : ["on", "off", "brief"].filter((f) => f.startsWith(partial));
+  },
   summary: "whether the model's reasoning is shown",
   usage: "/thinking [on | brief | off]",
   busy: "allowed",
@@ -121,6 +124,9 @@ const threads: Command = {
   summary: "list threads",
   usage: "/threads [archived | merged | running | idle | all]  (default: everything not archived)",
   busy: "allowed",
+  async complete(_ctx, previous, partial) {
+    return previous.length > 0 ? [] : ["archived", "merged", "running", "idle", "all"].filter((f) => f.startsWith(partial));
+  },
   async *run(ctx, args) {
     const filter = args[0] ?? "";
     if (!["", "archived", "merged", "running", "idle", "all"].includes(filter)) {
