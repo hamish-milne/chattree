@@ -193,3 +193,7 @@ Decided in review: tool loop after the CLI; daemon not now; abort by marker file
 4. Sessions: the session store, locking, resume, staged attachments by path.
 5. `chat`: the terminal layer (readline, paste handling, completion, spinner), live streaming, activity, `/abort`.
 6. The remaining commands: threads (including archive), setup, history, housekeeping.
+
+## 12. Build status
+
+Steps 1 (probes), 2 (library) and 3 (skeleton: project detection, `init`, engine, registry, plain renderer, non-interactive verbs; tests in `test/cli/`) are done. Next: 4 (sessions), 5 (`chat`), 6 (remaining commands).

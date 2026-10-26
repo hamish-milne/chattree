@@ -15,7 +15,8 @@
   "scripts": {
     "test": "node --no-warnings --test \"test/**/*.test.ts\"",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
-    "bench": "node --no-warnings bench/bench.ts"
+    "bench": "node --no-warnings bench/bench.ts",
+    "chattree": "node --no-warnings cli/chattree.ts"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
@@ -24,5 +25,8 @@
   },
   "dependencies": {
     "yaml": "^2.9.1"
+  },
+  "bin": {
+    "chattree": "./cli/chattree.ts"
   }
 }
