@@ -83,7 +83,7 @@ conflicted paths but does not itself offer per-hunk resolution at our minimum ve
    before relying on it; we avoided depending on it in step 4).
 
 **Format impact.** The merge report grows: per path, the rule that applied, the granularity, and for hunk merges
-the number of hunks taken from each side. That is an additive format change (minor 1.3); `policy: "trunk"` stays
+the number of hunks taken from each side. That is an additive format change (minor 1.4, since 1.3 went to `tool_result.full`); `policy: "trunk"` stays
 valid and is simply the default rule.
 
 **Open questions.**

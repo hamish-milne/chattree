@@ -95,7 +95,7 @@ A child's spend is recorded on its branch and summarised on the merge entry; the
 
 ### 3.4 Snapshots
 
-After each mutating tool call (`write`, `edit`, `run`, `script`) the loop takes a workspace snapshot so the file state is tied to the entry that caused it. `/undo` and forks then see the files as they were at that point.
+No separate snapshot step: appending an entry already commits the workspace changes with it, so each `tool_result` entry's commit holds the files as that call left them. `/undo` and forks see the files as they were at that point.
 
 ### 3.5 Background jobs
 
@@ -240,3 +240,4 @@ Eight steps, each committed with its tests. All offline tests use the existing f
 
 - **Step 1 (done).** `harness/tool-schema.ts` (the portable subset: `checkSchema`, `validateArgs`) and `harness/tools.ts` (`Tool`, `ToolRegistry` with name and schema checks, sorted definitions, pinning, `check` for a model's call; `shapeResult` with head and tail truncation on character boundaries and a `keep` hook for the full output).
 - **Step 2 (done).** The host gained `Host.run` (a command or pipeline in its own process group, stdout and stderr collected in the order they arrive, timeout, abort, output cap, environment scrubbing), `Fs.realpath`, `PathOps.resolve/relative/isAbsolute` and `writeAtomic(..., { keepMode })`. `harness/starter/` has the boundary (`workspace.ts`), a small glob over `Host.fs` (`glob.ts`) and the five tools (`read`, `write`, `edit`, `run`, `script`; `leafTools(options)` returns them). Differences from the plan: the file-reference result form is deferred (see 3.2); globbing is our own and not `tinyglobby`; stdout and stderr are interleaved by arrival, which is exact only when the program's writes are not simultaneous (the OS pipes are separate); `background` is not in the schemas yet (step 6 adds it, as a changed pinned definition).
+- **Step 3 (done).** `harness/loop.ts`: `runLoop(convo, {registry, approve?, resultLimit?, ...TurnOptions})` yields `request.start`, `stream`, `request.end`, `tool.start`, `tool.approval`, `tool.result` and returns `{status, requests, last}` (`completed`, `interrupted`, `cancelled`, `stopped`, `deadline`). `toolDrift` and `syncTools` compare the registry with the agent's pinned tools (the loop throws `ToolsOutOfSync` rather than changing the agent silently). Calls an earlier loop left unanswered are answered "did not run" before the first request and never re-run. Truncated results keep the whole output as a blob named by the new `tool_result.full` field (**format 1.3**; the parking lot's earlier reservation of 1.3 for merge-policy hunks moves to 1.4). Background jobs get an error result until step 6.
