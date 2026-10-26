@@ -26,6 +26,10 @@ export interface TurnOptions extends PrepareOptions {
   deadline?: number;
   /** The crash journal. `false` runs without one (a failed process then loses the response). */
   journal?: JournalOptions | false;
+  /** Who is running this request, written into the journal so that another process can say so (and ask for it to be aborted). */
+  owner?: { pid?: number; host?: string; session?: string };
+  /** How often to look for an abort request from another process. Default 250 ms. */
+  abortPollMs?: number;
   /** Called with what was checked, before anything is sent: the host's chance to show warnings. */
   onPrepared?: (prepared: Prepared) => void | Promise<void>;
 }
@@ -75,6 +79,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
         context_digest: await sha256Hex(enc.encode(stable(context))),
         after: tip?.id,
         at: now(),
+        ...(opts.owner === undefined ? {} : { owner: opts.owner }),
       },
       { ...opts.journal, now },
       convo.journalStaleMs,
@@ -98,6 +103,14 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
       timer = setTimeout(() => stop("deadline"), ms); // not unref'd: a deadline must fire even if nothing else is keeping the process alive
     }
   }
+
+  // Another process can ask for an abort by leaving a marker beside the journal (`Conversation.requestAbort`).
+  let polling = false;
+  const poll = journal === undefined ? undefined : setInterval(() => {
+    if (polling) return;
+    polling = true;
+    void journal.abortRequested().then((yes) => { if (yes) stop("user"); }).finally(() => { polling = false; });
+  }, opts.abortPollMs ?? 250);
 
   const acc = new StreamAccumulator();
   const gen = adapter.stream({ context, setup, signal: controller.signal });
@@ -157,6 +170,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
     finished = completed !== undefined || failure !== undefined;
     if (!finished) stop("user"); // the consumer stopped iterating
     if (timer !== undefined) clearTimeout(timer);
+    if (poll !== undefined) clearInterval(poll);
     opts.signal?.removeEventListener("abort", onAbort);
     if (!finished) {
       await gen.return(undefined as never).catch(() => undefined);

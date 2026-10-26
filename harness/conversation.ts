@@ -35,7 +35,7 @@ import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, min
 import { createUlid } from "./ulid.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
 import { StreamAccumulator } from "./partial.ts";
-import { journalIsLive, readJournal } from "./journal.ts";
+import { journalIsLive, readJournal, requestAbortOf } from "./journal.ts";
 import { usageRecord } from "./ledger.ts";
 
 /** The transcript, relative to the repository root. */
@@ -112,7 +112,7 @@ export interface ConversationOptions {
 /** Something that happened to a conversation. Events are delivered after the change is committed, in order. */
 export type ConversationEvent =
   /** An entry was committed (also on a new branch's first entry). `recovered` entries were found uncommitted by `open`. */
-  | { type: "entry"; branch: string; entry: Appended; value: ChatEntry; recovered?: true }
+  | { type: "entry"; branch: string; entry: Appended; value: ChatEntry; recovered?: true; /** Another process appended it (see `Conversation.sync`). */ foreign?: true }
   /** An `agent_setup` entry was committed. For `reason: provider` this is the host's cue to tell the user ("the provider changed the model to X"). */
   | { type: "setup_changed"; branch: string; entry: Appended; value: Extract<ChatEntry, { $tag: "agent_setup" }> }
   /** Pending workspace changes were committed without an entry. */
@@ -125,6 +125,11 @@ export type ConversationEvent =
   | { type: "recovery"; branch: string; report: RecoveryReport }
   /** The repository was repacked (see `Conversation.maintain`). */
   | { type: "maintenance"; branch: string; report: MaintenanceReport };
+
+/** What `Conversation.activity` reports. */
+export type Activity =
+  | { state: "idle" }
+  | { state: "request"; live: boolean; since: number; provider: string; model: string; owner?: { pid?: number; host?: string; session?: string }; nonce?: string; lastWrite?: number };
 
 export interface RepoStats {
   looseObjects: number;
@@ -309,6 +314,12 @@ export interface BranchInfo {
   tip: string;
   /** Where the branch is checked out, if anywhere. */
   worktree: string | undefined;
+  /** The newest commit is an archive marker (see `Conversation.archive`): hide the thread from default listings. */
+  archived: boolean;
+  /** When the newest commit was made (ISO 8601), the thread's last activity. */
+  lastActivity: string;
+  /** A request is in flight on the branch (its journal is live). */
+  running: boolean;
 }
 
 const DEFAULT_COMMITTER: Identity = { name: "chattree", email: "chattree@localhost.invalid" };
@@ -425,6 +436,7 @@ export class Conversation {
   #size: number;
   #queue: Promise<unknown> = Promise.resolve();
   #sinceCheck = 0;
+  #foreign: { entry: Appended; value: ChatEntry }[] = [];
   #head: string | undefined;
   #idx: { tip: string; refs: EntryRef[] } | undefined;
   #cache: IndexCache | undefined;
@@ -485,6 +497,47 @@ export class Conversation {
   /** Create a new conversation repository in `dir` (which must not already be a repository) with its header entry. */
   static async create(host: Host, dir: string, inOpts: CreateOptions = {}): Promise<Conversation> {
     if ((await host.fs.stat(host.path.join(dir, ".git"))) !== undefined) throw new ConversationError(`${dir} is already a git repository`);
+    const { configText, opts } = await Conversation.#prepareCreate(inOpts);
+    const git = await Git.init(host, dir, { branch: opts.branch ?? "main" });
+    await git.setConfig("merge.ours.driver", "true");
+    await host.fs.writeAtomic(host.path.join(dir, ".gitattributes"), enc.encode(GITATTRIBUTES));
+    await host.fs.writeAtomic(host.path.join(dir, ".gitignore"), enc.encode(GITIGNORE));
+    return Conversation.#start(host, git, dir, opts.branch ?? "main", opts, configText);
+  }
+
+  /**
+   * Start a conversation in a git repository that already exists: the repository's top level, on the branch checked out
+   * (not detached), with a clean working tree and no conversation yet. Writes `chat.yml`, `harness.yml` (when `config` is
+   * given), the ignore and attribute entries (added to existing files, never replacing them; the attributes name only the
+   * transcript and the blobs) and commits them with the header entry on that branch.
+   *
+   * What this means for the repository: from here on every entry commits whatever changed in the working tree since the
+   * last commit, with the entry (that is how snapshots and rollback work), so edits made outside the conversation land in its
+   * commits, on this branch. Use `create` for a repository of its own.
+   */
+  static async adopt(host: Host, dir: string, inOpts: CreateOptions = {}): Promise<Conversation> {
+    if ((await host.fs.stat(host.path.join(dir, ".git"))) === undefined) throw new ConversationError(`${dir} is not a git repository's top level`);
+    const git = await Git.open(host, { cwd: dir });
+    if ((await git.text(["rev-parse", "--show-prefix"], { readOnly: true })) !== "") throw new ConversationError(`${dir} is inside a repository, not at its top level; adopt the top level`);
+    const branch = await git.currentBranch();
+    if (branch === undefined) throw new ConversationError("HEAD is detached; check out the branch the conversation should live on");
+    for (const f of [CHAT_FILE, CONFIG_FILE]) if ((await host.fs.stat(host.path.join(dir, f))) !== undefined) throw new ConversationError(`${f} already exists here: this repository already has a conversation`);
+    const dirty = await git.status();
+    if (dirty.length > 0) throw new ConversationError(`the working tree has ${dirty.length} uncommitted change(s); commit or stash them first (the conversation commits every change in the tree)`);
+    const { configText, opts } = await Conversation.#prepareCreate({ ...inOpts, branch });
+    await git.setConfig("merge.ours.driver", "true");
+    const append = async (file: string, wanted: string, marker: string): Promise<void> => {
+      const path = host.path.join(dir, file);
+      const old = (await host.fs.stat(path)) === undefined ? "" : dec.decode(await host.fs.read(path));
+      if (old.includes(marker)) return;
+      await host.fs.writeAtomic(path, enc.encode(`${old}${old === "" || old.endsWith("\n") ? "" : "\n"}${wanted}`));
+    };
+    await append(".gitignore", GITIGNORE, "/.chattree/");
+    await append(".gitattributes", `# Transcripts are byte-exact: never convert line endings. Branches diverge by appending; a merge keeps the receiving branch's version.\n/${CHAT_FILE} -text merge=ours\n/blobs/** -text\n`, `/${CHAT_FILE} `);
+    return Conversation.#start(host, git, dir, branch, opts, configText);
+  }
+
+  static async #prepareCreate(inOpts: CreateOptions): Promise<{ configText: string | undefined; opts: CreateOptions }> {
     let configText = inOpts.config;
     let opts: CreateOptions = inOpts;
     if (configText !== undefined) {
@@ -495,11 +548,10 @@ export class Conversation {
         if (!configText.includes("yaml-language-server")) configText = `${SCHEMA_COMMENT}\n${configText}`;
       }
     }
-    const git = await Git.init(host, dir, { branch: opts.branch ?? "main" });
-    await git.setConfig("merge.ours.driver", "true");
-    await host.fs.writeAtomic(host.path.join(dir, ".gitattributes"), enc.encode(GITATTRIBUTES));
-    await host.fs.writeAtomic(host.path.join(dir, ".gitignore"), enc.encode(GITIGNORE));
-    const branch = opts.branch ?? "main";
+    return { configText, opts };
+  }
+
+  static async #start(host: Host, git: Git, dir: string, branch: string, opts: CreateOptions, configText: string | undefined): Promise<Conversation> {
     const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [], cleaned: [] });
     if (configText !== undefined) await host.fs.writeAtomic(host.path.join(dir, CONFIG_FILE), enc.encode(configText));
     if (opts.providers !== undefined) await Conversation.#writeSchema(host, git, dir, opts.providers.registry);
@@ -587,6 +639,49 @@ export class Conversation {
     await convo.#recoverJournal();
     await convo.#transaction(() => convo.#autoMaintain(true).then(() => undefined));
     return convo;
+  }
+
+  /**
+   * What is happening on this thread, from the request journal: nothing, a request in flight (`live`), or a request whose
+   * process has gone quiet for longer than `journalStaleMs` (`live: false`: it crashed or its host was suspended; `recoverRequest()`
+   * records what it got). Works across processes, since the journal is a file beside the repository.
+   */
+  async activity(): Promise<Activity> {
+    const path = await this.journalPath();
+    const st = await this.host.fs.stat(path);
+    if (st === undefined) return { state: "idle" };
+    const j = await readJournal(this.host, path);
+    if (j === undefined) return { state: "idle" };
+    return {
+      state: "request",
+      live: await journalIsLive(this.host, path, this.journalStaleMs, this.#opts.now),
+      since: j.start.at,
+      provider: j.start.provider,
+      model: j.start.model,
+      ...(j.start.owner === undefined ? {} : { owner: j.start.owner }),
+      ...(j.start.nonce === undefined ? {} : { nonce: j.start.nonce }),
+      ...(st.mtimeMs === undefined ? {} : { lastWrite: st.mtimeMs }),
+    };
+  }
+
+  /**
+   * Ask the request in flight on this thread to stop, from any process: a marker beside the journal, noticed by the
+   * owner within its poll interval (250 ms), which records what had arrived as `interrupted` by the user. Resolves to
+   * `requested`, `none` (nothing is running) or `stale` (the owner is gone: call `recoverRequest()` instead).
+   */
+  async requestAbort(): Promise<"requested" | "none" | "stale"> {
+    const a = await this.activity();
+    if (a.state === "idle") return "none";
+    if (!a.live) return "stale";
+    if (a.nonce === undefined) return "none";
+    await requestAbortOf(this.host, await this.journalPath(), a.nonce);
+    return "requested";
+  }
+
+  /** Record what a request that died on this thread had received (what `open` does), now. Does nothing to a request that may still be running. */
+  async recoverRequest(): Promise<JournalRecovery | undefined> {
+    await this.#recoverJournal();
+    return this.recovery.journal;
   }
 
   /** Where this branch's request journal lives (see `harness/journal.ts`). */
@@ -1020,12 +1115,79 @@ export class Conversation {
   /** The transcript must be exactly as this handle left it and end with a complete entry. Returns its length. */
   async #assertIntact(): Promise<number> {
     const size = (await this.host.fs.stat(this.#file))?.size ?? 0;
-    if (size !== this.#size) {
+    if (size !== this.#size && !(await this.#adopt(size))) {
       throw new ConversationError(`${CHAT_FILE} is ${size} bytes but this handle expected ${this.#size}: it was changed by something else; reopen the conversation`);
     }
     const tail = size === 0 ? new Uint8Array(0) : await this.host.fs.readRange(this.#file, Math.max(0, size - 2), 2);
     if (!endsCleanly(tail)) throw new ConversationError(`${CHAT_FILE} does not end with a complete entry; reopen the conversation to repair it`);
     return size;
+  }
+
+  /**
+   * Another process sharing this worktree appended and committed since this handle last looked. Adopt that if it is
+   * clean (the transcript ends on an entry, HEAD descends from what this handle knew, and the newest commit's offset
+   * is the file's size, so nothing is half-written); the entries found are announced as foreign. Anything else is
+   * left for `open` to repair. Called under the branch lock, so no writer is mid-append.
+   */
+  async #adopt(size: number): Promise<boolean> {
+    if (size < this.#size) return false;
+    const tail = size === 0 ? new Uint8Array(0) : await this.host.fs.readRange(this.#file, Math.max(0, size - 2), 2);
+    if (!endsCleanly(tail)) return false;
+    const head = await this.git.head();
+    if (head === undefined) return false;
+    if (this.#head !== undefined && head !== this.#head && !(await this.git.isAncestor(this.#head, head))) return false;
+    const [tip] = await this.git.log(head, { maxCount: 1 });
+    if (Number(tip?.trailers["Chattree-Offset"]?.[0]) !== size) return false;
+    const before = this.#size;
+    const oldHead = this.#head;
+    const bytes = await this.host.fs.readRange(this.#file, before, size - before);
+    this.#size = size;
+    this.#head = head;
+    try {
+      const decoded = await Promise.all(parseFile(bytes).entries.map((e) => this.pipeline.decode(e)));
+      const refs = oldHead === undefined || oldHead === head ? [] : await this.#indexOf(head, oldHead);
+      const found: { entry: Appended; value: ChatEntry }[] = [];
+      for (const [i, d] of decoded.entries()) {
+        const ref = refs[i];
+        if (d.ok && ref !== undefined && refs.length === decoded.length) found.push({ entry: { id: ref.id ?? "", tag: ref.tag, commit: ref.commit, offset: ref.offset }, value: d.value });
+      }
+      this.#foreign.push(...found);
+      if (this.#foreign.length > 1000) this.#foreign.splice(0, this.#foreign.length - 1000);
+      for (const f of found) this.#emit({ type: "entry", branch: this.branch, entry: f.entry, value: f.value, foreign: true });
+    } catch {
+      /* announcing is best effort: the handle itself is consistent */
+    }
+    return true;
+  }
+
+  /**
+   * Take in what other processes sharing this worktree have appended (an append does this by itself). Resolves to the
+   * entries found, oldest first, which are also delivered to `onEvent` with `foreign: true`.
+   */
+  sync(): Promise<{ entry: Appended; value: ChatEntry }[]> {
+    return this.#transaction(async () => {
+      await this.#assertIntact();
+      return this.#foreign.splice(0);
+    });
+  }
+
+  /**
+   * Yield entries other processes append to this thread, as they appear, until `signal` aborts. Polls the transcript's
+   * size every `pollMs` (default 400 ms) and takes the branch lock only when it has changed.
+   */
+  async *watch(opts: { signal: AbortSignal; pollMs?: number }): AsyncGenerator<{ entry: Appended; value: ChatEntry }> {
+    const ms = opts.pollMs ?? 400;
+    while (!opts.signal.aborted) {
+      const size = (await this.host.fs.stat(this.#file))?.size ?? 0;
+      if (size !== this.#size) {
+        const found = await this.sync().catch(() => []);
+        for (const f of found) yield f;
+      }
+      await new Promise<void>((resolve) => {
+        const t = setTimeout(resolve, ms);
+        opts.signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+      });
+    }
   }
 
   /** Record a new commit on this branch: keeps the entry index and head current. */
@@ -1350,6 +1512,35 @@ export class Conversation {
   }
 
   /**
+   * Start a new thread: a branch with an empty conversation, checked out in its own worktree (`worktree`, default as for forks).
+   * It begins from the commit that holds this conversation's header, so it shares `harness.yml` and the repository but not
+   * this thread's messages or workspace edits (to branch from where you are, `fork`). With `inheritSetup` (the default)
+   * it starts with this thread's agent setup: model and settings, instructions, tools and the price pin.
+   */
+  async newThread(name: string, opts: { worktree?: string; inheritSetup?: boolean } = {}): Promise<Conversation> {
+    await this.#assertNewBranch(name);
+    const header = (await this.index()).find((r) => r.tag === "header");
+    if (header === undefined) throw new ConversationError("the conversation has no header entry");
+    const source = opts.inheritSetup === false ? undefined : await this.setup();
+    const marker: NewEntry = { $tag: "branch_start", kind: "fork", from: { branch: this.branch, commit: header.commit }, context: "fresh" };
+    const made = await this.#newBranch(name, header.commit, marker, opts.worktree === undefined ? {} : { worktree: opts.worktree });
+    const thread = made.conversation as Conversation;
+    if (source?.model !== undefined) {
+      const { provider, id, settings } = source.model;
+      await thread.setupChange({
+        model: { provider, id, ...(settings === undefined ? {} : { settings }) },
+        ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),
+        ...(source.instructions === undefined ? {} : { instructions: source.instructions }),
+        ...(Object.keys(source.skills).length > 0 ? { skills: source.skills } : {}),
+        ...(Object.keys(source.mcp).length > 0 ? { mcp: source.mcp } : {}),
+        ...(source.pricing === undefined ? {} : { pricing: source.pricing }),
+        ...(source.renderer === undefined ? {} : { renderer: source.renderer }),
+      }, { reason: "fork" });
+    }
+    return thread;
+  }
+
+  /**
    * Start a subagent: a new branch from the current state of this one (pending workspace changes are
    * snapshotted first so the subagent sees them) whose first entry is a `branch_start` with a fresh-context
    * marker and the brief. The subagent works on the returned conversation, in its own worktree, and its
@@ -1593,14 +1784,104 @@ export class Conversation {
     return Conversation.open(this.host, path, this.#opts);
   }
 
-  /** All local branches with their tips and where each is checked out. */
+  /** All local branches with their tips, where each is checked out, whether it is archived, its last activity and whether a request is running on it. */
   async listBranches(): Promise<BranchInfo[]> {
-    const [branches, worktrees] = await Promise.all([this.git.branches(), this.git.worktrees()]);
-    return branches.map((b) => ({
-      name: b.ref.slice("refs/heads/".length),
-      tip: b.hash,
-      worktree: worktrees.find((w) => w.branch === b.ref)?.path,
-    }));
+    const [refs, worktrees, common] = await Promise.all([
+      this.git.run(["for-each-ref", "--format=%(refname)%00%(objectname)%00%(committerdate:iso-strict)%00%(contents:trailers:key=Chattree-Archived,valueonly)", "refs/heads"], { readOnly: true }),
+      this.git.worktrees(),
+      this.git.commonDir(),
+    ]);
+    const out: BranchInfo[] = [];
+    for (const line of dec.decode(refs.stdout).split("\n")) {
+      if (line === "") continue;
+      const [ref = "", tip = "", date = "", archived = ""] = line.split("\u0000");
+      const name = ref.slice("refs/heads/".length);
+      const journal = this.host.path.join(common, "chattree", "journal", `${encodeURIComponent(name)}.jsonl`);
+      out.push({
+        name,
+        tip,
+        worktree: worktrees.find((w) => w.branch === ref)?.path,
+        archived: archived.trim() === "true",
+        lastActivity: date,
+        running: await journalIsLive(this.host, journal, this.journalStaleMs, this.#opts.now),
+      });
+    }
+    return out;
+  }
+
+  /**
+   * Names of the threads that were merged into another thread: forks and subagents whose tip a merge commit brought into
+   * the history of the thread they came from (reachable from it other than along its own first-parent line, which
+   * would be a thread that was itself forked from this one). A fork nothing was merged from is not in the set.
+   */
+  async mergedBranches(): Promise<Set<string>> {
+    const branches = await this.git.branches();
+    const firstParent = new Map<string, Set<string>>();
+    const merged = new Set<string>();
+    for (const p of branches) {
+      const r = await this.git.run(["rev-list", "--first-parent", p.hash], { readOnly: true });
+      firstParent.set(p.hash, new Set(dec.decode(r.stdout).split("\n").filter((x) => x !== "")));
+    }
+    for (const b of branches) {
+      for (const p of branches) {
+        if (p.hash === b.hash) continue;
+        if (firstParent.get(p.hash)?.has(b.hash) === true) continue;
+        if (await this.git.isAncestor(b.hash, p.hash)) {
+          merged.add(b.ref.slice("refs/heads/".length));
+          break;
+        }
+      }
+    }
+    return merged;
+  }
+
+  /**
+   * Archive a thread (this one by default): a commit with the same content as its tip and the trailer
+   * `Chattree-Archived: true`, which `listBranches` reports and a host uses to leave the thread out of default
+   * listings (an abandoned fork). Any later commit on the branch, an entry or a snapshot, un-archives it. The commit is
+   * made under that branch's lock without a worktree, and does not disturb one that has the branch checked out (its tree
+   * is unchanged). Resolves to whether anything changed.
+   */
+  archive(name: string = this.branch): Promise<boolean> {
+    return this.#mark(name, true);
+  }
+
+  /** Bring an archived thread back into default listings, with a commit of its own (so it does not have to wait for the next entry). */
+  unarchive(name: string = this.branch): Promise<boolean> {
+    return this.#mark(name, false);
+  }
+
+  async #mark(name: string, archived: boolean): Promise<boolean> {
+    if (name === this.branch) return this.#transaction(() => this.#markLocked(name, archived));
+    const lock = await acquireLock(this.host.fs, await Conversation.#lockPathFor(this.host, this.git, name), { ...this.#opts.lock, ...(this.#opts.now === undefined ? {} : { now: this.#opts.now }) });
+    try {
+      return await this.#markLocked(name, archived);
+    } finally {
+      await lock.release();
+    }
+  }
+
+  async #markLocked(name: string, archived: boolean): Promise<boolean> {
+    const ref = `refs/heads/${name}`;
+    {
+      const tip = await this.git.revParse(ref);
+      if (tip === undefined) throw new ConversationError(`no such branch: ${name}`);
+      const [c] = await this.git.log(tip, { maxCount: 1 });
+      if ((c?.trailers["Chattree-Archived"]?.[0] === "true") === archived) return false;
+      let offset = Number(c?.trailers["Chattree-Offset"]?.[0]);
+      if (!Number.isSafeInteger(offset)) offset = (await this.git.readFileAt(tip, CHAT_FILE))?.length ?? 0;
+      const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
+      const commit = await this.git.commitTree(await this.git.treeOf(tip), [tip], {
+        message: archived ? "archive thread" : "unarchive thread",
+        trailers: [["Chattree-Offset", String(offset)], ["Chattree-Archived", String(archived)]],
+        author: committer,
+        committer,
+        ...Conversation.#dateOpt(this.#opts),
+      });
+      await this.git.run(["update-ref", ref, commit, tip]);
+      if (name === this.branch) this.#head = commit;
+      return true;
+    }
   }
 
   /** A handle on another branch, checking it out in a worktree first if it has none. */

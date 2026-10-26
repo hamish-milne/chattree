@@ -302,13 +302,14 @@ describe("finishSubagent", () => {
     await assertHistoryInvariants(convo);
   });
 
-  test("a stale handle refuses to merge", async () => {
+  test("a handle that fell behind another writer still merges", async () => {
     const { dir, convo } = await fresh();
     const { conversation: child } = await convo.spawnSubagent({ brief: "b", callId: "c" });
     await (child as Conversation).append(reply("x"));
     const other = await Conversation.open(host, dir);
     await other.append(user("someone else appended"));
-    await assert.rejects(convo.finishSubagent(child as Conversation, { summary: "s", callId: "c" }), /reopen/);
+    await convo.finishSubagent(child as Conversation, { summary: "s", callId: "c" });
+    await assertHistoryInvariants(convo);
   });
 });
 

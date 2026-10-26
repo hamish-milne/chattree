@@ -148,19 +148,19 @@ The transcript and the request journal say what is going on, so a session needs 
 
 **A daemon was considered** (one process per project owning the writes, with a named-pipe protocol). It would remove the multi-writer problem outright, give instant abort, live streaming of one session's reply to another, and a natural home for background tool processes. It would also be a second source of truth beside git and files, with its own lifecycle (starting, stopping, stale sockets, versioning, security, Windows pipes), in a design whose point is that the repository and a few lock files are the whole state. Decision: not now. The library gets the coordination operations (`sync`, `watch`, `activity`, `requestAbort`) behind a small interface so that a daemon could implement them later; revisit when the tool loop brings long-running background work.
 
-## 7. What the library must gain first
+## 7. Library changes for the CLI (done)
 
-Checked against the current code; these are small, but the CLI cannot work without them.
+Checked against the code, then built before the CLI (each with tests in `test/harness/sharing.test.ts`, `threads.test.ts`):
 
-1. **A handle that survives other writers.** `Conversation` asserts that `chat.yml` is exactly the size it expects and says "reopen" otherwise. Two sessions on one thread share the worktree and the file, so the second append fails. Needed: under the branch lock, an append first adopts what other writers appended (the file ends cleanly and HEAD is a descendant of what the handle knew) instead of failing, plus `convo.sync()`.
-2. **Seeing other sessions' entries.** `onEvent` only reports this handle's own changes. Needed: `convo.watch()` (poll the file size and HEAD) that yields foreign entries, so a session re-renders when another session answers.
-3. **Activity and abort as operations.** `convo.activity()` -> `idle | request{since, model, owner, live}`, from the journal (whose start record gains `pid`, host and session id), and `convo.requestAbort()` for the marker the turn runner polls.
-4. **Adopting an existing repository.** `Conversation.create` refuses any directory that is already a git repository. `--adopt` needs a way to add the header, `harness.yml` and ignore entries to an existing repository on its current branch, requiring a clean tree.
-5. **Archiving.** `convo.archive(branch)` / `unarchive`, the zero-diff commit above, and reading the state in `listBranches` (archived, running, merged).
-6. **Creating a thread from nothing in a chosen worktree path** (today only `fork` and `openBranch` create branches and worktrees).
-7. **The tool loop** stays parked: the CLI's first version is chat without tools, and the tool loop is a fast follow. The engine, activity model and renderer leave room for it, but "ongoing tool call" has nothing to show until it is built.
+1. **A handle that survives other writers.** An append (or `sync()`) under the branch lock adopts what another process sharing the worktree appended: the transcript must end on an entry, HEAD must descend from what the handle knew, and the newest commit's `Chattree-Offset` must equal the file's size. Anything else (bytes that were appended but never committed) still refuses with "reopen", and `open` repairs it. The adopted entries are announced to `onEvent` with `foreign: true`.
+2. **Seeing other sessions' entries.** `convo.sync()` returns them once; `convo.watch({ signal, pollMs })` polls the transcript's size and yields them as they appear.
+3. **Activity and abort.** `convo.activity()` reads the journal (`idle`, or a request with `live`, `since`, provider, model, owner and nonce); the journal's start record carries the `owner` the turn options give (`pid`, host, session). `convo.requestAbort()` leaves a marker naming the request's nonce (`requested`, `none`, or `stale` for an owner that went quiet); the turn runner polls for it (`abortPollMs`, default 250 ms) and records the request as `interrupted` by the user. `convo.recoverRequest()` records a request that died.
+4. **Adopting an existing repository.** `Conversation.adopt(host, dir, options)`: the top level of a repository, on a branch, clean tree, no conversation yet. It adds `/.chattree/` to `.gitignore` and attribute lines for only `chat.yml` and `blobs/` to `.gitattributes` (never replacing the files), writes `harness.yml` if given, and commits the header on the current branch. `verifyHistory` starts at the header commit, so the history before it is not judged.
+5. **Archiving.** `convo.archive(name?)` / `unarchive(name?)` (the zero-diff commit with `Chattree-Archived`, made under the branch's lock without a worktree); `listBranches` now reports `archived`, `lastActivity` and `running`; `mergedBranches()` finds forks and subagents whose tip was merged into another thread (reachable from it other than along its own first-parent line). The commit graph labels the marker `archive`.
+6. **New threads.** `convo.newThread(name, { worktree?, inheritSetup? })`: a branch from the commit that holds the header (an empty conversation sharing `harness.yml`; not this thread's messages or workspace edits, for which `fork` exists), checked out in its own worktree, with this thread's agent setup copied in unless `inheritSetup: false`.
+7. **The tool loop** stays parked: the CLI's first version is chat without tools, and the tool loop is a fast follow. The engine, activity model and renderer leave room for it.
 
-(Staged attachments no longer need anything from `gcBlobs`: they are paths until sent.)
+(Staged attachments needed nothing from `gcBlobs`: they are paths until sent.)
 
 ## 8. Host decisions the CLI makes
 

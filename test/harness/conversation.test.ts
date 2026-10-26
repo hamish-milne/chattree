@@ -165,10 +165,19 @@ describe("append", () => {
     await assertHistoryInvariants(convo);
   });
 
-  test("a handle whose transcript was changed by someone else refuses to write", async () => {
+  test("a handle that fell behind another writer adopts its entries and appends after them (committed work only)", async () => {
     const { dir, convo } = await fresh();
     const other = await Conversation.open(host, dir);
     await other.append(user("from the other handle"));
+    await convo.append(user("from the behind handle"));
+    const texts = (await convo.readEntries()).slice(-2).map((e) => (e.ok && e.value.$tag === "user" ? (e.value.content[0] as { text: string }).text : "?"));
+    assert.deepEqual(texts, ["from the other handle", "from the behind handle"]);
+    await assertHistoryInvariants(convo);
+  });
+
+  test("a handle whose transcript was changed by something that never committed refuses to write", async () => {
+    const { dir, convo } = await fresh();
+    await appendFile(join(dir, "chat.yml"), "- !user\n  id: 01J00000000000000000000000\n  content:\n    - !text\n      text: stray\n");
     await assert.rejects(convo.append(user("from the stale handle")), /expected \d+.*reopen/);
     const reopened = await Conversation.open(host, dir);
     await reopened.append(user("after reopening"));

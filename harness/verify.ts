@@ -102,7 +102,10 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
   }
 
   // ---- the commits ----------------------------------------------------------------------------------------
-  const commits = (await git.log(tipCommit, { firstParent: true })).reverse();
+  // A repository adopted with `Conversation.adopt` has history from before the conversation: the check starts at the header's commit.
+  const all = (await git.log(tipCommit, { firstParent: true })).reverse();
+  const begins = all.findIndex((c) => c.trailers["Chattree-Kind"]?.[0] === "header");
+  const commits = begins > 0 ? all.slice(begins) : all;
   const sizes = await git.objectInfo(commits.map((c) => `${c.hash}:${CHAT_FILE}`));
   const byEnd = new Map<number, number>();
   entries.forEach((e, i) => byEnd.set(e.end, i));

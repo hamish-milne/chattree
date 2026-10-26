@@ -26,6 +26,8 @@ export interface JournalStart {
   at: number;
   /** Random per request: how the request that wrote this file tells, later, that the file is still its own and has not been recovered by someone else. */
   nonce?: string;
+  /** Who is running the request, for hosts that want to say so ("session 2, pid 4711") and for abort requests. */
+  owner?: { pid?: number; host?: string; session?: string };
 }
 
 export type JournalRecord =
@@ -82,6 +84,8 @@ export class Journal {
   readonly #opts: JournalOptions;
   /** The bytes of our start line: the file is ours while it begins with exactly these. */
   readonly #head: Uint8Array;
+  /** This request's nonce, which an abort request must quote. */
+  readonly nonce: string;
   #buffer: string[] = [];
   #size = 0;
   #timer: ReturnType<typeof setTimeout> | undefined;
@@ -90,7 +94,8 @@ export class Journal {
   #failed = false;
   #closed = false;
 
-  private constructor(host: Host, path: string, opts: JournalOptions, head: Uint8Array) {
+  private constructor(host: Host, path: string, opts: JournalOptions, head: Uint8Array, nonce: string) {
+    this.nonce = nonce;
     this.#host = host;
     this.#path = path;
     this.#opts = opts;
@@ -99,13 +104,15 @@ export class Journal {
 
   /** Start a journal. Fails with `JournalBusy` if one exists: two requests on one branch would interleave. */
   static async begin(host: Host, path: string, start: JournalStart, opts: JournalOptions = {}, staleMs = 60_000): Promise<Journal> {
-    const line = `${JSON.stringify({ t: "start", v: 1, ...start, nonce: crypto.randomUUID() } satisfies JournalRecord)}\n`;
+    const nonce = crypto.randomUUID();
+    const line = `${JSON.stringify({ t: "start", v: 1, ...start, nonce } satisfies JournalRecord)}\n`;
     const head = enc.encode(line);
     await host.fs.mkdir(host.path.dirname(path));
     if (!(await host.fs.createExclusive(path, head))) {
       throw new JournalBusy(path, await isLive(host, path, staleMs, opts.now));
     }
-    const j = new Journal(host, path, opts, head);
+    const j = new Journal(host, path, opts, head, nonce);
+    await host.fs.remove(abortMarkerPath(path)).catch(() => false); // a request for an earlier request's abort is not for this one
     const beat = opts.heartbeatMs ?? 15_000;
     if (beat > 0) {
       j.#beat = setInterval(() => j.write({ t: "beat", at: (opts.now ?? Date.now)() }), beat);
@@ -129,6 +136,19 @@ export class Journal {
     try {
       const got = await this.#host.fs.readRange(this.#path, 0, this.#head.length);
       return got.length === this.#head.length && got.every((b, i) => b === this.#head[i]);
+    } catch {
+      return false;
+    }
+  }
+
+  /** Whether someone asked for this request to be aborted (`requestAbortOf`). The marker is consumed; one naming another request is dropped. */
+  async abortRequested(): Promise<boolean> {
+    const path = abortMarkerPath(this.#path);
+    try {
+      if ((await this.#host.fs.stat(path)) === undefined) return false;
+      const who = dec.decode(await this.#host.fs.read(path)).trim();
+      await this.#host.fs.remove(path).catch(() => false);
+      return who === this.nonce;
     } catch {
       return false;
     }
@@ -179,6 +199,16 @@ export class Journal {
   get failed(): boolean {
     return this.#failed;
   }
+}
+
+/** Where an abort request for the request journaled at `journalPath` is left. */
+export function abortMarkerPath(journalPath: string): string {
+  return `${journalPath}.abort`;
+}
+
+/** Ask the request journaled at `path` to stop: leave a marker naming its nonce, which its process notices within a poll interval. */
+export async function requestAbortOf(host: Host, path: string, nonce: string): Promise<void> {
+  await host.fs.writeAtomic(abortMarkerPath(path), enc.encode(nonce));
 }
 
 async function isLive(host: Host, path: string, staleMs: number, now: (() => number) | undefined): Promise<boolean> {
