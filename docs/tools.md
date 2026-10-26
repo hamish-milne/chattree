@@ -84,10 +84,10 @@ Before every request the requests-per-turn, deadline and money limits are checke
 
 Output over a size cap (starting point: 30 KB) is cut to head and tail with a marker and `truncated: true`. What the full output points to depends on its origin:
 
-- **Already in the repository** (a `read` of a large file): the entry stores a reference (path, offset, length). The result entry's own commit pins the file contents, so no hash is needed, provided the workspace is snapshotted before the entry is appended. A reference can stand in for any value in the transcript, like a blob reference.
+- **Already in the repository** (a `read` of a large file): the idea agreed in review was a reference (path, offset, length at the entry's commit) in place of a copy. **Deferred**: a `read` result is formatted (headers, line numbers, several files), so it is not a byte range of one file, and a reference would need the result re-rendered at read time from the file at that commit. Until then the result is stored as text, and the write pipeline's own size threshold turns a large one into a blob (identical re-reads share one blob). See the parking lot.
 - **Not in the repository** (command output, job logs): a blob.
 
-Offsets are bytes; line numbers are applied when rendering. The marker tells the model how to ask for more. Text only for now; image results are a follow-up. The reference form needs a format version bump and verifier support.
+Offsets are bytes; line numbers are applied when rendering. The marker tells the model how to ask for more. Text only for now; image results are a follow-up.
 
 ### 3.3 Cost and limits of nested work
 
@@ -158,7 +158,7 @@ Each tool is a definition plus an asynchronous `execute` in the host, pinned in 
 
 **`run` and `script`.** Two tools because they have different guarantees.
 
-`run` is a minimal cross-platform shell with no shell involved. `argv` is a list of strings started directly; `pipe_to` is an optional list of further argv lists, each fed the previous one's stdout; `stdin` and `stdout` name files (`append: true` appends) and go through the same boundary and protected-file checks as `write`. The approval prompt and the allowlist therefore see programs and arguments, not a string to parse. Two opt-ins cover what a shell normally does: `$VAR` in an argument is replaced from the host environment only for names listed under `tools.env` in `harness.yml` (a list, or `*`, which the CLI warns about; an unlisted name is an error naming it), and `glob: true` expands arguments containing `*`, `?`, `[` or `{` with `tinyglobby`, relative to and confined to the workspace, sorted, with no match an error. A literal `|`, `>` or `$` as an argument is rare enough that the answer is `script`.
+`run` is a minimal cross-platform shell with no shell involved. `argv` is a list of strings started directly; `pipe_to` is an optional list of further argv lists, each fed the previous one's stdout; `stdin` and `stdout` name files (`append: true` appends) and go through the same boundary and protected-file checks as `write`. The approval prompt and the allowlist therefore see programs and arguments, not a string to parse. Two opt-ins cover what a shell normally does: `$VAR` in an argument is replaced from the host environment only for names listed under `tools.env` in `harness.yml` (a list, or `*`, which the CLI warns about; an unlisted name is an error naming it), and `glob: true` expands arguments containing `*`, `?`, `[` or `{` (and `**`), relative to and confined to the workspace, sorted, with no match an error. The glob is a small one of our own over `Host.fs`, not a library: it has to work on whatever host the tools run on, and a library would read the local disk directly. A literal `|`, `>` or `$` as an argument is rare enough that the answer is `script`.
 
 `script` runs a string with `bash -c`. It always asks, no allowlist applies, and the CLI reports it as "running a script", not "calling a program".
 
@@ -214,13 +214,13 @@ Child conversations get the leaf tools only, confined to their own worktree, wit
 
 ## 8. Dependencies
 
-`tinyglobby` becomes the second runtime dependency (after `yaml`). Node's built-in `fs.glob` is checked first and used instead if it is enough.
+No new runtime dependency. Globbing is a small built-in over `Host.fs` (see 4.1). A validation library for tool schemas is in the parking lot.
 
 ## 9. Build order and tests
 
 Eight steps, each committed with its tests. All offline tests use the existing fake provider server with scripted `tool_use` responses.
 
-1. **Registry and shaping.** `harness/tools.ts`: tool type with an asynchronous executor, schema validation against the portable subset (`harness/tool-schema.ts`), pinning, truncation, blob and file-reference results (format bump, verifier support). Tests: schema failures become error results, subset violations are rejected at registration, oversized output is cut and recoverable.
+1. **Registry and shaping.** `harness/tools.ts`: tool type with an asynchronous executor, schema validation against the portable subset (`harness/tool-schema.ts`), pinning, truncation and blob results. Tests: schema failures become error results, subset violations are rejected at registration, oversized output is cut and recoverable.
 2. **Leaf tools.** `read`, `write`, `edit`, `run`, `script`. Tests: symlink and `..` escapes, refusal to write `chat.yml`, `harness.yml` and `.git`, edit anchors (none, several, insert), batch stop-at-first-failure, `$VAR` allowlist, glob confinement, pipes and redirects, timeout and abort kill the process group, secrets redacted.
 3. **The loop.** `harness/loop.ts`. Tests: several calls in one response, a result committed per call, a crash between calls leaving a valid history that resumes, abort during a request and during a tool, each limit stopping the loop with calls answered, a malformed call, a setup change refused mid-loop.
 4. **Provider adapters and the live check** (checkpoint: the first minimal working setup, with approvals auto-granted by the caller). The portable schema in each adapter's conformance tests (parallel calls, ids, empty and invalid arguments, several results, `is_error`), the real starter definitions through each flavour's request mapping, and live-check Stage A (section 3.6). You run it against the providers; recorded runs become fixtures.
@@ -233,10 +233,10 @@ Eight steps, each committed with its tests. All offline tests use the existing f
 
 - Whether `mergeFork` accepts a subagent branch (needed for `review` mode).
 - How a child's spend is charged to the parent's turn limit, and how that stops a runaway background subagent.
-- Whether Node's built-in `fs.glob` is enough before adding `tinyglobby`.
 - How reliably models produce the `run` argv form (a live-check result, section 3.6).
 - Whether Responses `strict: true` is worth using for a subset of the definitions.
 
 ## 11. Build status
 
-- **Step 1 (done, except the reference form).** `harness/tool-schema.ts` (the portable subset: `checkSchema`, `validateArgs`) and `harness/tools.ts` (`Tool`, `ToolRegistry` with name and schema checks, sorted definitions, pinning, `check` for a model's call; `shapeResult` with head and tail truncation on character boundaries and a `keep` hook for the full output). The file-reference form of a result (format bump and verifier support) moves to step 2, where `read` is its only user; large command output already becomes a blob through the write pipeline's own threshold, and `keep` is how a cut result names where the full text is.
+- **Step 1 (done).** `harness/tool-schema.ts` (the portable subset: `checkSchema`, `validateArgs`) and `harness/tools.ts` (`Tool`, `ToolRegistry` with name and schema checks, sorted definitions, pinning, `check` for a model's call; `shapeResult` with head and tail truncation on character boundaries and a `keep` hook for the full output).
+- **Step 2 (done).** The host gained `Host.run` (a command or pipeline in its own process group, stdout and stderr collected in the order they arrive, timeout, abort, output cap, environment scrubbing), `Fs.realpath`, `PathOps.resolve/relative/isAbsolute` and `writeAtomic(..., { keepMode })`. `harness/starter/` has the boundary (`workspace.ts`), a small glob over `Host.fs` (`glob.ts`) and the five tools (`read`, `write`, `edit`, `run`, `script`; `leafTools(options)` returns them). Differences from the plan: the file-reference result form is deferred (see 3.2); globbing is our own and not `tinyglobby`; stdout and stderr are interleaved by arrival, which is exact only when the program's writes are not simultaneous (the OS pipes are separate); `background` is not in the schemas yet (step 6 adds it, as a changed pinned definition).
