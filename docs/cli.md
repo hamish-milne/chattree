@@ -126,8 +126,8 @@ Non-interactive verbs use the same engine: `chattree say "text" [--attach f]... 
 
 ## 5. Verbs
 
-- `chattree init [dir] [--provider anthropic|openai|compatible --base-url U] [--model M] [-y] [--existing | --force]`: creates the repository, writes `harness.yml` (providers detected from `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, with `api_key_env`, never the key), adds the ignore entries, commits the header, sets the first `agent_setup` (model and settings), and pins the current prices so costs work from the first message. It never stores a secret. Without flags it asks a few questions; with `-y` it takes defaults and fails if it cannot.
-  - Inside an existing git repository, plain `init` **throws** and says why: the conversation would share a branch with the user's own work, and every append commits the workspace's pending changes along with the entry (that is how snapshots work). `--existing` accepts that and initialises on the **current branch** at the repository's top level (it says so if the working directory was a subdirectory); it requires a clean working tree, and `harness.yml`, `chat.yml` and the ignore entries are its first commit. `--force` always runs `git init` in the given directory, even inside another repository (a nested repository).
+- `chattree init [dir] [--provider anthropic|openai|compatible --base-url U] [--model M] [-y] [--adopt | --force]`: creates the repository, writes `harness.yml` (providers detected from `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, with `api_key_env`, never the key), adds the ignore entries, commits the header, sets the first `agent_setup` (model and settings), and pins the current prices so costs work from the first message. It never stores a secret. Without flags it asks a few questions; with `-y` it takes defaults and fails if it cannot.
+  - Inside an existing git repository, plain `init` **throws** and says why: the conversation would share a branch with the user's own work, and every append commits the workspace's pending changes along with the entry (that is how snapshots work). `--adopt` accepts that and initialises on the **current branch** at the repository's top level (it says so if the working directory was a subdirectory); it requires a clean working tree, and `harness.yml`, `chat.yml` and the ignore entries are its first commit. `--force` always runs `git init` in the given directory, even inside another repository (a nested repository).
 - `chattree chat [thread]`: opens the session (2, 3). On start it prints the last few entries (everything since the last user message, at most ten, long text truncated with the way to see the rest), then the thread, model and spend, then the prompt.
 - `chattree <verb> -C <dir>`: the project switch for everything.
 
@@ -155,7 +155,7 @@ Checked against the current code; these are small, but the CLI cannot work witho
 1. **A handle that survives other writers.** `Conversation` asserts that `chat.yml` is exactly the size it expects and says "reopen" otherwise. Two sessions on one thread share the worktree and the file, so the second append fails. Needed: under the branch lock, an append first adopts what other writers appended (the file ends cleanly and HEAD is a descendant of what the handle knew) instead of failing, plus `convo.sync()`.
 2. **Seeing other sessions' entries.** `onEvent` only reports this handle's own changes. Needed: `convo.watch()` (poll the file size and HEAD) that yields foreign entries, so a session re-renders when another session answers.
 3. **Activity and abort as operations.** `convo.activity()` -> `idle | request{since, model, owner, live}`, from the journal (whose start record gains `pid`, host and session id), and `convo.requestAbort()` for the marker the turn runner polls.
-4. **Adopting an existing repository.** `Conversation.create` refuses any directory that is already a git repository. `--existing` needs a way to add the header, `harness.yml` and ignore entries to an existing repository on its current branch, requiring a clean tree.
+4. **Adopting an existing repository.** `Conversation.create` refuses any directory that is already a git repository. `--adopt` needs a way to add the header, `harness.yml` and ignore entries to an existing repository on its current branch, requiring a clean tree.
 5. **Archiving.** `convo.archive(branch)` / `unarchive`, the zero-diff commit above, and reading the state in `listBranches` (archived, running, merged).
 6. **Creating a thread from nothing in a chosen worktree path** (today only `fork` and `openBranch` create branches and worktrees).
 7. **The tool loop** stays parked: the CLI's first version is chat without tools, and the tool loop is a fast follow. The engine, activity model and renderer leave room for it, but "ongoing tool call" has nothing to show until it is built.
@@ -176,12 +176,20 @@ Checked against the current code; these are small, but the CLI cannot work witho
 - Sessions: two engines in one process on one thread (the multi-writer path), and a kill-and-resume test using the session store.
 - Terminal: a small real-pty smoke test is optional (it needs a pty library); the tty layer is kept thin so that most of it is covered through the fake.
 
-## 10. Open questions
+## 10. Decisions after review, and probe results
 
-1. **How a bare-text message ends in user mode.** "A blank line sends" cannot also be how paragraphs are typed, because a paragraph break is a blank line. Options: (A) Enter sends, with Alt+Enter or a trailing `\` for a new line and paste taken whole; (B) Enter adds a line and the first blank line sends, with paragraph breaks coming from paste, `\` continuation or `/edit`; (C) Enter adds a line and two blank lines in a row send, so one blank line is a paragraph break; (D) a configurable choice with one of these as the default. Slash commands run on Enter in every option.
-2. **`init --existing` and the workspace.** Every append commits the workspace's pending changes with the entry. On the user's own branch that means their uncommitted edits end up in chat commits. Planned mitigation: clean tree required at init, and the warning printed. Is that enough, or should `--existing` also stage only the conversation's own files (a library change to the snapshot behaviour)?
-3. Should a second session on a thread stream the first one's reply by tailing the journal in v1, or print it when finished? (Proposed: print when finished; tailing later.)
-4. Bracketed-paste handling in `node:readline` is believed to work through its keypress parser but is undocumented; to be checked before committing to readline over a small purpose-built line editor.
-5. Display preferences (`/thinking`, colour, editor): session only for v1, a per-user file later.
+Decided in review: tool loop after the CLI; daemon not now; abort by marker file; attachments staged by path; session file in YAML; sessions point at threads; plain `chat` outside a thread throws; archive by zero-diff commit; `init` inside a repository throws unless `--adopt` or `--force`.
 
-Decided in review: tool loop after the CLI; daemon not now; abort by marker file; attachments staged by path; session file in YAML; sessions point at threads; plain `chat` outside a thread throws; archive by zero-diff commit; `init` inside a repository throws unless `--existing` or `--force`.
+- **Ending bare text (user mode): Enter adds a line, a blank line sends.** A paragraph break is therefore typed with a trailing `\` continuation, `/edit`, or comes from a paste (a pasted block is taken whole, blank lines included). Slash commands run on Enter. Making this configurable is a later refinement.
+- **`init --adopt`** is the convenience for a repository the user already made (copying files into it): it initialises on the current branch at the top level, requires a clean tree, and the docs spell out the implication. The library is unchanged: every append commits whatever changed in the workspace with the entry, because snapshot and rollback depend on it, with or without `--adopt`.
+- **Probe: bracketed paste in `node:readline` (Node 22.23, tested through a pty).** With `\x1b[?2004h` written to the terminal, `readline` emits `keypress` events named `paste-start` and `paste-end`, but it still emits one `line` event per newline inside the paste, and a tab inside a paste still triggers the completer. So `readline` is enough: the terminal layer listens for the paste events, and while a paste is open it appends each `line` to the draft instead of treating it as Enter, and the completer returns no candidates. The unfinished last line of a paste stays in the editor. No custom line editor is needed.
+- Second session streaming the first's reply: print when finished in v1 (tailing is in the parking lot). Display preferences: session only in v1.
+
+## 11. Build order
+
+1. Probes (done: above).
+2. Library changes of section 7, with tests; then a checkpoint.
+3. `cli/` skeleton: project detection, `init`, the engine and command registry with the plain renderer, `say`/`show`/`status` verbs (the non-interactive path, which exercises everything but the tty).
+4. Sessions: the session store, locking, resume, staged attachments by path.
+5. `chat`: the terminal layer (readline, paste handling, completion, spinner), live streaming, activity, `/abort`.
+6. The remaining commands: threads (including archive), setup, history, housekeeping.
