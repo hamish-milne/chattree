@@ -18,7 +18,6 @@ export function ago(iso: string, now: number): string {
 
 const history: Command = {
   name: "history",
-  aliases: ["log"],
   summary: "print the last entries of the thread",
   usage: "/history [n]  (default 10)",
   busy: "allowed",

@@ -8,6 +8,7 @@ import type { Ctx, StagedAttachment } from "../engine.ts";
 import { detectMime } from "../mime.ts";
 import type { Output } from "../output.ts";
 import { failure, runTurn } from "../turn.ts";
+import { editDraft } from "./misc.ts";
 
 const kb = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1024 / 1024).toFixed(1)} MiB`);
 
@@ -196,7 +197,7 @@ const detach: Command = {
 const draft: Command = {
   name: "draft",
   summary: "show, replace or clear the unsent message",
-  usage: "/draft [show | clear | set <text>]",
+  usage: "/draft [show | edit | clear | set <text>]",
   busy: "allowed",
   async *run(ctx, args, rest) {
     const sub = args[0] ?? "show";
@@ -206,8 +207,9 @@ const draft: Command = {
     } else if (sub === "set") {
       ctx.state.draft = rest.replace(/^\s*set\s*/, "");
       yield { type: "notice", message: "draft replaced" };
-    } else if (sub === "show") yield { type: "text", text: ctx.state.draft === "" ? "(the draft is empty)" : ctx.state.draft };
-    else yield { type: "error", message: `unknown option ${sub}`, hint: "/draft [show | clear | set <text>]" };
+    } else if (sub === "edit") yield* editDraft(ctx);
+    else if (sub === "show") yield { type: "text", text: ctx.state.draft === "" ? "(the draft is empty)" : ctx.state.draft };
+    else yield { type: "error", message: `unknown option ${sub}`, hint: "/draft [show | edit | clear | set <text>]" };
   },
 };
 

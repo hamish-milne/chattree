@@ -15,6 +15,7 @@ export type Output =
   /** An entry from the transcript, as in `/history`. */
   | { type: "entry"; value: ChatEntry; entry?: Appended }
   /** A request is starting, streaming, or over. */
+  | { type: "clear" }
   | { type: "request_start"; model: string }
   | { type: "stream"; kind: "text" | "reasoning"; text: string }
   | { type: "request_end"; status: "completed" | "interrupted" | "cancelled"; usage?: { input: number; output: number; cached: number }; turnUsd?: number; threadUsd?: number; unpriced?: boolean; stopReason?: string };
@@ -80,6 +81,8 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
 export interface PlainSink {
   out(text: string): void;
   err(text: string): void;
+  /** Clear the screen (a terminal sink does; plain output has nothing to clear). */
+  clear?(): void;
 }
 
 /** How a renderer marks up what it says: plain text by default, ANSI colours on a terminal. */
@@ -130,6 +133,10 @@ export class PlainRenderer {
         if (text !== undefined) this.#sink.out(`${text}\n`);
         return;
       }
+      case "clear":
+        this.#flush();
+        this.#sink.clear?.();
+        return;
       case "request_start":
         return;
       case "stream":

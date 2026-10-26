@@ -32,12 +32,12 @@ async function started(replies: Reply[]) {
 }
 
 /** A terminal for the session: keystrokes go in `input`, what the user would see is `screen()`. */
-function terminal(dir: string, extra: string[] = []) {
+function terminal(dir: string, extra: string[] = [], over: Partial<import("../../cli/io.ts").Io> = {}) {
   const input = new PassThrough();
   const output = new PassThrough();
   let raw = "";
   output.on("data", (d: Buffer) => void (raw += d.toString()));
-  const io = testIo(dir, { interactive: true, tty: { input, output } });
+  const io = testIo(dir, { interactive: true, tty: { input, output }, ...over });
   const done = main(["chat", "--thread", "main", ...extra], io);
   return {
     io,
@@ -270,6 +270,39 @@ describe("the interactive session", () => {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
       assert.match(t.screen(), /earlier question[\s\S]*an earlier answer[\s\S]*thread main · local\/qwen3:4b/);
       t.end();
+      await t.done;
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("handing the terminal over", () => {
+  test("/edit gives the terminal to the editor, switches paste mode off and on around it, and the draft comes back", async () => {
+    const { server, dir } = await started([answer("ok")]);
+    try {
+      let during = "";
+      const t = terminal(dir, [], {
+        edit: async (path: string) => {
+          during = "editing";
+          await writeFile(path, "written in the editor\n");
+          return true;
+        },
+      });
+      await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
+      t.type("/edit\n");
+      await waitFor(() => t.screen().includes("the draft is updated"), "the edit finished");
+      assert.equal(during, "editing");
+      const raw = t.raw();
+      const off = raw.lastIndexOf("\x1b[?2004l");
+      const on = raw.lastIndexOf("\x1b[?2004h");
+      assert.ok(off >= 0 && on > off, "paste mode was off while the editor ran and on again after");
+      t.type("\n");
+      await waitFor(() => server.seen.length === 1, "the request");
+      assert.equal(JSON.parse(server.seen[0]?.body ?? "").messages.at(-1).content, "written in the editor");
+      t.type("/clear\n");
+      await waitFor(() => t.raw().includes("\x1b[2J"), "the screen was cleared");
+      t.type("/quit\n");
       await t.done;
     } finally {
       await server.close();

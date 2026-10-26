@@ -176,7 +176,7 @@ export class Terminal {
     const known = this.#engine.registry.find(cmd?.name ?? "say");
     const blocking = known?.busy === "blocked";
     if (blocking) this.#startSpinner();
-    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t) }, () => this.#engine.convo, this.#engine.state.thinking, this.#style);
+    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t), clear: () => this.#tty.output.write("\x1b[2J\x1b[H") }, () => this.#engine.convo, this.#engine.state.thinking, this.#style);
     try {
       if (blocking) this.#gate.muted = true;
       for await (const o of this.#engine.submit(line)) {
