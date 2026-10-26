@@ -1,6 +1,7 @@
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool, ToolContext } from "../tools.ts";
 import { versionOf } from "./version.ts";
+import { PATH_ALIASES, flattenArgs } from "./args.ts";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_LINES = 2000;
@@ -73,38 +74,25 @@ async function readOne(ctx: ToolContext, item: Item): Promise<{ text: string; ok
 
 export function readTool(): Tool {
   return {
+    normalize: (args) => flattenArgs(args, { path: PATH_ALIASES, offset: ["start", "skip"], limit: ["lines", "max_lines", "count"] }),
     definition: {
       name: "read",
       description:
-        "Read text files from the workspace. Takes a list of files so several can be fetched in one call. Each file is returned as numbered lines under its own header, which also gives the file's version (`version` and 8 hex digits): edit needs it. A file longer than `limit` lines (default 2000) is cut and the result says which `offset` to use for the rest. A directory returns a listing. A path of the form blob:<sha256> reads stored output that an earlier result named. One file failing does not stop the others.",
+        "Read one text file from the workspace. The result gives the file's version (`version` and 8 hex digits) and its lines, each with its line number; edit needs both. A file longer than `limit` lines (default 2000) is cut, and the result says which `offset` to use for the rest. A directory returns a listing. A path of the form blob:<sha256> reads stored output that an earlier result named. To read several files, make one read call for each, all in the same turn.",
       input_schema: {
         type: "object",
         additionalProperties: false,
-        required: ["files"],
+        required: ["path"],
         properties: {
-          files: {
-            type: "array",
-            minItems: 1,
-            maxItems: 20,
-            description: "The files to read.",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["path"],
-              properties: {
-                path: { type: "string", description: "Path relative to the workspace root." },
-                offset: { type: "integer", minimum: 0, description: "Number of lines to skip from the start. Default 0." },
-                limit: { type: "integer", minimum: 1, description: "Most lines to return. Default 2000." },
-              },
-            },
-          },
+          path: { type: "string", description: "Path of the file, relative to the workspace root." },
+          offset: { type: "integer", minimum: 0, description: "Number of lines to skip from the start. Default 0." },
+          limit: { type: "integer", minimum: 1, description: "Most lines to return. Default 2000." },
         },
       },
     },
     async execute(args, ctx) {
-      const results: { text: string; ok: boolean }[] = [];
-      for (const item of args["files"] as Item[]) results.push(await readOne(ctx, item));
-      return { content: results.map((r) => r.text).join("\n\n"), is_error: results.every((r) => !r.ok) };
+      const r = await readOne(ctx, args as unknown as Item);
+      return { content: r.text, is_error: !r.ok };
     },
   };
 }

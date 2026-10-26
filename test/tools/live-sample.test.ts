@@ -22,15 +22,15 @@ function pretendModel(): ProviderAdapter {
       const last = (results.at(-1) as { results: { content: string }[] } | undefined)?.results[0]?.content ?? "";
       const version = /[0-9a-f]{8}/.exec(last)?.[0] ?? "";
       if (prompt.startsWith("In notes.txt change the word draft")) {
-        if (results.length === 0) return call("r", "read", { files: [{ path: "notes.txt" }] });
+        if (results.length === 0) return call("r", "read", { path: "notes.txt" });
         if (results.length === 1) {
           edits++;
-          return call("e", "edit", { files: [{ path: "notes.txt", version: edits % 2 === 0 ? "latest" : `v ${version}`, changes: [{ start: 1, end: 1, content: "status: final" }] }] });
+          return call("e", "edit", { path: "notes.txt", version: edits % 2 === 0 ? "latest" : `v ${version}`, start: 1, end: 1, content: "status: final" });
         }
-        if (results.length === 2 && last.startsWith("failed:")) return call("e2", "edit", { files: [{ path: "notes.txt", version, changes: [{ start: 1, end: 1, content: "status: final" }] }] });
+        if (results.length === 2 && last.startsWith("failed:")) return call("e2", "edit", { path: "notes.txt", version, start: 1, end: 1, content: "status: final" });
         return text("done");
       }
-      if (prompt.startsWith("What is the code word")) return results.length === 0 ? call("r", "read", { files: [{ path: "a.txt" }, { path: "b.txt" }] }) : text("PELICAN and 4417");
+      if (prompt.startsWith("What is the code word")) return results.length === 0 ? call("r", "read", { path: "a.txt" }) : results.length === 1 ? call("r2", "read", { path: "b.txt" }) : text("WALRUS and 4417");
       return text("I would rather not.");
     },
     retrieve: async () => undefined,

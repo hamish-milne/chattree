@@ -1,5 +1,6 @@
 import type { Conversation } from "../harness/conversation.ts";
 import type { ChatEntry } from "../harness/entries.ts";
+import { inlineBlobs } from "../harness/context-builder.ts";
 
 const fence = (body: string): string => {
   const longest = Math.max(2, ...[...body.matchAll(/`+/g)].map((m) => m[0].length));
@@ -30,8 +31,8 @@ export async function exportMarkdown(convo: Conversation, entries: readonly Chat
         const parts: string[] = [];
         for (const b of e.blocks) {
           if (b.$tag === "text") parts.push(await text(b.text));
-          else if (b.$tag === "reasoning" && opts.thinking && b.visible !== undefined && b.visible !== "") parts.push(b.visible.split("\n").map((l) => `> ${l}`).join("\n"));
-          else if (b.$tag === "tool_call") parts.push(`*Tool call:* \`${b.name}\`\n\n${fence(JSON.stringify(b.args, null, 2))}`);
+          else if (b.$tag === "reasoning" && opts.thinking && b.visible !== undefined && b.visible !== "") parts.push((await text(b.visible)).split("\n").map((l) => `> ${l}`).join("\n"));
+          else if (b.$tag === "tool_call") parts.push(`*Tool call:* \`${b.name}\`\n\n${fence(JSON.stringify(await inlineBlobs(b.args, text), null, 2))}`);
         }
         out.push(`## ${e.model}\n\n${parts.join("\n\n")}`);
         break;

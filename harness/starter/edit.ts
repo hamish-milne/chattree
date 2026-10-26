@@ -1,5 +1,6 @@
 import type { Tool } from "../tools.ts";
 import { versionOf } from "./version.ts";
+import { PATH_ALIASES, flattenArgs } from "./args.ts";
 import { display, resolveInWorkspace } from "./workspace.ts";
 
 const enc = new TextEncoder();
@@ -7,7 +8,8 @@ const dec = new TextDecoder("utf-8", { fatal: true });
 
 /**
  * Edit by line number (docs/tools.md, 4.1). `read` numbers every line and gives the file's version; a change names lines
- * of the file as it was read, so nothing the model does earlier in the same call can shift them. Two shapes:
+ * of the file as it was read. The tool takes one change per call (flat arguments: nested lists are shown to some models as
+ * `any[]`); `applyChanges` still takes several, numbered as read. Two shapes:
  *   replace lines `start`..`end` (inclusive) with `content` (empty content deletes them);
  *   insert `content` after line `after` (0 is the top of the file, the last line number appends).
  */
@@ -74,7 +76,7 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
   ops.sort((a, b) => a.key - b.key || a.kind - b.kind || a.index - b.index);
 
   const out: Line[] = [];
-  const report: string[] = [];
+  const done: { head: string; removed: string[]; removedFrom: number; added: string[]; first: number }[] = [];
   let i = 0;
   for (const op of ops) {
     if (op.key < i) throw new EditFailed(`change ${op.index + 1} overlaps another change (lines are numbered as they were read, and each line may be changed once per call)`);
@@ -90,61 +92,25 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
         : added.length === 0
           ? `change ${op.index + 1}: deleted lines ${op.c.start}-${op.c.end}; line ${first} is now what followed them`
           : `change ${op.index + 1}: replaced lines ${op.c.start}-${op.c.end} with ${added.length} line${added.length === 1 ? "" : "s"}; now lines ${first}-${first + added.length - 1}`;
-    report.push([head, ...numbered(removed, op.c.start ?? 0, "-"), ...numbered(added, first, "+")].join("\n"));
+    done.push({ head, removed, removedFrom: op.c.start ?? 0, added, first });
   }
   out.push(...lines.slice(i));
+  // The result shows each change and the line either side of it as the file is now, so a doubled brace or a lost blank line is visible.
+  const report = done.map((d) => {
+    const before = d.first >= 2 ? [`  ${d.first - 1}\t${clip(out[d.first - 2]?.text ?? "")}`] : [];
+    const afterAt = d.first + d.added.length;
+    const after = afterAt <= out.length ? [`  ${afterAt}\t${clip(out[afterAt - 1]?.text ?? "")}`] : [];
+    return [d.head, ...numbered(d.removed, d.removedFrom, "-"), ...before, ...numbered(d.added, d.first, "+"), ...after].join("\n");
+  });
   const text = out.map((l, k) => l.text + (k === out.length - 1 && !finalNewline ? "" : l.eol === "" ? eol : l.eol)).join("");
   return { text, report, lines: out.length };
 }
 
-interface FileEdit {
-  path: string;
-  version: string;
-  changes: Change[];
-}
+const CHANGE_ALIASES = { start: ["start_line", "line_start", "from", "from_line"], end: ["end_line", "line_end", "to", "to_line"], after: ["after_line", "insert_after"], content: ["contents", "text", "new_text", "replace_with", "replacement", "new_content"] } as const;
 
-const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
-const CHANGE_KEYS = ["start", "end", "after", "content"];
-
-/**
- * The slips models make with the nesting, each with one possible meaning: a single file's `{path, version, changes}` without
- * the `files` list; a change's fields written directly on the file; a `version` or `path` repeated inside a change.
- */
+/** The flat arguments of edit: one file, one change (docs/tools.md, 4.1). The nested shapes with one item are repaired (args.ts). */
 export function normalizeEdit(args: unknown): unknown {
-  if (!isObj(args)) return args;
-  let files: unknown = args["files"];
-  if (files === undefined && ("changes" in args || "path" in args)) files = [args];
-  const list = Array.isArray(files) ? files : isObj(files) ? [files] : undefined;
-  if (list === undefined) return args;
-  return {
-    files: list.map((f) => {
-      if (!isObj(f)) return f;
-      const file: Record<string, unknown> = { ...f };
-      if (file["changes"] === undefined && CHANGE_KEYS.some((k) => k in file)) {
-        const change: Record<string, unknown> = {};
-        for (const k of CHANGE_KEYS) if (k in file) change[k] = file[k];
-        for (const k of CHANGE_KEYS) delete file[k];
-        file["changes"] = [change];
-      }
-      const changes = file["changes"];
-      if (Array.isArray(changes)) {
-        file["changes"] = changes.map((c) => {
-          if (!isObj(c)) return c;
-          const change = { ...c };
-          if ("version" in change) {
-            if (file["version"] === undefined) file["version"] = change["version"];
-            delete change["version"];
-          }
-          if ("path" in change) {
-            if (file["path"] === undefined) file["path"] = change["path"];
-            if (change["path"] === file["path"]) delete change["path"];
-          }
-          return change;
-        });
-      }
-      return file;
-    }),
-  };
+  return flattenArgs(args, { path: PATH_ALIASES, ...CHANGE_ALIASES });
 }
 
 export function editTool(): Tool {
@@ -153,82 +119,54 @@ export function editTool(): Tool {
     definition: {
       name: "edit",
       description:
-        "Change lines of existing files, using the line numbers and the `version` that read shows (read the file first; the numbers are only valid for that version). Each change is either `start` and `end` (inclusive line numbers) with `content` replacing those lines (empty `content` deletes them), or `after` with `content` inserted after that line (0 is the top, the last line number appends). `content` is the new lines as plain text, without line numbers. All changes to a file in one call use the numbering you read, so do not adjust for earlier changes; they must not overlap. Whole files are applied or not at all. The result shows what was removed and added, with the new line numbers and the new version. To create a file or rewrite one entirely, use write.",
+        "Change part of an existing file by line number. First read the file: read numbers every line and gives the file's `version` (8 hex digits). Then give `path`, `version` and one change: either `start` and `end` (inclusive line numbers) with `content` replacing those lines (leave `content` empty to delete them), or `after` with `content` inserting new lines after that line (`after` 0 is the top of the file; the last line number appends). `content` is plain text without line numbers. Lines outside start..end stay as they are, so do not repeat them in `content`. The result shows the change with the line either side of it, the file's new line numbers and its new version; for another change to the same file use that new version and those numbers (working from the bottom of the file upwards keeps the earlier numbers valid). Example: `{\"path\": \"a.txt\", \"version\": \"1f08cd1f\", \"start\": 2, \"end\": 3, \"content\": \"new line two\"}`. To create a file or rewrite one entirely, use write.",
       input_schema: {
         type: "object",
         additionalProperties: false,
-        required: ["files"],
+        required: ["path", "version"],
         properties: {
-          files: {
-            type: "array",
-            minItems: 1,
-            maxItems: 20,
-            description: "The files to change, in order.",
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: ["path", "version", "changes"],
-              properties: {
-                path: { type: "string", description: "Path relative to the workspace root." },
-                version: { type: "string", description: "The file's version: the 8 hex digits after `version` in its header from read." },
-                changes: {
-                  type: "array",
-                  minItems: 1,
-                  maxItems: 100,
-                  description: "The changes, numbered as the file was read.",
-                  items: {
-                    type: "object",
-                    additionalProperties: false,
-                    required: ["content"],
-                    properties: {
-                      start: { type: "integer", minimum: 1, description: "First line to replace." },
-                      end: { type: "integer", minimum: 1, description: "Last line to replace (inclusive)." },
-                      after: { type: "integer", minimum: 0, description: "Insert after this line instead of replacing." },
-                      content: { type: "string", description: "The new text; empty to delete the lines." },
-                    },
-                  },
-                },
-              },
-            },
-          },
+          path: { type: "string", description: "Path of the file, relative to the workspace root." },
+          version: { type: "string", description: "The file's version: the 8 hex digits after `version` in the header that read (or an earlier edit or write) gave." },
+          start: { type: "integer", minimum: 1, description: "First line to replace or delete. Use with `end`." },
+          end: { type: "integer", minimum: 1, description: "Last line to replace or delete (inclusive). Use with `start`." },
+          after: { type: "integer", minimum: 0, description: "Insert after this line number instead of replacing (0 is the top). Use instead of `start` and `end`." },
+          content: { type: "string", description: "The new text for those lines, or the text to insert. Empty (or left out) when deleting lines." },
         },
       },
     },
     async execute(args, ctx) {
       const { host, workspace } = ctx;
-      const files = args["files"] as FileEdit[];
-      const lines: string[] = [];
-      for (const [i, f] of files.entries()) {
+      const f = args as { path: string; version: string; start?: number; end?: number; after?: number; content?: string };
+      try {
+        const abs = await resolveInWorkspace(host, workspace, f.path, "write");
+        const name = display(host, workspace, abs);
+        const st = await host.fs.stat(abs);
+        if (st === undefined) throw new EditFailed(`${name} does not exist (use write to create it)`);
+        if (st.isDirectory) throw new EditFailed(`${name} is a directory`);
+        const bytes = await host.fs.read(abs);
+        let original: string;
         try {
-          const abs = await resolveInWorkspace(host, workspace, f.path, "write");
-          const name = display(host, workspace, abs);
-          const st = await host.fs.stat(abs);
-          if (st === undefined) throw new EditFailed(`${name} does not exist (use write to create it)`);
-          if (st.isDirectory) throw new EditFailed(`${name} is a directory`);
-          const bytes = await host.fs.read(abs);
-          let original: string;
-          try {
-            original = dec.decode(bytes);
-          } catch {
-            throw new EditFailed(`${name} is not UTF-8 text`);
-          }
-          const now = await versionOf(bytes);
-          // Models copy the header loosely ("version 1f08cd1f", "v 1f08cd1f"): what counts is the 8 hex digits.
-          const given = /[0-9a-f]{8}/i.exec(f.version)?.[0]?.toLowerCase();
-          if (given === undefined) throw new EditFailed(`\`version\` must be the 8 hex digits that read shows after "version" (the file is at ${now} now)`);
-          if (given !== now) throw new EditFailed(`${name} has changed since you read it (you gave ${given}, it is at ${now} now); read it again and use its numbers`);
-          const out = applyChanges(original, f.changes);
-          const written = enc.encode(out.text);
-          await host.fs.writeAtomic(abs, written, { keepMode: true });
-          lines.push(`edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, version ${await versionOf(written)})`, ...out.report);
-        } catch (err) {
-          if (!(err instanceof EditFailed) && !(err instanceof Error && err.name === "PathRefused")) throw err;
-          const rest = files.length - i - 1;
-          lines.push(`failed: ${f.path}: ${err.message}; nothing in it was changed${rest > 0 ? `; the other ${rest} file${rest === 1 ? " was" : "s were"} not edited` : ""}`);
-          return { content: lines.join("\n"), is_error: true };
+          original = dec.decode(bytes);
+        } catch {
+          throw new EditFailed(`${name} is not UTF-8 text`);
         }
+        const now = await versionOf(bytes);
+        // Models copy the header loosely ("version 1f08cd1f", "v 1f08cd1f"): what counts is the 8 hex digits.
+        const given = /[0-9a-f]{8}/i.exec(f.version)?.[0]?.toLowerCase();
+        if (given === undefined) throw new EditFailed(`\`version\` must be the 8 hex digits that read shows after "version" (the file is at ${now} now)`);
+        if (given !== now) throw new EditFailed(`${name} has changed since you read it (you gave ${given}, it is at ${now} now); read it again and use its numbers`);
+        const change: Change = { content: f.content ?? "" };
+        if (f.start !== undefined) change.start = f.start;
+        if (f.end !== undefined) change.end = f.end;
+        if (f.after !== undefined) change.after = f.after;
+        const out = applyChanges(original, [change]);
+        const written = enc.encode(out.text);
+        await host.fs.writeAtomic(abs, written, { keepMode: true });
+        return { content: [`edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, version ${await versionOf(written)})`, ...out.report].join("\n") };
+      } catch (err) {
+        if (!(err instanceof EditFailed) && !(err instanceof Error && err.name === "PathRefused")) throw err;
+        return { content: `failed: ${f.path}: ${err.message}; nothing in it was changed`, is_error: true };
       }
-      return { content: lines.join("\n") };
     },
   };
 }

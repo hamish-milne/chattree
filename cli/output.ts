@@ -1,5 +1,6 @@
 import type { Appended, Conversation } from "../harness/conversation.ts";
 import type { ChatEntry } from "../harness/entries.ts";
+import { inlineBlobs } from "../harness/context-builder.ts";
 
 /**
  * What the engine says. Nothing here knows about terminals: a renderer turns outputs into text for a plain stream or a
@@ -50,8 +51,10 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
       const parts: string[] = [];
       for (const b of e.blocks) {
         if (b.$tag === "text") parts.push(await t(b.text));
-        else if (b.$tag === "reasoning" && thinking !== "off" && b.visible !== undefined && b.visible !== "") parts.push(`(thinking) ${thinking === "brief" ? clip(b.visible, 200) : b.visible}`);
-        else if (b.$tag === "tool_call") parts.push(`[tool call: ${b.name} ${JSON.stringify(b.args)}]`);
+        else if (b.$tag === "reasoning" && thinking !== "off" && b.visible !== undefined && b.visible !== "") {
+          const visible = await t(b.visible);
+          parts.push(`(thinking) ${thinking === "brief" ? clip(visible, 200) : visible}`);
+        } else if (b.$tag === "tool_call") parts.push(`[tool call: ${b.name} ${JSON.stringify(await inlineBlobs(b.args, t))}]`);
       }
       return `${e.model}:\n${indent(parts.join("\n"))}`;
     }

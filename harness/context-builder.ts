@@ -4,6 +4,17 @@ import type { ChatEntry } from "./entries.ts";
 import type { ToolDefinition } from "./definitions.ts";
 import { chattreeEnglishV1, type Renderer } from "./renderer.ts";
 
+/** Put the text back where a long string inside tool arguments was stored as a blob reference. */
+export async function inlineBlobs(v: unknown, text: (t: { sha256: string; bytes: number }) => Promise<string>): Promise<unknown> {
+  if (Array.isArray(v)) return Promise.all(v.map((x) => inlineBlobs(x, text)));
+  if (v === null || typeof v !== "object") return v;
+  const o = v as Record<string, unknown>;
+  if (o["$tag"] === "blob" && typeof o["sha256"] === "string" && typeof o["bytes"] === "number") return text({ sha256: o["sha256"], bytes: o["bytes"] });
+  const out: Record<string, unknown> = {};
+  for (const [k, x] of Object.entries(o)) out[k] = await inlineBlobs(x, text);
+  return out;
+}
+
 /**
  * Turns a branch's entries into what a provider is asked: a provider-neutral `ModelContext`. Pure apart from
  * reading blobs; no network, no provider code. Adapters translate the result into their API's messages.
@@ -81,8 +92,8 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     const ext = b.ext === undefined ? {} : { ext: b.ext };
     if (b.$tag === "text") return { type: "text", text: await text(b.text), ...ext };
     if (b.$tag === "provider_compaction") return { type: "provider_compaction", provider: b.provider, payload: await text(b.payload), ...ext };
-    if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, payload: await text(b.payload), ...(b.visible === undefined ? {} : { visible: b.visible }), ...ext };
-    return { type: "tool_call", call_id: b.call_id, name: b.name, args: b.args, ...(b.args_raw === undefined ? {} : { args_raw: b.args_raw }), ...ext };
+    if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, payload: await text(b.payload), ...(b.visible === undefined ? {} : { visible: await text(b.visible) }), ...ext };
+    return { type: "tool_call", call_id: b.call_id, name: b.name, args: (await inlineBlobs(b.args, text)) as Record<string, unknown>, ...(b.args_raw === undefined ? {} : { args_raw: await text(b.args_raw) }), ...ext };
   };
 
   type Raw = Turn | { role: "result"; result: Pending };

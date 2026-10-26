@@ -160,27 +160,28 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
   const results = body.messages.filter((m) => m.role === "tool").length;
   const prompt = body.messages.find((m) => m.role === "user")?.content ?? "";
   if (opts.tools === false || body.tools === undefined) return chatText(["no tools here"]);
-  const read = (path: string) => toolCalls({ id: `r${results}`, name: "read", args: { files: [{ path }] } });
-  const edit = (path: string, changes: unknown[]) => toolCalls({ id: `e${results}`, name: "edit", args: { files: [{ path, version: lastVersion(body), changes }] } });
+  const read = (path: string) => toolCalls({ id: `r${results}`, name: "read", args: { path } });
+  // One change per call, as the tool takes them; the version is the one the last result gave.
+  const edit = (path: string, change: unknown) => toolCalls({ id: `e${results}`, name: "edit", args: { path, version: lastVersion(body), ...(change as object) } });
   if (prompt.includes("Read notes.txt, then use the edit tool")) {
     if (results === 0) return read("notes.txt");
-    if (results === 1) return edit("notes.txt", [{ start: 1, end: 1, content: "status: final" }]);
+    if (results === 1) return edit("notes.txt", { start: 1, end: 1, content: "status: final" });
     if (results === 2) return toolCalls({ id: "x1", name: "run", args: { command: "git log --oneline -n 3" } });
     return chatText(["It printed 1 line."]);
   }
   // tools-edit cases: read the file, then edit it with the version read showed
   const cases: [string, string, unknown[]][] = [
     ["change the word draft", "notes.txt", [{ start: 1, end: 1, content: opts.wrongLines === true ? "oops" : "status: final" }]],
-    ["set retries to 5", "app.conf", [{ start: 2, end: 2, content: "retries = 5" }, { start: 3, end: 3, content: "verbose = true" }]],
+    ["set retries to 5", "app.conf", [{ start: 3, end: 3, content: "verbose = true" }, { start: 2, end: 2, content: "retries = 5" }]],
     ["start with `drop`", "list.txt", [{ start: 2, end: 4, content: "" }]],
     ["make add return", "calc.js", [{ start: 2, end: 3, content: "  return a + b;" }]],
-    ["import sys", "main.py", [{ after: 1, content: "import sys" }, { after: 4, content: "main()" }]],
+    ["import sys", "main.py", [{ after: 4, content: "main()" }, { after: 1, content: "import sys" }]],
   ];
-  for (const [key, path, changes] of cases) if (prompt.includes(key)) return results === 0 ? read(path) : results === 1 ? edit(path, changes) : chatText(["done"]);
-  if (prompt.includes("insert the line `# v2`")) return results === 0 ? read("f.txt") : results === 1 ? edit("f.txt", [{ after: 0, content: "# v2" }]) : results === 2 ? edit("f.txt", [{ start: 4, end: 4, content: "GAMMA" }]) : chatText(["done"]);
+  for (const [key, path, changes] of cases) if (prompt.includes(key)) return results === 0 ? read(path) : results <= changes.length ? edit(path, changes[results - 1]) : chatText(["done"]);
+  if (prompt.includes("insert the line `# v2`")) return results === 0 ? read("f.txt") : results === 1 ? edit("f.txt", { after: 0, content: "# v2" }) : results === 2 ? edit("f.txt", { start: 4, end: 4, content: "GAMMA" }) : chatText(["done"]);
   if (results > 0) return chatText(["done"]);
-  if (prompt.includes("two independent things")) return toolCalls({ id: "p1", name: "read", args: { files: [{ path: "a.txt" }] } }, { id: "p2", name: "run", args: { command: "ls -la" } });
-  if (prompt.includes("Use the read tool")) return toolCalls({ id: "s1", name: "read", args: { files: [{ path: "notes.txt" }] } });
+  if (prompt.includes("two independent things")) return toolCalls({ id: "p1", name: "read", args: { path: "a.txt" } }, { id: "p2", name: "run", args: { command: "ls -la" } });
+  if (prompt.includes("Use the read tool")) return toolCalls({ id: "s1", name: "read", args: { path: "notes.txt" } });
   if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { cmd: "ls -la" } : { command: "ls -la" } });
   return chatText(["pong"]);
 };

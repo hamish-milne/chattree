@@ -43,7 +43,7 @@ export const EDIT_TASKS: Task[] = [
     name: "insert and append",
     group: "edit",
     files: { "main.py": "import os\n\ndef main():\n    print('hi')\n" },
-    prompt: "In main.py add the line `import sys` right after `import os`, and add a final line `main()` at the end of the file.",
+    prompt: "In main.py add the line `import sys` right after `import os`, and add a final line `main()` directly after the last line (no blank line before it).",
     check: (r) => same(r, { "main.py": "import os\nimport sys\n\ndef main():\n    print('hi')\nmain()\n" }),
   },
   {
@@ -57,7 +57,7 @@ export const EDIT_TASKS: Task[] = [
     name: "replace a function body",
     group: "edit",
     files: { "calc.js": "function add(a, b) {\n  // TODO\n  return 0;\n}\n\nfunction sub(a, b) {\n  return a - b;\n}\n" },
-    prompt: "In calc.js make add return the sum of its arguments (remove the TODO comment). Leave sub alone.",
+    prompt: "In calc.js make add return `a + b` (remove the TODO comment). Leave sub alone.",
     check: (r) => same(r, { "calc.js": "function add(a, b) {\n  return a + b;\n}\n\nfunction sub(a, b) {\n  return a - b;\n}\n" }),
   },
 ];
@@ -67,9 +67,9 @@ export const TASKS: Task[] = [
   {
     name: "read two files",
     group: "read",
-    files: { "a.txt": "the code word is PELICAN\n", "b.txt": "the number is 4417\n" },
+    files: { "a.txt": "the code word is WALRUS\n", "b.txt": "the number is 4417\n" },
     prompt: "What is the code word in a.txt and the number in b.txt? Answer with both.",
-    check: (r) => (/PELICAN/.test(r.answer) && /4417/.test(r.answer) ? undefined : `the answer was ${JSON.stringify(r.answer.slice(0, 100))}`),
+    check: (r) => (/WALRUS/.test(r.answer) && /4417/.test(r.answer) ? undefined : `the answer was ${JSON.stringify(r.answer.slice(0, 100))}`),
   },
   {
     name: "read a window",

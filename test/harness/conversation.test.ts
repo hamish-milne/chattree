@@ -5,6 +5,7 @@ import { describe, test } from "node:test";
 import { Git, LockHeldError, acquireLock, encodeEntry, parseFile, scan } from "../../src/index.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { CHAT_FILE, Conversation, ConversationError, describeEntry, type NewEntry } from "../../harness/conversation.ts";
+import { inlineBlobs } from "../../harness/context-builder.ts";
 import { ULID_RE } from "../../harness/ulid.ts";
 import { faultyHost } from "../support/hosts.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
@@ -142,6 +143,25 @@ describe("append", () => {
     assert.equal(dec.decode(await convo.store.get(content.sha256)), big);
     assert.equal(await convo.git.isClean(), true);
     assert.ok((await convo.readTranscript()).length < 600, "the transcript stays small");
+  });
+
+  test("long thinking text, tool arguments and raw arguments are stored as blobs and read back whole", async () => {
+    const { convo } = await fresh({ pipeline: { threshold: 200 } });
+    const thinking = "hmm ".repeat(300);
+    const content = "const x = 1;\n".repeat(100);
+    await convo.append(assistantEntry("", {
+      blocks: [
+        { $tag: "reasoning", provider: "anthropic", payload: "{}", visible: thinking },
+        { $tag: "tool_call", call_id: "c1", name: "write", args: { path: "a.js", nested: [{ content }] }, args_raw: thinking },
+      ],
+    }));
+    const last = (await convo.readEntries()).at(-1);
+    assert.ok(last?.ok && last.value.$tag === "assistant");
+    const [r, c] = last.value.blocks;
+    const text = async (t: { sha256: string }): Promise<string> => dec.decode(await convo.store.get(t.sha256));
+    assert.equal(r?.$tag === "reasoning" && typeof r.visible === "object" ? await text(r.visible) : undefined, thinking);
+    assert.ok(c?.$tag === "tool_call");
+    assert.deepEqual(await inlineBlobs(c.args, text), { path: "a.js", nested: [{ content }] });
   });
 
   test("secrets are redacted before they reach the transcript or a blob", async () => {

@@ -29,16 +29,17 @@ const reasoningBlock = z.object({
   /** Opaque, provider-specific, replayed verbatim (Anthropic thinking signature, OpenAI encrypted reasoning, ...). */
   payload: text,
   /** Readable form of the reasoning when the provider exposes one. */
-  visible: z.string().optional(),
+  visible: text.optional(),
   ext: blockExt,
 });
 const toolCallBlock = z.object({
   $tag: z.literal("tool_call"),
   call_id: z.string(),
   name: z.string(),
+  /** Arguments as the model gave them; a string longer than the externalizing threshold is a blob reference inside (`inlineBlobs` puts it back). */
   args: json,
   /** The provider's original argument string, kept when it was not valid JSON. */
-  args_raw: z.string().optional(),
+  args_raw: text.optional(),
   ext: blockExt,
 });
 /** A provider's own compaction of the conversation so far: opaque, replayed only to the model that made it (docs/providers.md, P4). Not our readable `compaction` entry. */
