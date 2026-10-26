@@ -42,6 +42,11 @@ export interface Tool {
   definition: ToolDefinition;
   /** True when the tool can be started with `background: true` (its schema then has that argument). */
   background?: boolean;
+  /**
+   * Repair slips specific to this tool's shape that have one possible meaning, before the schema-guided repair and the
+   * validation (for example arguments one level too flat). Pure; must leave anything it does not understand alone.
+   */
+  normalize?(args: unknown): unknown;
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutput | StartedJob>;
 }
 
@@ -97,7 +102,7 @@ export class ToolRegistry {
     const tool = this.#tools.get(call.name);
     if (tool === undefined) return { error: `there is no tool called ${call.name}; the tools are: ${this.names().join(", ")}` };
     if (call.args_raw !== undefined) return { error: `the arguments for ${call.name} were not valid JSON: ${call.args_raw.length > 200 ? `${call.args_raw.slice(0, 200)}...` : call.args_raw}` };
-    const args = coerceArgs(tool.definition.input_schema, call.args);
+    const args = coerceArgs(tool.definition.input_schema, tool.normalize === undefined ? call.args : tool.normalize(call.args));
     const problems = validateArgs(tool.definition.input_schema, args);
     if (problems.length > 0) return { error: `${call.name}: ${problems.join("; ")}` };
     return { tool, args: args as Record<string, unknown> };

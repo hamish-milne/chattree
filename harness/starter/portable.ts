@@ -10,7 +10,7 @@ export const BUSYBOX_APPLETS: ReadonlySet<string> = new Set([
   "awk", "base64", "basename", "cat", "chmod", "cksum", "cmp", "comm", "cp", "cut", "date", "dd", "diff", "dirname", "dos2unix", "du",
   "echo", "egrep", "env", "expand", "expr", "false", "fgrep", "find", "fold", "grep", "gunzip", "gzip", "head", "hexdump", "ln", "ls",
   "md5sum", "mkdir", "mv", "nl", "od", "paste", "patch", "printenv", "printf", "pwd", "readlink", "realpath", "rev", "rm", "rmdir",
-  "sed", "seq", "sha1sum", "sha256sum", "sha512sum", "sleep", "sort", "split", "stat", "tac", "tail", "tee", "test", "touch", "tr",
+  "sed", "seq", "sh", "ash", "sha1sum", "sha256sum", "sha512sum", "sleep", "sort", "split", "stat", "tac", "tail", "tee", "test", "touch", "tr",
   "true", "truncate", "uname", "uniq", "unix2dos", "wc", "which", "xargs", "yes", "zcat",
 ]);
 
@@ -34,4 +34,17 @@ export function portableStage(stage: readonly string[], platform: "windows" | "p
     throw new NotAvailable(`${name} is not available on this Windows machine (busybox is not installed for the agent; run \`node tools/fetch-busybox.ts\`). Use the read tool to view files, or a program that is available, such as git or node.`);
   }
   return [busybox, name, ...args];
+}
+
+/**
+ * The stage for a `script`: POSIX `sh -c <script>` everywhere. On Windows it is busybox's `sh`, so a script means the
+ * same on every host and does not depend on which bash (or WSL launcher) happens to be installed; bash, python or
+ * powershell are programs the model can start with `run` when the host has them.
+ */
+export function shellStage(script: string, platform: "windows" | "posix" | undefined, busybox: string | undefined): string[] {
+  if (platform !== "windows") return ["sh", "-c", script];
+  if (busybox === undefined) {
+    throw new NotAvailable("script needs a POSIX shell, which on this Windows machine comes from busybox (it is not installed for the agent; run `node tools/fetch-busybox.ts`). Use run for single commands.");
+  }
+  return [busybox, "sh", "-c", script];
 }

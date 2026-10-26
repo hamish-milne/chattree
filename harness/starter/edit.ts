@@ -103,8 +103,53 @@ interface FileEdit {
   changes: Change[];
 }
 
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+const CHANGE_KEYS = ["start", "end", "after", "content"];
+
+/**
+ * The slips models make with the nesting, each with one possible meaning: a single file's `{path, version, changes}` without
+ * the `files` list; a change's fields written directly on the file; a `version` or `path` repeated inside a change.
+ */
+export function normalizeEdit(args: unknown): unknown {
+  if (!isObj(args)) return args;
+  let files: unknown = args["files"];
+  if (files === undefined && ("changes" in args || "path" in args)) files = [args];
+  const list = Array.isArray(files) ? files : isObj(files) ? [files] : undefined;
+  if (list === undefined) return args;
+  return {
+    files: list.map((f) => {
+      if (!isObj(f)) return f;
+      const file: Record<string, unknown> = { ...f };
+      if (file["changes"] === undefined && CHANGE_KEYS.some((k) => k in file)) {
+        const change: Record<string, unknown> = {};
+        for (const k of CHANGE_KEYS) if (k in file) change[k] = file[k];
+        for (const k of CHANGE_KEYS) delete file[k];
+        file["changes"] = [change];
+      }
+      const changes = file["changes"];
+      if (Array.isArray(changes)) {
+        file["changes"] = changes.map((c) => {
+          if (!isObj(c)) return c;
+          const change = { ...c };
+          if ("version" in change) {
+            if (file["version"] === undefined) file["version"] = change["version"];
+            delete change["version"];
+          }
+          if ("path" in change) {
+            if (file["path"] === undefined) file["path"] = change["path"];
+            if (change["path"] === file["path"]) delete change["path"];
+          }
+          return change;
+        });
+      }
+      return file;
+    }),
+  };
+}
+
 export function editTool(): Tool {
   return {
+    normalize: normalizeEdit,
     definition: {
       name: "edit",
       description:

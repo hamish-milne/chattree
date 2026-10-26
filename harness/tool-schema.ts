@@ -111,8 +111,9 @@ const NUMBER_RE = /^\s*-?\d+(\.\d+)?\s*$/;
 
 /**
  * Repair the slips small models make that have only one possible meaning, guided by the schema, before the arguments are
- * validated (docs/tools.md, 3.6): a lone item where a list belongs (`files: {path: "a"}`, `argv: "ls"`), a list or object
- * sent as a JSON string, numbers and booleans sent as text, and text sent as a number or boolean. Anything that could mean
+ * validated (docs/tools.md, 3.6): a lone item where a list belongs (`files: {path: "a"}`, `argv: "ls"`), a bare string
+ * where an object with one required text property belongs (`files: ["a.txt"]`), a list or object sent as a JSON string,
+ * numbers and booleans sent as text, text sent as a number or boolean, and an optional argument sent as null or "". Anything that could mean
  * more than one thing is left alone for `validateArgs` to report. Returns a new value; the input is not changed.
  */
 export function coerceArgs(schema: unknown, value: unknown): unknown {
@@ -120,11 +121,22 @@ export function coerceArgs(schema: unknown, value: unknown): unknown {
   const type = schema["type"];
   if (type === "object") {
     let v = value;
-    if (typeof v === "string") v = parseAs(v, "object") ?? v;
-    if (!isObject(v)) return v;
     const props = isObject(schema["properties"]) ? (schema["properties"] as Record<string, unknown>) : {};
+    const required = Array.isArray(schema["required"]) ? (schema["required"] as string[]) : [];
+    if (typeof v === "string") {
+      const parsed = parseAs(v, "object");
+      // A bare string where an object with one required text property belongs (`files: ["a.txt"]` for `[{path: "a.txt"}]`).
+      const only = required.length === 1 ? (required[0] as string) : undefined;
+      if (parsed !== undefined) v = parsed;
+      else if (only !== undefined && isObject(props[only]) && (props[only] as Schema)["type"] === "string") return { [only]: v };
+    }
+    if (!isObject(v)) return v;
     const out: Record<string, unknown> = {};
-    for (const [k, x] of Object.entries(v)) out[k] = k in props ? coerceArgs(props[k], x) : x;
+    for (const [k, x] of Object.entries(v)) {
+      // An optional argument sent as null or empty text means "not given".
+      if (k in props && !required.includes(k) && (x === null || x === "")) continue;
+      out[k] = k in props ? coerceArgs(props[k], x) : x;
+    }
     return out;
   }
   if (type === "array") {
@@ -132,8 +144,10 @@ export function coerceArgs(schema: unknown, value: unknown): unknown {
     if (typeof v === "string") {
       const parsed = parseAs(v, "array");
       if (parsed !== undefined) v = parsed;
-      else if (isObject(schema["items"]) && schema["items"]["type"] === "string") return [v];
-      else return v;
+      else if (isObject(schema["items"]) && (schema["items"]["type"] === "string" || schema["items"]["type"] === "object")) {
+        const one = coerceArgs(schema["items"], v);
+        return schema["items"]["type"] === "string" || isObject(one) ? [one] : v;
+      } else return v;
     } else if (!Array.isArray(v)) {
       const items = schema["items"];
       // A single object or scalar where a list of them belongs.

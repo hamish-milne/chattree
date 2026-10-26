@@ -13,8 +13,8 @@ export interface Task {
   prompt: string;
   /** What is wrong with the outcome, or undefined when it is right. */
   check(r: AgentTaskResult): string | undefined | Promise<string | undefined>;
-  /** What the task needs besides Node and Git (`utils`: cat, grep, wc and friends, which Windows has through busybox); the sampler skips it when missing. */
-  needs?: ("bash" | "utils")[];
+  /** What the task needs besides Node and Git (`utils`: cat, grep, wc, sh and friends, which Windows has through busybox); the sampler skips it when missing. */
+  needs?: "utils"[];
 }
 
 const same = (r: AgentTaskResult, want: Record<string, string>): string | undefined => {
@@ -138,7 +138,7 @@ export const TASKS: Task[] = [
   {
     name: "script loop",
     group: "run",
-    needs: ["bash"],
+    needs: ["utils"],
     files: {},
     prompt: "Use the script tool to write the numbers 1 to 3, one per line, into nums.txt with a shell for loop.",
     check: async (r) => {
@@ -157,7 +157,7 @@ export const TASKS: Task[] = [
 
 const has = (program: string): boolean => spawnSync(program, ["-c", "true"], { stdio: "ignore" }).status === 0;
 /** Whether the machine can run a task's extra requirements. */
-export function available(need: "bash" | "utils", busybox: string | undefined): boolean {
-  if (need === "bash") return has("bash");
+export function available(need: "utils", busybox: string | undefined): boolean {
+  void need;
   return process.platform === "win32" ? busybox !== undefined : has("sh");
 }

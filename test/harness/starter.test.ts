@@ -241,6 +241,26 @@ describe("edit", () => {
     assert.match(none.content, new RegExp(`must be the 8 hex digits that read shows after "version" \\(the file is at ${v} now\\)`));
   });
 
+  test("nesting slips with one possible meaning are repaired: the changes written on the file, the version inside a change, no files list, bare strings", async () => {
+    const { dir, call } = await workspace({ "a.txt": "one\ntwo\n" });
+    const v = await versionOf(new TextEncoder().encode("one\ntwo\n"));
+    const redo = () => writeFile(join(dir, "a.txt"), "one\ntwo\n");
+    const shapes: unknown[] = [
+      { files: [{ path: "a.txt", version: v, start: 2, end: 2, content: "TWO" }] },
+      { files: [{ path: "a.txt", changes: [{ version: v, start: 2, end: 2, content: "TWO" }] }] },
+      { files: [{ path: "a.txt", version: v, changes: [{ path: "a.txt", start: 2, end: 2, content: "TWO" }] }] },
+      { path: "a.txt", version: v, changes: [{ start: 2, end: 2, content: "TWO" }] },
+      { files: { path: "a.txt", version: v, changes: { start: 2, end: 2, content: "TWO" } } },
+    ];
+    for (const args of shapes) {
+      const r = await call("edit", args);
+      assert.equal(r.is_error, undefined, JSON.stringify(args));
+      assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "one\nTWO\n");
+      await redo();
+    }
+    assert.deepEqual((await call("read", { files: ["a.txt"] })).is_error, false, "read takes bare path strings");
+  });
+
   test("read and write report the version edit needs", async () => {
     const { call } = await workspace({ "e.txt": "" });
     const w = await call("write", { files: [{ path: "n.txt", content: "x\n" }] });
@@ -414,6 +434,25 @@ describe("run", () => {
 });
 
 describe("script", () => {
+  test("is POSIX sh everywhere: on a Windows host it is busybox's sh, and without busybox the model is told", async () => {
+    const dir = await tempDir();
+    const started: (readonly (readonly string[])[])[] = [];
+    const windows = { ...host, platform: "windows" as const, run: async (spec: Parameters<NonNullable<typeof host.run>>[0]) => (started.push(spec.stages), { exitCode: 0, stageCodes: [0], output: new Uint8Array(), dropped: 0, timedOut: false, aborted: false }) };
+    const ctx: ToolContext = { signal: new AbortController().signal, callId: "c", workspace: dir, host: windows };
+    await (new ToolRegistry(leafTools({ busybox: "C:\\bb\\busybox.exe" })).get("script") as Tool).execute({ script: "for i in 1 2; do echo $i; done" }, ctx);
+    assert.deepEqual(started[0], [["C:\\bb\\busybox.exe", "sh", "-c", "for i in 1 2; do echo $i; done"]]);
+    const r = (await (new ToolRegistry(leafTools()).get("script") as Tool).execute({ script: "echo hi" }, ctx)) as ToolOutput;
+    assert.equal(r.is_error, true);
+    assert.match(r.content, /script needs a POSIX shell.*fetch-busybox/);
+    assert.equal(started.length, 1);
+  });
+
+  test("$variables and loops mean what sh says", async () => {
+    const { call } = await workspace();
+    const r = await call("script", { script: "for i in 1 2 3; do echo $i; done > nums.txt; cat nums.txt" });
+    assert.equal(r.content, "exit 0\n1\n2\n3");
+  });
+
   test("runs shell syntax, with stderr merged in order and the exit code first", async () => {
     const { call } = await workspace({ "x.txt": "hi" });
     const r = await call("script", { script: "echo start && cat x.txt && echo && sleep 0.2 && echo oops >&2; sleep 0.2; for i in 1 2; do echo $i; done; exit 3" });

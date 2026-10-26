@@ -146,6 +146,25 @@ describe("result shaping", () => {
   });
 });
 
+describe("repairing slips the models in the live runs made", () => {
+  const read = { type: "object", additionalProperties: false, required: ["files"], properties: { files: { type: "array", items: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1 } } } } } };
+  const run = { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string" }, stdin: { type: "string" }, timeout_seconds: { type: "integer" } } };
+  test("a list of bare strings where objects with one required text property belong", () => {
+    assert.deepEqual(coerceArgs(read, { files: ["a.txt", "b.txt"] }), { files: [{ path: "a.txt" }, { path: "b.txt" }] });
+    assert.deepEqual(coerceArgs(read, { files: "a.txt" }), { files: [{ path: "a.txt" }] });
+    assert.deepEqual(coerceArgs(read, { files: [{ path: "a.txt" }] }), { files: [{ path: "a.txt" }] });
+  });
+  test("optional arguments sent as null or empty text are not given; required ones are left for validation", () => {
+    assert.deepEqual(coerceArgs(run, { command: "ls", stdin: "", timeout_seconds: null }), { command: "ls" });
+    assert.deepEqual(coerceArgs(run, { command: "", stdin: "x" }), { command: "", stdin: "x" });
+    assert.deepEqual(coerceArgs(run, { command: "ls", timeout_seconds: 120 }), { command: "ls", timeout_seconds: 120 });
+  });
+  test("a tool's own normalize runs first", () => {
+    const reg = new ToolRegistry([{ definition: { name: "t", description: "d", input_schema: run }, normalize: (a) => ({ command: (a as { cmd: string }).cmd }), execute: async () => ({ content: "" }) }]);
+    assert.deepEqual((reg.check({ name: "t", args: { cmd: "ls" } }) as { args: unknown }).args, { command: "ls" });
+  });
+});
+
 describe("repairing unambiguous slips in arguments", () => {
   const schema = {
     type: "object",

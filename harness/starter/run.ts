@@ -1,14 +1,14 @@
 import type { RunOutcome } from "../../src/host.ts";
 import { CommandSyntax, parseCommand, type ParsedCommand } from "./command.ts";
 import { GlobError, expandGlob } from "./glob.ts";
-import { NotAvailable, portableStage } from "./portable.ts";
+import { NotAvailable, portableStage, shellStage } from "./portable.ts";
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool, ToolContext, ToolOutput } from "../tools.ts";
 
 /**
  * `run` and `script` (docs/tools.md, 4.1). `run` takes one command line in a small bash-like syntax that `command.ts`
  * parses (no shell is involved), so what the user approves is the parsed programs and arguments. `script` is the
- * escape hatch: a string for `bash -c`.
+ * escape hatch: a string for POSIX `sh -c`.
  */
 
 export interface RunToolOptions {
@@ -141,13 +141,13 @@ export function scriptTool(opts: RunToolOptions = {}): Tool {
     definition: {
       name: "script",
       description:
-        "Run a shell script with bash in the workspace: use it for shell syntax (&&, loops, redirecting stderr, $variables) that the run tool does not do. It always needs the user's approval, so prefer run for a single program. Returns the exit code, then stdout and stderr in the order they were produced.",
+        "Run a POSIX sh script (`sh -c`; on Windows busybox's ash) in the workspace: use it for shell syntax (&&, ;, loops, $(...), redirecting stderr, $variables) that the run tool does not do. It always needs the user's approval, so prefer run for a single command. Other languages (bash, python, powershell) are started with run when the host has them. Returns the exit code, then stdout and stderr in the order they were produced.",
       input_schema: {
         type: "object",
         additionalProperties: false,
         required: ["script"],
         properties: {
-          script: { type: "string", description: "The script text, passed to bash -c." },
+          script: { type: "string", description: "The script text, passed to sh -c." },
           timeout_seconds: timeoutProp,
         },
       },
@@ -155,8 +155,15 @@ export function scriptTool(opts: RunToolOptions = {}): Tool {
     async execute(args, ctx) {
       if (ctx.host.run === undefined) return { content: "this host cannot run commands", is_error: true };
       const timeout = Math.min((args["timeout_seconds"] as number | undefined) ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
+      let stage: string[];
+      try {
+        stage = shellStage(args["script"] as string, ctx.host.platform, opts.busybox);
+      } catch (e) {
+        if (e instanceof NotAvailable) return { content: e.message, is_error: true };
+        throw e;
+      }
       const outcome = await ctx.host.run({
-        stages: [["bash", "-c", args["script"] as string]],
+        stages: [stage],
         cwd: ctx.workspace,
         unsetEnv: opts.secretEnv ?? [],
         unsetEnvPattern: SECRET_ENV_PATTERN,
