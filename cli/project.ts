@@ -58,6 +58,9 @@ export interface OpenedThread {
  * thread). With a name, that branch's worktree, created under `.chattree/threads/` if it has none.
  * `providers: "optional"` opens without providers when their keys are missing, for commands that only read.
  */
+/** Where a thread without a worktree gets one: under the main working tree's `.chattree/threads/`. */
+export const threadDir = (io: Io, project: Project, name: string): string => io.host.path.join(project.mainRoot, ".chattree", "threads", encodeURIComponent(name));
+
 export async function openThread(io: Io, project: Project, name?: string, opts: { providers?: "required" | "optional" } = {}): Promise<OpenedThread> {
   const thread = name ?? project.branch;
   let dir = project.root;
@@ -67,7 +70,7 @@ export async function openThread(io: Io, project: Project, name?: string, opts: 
     const existing = (await project.git.worktrees()).find((w) => w.branch === ref);
     if (existing !== undefined) dir = existing.path;
     else {
-      dir = io.host.path.join(project.mainRoot, ".chattree", "threads", encodeURIComponent(name));
+      dir = threadDir(io, project, name);
       await io.host.fs.mkdir(io.host.path.dirname(dir));
       await project.git.addWorktree(dir, { branch: name });
     }
