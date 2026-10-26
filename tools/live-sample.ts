@@ -6,8 +6,8 @@
  *   node tools/live-sample.ts ... --group edit --repeat 20 --out edit-run.json --record ./samples/
  *
  * Flags: --flavor, --base-url, --model, --max-tokens (default 4096), --api-key-env NAME, --repeat N (default 10),
- * --task TEXT (repeatable; a substring of the task name), --group edit|read|write|run|mixed (repeatable), --posix (run
- * the tasks that need a POSIX shell even on Windows), --timeout-seconds (per sample, default 180), --out FILE (every
+ * --task TEXT (repeatable; a substring of the task name), --group edit|read|write|run|mixed (repeatable), --busybox PATH
+ * (busybox.exe for the everyday utilities on Windows; default: CHATTREE_BUSYBOX or vendor/busybox, see tools/fetch-busybox.ts), --timeout-seconds (per sample, default 180), --out FILE (every
  * sample as JSON), --record DIR (the steps of every sample, secrets scrubbed), --list.
  *
  * "first-try" counts samples that were right with no tool error on the way; the gap to "correct" is what the model
@@ -18,6 +18,7 @@ import { join } from "node:path";
 import type { AgentSetup } from "../harness/setup.ts";
 import type { ProviderAdapter } from "../providers/types.ts";
 import { runAgentTask, type ToolStep } from "./agent-task.ts";
+import { findBusybox } from "../hosts/node.ts";
 import { FLAVORS, makeAdapter, type Flavor } from "./live-check.ts";
 import { available, TASKS, type Task } from "./tasks.ts";
 
@@ -30,7 +31,8 @@ export interface SampleOptions {
   repeat?: number;
   tasks?: readonly string[];
   groups?: readonly string[];
-  posix?: boolean;
+  /** busybox.exe, for the everyday utilities on Windows. */
+  busybox?: string | undefined;
   timeoutSeconds?: number;
   /** For tests: use this instead of the flavor's adapter. */
   adapter?: ProviderAdapter;
@@ -78,13 +80,13 @@ export function blur(tool: string, result: string): string {
   return `${tool}: ${text}`;
 }
 
-export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "posix">): { run: Task[]; skipped: { task: string; why: string }[] } {
+export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "busybox">): { run: Task[]; skipped: { task: string; why: string }[] } {
   const run: Task[] = [];
   const skipped: { task: string; why: string }[] = [];
   for (const t of TASKS) {
     if (o.tasks !== undefined && o.tasks.length > 0 && !o.tasks.some((x) => t.name.includes(x))) continue;
     if (o.groups !== undefined && o.groups.length > 0 && !o.groups.includes(t.group)) continue;
-    const missing = (t.needs ?? []).filter((n) => !(n === "posix" && o.posix === true) && !available(n));
+    const missing = (t.needs ?? []).filter((n) => !available(n, o.busybox));
     if (missing.length > 0) skipped.push({ task: t.name, why: `needs ${missing.join(", ")}` });
     else run.push(t);
   }
@@ -101,7 +103,7 @@ export async function runSamples(o: SampleOptions): Promise<SampleReport> {
   for (const task of run) {
     for (let n = 1; n <= repeat; n++) {
       const t0 = Date.now();
-      const r = await runAgentTask({ adapter, model, files: task.files, prompt: task.prompt, timeoutMs: (o.timeoutSeconds ?? 180) * 1000 });
+      const r = await runAgentTask({ adapter, model, busybox: o.busybox, files: task.files, prompt: task.prompt, timeoutMs: (o.timeoutSeconds ?? 180) * 1000 });
       const noTools = r.used.size === 0;
       const problem = noTools ? "the model made no tool call" : r.status !== "completed" ? `the loop ended with ${r.status}` : await task.check(r);
       const s: Sample = { task: task.name, n, ...(problem === undefined ? {} : { problem }), noTools, requests: r.requests, errors: r.errors, status: r.status, ms: Date.now() - t0, steps: r.steps, answer: r.answer };
@@ -160,11 +162,9 @@ export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavo
 export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: SampleOptions; out?: string; record?: string; list: boolean } {
   const flags = new Map<string, string[]>();
   let list = false;
-  let posix = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
     if (a === "--list") list = true;
-    else if (a === "--posix") posix = true;
     else if (a.startsWith("--")) {
       const v = argv[++i];
       if (v === undefined) throw new Error(`${a} needs a value`);
@@ -172,7 +172,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     } else throw new Error(`unexpected argument ${a}`);
   }
   const one = (name: string): string | undefined => flags.get(name)?.[0];
-  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--repeat", "--task", "--group", "--timeout-seconds", "--out", "--record"]);
+  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--repeat", "--task", "--group", "--timeout-seconds", "--out", "--record", "--busybox"]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = one("--flavor") ?? "anthropic";
   if (!(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${FLAVORS.join(", ")}`);
@@ -200,6 +200,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
   const maxTokens = num("--max-tokens");
   const timeout = num("--timeout-seconds");
   const tasks = flags.get("--task");
+  const busybox = one("--busybox");
   return {
     options: {
       flavor: flavor as Flavor,
@@ -210,7 +211,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
       ...(repeat === undefined ? {} : { repeat }),
       ...(tasks === undefined ? {} : { tasks }),
       ...(groups === undefined ? {} : { groups }),
-      ...(posix ? { posix } : {}),
+      ...(busybox === undefined ? {} : { busybox }),
       ...(timeout === undefined ? {} : { timeoutSeconds: timeout }),
     },
     ...(out === undefined ? {} : { out }),
@@ -225,11 +226,13 @@ async function main(): Promise<void> {
     for (const t of TASKS) console.log(`${t.group.padEnd(6)} ${t.name}${t.needs === undefined ? "" : `  (needs ${t.needs.join(", ")})`}`);
     return;
   }
+  const busybox = options.busybox ?? (await findBusybox());
   const secrets = options.apiKey === undefined ? [] : [options.apiKey];
   const scrub = (text: string): string => secrets.reduce((t, s) => t.split(s).join("[redacted]"), text);
   if (record !== undefined) await mkdir(record, { recursive: true });
   const report = await runSamples({
     ...options,
+    busybox,
     onSample: (s, done, total) => {
       console.error(`[${done}/${total}] ${s.task} #${s.n}: ${s.problem === undefined ? "ok" : `WRONG (${s.problem.slice(0, 70)})`}  ${s.requests} req, ${s.errors} err, ${(s.ms / 1000).toFixed(1)}s`);
       if (record !== undefined) void writeFile(join(record, `${options.flavor}-${s.task.replaceAll(" ", "-")}-${String(s.n).padStart(2, "0")}.json`), scrub(JSON.stringify(s, null, 2)));

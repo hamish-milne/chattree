@@ -5,7 +5,7 @@
  *   node tools/live-check.ts --flavor openai-responses --base-url http://localhost:11434/v1 --model qwen3 --api-key-env OPENAI_API_KEY
  *   node tools/live-check.ts --flavor openai-compatible --base-url http://localhost:8080/v1 --model qwen3   (llama-server, Ollama, vLLM: Chat Completions)
  *
- * Flags: --flavor, --base-url, --model, --max-tokens (default 512), --api-key-env NAME (the key is read from that
+ * Flags: --busybox PATH (busybox.exe for the everyday utilities on Windows; default CHATTREE_BUSYBOX or vendor/busybox, see tools/fetch-busybox.ts), --flavor, --base-url, --model, --max-tokens (default 512), --api-key-env NAME (the key is read from that
  * environment variable; never pass a key on the command line), --record DIR (save each scenario's events as JSON,
  * secrets scrubbed), --only NAME (repeatable), --list.
  *
@@ -19,6 +19,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { leafTools } from "../harness/starter/index.ts";
+import { findBusybox } from "../hosts/node.ts";
 import { runAgentTask } from "./agent-task.ts";
 import { EDIT_TASKS, TASKS, type Task } from "./tasks.ts";
 import { ToolRegistry } from "../harness/tools.ts";
@@ -39,6 +40,8 @@ export interface LiveOptions {
   model: string;
   maxTokens?: number;
   apiKey?: string;
+  /** busybox.exe, for the everyday utilities on Windows. */
+  busybox?: string | undefined;
   only?: readonly string[];
   /** Called with the raw run of every request a scenario makes (several per scenario), for recording. `request` says what was asked. */
   onRun?: (scenario: string, run: StreamRun, request?: RequestSummary) => void | Promise<void>;
@@ -104,7 +107,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
 
   /** One task through the real loop in a temporary workspace (tools/agent-task.ts), recorded under the scenario's name. */
   const agent = async (scenario: string, label: string, task: Task) => {
-    const r = await runAgentTask({ adapter, model: setup.model as NonNullable<AgentSetup["model"]>, files: task.files, prompt: task.prompt, onRequest: (run, c) => o.onRun?.(scenario, run, summary(c)) });
+    const r = await runAgentTask({ adapter, busybox: o.busybox, model: setup.model as NonNullable<AgentSetup["model"]>, files: task.files, prompt: task.prompt, onRequest: (run, c) => o.onRun?.(scenario, run, summary(c)) });
     await o.onLog?.(scenario, label, { workspace: r.dir, prompt: task.prompt, status: r.status, steps: r.steps, answer: r.answer, files: r.after });
     return { ...r, outcome: await task.check(r) };
   };
@@ -144,7 +147,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       return `args=${JSON.stringify(call.args)} → ${JSON.stringify(text.trim().slice(0, 50))}`;
     }],
     ["tools-schema", async () => {
-      const starter = new ToolRegistry(leafTools());
+      const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
       const c1 = ctx([user("Use the read tool to read the file notes.txt. Do not answer from memory.")], starter.definitions());
       const r1 = clean(await go(c1));
       const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
@@ -156,7 +159,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
     }],
     ["tools-parallel", async () => {
       // `read` takes a list of files, so asking for two reads is rightly one call; two different tools cannot be batched.
-      const starter = new ToolRegistry(leafTools());
+      const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
       const c1 = ctx([user("Do two independent things: read the file a.txt, and run `ls -la`. Neither needs the other's result, so request both tools in the same step.")], starter.definitions());
       const r1 = clean(await go(c1));
       const found = (r1.completed?.blocks ?? []).filter((b) => b.type === "tool_call");
@@ -174,8 +177,8 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       return found.length === 1 ? `one call only (${found[0]?.name}); the model did not use parallel calls; round-trip ok` : `${found.length} calls (${found.map((b) => b.name).join(", ")}) with distinct ids; all results accepted`;
     }],
     ["tools-reliability", async () => {
-      // Schema validity of `run` calls (argv, pipes, globs). What `edit` calls achieve is scored by tools-edit.
-      const starter = new ToolRegistry(leafTools());
+      // Schema validity of `run` calls (a command line with pipes, redirects, globs). What `edit` calls achieve is scored by tools-edit.
+      const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
       const prompts = [
         "Use the run tool to list the files in the current directory with ls -la.",
         "Use the run tool to print the word hello with echo, then pipe it through wc -c.",
@@ -326,7 +329,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     } else throw new Error(`unexpected argument ${a}`);
   }
   const one = (name: string): string | undefined => flags.get(name)?.[0];
-  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--record", "--only"]);
+  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--record", "--only", "--busybox"]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = one("--flavor") ?? "anthropic";
   if (!(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${FLAVORS.join(", ")}`);
@@ -343,8 +346,9 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
   const only = flags.get("--only");
   for (const n of only ?? []) if (!SCENARIO_NAMES.includes(n)) throw new Error(`unknown scenario ${n} (${SCENARIO_NAMES.join(", ")})`);
   const record = one("--record");
+  const busybox = one("--busybox");
   return {
-    options: { flavor: flavor as Flavor, baseUrl: baseUrl ?? "", model: model ?? "", ...(maxTokens === undefined ? {} : { maxTokens: Number(maxTokens) }), ...(apiKey === undefined ? {} : { apiKey }), ...(only === undefined ? {} : { only }) },
+    options: { flavor: flavor as Flavor, baseUrl: baseUrl ?? "", model: model ?? "", ...(maxTokens === undefined ? {} : { maxTokens: Number(maxTokens) }), ...(apiKey === undefined ? {} : { apiKey }), ...(only === undefined ? {} : { only }), ...(busybox === undefined ? {} : { busybox }) },
     ...(record === undefined ? {} : { record }),
     list,
   };
@@ -365,8 +369,10 @@ async function main(): Promise<void> {
     for (const s of secrets) text = text.split(s).join("[redacted]");
     await writeFile(join(record, `${options.flavor}-${name}.json`), text);
   };
+  const busybox = options.busybox ?? (await findBusybox());
   const results = await runLiveChecks({
     ...options,
+    busybox,
     onResult: (r) => console.log(`${r.status.toUpperCase().padEnd(4)} ${r.name.padEnd(17)} ${String(r.ms).padStart(6)}ms  ${r.detail}`),
     // Scenarios make several requests; each is its own file, numbered, so none overwrites another.
     onRun: async (scenario, run, request) => {

@@ -3,6 +3,7 @@ import { constants } from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 import { randomBytes } from "node:crypto";
+import { fileURLToPath } from "node:url";
 import type { ExecOptions, ExecResult, FileStat, Fs, Host, HostProcess, PathOps, RunOutcome, RunSpec } from "../src/host.ts";
 
 const DEFAULT_MAX_OUTPUT = 256 * 1024 * 1024;
@@ -400,5 +401,20 @@ const nodeFs: Fs = {
 /** A host for the machine this process runs on. Programs run without a shell; the environment is `process.env` plus `opts.env`. */
 export function nodeHost(): Host {
   const path: PathOps = { join: (...s) => nodePath.join(...s), dirname: (p) => nodePath.dirname(p), resolve: (...s) => nodePath.resolve(...s), relative: (a, b) => nodePath.relative(a, b), isAbsolute: (p) => nodePath.isAbsolute(p) };
-  return { exec, spawn: spawnProcess, run: runCommand, fs: nodeFs, path, nullDevice: process.platform === "win32" ? "NUL" : "/dev/null" };
+  return { exec, spawn: spawnProcess, run: runCommand, fs: nodeFs, path, nullDevice: process.platform === "win32" ? "NUL" : "/dev/null", platform: process.platform === "win32" ? "windows" : "posix" };
+}
+
+/** Where `tools/fetch-busybox.ts` puts busybox.exe: vendor/busybox/ at the root of this package. */
+export const BUSYBOX_DIR = nodePath.join(nodePath.dirname(fileURLToPath(import.meta.url)), "..", "vendor", "busybox");
+
+/**
+ * The busybox.exe that stands in for cat, ls, grep and the rest of the everyday utilities on Windows: the path in
+ * `CHATTREE_BUSYBOX`, else the one `tools/fetch-busybox.ts` installed. Undefined elsewhere, and when there is none.
+ */
+export async function findBusybox(env: Readonly<Record<string, string | undefined>> = process.env): Promise<string | undefined> {
+  if (process.platform !== "win32") return undefined;
+  for (const candidate of [env["CHATTREE_BUSYBOX"], nodePath.join(BUSYBOX_DIR, "busybox.exe")]) {
+    if (candidate !== undefined && candidate !== "" && (await nodeFs.stat(candidate))?.isFile === true) return candidate;
+  }
+  return undefined;
 }

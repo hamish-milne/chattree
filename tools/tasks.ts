@@ -13,8 +13,8 @@ export interface Task {
   prompt: string;
   /** What is wrong with the outcome, or undefined when it is right. */
   check(r: AgentTaskResult): string | undefined | Promise<string | undefined>;
-  /** Programs the task needs besides Node and Git; the sampler skips it when one is missing. */
-  needs?: ("bash" | "posix")[];
+  /** What the task needs besides Node and Git (`utils`: cat, grep, wc and friends, which Windows has through busybox); the sampler skips it when missing. */
+  needs?: ("bash" | "utils")[];
 }
 
 const same = (r: AgentTaskResult, want: Record<string, string>): string | undefined => {
@@ -120,17 +120,17 @@ export const TASKS: Task[] = [
     check: (r) => (ranOk(r, "run") && /\d/.test(r.answer) ? undefined : `run succeeded: ${ranOk(r, "run")}, answer ${JSON.stringify(r.answer.slice(0, 80))}`),
   },
   {
-    name: "posix pipe",
+    name: "utility pipe",
     group: "run",
-    needs: ["posix"],
+    needs: ["utils"],
     files: { "a.txt": "one\ntwo\nthree\n" },
     prompt: "Use the run tool to count the lines of a.txt with `cat a.txt | wc -l` and tell me the number.",
     check: (r) => (ranOk(r, "run") && /\b3\b/.test(r.answer) ? undefined : `answer ${JSON.stringify(r.answer.slice(0, 80))}`),
   },
   {
-    name: "posix glob",
+    name: "utility glob",
     group: "run",
-    needs: ["posix"],
+    needs: ["utils"],
     files: { "a.txt": "1\n2\n", "b.txt": "1\n2\n3\n", "c.md": "x\n" },
     prompt: "Use the run tool to count the lines in every .txt file in this directory with `wc -l *.txt` and tell me the total.",
     check: (r) => (ranOk(r, "run") && /\b5\b/.test(r.answer) ? undefined : `answer ${JSON.stringify(r.answer.slice(0, 80))}`),
@@ -157,7 +157,7 @@ export const TASKS: Task[] = [
 
 const has = (program: string): boolean => spawnSync(program, ["-c", "true"], { stdio: "ignore" }).status === 0;
 /** Whether the machine can run a task's extra requirements. */
-export function available(need: "bash" | "posix"): boolean {
+export function available(need: "bash" | "utils", busybox: string | undefined): boolean {
   if (need === "bash") return has("bash");
-  return process.platform !== "win32" && has("sh");
+  return process.platform === "win32" ? busybox !== undefined : has("sh");
 }

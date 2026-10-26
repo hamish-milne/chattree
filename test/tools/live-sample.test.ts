@@ -41,9 +41,11 @@ describe("selecting tasks", () => {
   test("by name part and group; tasks that need a missing program are skipped with the reason", () => {
     assert.deepEqual(selectTasks({ tasks: ["one line", "read two"] }).run.map((t) => t.name), ["one line", "read two files"]);
     assert.ok(selectTasks({ groups: ["edit"] }).run.every((t) => t.group === "edit"));
-    const all = selectTasks({ groups: ["run"], posix: true });
-    assert.ok(all.run.some((t) => t.name === "posix pipe"), "--posix includes them");
-    assert.ok(selectTasks({ groups: ["run"] }).run.length + selectTasks({ groups: ["run"] }).skipped.length === all.run.length + all.skipped.length);
+    const all = selectTasks({ groups: ["run"], busybox: "C:\\bb\\busybox.exe" });
+    const without = selectTasks({ groups: ["run"] });
+    assert.equal(all.run.length + all.skipped.length, without.run.length + without.skipped.length);
+    if (process.platform === "win32") assert.ok(without.skipped.some((t) => t.task === "utility pipe" && /utils/.test(t.why)), "no busybox on Windows: the utility tasks are skipped");
+    else assert.ok(without.run.some((t) => t.name === "utility pipe"));
   });
 });
 
@@ -79,8 +81,8 @@ describe("running samples", () => {
 
 describe("parseArgs", () => {
   test("flags, repeats, a key from the environment", () => {
-    const { options, out, record } = parseArgs(["--flavor", "openai-compatible", "--base-url", "http://x", "--model", "m", "--api-key-env", "K", "--repeat", "20", "--group", "edit", "--task", "one", "--posix", "--out", "o.json", "--record", "d"], { K: "s" });
-    assert.deepEqual(options, { flavor: "openai-compatible", baseUrl: "http://x", model: "m", apiKey: "s", repeat: 20, tasks: ["one"], groups: ["edit"], posix: true });
+    const { options, out, record } = parseArgs(["--flavor", "openai-compatible", "--base-url", "http://x", "--model", "m", "--api-key-env", "K", "--repeat", "20", "--group", "edit", "--task", "one", "--busybox", "bb.exe", "--out", "o.json", "--record", "d"], { K: "s" });
+    assert.deepEqual(options, { flavor: "openai-compatible", baseUrl: "http://x", model: "m", apiKey: "s", repeat: 20, tasks: ["one"], groups: ["edit"], busybox: "bb.exe" });
     assert.equal(out, "o.json");
     assert.equal(record, "d");
   });

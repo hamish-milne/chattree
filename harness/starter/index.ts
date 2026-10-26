@@ -6,6 +6,8 @@ import { writeTool } from "./write.ts";
 
 export { PathRefused, resolveInWorkspace } from "./workspace.ts";
 export { expandGlob, GlobError } from "./glob.ts";
+export { parseCommand, CommandSyntax, type ParsedCommand, type Word } from "./command.ts";
+export { BUSYBOX_APPLETS, portableStage, NotAvailable } from "./portable.ts";
 export { applyChanges, EditFailed, type Change } from "./edit.ts";
 export { versionOf } from "./version.ts";
 export { expandEnv, SECRET_ENV_PATTERN, type RunToolOptions } from "./run.ts";

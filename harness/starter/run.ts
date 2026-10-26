@@ -1,12 +1,14 @@
 import type { RunOutcome } from "../../src/host.ts";
-import { GlobError, expandGlob, hasGlob } from "./glob.ts";
+import { CommandSyntax, parseCommand, type ParsedCommand } from "./command.ts";
+import { GlobError, expandGlob } from "./glob.ts";
+import { NotAvailable, portableStage } from "./portable.ts";
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool, ToolContext, ToolOutput } from "../tools.ts";
 
 /**
- * `run` and `script` (docs/tools.md, 4.1). `run` starts programs directly from an argument list, with pipes and
- * redirects as structure, so what the user approves is programs and arguments and not a string to parse. `script`
- * is the escape hatch: a string for `bash -c`.
+ * `run` and `script` (docs/tools.md, 4.1). `run` takes one command line in a small bash-like syntax that `command.ts`
+ * parses (no shell is involved), so what the user approves is the parsed programs and arguments. `script` is the
+ * escape hatch: a string for `bash -c`.
  */
 
 export interface RunToolOptions {
@@ -16,6 +18,8 @@ export interface RunToolOptions {
   secretEnv?: readonly string[];
   /** Default timeout for a command (seconds). Default 120. */
   timeoutSeconds?: number;
+  /** Path to busybox.exe, which stands in for common utilities (cat, ls, grep, ...) on Windows. */
+  busybox?: string | undefined;
 }
 
 const MAX_TIMEOUT = 600;
@@ -38,20 +42,21 @@ export function expandEnv(arg: string, opts: RunToolOptions["env"]): string {
   });
 }
 
-async function prepare(stages: readonly (readonly string[])[], ctx: ToolContext, opts: RunToolOptions, glob: boolean): Promise<string[][]> {
+/** Environment lookup for the command parser: allowed names only. */
+const envLookup = (opts: RunToolOptions["env"]) => (name: string): string => expandEnv(`$${name}`, opts);
+
+async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOptions): Promise<string[][]> {
   const out: string[][] = [];
-  for (const stage of stages) {
-    const [program, ...args] = stage as readonly [string, ...string[]];
-    const expanded: string[] = [];
-    for (const raw of args) {
-      const arg = expandEnv(raw, opts.env);
-      if (glob && hasGlob(arg)) {
-        const hits = await expandGlob(ctx.host, ctx.workspace, arg);
-        if (hits.length === 0) throw new RunRefused(`${arg}: no file matches`);
-        expanded.push(...hits);
-      } else expanded.push(arg);
+  for (const stage of parsed.stages) {
+    const words: string[] = [];
+    for (const [k, w] of stage.entries()) {
+      if (w.glob && k > 0) {
+        const hits = await expandGlob(ctx.host, ctx.workspace, w.text);
+        if (hits.length === 0) throw new RunRefused(`${w.text}: no file matches`);
+        words.push(...hits);
+      } else words.push(w.text);
     }
-    out.push([expandEnv(program, opts.env), ...expanded]);
+    out.push(portableStage(words, ctx.host.platform, opts.busybox));
   }
   return out;
 }
@@ -74,18 +79,13 @@ export function runTool(opts: RunToolOptions = {}): Tool {
     definition: {
       name: "run",
       description:
-        "Run a program in the workspace, started directly with no shell: `argv` is the program followed by its arguments, so quotes, `|`, `>`, `$` and `*` in an argument are passed through literally. To pipe, give the later commands in `pipe_to`, each reading the previous one's output. `stdin` and `stdout` name workspace files to read from and write to (`append` adds to the file). `$NAME` in an argument is replaced only for environment variables the user has allowed, and `glob: true` expands arguments containing * ? [ or { to the matching files. Returns the exit code, then stdout and stderr in the order they were produced. For shell syntax (&&, loops, redirecting stderr) use the script tool.",
+        "Run a command in the workspace, written in a cross-platform bash-like syntax with common shell utilities (cat, ls, grep, sed, sort, wc, ...), as well as programs available to the host (git, node, ...). It is not a real shell: the supported syntax is quotes, `|` pipes, `<` `>` `>>` with workspace files, `*` `?` `[...]` `{a,b}` globs, `2>&1`, and `$NAME` for environment variables the user has allowed. Not supported: `;` `&&` `||` `&`, `$(...)`, backticks, subshells, heredocs, `VAR=x cmd` and `~` (use the script tool for those, which needs the user's approval). Returns the exit code, then stdout and stderr in the order they were produced.",
       input_schema: {
         type: "object",
         additionalProperties: false,
-        required: ["argv"],
+        required: ["command"],
         properties: {
-          argv: { type: "array", minItems: 1, items: { type: "string" }, description: "The program, then its arguments." },
-          pipe_to: { type: "array", description: "Further commands, each fed the previous command's stdout.", items: { type: "array", minItems: 1, items: { type: "string" } } },
-          stdin: { type: "string", description: "A workspace file to use as the first command's input." },
-          stdout: { type: "string", description: "A workspace file to receive the last command's stdout instead of returning it." },
-          append: { type: "boolean", description: "With stdout, append instead of replacing the file." },
-          glob: { type: "boolean", description: "Expand arguments that contain * ? [ or { to matching workspace files." },
+          command: { type: "string", description: "One command or pipeline on a single line, for example: grep -n TODO src/*.ts | sort | head -20" },
           timeout_seconds: timeoutProp,
         },
       },
@@ -93,29 +93,29 @@ export function runTool(opts: RunToolOptions = {}): Tool {
     async execute(args, ctx) {
       const { host, workspace } = ctx;
       if (host.run === undefined) return { content: "this host cannot run commands", is_error: true };
-      const argv = args["argv"] as string[];
-      const pipes = (args["pipe_to"] as string[][] | undefined) ?? [];
       const timeout = Math.min((args["timeout_seconds"] as number | undefined) ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
       try {
-        const stages = await prepare([argv, ...pipes], ctx, opts, args["glob"] === true);
+        const parsed = parseCommand(args["command"] as string, envLookup(opts.env));
+        const stages = await prepare(parsed, ctx, opts);
         let stdin: Uint8Array | undefined;
-        if (typeof args["stdin"] === "string") {
-          const abs = await resolveInWorkspace(host, workspace, args["stdin"], "read");
+        if (parsed.stdin !== undefined) {
+          const abs = await resolveInWorkspace(host, workspace, parsed.stdin.text, "read");
           const st = await host.fs.stat(abs);
-          if (st === undefined || !st.isFile) throw new RunRefused(`${args["stdin"]}: no such file`);
-          if (st.size > MAX_REDIRECT_BYTES) throw new RunRefused(`${args["stdin"]} is too large to use as input`);
+          if (st === undefined || !st.isFile) throw new RunRefused(`${parsed.stdin.text}: no such file`);
+          if (st.size > MAX_REDIRECT_BYTES) throw new RunRefused(`${parsed.stdin.text} is too large to use as input`);
           stdin = await host.fs.read(abs);
         }
         let target: string | undefined;
-        if (typeof args["stdout"] === "string") {
-          target = await resolveInWorkspace(host, workspace, args["stdout"], "write");
-          if ((await host.fs.stat(target))?.isDirectory === true) throw new RunRefused(`${args["stdout"]} is a directory`);
+        const out = parsed.stdout;
+        if (out !== undefined && out.target !== "discard") {
+          target = await resolveInWorkspace(host, workspace, out.target.text, "write");
+          if ((await host.fs.stat(target))?.isDirectory === true) throw new RunRefused(`${out.target.text} is a directory`);
         }
         const outcome = await host.run({
           stages,
           cwd: workspace,
           ...(stdin === undefined ? {} : { stdin }),
-          ...(target === undefined ? {} : { captureStdout: true, maxOutput: MAX_REDIRECT_BYTES }),
+          ...(out === undefined ? {} : { captureStdout: true, maxOutput: MAX_REDIRECT_BYTES }),
           unsetEnv: opts.secretEnv ?? [],
           unsetEnvPattern: SECRET_ENV_PATTERN,
           timeoutMs: timeout * 1000,
@@ -123,13 +123,13 @@ export function runTool(opts: RunToolOptions = {}): Tool {
         });
         const extra: string[] = [];
         if (target !== undefined && outcome.stdout !== undefined) {
-          if (args["append"] === true) await host.fs.append(target, outcome.stdout);
+          if (out?.append === true) await host.fs.append(target, outcome.stdout);
           else await host.fs.writeAtomic(target, outcome.stdout, { keepMode: true });
-          extra.push(`stdout ${args["append"] === true ? "appended to" : "written to"} ${display(host, workspace, target)} (${outcome.stdout.length} bytes)`);
+          extra.push(`stdout ${out?.append === true ? "appended to" : "written to"} ${display(host, workspace, target)} (${outcome.stdout.length} bytes)`);
         }
         return report(outcome, timeout, extra);
       } catch (e) {
-        if (e instanceof RunRefused || e instanceof GlobError || e instanceof PathRefused) return { content: e.message, is_error: true };
+        if (e instanceof RunRefused || e instanceof CommandSyntax || e instanceof NotAvailable || e instanceof GlobError || e instanceof PathRefused) return { content: e.message, is_error: true };
         throw e;
       }
     },

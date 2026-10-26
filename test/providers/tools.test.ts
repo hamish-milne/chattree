@@ -33,7 +33,7 @@ const anthropicTwoCalls = [
   ant("content_block_delta", { index: 0, delta: { type: "input_json_delta", partial_json: '{"files":[{"path":"a.txt"}]}' } }),
   ant("content_block_stop", { index: 0 }),
   ant("content_block_start", { index: 1, content_block: { type: "tool_use", id: "toolu_b", name: "run", input: {} } }),
-  ant("content_block_delta", { index: 1, delta: { type: "input_json_delta", partial_json: '{"argv":["ls"' } }),
+  ant("content_block_delta", { index: 1, delta: { type: "input_json_delta", partial_json: '{"command":"ls' } }),
   ant("content_block_stop", { index: 1 }),
   ant("message_delta", { delta: { stop_reason: "tool_use" }, usage: { output_tokens: 20 } }),
   ant("message_stop", {}),
@@ -48,7 +48,7 @@ const responsesTwoCalls = [
   rs("response.output_item.added", { output_index: 0, item: { id: "fc_a", type: "function_call", call_id: "call_a", name: "read" } }),
   rs("response.output_item.done", { output_index: 0, item: fn("fc_a", "call_a", "read", '{"files":[{"path":"a.txt"}]}') }),
   rs("response.output_item.added", { output_index: 1, item: { id: "fc_b", type: "function_call", call_id: "call_b", name: "run" } }),
-  rs("response.output_item.done", { output_index: 1, item: fn("fc_b", "call_b", "run", '{"argv":["ls"') }),
+  rs("response.output_item.done", { output_index: 1, item: fn("fc_b", "call_b", "run", '{"command":"ls') }),
   rs("response.completed", { response: resp({ status: "completed", usage: { input_tokens: 5, output_tokens: 9, total_tokens: 14 }, output: [] }) }),
 ];
 
@@ -56,7 +56,7 @@ const chunk = (delta: object, finish: string | null = null) => `data: ${JSON.str
 const compatTwoCalls = [
   // a server that sends no ids at all
   chunk({ tool_calls: [{ index: 0, function: { name: "read", arguments: '{"files":[{"path":"a.txt"}]}' } }] }),
-  chunk({ tool_calls: [{ index: 1, function: { name: "run", arguments: '{"argv":["ls"' } }] }),
+  chunk({ tool_calls: [{ index: 1, function: { name: "run", arguments: '{"command":"ls' } }] }),
   chunk({}, "tool_calls"),
   "data: [DONE]\n\n",
 ];
@@ -93,7 +93,7 @@ describe("several calls in one response", () => {
       assert.equal(new Set(calls.map((c) => c.call_id)).size, 2);
       assert.ok(calls.every((c) => c.call_id !== ""));
       assert.deepEqual(calls[0]?.args, { files: [{ path: "a.txt" }] });
-      assert.equal(calls[1]?.args_raw, '{"argv":["ls"');
+      assert.equal(calls[1]?.args_raw, '{"command":"ls');
       assert.deepEqual(calls[1]?.args, {});
       assert.equal(r.completed?.stop_reason, "tool_use");
     });

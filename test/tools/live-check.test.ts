@@ -165,7 +165,7 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
   if (prompt.includes("Read notes.txt, then use the edit tool")) {
     if (results === 0) return read("notes.txt");
     if (results === 1) return edit("notes.txt", [{ start: 1, end: 1, content: "status: final" }]);
-    if (results === 2) return toolCalls({ id: "x1", name: "run", args: { argv: ["git", "log", "--oneline", "-n", "3"] } });
+    if (results === 2) return toolCalls({ id: "x1", name: "run", args: { command: "git log --oneline -n 3" } });
     return chatText(["It printed 1 line."]);
   }
   // tools-edit cases: read the file, then edit it with the version read showed
@@ -179,9 +179,9 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
   for (const [key, path, changes] of cases) if (prompt.includes(key)) return results === 0 ? read(path) : results === 1 ? edit(path, changes) : chatText(["done"]);
   if (prompt.includes("insert the line `# v2`")) return results === 0 ? read("f.txt") : results === 1 ? edit("f.txt", [{ after: 0, content: "# v2" }]) : results === 2 ? edit("f.txt", [{ start: 4, end: 4, content: "GAMMA" }]) : chatText(["done"]);
   if (results > 0) return chatText(["done"]);
-  if (prompt.includes("two independent things")) return toolCalls({ id: "p1", name: "read", args: { files: [{ path: "a.txt" }] } }, { id: "p2", name: "run", args: { argv: ["ls", "-la"] } });
+  if (prompt.includes("two independent things")) return toolCalls({ id: "p1", name: "read", args: { files: [{ path: "a.txt" }] } }, { id: "p2", name: "run", args: { command: "ls -la" } });
   if (prompt.includes("Use the read tool")) return toolCalls({ id: "s1", name: "read", args: { files: [{ path: "notes.txt" }] } });
-  if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { argv: {} } : { argv: ["ls", "-la"] } });
+  if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { cmd: "ls -la" } : { command: "ls -la" } });
   return chatText(["pong"]);
 };
 
@@ -227,7 +227,7 @@ describe("runLiveChecks, tool scenarios", () => {
     try {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-reliability"] }));
       assert.equal(r["tools-reliability"]?.status, "fail");
-      assert.match(r["tools-reliability"]?.detail ?? "", /no valid run call.*argv must be a list/);
+      assert.match(r["tools-reliability"]?.detail ?? "", /no valid run call.*command is required/);
     } finally {
       await server.close();
     }

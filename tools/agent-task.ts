@@ -63,6 +63,8 @@ export interface AgentTaskOptions {
   files: Record<string, string>;
   prompt: string;
   system?: string;
+  /** busybox.exe for the everyday utilities on Windows (see tools/fetch-busybox.ts). */
+  busybox?: string | undefined;
   /** Wall-clock limit for the whole task. Default 180 s. */
   timeoutMs?: number;
   /** Called with each request's raw run, for recording. */
@@ -92,7 +94,7 @@ export interface AgentTaskResult {
 export const AGENT_SYSTEM = "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.";
 
 export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult> {
-  const registry = new ToolRegistry(leafTools());
+  const registry = new ToolRegistry(leafTools({ busybox: o.busybox }));
   const live = new AdapterRegistry().register(
     defineAdapter({
       $tag: "live",

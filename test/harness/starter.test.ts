@@ -6,7 +6,7 @@ import { nodeHost } from "../../hosts/node.ts";
 import { MemoryBlobStore } from "../../src/index.ts";
 import { PathRefused, applyChanges, versionOf, type Change, expandEnv, expandGlob, GlobError, leafTools, resolveInWorkspace } from "../../harness/starter/index.ts";
 import { expandBraces } from "../../harness/starter/glob.ts";
-import { ToolRegistry, isStarted, type ToolContext, type ToolOutput } from "../../harness/tools.ts";
+import { ToolRegistry, isStarted, type Tool, type ToolContext, type ToolOutput } from "../../harness/tools.ts";
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
@@ -38,7 +38,8 @@ describe("the starter tools are valid registry entries", () => {
     const { registry } = await workspace();
     assert.deepEqual(registry.names(), ["edit", "read", "run", "script", "write"]);
     assert.match((registry.check({ name: "read", args: { files: [{ path: "a", bogus: 1 }] } }) as { error: string }).error, /bogus is not a known argument/);
-    assert.match((registry.check({ name: "run", args: { argv: [] } }) as { error: string }).error, /argv needs at least 1 item/);
+    assert.match((registry.check({ name: "run", args: { argv: ["ls"] } }) as { error: string }).error, /argv is not a known argument \(known: command, timeout_seconds\)/);
+    assert.match((registry.check({ name: "run", args: {} }) as { error: string }).error, /command is required/);
   });
 });
 
@@ -292,60 +293,83 @@ describe("glob", () => {
 });
 
 describe("run", () => {
-  test("starts the program directly: nothing is expanded, and the result begins with the exit code", async () => {
+  const q = `"${node}"`;
+  const show = `'console.log(process.argv.slice(1).join("|"))'`;
+
+  test("one command line, started without a shell: quoted text is passed on as it is, and the result begins with the exit code", async () => {
     const { call } = await workspace();
-    const r = await call("run", { argv: [node, "-e", "console.log(process.argv.slice(1).join('|'))", "*.ts", "a;b", "x|y", ">out"] });
-    assert.equal(r.content, "exit 0\n*.ts|a;b|x|y|>out");
+    const r = await call("run", { command: `${q} -e ${show} '*.ts' "a;b" 'x|y' ">out" "it's"` });
+    assert.equal(r.content, "exit 0\n*.ts|a;b|x|y|>out|it's");
     assert.equal(r.is_error, false);
-    const fail = await call("run", { argv: [node, "-e", "console.error('bad'); process.exit(4)"] });
+    const fail = await call("run", { command: `${q} -e "console.error('bad'); process.exit(4)"` });
     assert.equal(fail.content, "exit 4\nbad");
     assert.equal(fail.is_error, true);
-    assert.equal((await call("run", { argv: [node, "-e", ""] })).content, "exit 0\n(no output)");
-    assert.match((await call("run", { argv: ["no-such-program-xyz"] })).content, /exit 127\nno-such-program-xyz: command not found/);
+    assert.equal((await call("run", { command: `${q} -e ""` })).content, "exit 0\n(no output)");
+    assert.match((await call("run", { command: "no-such-program-xyz --flag" })).content, /exit 127\nno-such-program-xyz: command not found/);
+  });
+
+  test("syntax run does not do is an error result that says what to use instead", async () => {
+    const { call } = await workspace();
+    for (const [command, re] of [["echo a; echo b", /`;` is not supported by run \(use the script tool/], ["echo a && echo b", /`&&`/], ["echo $(date)", /\$\(\.\.\.\)/], ["", /empty/], ["FOO=1 node -v", /setting a variable/]] as const) {
+      const r = await call("run", { command });
+      assert.equal(r.is_error, true, command);
+      assert.match(r.content, re, command);
+    }
   });
 
   test("pipes, reads stdin from a file and writes or appends stdout to a file", async () => {
     const { dir, call } = await workspace({ "in.txt": "b\na\n" });
-    const sort = "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(s.split('\\n').filter(Boolean).sort().join('\\n')+'\\n'))";
-    const r = await call("run", { argv: [node, "-e", "process.stdin.pipe(process.stdout)"], stdin: "in.txt", pipe_to: [[node, "-e", sort]] });
+    const cat = `'process.stdin.pipe(process.stdout)'`;
+    const sort = `'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>process.stdout.write(s.split("\\n").filter(Boolean).sort().join("\\n")+"\\n"))'`;
+    const r = await call("run", { command: `${q} -e ${cat} < in.txt | ${q} -e ${sort}` });
     assert.equal(r.content, "exit 0 (stages: 0, 0)\na\nb");
-    const w = await call("run", { argv: [node, "-e", "console.log('first')"], stdout: "out/log.txt" });
+    const w = await call("run", { command: `${q} -e "console.log('first')" > out/log.txt` });
     assert.equal(w.content, "exit 0\n(no output)\nstdout written to out/log.txt (6 bytes)");
-    await call("run", { argv: [node, "-e", "console.log('second')"], stdout: "out/log.txt", append: true });
+    await call("run", { command: `${q} -e "console.log('second')" >> out/log.txt 2>&1` });
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "out/log.txt"))), "first\nsecond\n");
-    assert.match((await call("run", { argv: [node, "-e", ""], stdout: "chat.yml" })).content, /cannot be written/);
-    assert.match((await call("run", { argv: [node, "-e", ""], stdin: "../x" })).content, /outside the workspace/);
-    assert.match((await call("run", { argv: [node, "-e", ""], stdin: "nope.txt" })).content, /no such file/);
+    assert.equal((await call("run", { command: `${q} -e "console.log('gone')" > /dev/null` })).content, "exit 0\n(no output)");
+    assert.match((await call("run", { command: `${q} -e "" > chat.yml` })).content, /cannot be written/);
+    assert.match((await call("run", { command: `${q} -e "" < ../x` })).content, /outside the workspace/);
+    assert.match((await call("run", { command: `${q} -e "" < nope.txt` })).content, /no such file/);
+    assert.match((await call("run", { command: `${q} -e "" > out` })).content, /is a directory/);
   });
 
-  test("$VAR is replaced only for allowed names", async () => {
+  test("$NAME is replaced only for allowed names, and not inside single quotes", async () => {
     const { call } = await workspace();
-    const ok = await call("run", { argv: [node, "-e", "console.log(process.argv[1])", "v=$CT_ALLOWED/${CT_ALLOWED}"] });
-    assert.equal(ok.content, "exit 0\nv=yes/yes");
-    const denied = await call("run", { argv: [node, "-e", "", "$CT_OTHER"] });
+    const ok = await call("run", { command: `${q} -e ${show} "v=$CT_ALLOWED/\${CT_ALLOWED}" '$CT_OTHER' $CT_ALLOWED` });
+    assert.equal(ok.content, "exit 0\nv=yes/yes|$CT_OTHER|yes");
+    const denied = await call("run", { command: `${q} -e "" $CT_OTHER` });
     assert.equal(denied.is_error, true);
     assert.match(denied.content, /\$CT_OTHER is not an allowed environment variable \(names are listed under tools\.env in harness\.yml\); for a literal \$ use the script tool/);
-    assert.match((await call("run", { argv: [node, "-e", "", "$NOT_THERE"] })).content, /\$NOT_THERE is not an allowed/);
+    assert.match((await call("run", { command: `${q} -e "" $NOT_THERE` })).content, /\$NOT_THERE is not an allowed/);
     assert.equal(expandEnv("$A-$B", { allow: "*", values: { A: "1", B: "2" } }), "1-2");
     assert.throws(() => expandEnv("$A", { allow: "*", values: {} }), /\$A is not set/);
     assert.equal(expandEnv("plain", undefined), "plain");
   });
 
-  test("glob: true expands arguments to workspace files; a pattern with no match is an error", async () => {
+  test("unquoted wildcards expand to workspace files as a shell does; quoted ones do not; no match is an error", async () => {
     const { call } = await workspace({ "a.ts": "", "b.ts": "", "c.js": "" });
-    const show = "console.log(process.argv.slice(1).join(','))";
-    assert.equal((await call("run", { argv: [node, "-e", show, "*.ts", "plain"], glob: true })).content, "exit 0\na.ts,b.ts,plain");
-    assert.equal((await call("run", { argv: [node, "-e", show, "*.ts"] })).content, "exit 0\n*.ts", "off by default");
-    const none = await call("run", { argv: [node, "-e", show, "*.md"], glob: true });
+    assert.equal((await call("run", { command: `${q} -e ${show} *.ts plain` })).content, "exit 0\na.ts|b.ts|plain");
+    assert.equal((await call("run", { command: `${q} -e ${show} '*.ts' "*.ts"` })).content, "exit 0\n*.ts|*.ts");
+    assert.equal((await call("run", { command: `${q} -e ${show} *.{ts,js}` })).content, "exit 0\na.ts|b.ts|c.js");
+    const none = await call("run", { command: `${q} -e ${show} *.md` });
     assert.equal(none.is_error, true);
     assert.match(none.content, /\*\.md: no file matches/);
-    assert.match((await call("run", { argv: [node, "-e", show, "../*"], glob: true })).content, /cannot leave the workspace/);
+    assert.match((await call("run", { command: `${q} -e ${show} ../*` })).content, /cannot leave the workspace/);
+  });
+
+  test("everyday utilities work as in a shell: pipes between real programs", async () => {
+    const { call } = await workspace({ "w.txt": "pear\napple\nfig\napple\n" });
+    const r = await call("run", { command: "cat w.txt | sort | uniq -c | sort -rn | head -n 1" });
+    assert.equal(r.content, "exit 0 (stages: 0, 0, 0, 0, 0)\n      2 apple");
+    assert.equal((await call("run", { command: "grep -c a w.txt" })).content, "exit 0\n3");
+    assert.equal((await call("run", { command: "grep -c zzz w.txt" })).is_error, true, "grep exits 1 when nothing matches");
   });
 
   test("a command that runs too long is killed and the result says so", async () => {
     const { call } = await workspace();
     const t0 = Date.now();
-    const r = await call("run", { argv: ["sleep", "30"], timeout_seconds: 1 });
+    const r = await call("run", { command: "sleep 30", timeout_seconds: 1 });
     assert.ok(Date.now() - t0 < 10_000);
     assert.equal(r.is_error, true);
     assert.match(r.content, /timed out after 1 seconds and was killed/);
@@ -355,7 +379,7 @@ describe("run", () => {
     const { call } = await workspace();
     const ac = new AbortController();
     setTimeout(() => ac.abort(), 200);
-    const r = await call("run", { argv: ["sleep", "30"] }, ac.signal);
+    const r = await call("run", { command: "sleep 30" }, ac.signal);
     assert.equal(r.is_error, true);
     assert.match(r.content, /stopped before it finished/);
   });
@@ -365,12 +389,27 @@ describe("run", () => {
     process.env["CT_FAKE_API_KEY"] = "k1";
     process.env["CT_PLAIN_VAR"] = "p1";
     try {
-      const r = await call("run", { argv: [node, "-e", "console.log(process.cwd(), process.env.CT_FAKE_API_KEY ?? '-', process.env.CT_PLAIN_VAR ?? '-')"] });
+      const r = await call("run", { command: `${q} -e "console.log(process.cwd(), process.env.CT_FAKE_API_KEY ?? '-', process.env.CT_PLAIN_VAR ?? '-')"` });
       assert.equal(r.content, `exit 0\n${dir} - p1`);
     } finally {
       delete process.env["CT_FAKE_API_KEY"];
       delete process.env["CT_PLAIN_VAR"];
     }
+  });
+
+  test("on a Windows host the utilities are started as busybox applets, and without busybox the model is told", async () => {
+    const dir = await tempDir();
+    const started: (readonly (readonly string[])[])[] = [];
+    const windows = { ...host, platform: "windows" as const, run: async (spec: Parameters<NonNullable<typeof host.run>>[0]) => (started.push(spec.stages), { exitCode: 0, stageCodes: [0], output: new Uint8Array(), dropped: 0, timedOut: false, aborted: false }) };
+    const ctx: ToolContext = { signal: new AbortController().signal, callId: "c", workspace: dir, host: windows };
+    const withBb = new ToolRegistry(leafTools({ busybox: "C:\\tools\\busybox.exe" })).get("run") as Tool;
+    await withBb.execute({ command: "cat a.txt | sort | git status" }, ctx);
+    assert.deepEqual(started[0], [["C:\\tools\\busybox.exe", "cat", "a.txt"], ["C:\\tools\\busybox.exe", "sort"], ["git", "status"]]);
+    const without = new ToolRegistry(leafTools()).get("run") as Tool;
+    const r = (await without.execute({ command: "ls -la" }, ctx)) as ToolOutput;
+    assert.equal(r.is_error, true);
+    assert.match(r.content, /ls is not available on this Windows machine/);
+    assert.equal(started.length, 1, "nothing was started");
   });
 });
 

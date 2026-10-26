@@ -139,4 +139,6 @@ export interface Host {
   readonly path: PathOps;
   /** The path git should treat as "no directory" (`/dev/null`, or `NUL` on Windows). */
   readonly nullDevice: string;
+  /** What kind of machine commands run on. Tools use it to stand in for utilities Windows lacks. Default: `posix`. */
+  readonly platform?: "windows" | "posix";
 }
