@@ -1507,6 +1507,39 @@ export class Conversation {
     return commit;
   }
 
+  /**
+   * Move this thread back to an earlier commit of its own history: the transcript and the workspace files are what they were
+   * then, and the commits after it are no longer on the branch. Nothing is lost at once: uncommitted workspace changes are
+   * snapshotted first, and the old tip is kept under `refs/chattree/undone/<branch>/<id>` (which keeps it from ever being
+   * collected) and returned, so `git branch <name> <hash>` brings it back. Refused while a request is running, and when the
+   * target is not an earlier commit that holds the thread's header. Other processes holding this thread open must reopen it.
+   */
+  rewind(target: string): Promise<{ from: string; to: string; ref: string }> {
+    return this.#transaction(async () => {
+      const a = await this.activity();
+      if (a.state === "request" && a.live) throw new ConversationError("a request is running on this thread; /abort it first");
+      await this.#assertIntact();
+      const to = await this.git.revParse(target);
+      if (to === undefined) throw new ConversationError(`${target} is not a commit`);
+      await this.#snapshotLocked();
+      const from = await this.git.head();
+      if (from === undefined) throw new ConversationError("the conversation has no commits");
+      if (to === from) throw new ConversationError("that is where the thread already is");
+      if (!(await this.git.isAncestor(to, from))) throw new ConversationError(`${target} is not an earlier commit of this thread`);
+      const [tip] = await this.git.log(to, { maxCount: 1 });
+      const offset = Number(tip?.trailers["Chattree-Offset"]?.[0]);
+      if (!Number.isFinite(offset) || offset <= 0) throw new ConversationError("that is before the thread's header: there is nothing to go back to");
+      const ref = `refs/chattree/undone/${encodeURIComponent(this.branch)}/${new Date(this.#opts.now?.() ?? Date.now()).toISOString().replace(/[-:.]/g, "")}-${from.slice(0, 8)}`;
+      await this.git.run(["update-ref", ref, from]);
+      await this.git.run(["reset", "--hard", to]);
+      this.#head = to;
+      this.#idx = undefined;
+      this.#foreign = [];
+      this.#size = (await this.host.fs.stat(this.#file))?.size ?? 0;
+      return { from, to, ref };
+    });
+  }
+
   static #dateOpt(opts: ConversationOptions): { date?: string } {
     return opts.fixedDates === true && opts.now !== undefined ? { date: new Date(opts.now()).toISOString() } : {};
   }

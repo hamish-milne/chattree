@@ -18,18 +18,25 @@ export interface StagedAttachment {
 }
 
 /** What a session holds that is not in the transcript (docs/cli.md, section 3). Persisted by the session store. */
+export interface NamedDraft {
+  name: string;
+  text: string;
+}
+
 export interface SessionState {
   draft: string;
+  /** Messages written ahead in the editor (`/draft [name]`), sent one at a time with `/send`. */
+  drafts: NamedDraft[];
   attachments: StagedAttachment[];
   thinking: Thinking;
   /** What the user has entered, oldest first (for the up arrow). */
   history: string[];
 }
 
-export const emptyState = (): SessionState => ({ draft: "", attachments: [], thinking: "off", history: [] });
+export const emptyState = (): SessionState => ({ draft: "", drafts: [], attachments: [], thinking: "off", history: [] });
 
 /** Nothing waiting to be sent: a session in this state is not worth keeping. (Preferences and history alone are not.) */
-export const hasPendingState = (s: SessionState): boolean => s.draft.trim() !== "" || s.attachments.length > 0;
+export const hasPendingState = (s: SessionState): boolean => s.draft.trim() !== "" || s.drafts.length > 0 || s.attachments.length > 0;
 
 export interface Ctx {
   engine: Engine;

@@ -75,7 +75,11 @@ Chat
 | `/attach <path\|-> [--mime T] [--charset C] [--name N]` | Stage a file. The CLI wrapper detects the media type (extension table, then content sniffing for the common image/PDF magic numbers, then UTF-8 validity) and the harness requires it; `--mime` overrides. | allowed |
 | `/attachments` | List staged attachments (name, type, size). | allowed |
 | `/detach <n\|all>` | Unstage. | allowed |
-| `/draft [show\|edit\|clear]`, `/edit` | Look at, edit in `$EDITOR`, or clear the draft. | allowed |
+| `/draft show\|edit\|clear\|set <text>`, `/edit` | Work on the prompt draft (what you are typing): look at it, edit it in `$EDITOR`, clear it, replace it. | allowed |
+| `/draft [name]` | Write a message ahead in `$EDITOR` as a **named draft** (no name: the smallest free number, 1, 2, ...). Opening an existing name edits it; saving it empty removes it. `show`, `edit`, `clear` and `set` are reserved. | allowed |
+| `/drafts`, `/discard <name\|all>` | List the named drafts (the `show` of the staged-state rule); remove one without sending (its `clear`). | allowed |
+| `/send [name]` | Send a named draft with the staged files, and remove it from the list once the message is in the transcript. The name may be left out when there is one draft. The prompt draft is left alone. | blocked |
+| `/undo [n]` | Take the thread back `n` commits, or by default to just before the last message of yours, and put that message in the prompt draft (in a named draft if the prompt draft is in use; with `n`, the earliest message undone). Shows what goes and asks first. The workspace files go back with it; uncommitted changes are snapshotted first; the old tip is printed in full and kept under `refs/chattree/undone/<branch>/<id>`, so `git branch <name> <hash>` brings it back and no collection can remove it. Attached files are not carried into the draft (the note names them). Blocked while a request runs. | blocked |
 
 Reading
 
@@ -212,3 +216,7 @@ Step 6 is done: every command in the section 4 tables exists.
 - **Editor hand-over:** `Io.edit(path)` runs `$VISUAL`/`$EDITOR`/`vi`; the terminal layer switches off raw mode and paste mode for the duration (`Engine.suspend`).
 
 Left for later (parking lot): ghost-text suggestions, tailing another session's streaming reply, the tool loop, `chattree doctor`, `--json` output for the verbs, `/threads` showing how many sessions point at each thread (`/thread` shows it for the current one).
+
+### 12.1 Drafts and undo
+
+Added after the first complete version, at the user's request. Library: `Conversation.rewind(commit)` (snapshot, keep the old tip under a ref, `reset --hard`; refused while a request runs, for a commit that is not an earlier one of the thread or lies before its header; other processes holding the thread must reopen it). Session: `drafts` (a list of `{name, text}`) joins the session file, which keeps a session with named drafts. `/say text` no longer clears the prompt draft (only a send of the draft itself does).

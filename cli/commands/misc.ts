@@ -124,20 +124,26 @@ const clear: Command = {
   },
 };
 
-/** The draft in the user's editor: what is there now goes in, what is saved comes back as the draft. */
-async function* editDraft(ctx: Ctx): AsyncGenerator<import("../output.ts").Output, void> {
-  const dir = ctx.io.host.path.join(ctx.engine.project.mainRoot, ".chattree", "tmp");
-  const file = ctx.io.host.path.join(dir, "draft.md");
-  await ctx.io.host.fs.writeAtomic(file, new TextEncoder().encode(ctx.state.draft));
+/** Text through the user's editor: `initial` goes in, the saved text comes back (undefined if the editor failed). The scratch file is removed. */
+export async function editText(ctx: Ctx, fileName: string, initial: string): Promise<string | undefined> {
+  const file = ctx.io.host.path.join(ctx.engine.project.mainRoot, ".chattree", "tmp", fileName);
+  await ctx.io.host.fs.writeAtomic(file, new TextEncoder().encode(initial));
   try {
-    if (!(await ctx.engine.edit(file))) {
-      yield { type: "error", message: "the editor did not exit cleanly; the draft is unchanged" };
-      return;
-    }
-    ctx.state.draft = new TextDecoder().decode(await ctx.io.host.fs.read(file)).replace(/\s+$/, "");
+    if (!(await ctx.engine.edit(file))) return undefined;
+    return new TextDecoder().decode(await ctx.io.host.fs.read(file)).replace(/\s+$/, "");
   } finally {
     await ctx.io.host.fs.remove(file);
   }
+}
+
+/** The prompt draft in the user's editor: what is there now goes in, what is saved comes back as the draft. */
+async function* editDraft(ctx: Ctx): AsyncGenerator<import("../output.ts").Output, void> {
+  const text = await editText(ctx, "draft.md", ctx.state.draft);
+  if (text === undefined) {
+    yield { type: "error", message: "the editor did not exit cleanly; the draft is unchanged" };
+    return;
+  }
+  ctx.state.draft = text;
   yield { type: "notice", message: ctx.state.draft === "" ? "the draft is empty" : "the draft is updated; a blank line sends it, or /say" };
 }
 

@@ -8,7 +8,6 @@ import type { Ctx, StagedAttachment } from "../engine.ts";
 import { detectMime } from "../mime.ts";
 import type { Output } from "../output.ts";
 import { failure, runTurn } from "../turn.ts";
-import { editDraft } from "./misc.ts";
 
 const kb = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1024 / 1024).toFixed(1)} MiB`);
 
@@ -25,33 +24,42 @@ async function materialize(ctx: Ctx): Promise<Extract<NewEntry, { $tag: "user" }
   return parts;
 }
 
+/**
+ * Append a user message (the text and the staged files) and run the request. `sent` runs once the message is in the transcript,
+ * so whatever it came from (the prompt draft, a named draft) is cleared only when nothing can be lost.
+ */
+export async function* sendMessage(ctx: Ctx, text: string, sent: () => void): AsyncGenerator<Output, void> {
+  if (text === "" && ctx.state.attachments.length === 0) {
+    yield { type: "error", message: "there is nothing to send", hint: "type a message, or /attach a file" };
+    return;
+  }
+  if ((await ctx.convo.activity()).state === "request") {
+    const r = await ctx.convo.recoverRequest();
+    if (r !== undefined) yield { type: "notice", message: `recovered a request that was cut off (${r.outcome})` };
+  }
+  try {
+    const files = await materialize(ctx);
+    const content = [...(text === "" ? [] : [{ $tag: "text" as const, text }]), ...files];
+    await ctx.convo.append({ $tag: "user", content });
+  } catch (e) {
+    yield failure(e);
+    return;
+  }
+  ctx.state.attachments = [];
+  sent();
+  yield* runTurn(ctx);
+}
+
 const say: Command = {
   name: "say",
   summary: "send a message (bare text does this)",
   usage: "/say [text]  (no text sends the draft)",
   busy: "blocked",
   async *run(ctx, _args, rest) {
-    const text = rest.trim() === "" ? ctx.state.draft.trim() : rest;
-    if (text === "" && ctx.state.attachments.length === 0) {
-      yield { type: "error", message: "there is nothing to send", hint: "type a message, or /attach a file" };
-      return;
-    }
-    if ((await ctx.convo.activity()).state === "request") {
-      const r = await ctx.convo.recoverRequest();
-      if (r !== undefined) yield { type: "notice", message: `recovered a request that was cut off (${r.outcome})` };
-    }
-    let content;
-    try {
-      const files = await materialize(ctx);
-      content = [...(text === "" ? [] : [{ $tag: "text" as const, text }]), ...files];
-      await ctx.convo.append({ $tag: "user", content });
-    } catch (e) {
-      yield failure(e);
-      return;
-    }
-    ctx.state.draft = "";
-    ctx.state.attachments = [];
-    yield* runTurn(ctx);
+    const fromDraft = rest.trim() === "";
+    yield* sendMessage(ctx, fromDraft ? ctx.state.draft.trim() : rest, () => {
+      if (fromDraft) ctx.state.draft = "";
+    });
   },
 };
 
@@ -194,24 +202,5 @@ const detach: Command = {
   },
 };
 
-const draft: Command = {
-  name: "draft",
-  summary: "show, replace or clear the unsent message",
-  usage: "/draft [show | edit | clear | set <text>]",
-  busy: "allowed",
-  async *run(ctx, args, rest) {
-    const sub = args[0] ?? "show";
-    if (sub === "clear") {
-      ctx.state.draft = "";
-      yield { type: "notice", message: "draft cleared" };
-    } else if (sub === "set") {
-      ctx.state.draft = rest.replace(/^\s*set\s*/, "");
-      yield { type: "notice", message: "draft replaced" };
-    } else if (sub === "edit") yield* editDraft(ctx);
-    else if (sub === "show") yield { type: "text", text: ctx.state.draft === "" ? "(the draft is empty)" : ctx.state.draft };
-    else yield { type: "error", message: `unknown option ${sub}`, hint: "/draft [show | edit | clear | set <text>]" };
-  },
-};
-
-export const chatCommands: Command[] = [say, retry, cont, abort, attach, attachments, detach, draft];
+export const chatCommands: Command[] = [say, retry, cont, abort, attach, attachments, detach];
 export type { Output };
