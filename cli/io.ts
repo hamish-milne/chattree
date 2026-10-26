@@ -20,6 +20,8 @@ export interface Io {
   tty?: Tty;
   /** Run `fn` when the process is asked to stop (SIGTERM, SIGHUP, SIGINT); returns the way to stop listening. Absent in tests. */
   onSignal?(fn: (signal: string) => void): () => void;
+  /** Open a file in the user's editor (`$VISUAL`, `$EDITOR`, else `vi`) and wait; true if it exited cleanly. Absent where there is no terminal. */
+  edit?(path: string): Promise<boolean>;
   /** Ask the user a question and return the answer (the default when they just press Enter). Present only when `interactive`. */
   ask?(question: string, fallback?: string): Promise<string>;
 }
@@ -52,6 +54,15 @@ export function nodeIo(): Io {
         return h;
       });
       return () => names.forEach((n, i) => process.off(n, handlers[i] as () => void));
+    },
+    async edit(path) {
+      const { spawn } = await import("node:child_process");
+      const editor = process.env["VISUAL"] ?? process.env["EDITOR"] ?? "vi";
+      return await new Promise<boolean>((resolve) => {
+        const child = spawn(editor, [path], { stdio: "inherit", shell: true });
+        child.on("exit", (code) => resolve(code === 0));
+        child.on("error", () => resolve(false));
+      });
     },
     async ask(question, fallback) {
       const { createInterface } = await import("node:readline/promises");

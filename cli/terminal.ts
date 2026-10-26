@@ -95,6 +95,7 @@ export class Terminal {
     this.#rl.on("SIGINT", () => this.#onInterrupt());
     this.#rl.on("close", () => void this.#end(true));
     this.#engine.onRebind = () => this.#startWatch();
+    this.#engine.suspend = (fn) => this.#suspend(fn);
   }
 
   readonly #onKeypress = (_s: string | undefined, key: { name?: string } | undefined): void => {
@@ -124,6 +125,21 @@ export class Terminal {
   /** Leave: stop watching, restore the terminal. Idempotent. */
   async close(): Promise<void> {
     await this.#end(true);
+  }
+
+  /** Hand the terminal to a program that wants it (an editor): ordinary mode while it runs, ours again after. */
+  async #suspend<T>(fn: () => Promise<T>): Promise<T> {
+    this.#rl.pause();
+    this.#tty.input.setRawMode?.(false);
+    this.#tty.output.write(BRACKETED_PASTE_OFF);
+    this.#gate.muted = false;
+    try {
+      return await fn();
+    } finally {
+      this.#tty.output.write(BRACKETED_PASTE_ON);
+      this.#tty.input.setRawMode?.(true);
+      this.#rl.resume();
+    }
   }
 
   #showPrompt(): void {
@@ -270,6 +286,7 @@ export class Terminal {
     this.#tty.input.off("keypress", this.#onKeypress);
     this.#rl.close();
     this.#engine.onRebind = undefined;
+    this.#engine.suspend = undefined;
     this.#tty.output.write(`${BRACKETED_PASTE_OFF}`);
     this.#done();
   }

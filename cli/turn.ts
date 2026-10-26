@@ -66,7 +66,7 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
         if (e instanceof ChangeNotAllowed && attempt < 2) {
           yield { type: "notice", message: e.changes.map((c) => `${c.kind}: ${c.message}`).join("\n") };
           if (!(await ctx.confirm("Go ahead anyway?"))) {
-            yield { type: "error", message: "not sent", hint: "nothing was changed; fix the setup or accept the change and try /retry" };
+            yield { type: "error", message: "not sent", hint: "nothing was sent; /accept accepts a change the provider made, then /retry asks again" };
             return;
           }
           if (e.allowWith.includes("pricing_changed")) {

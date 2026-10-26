@@ -1,6 +1,6 @@
 import type { Conversation } from "../harness/conversation.ts";
 import type { ChangeKind } from "../harness/entries.ts";
-import type { Io } from "./io.ts";
+import { CliError, type Io } from "./io.ts";
 import type { OpenedThread, Project } from "./project.ts";
 import type { Output, Thinking } from "./output.ts";
 import { parseCommand, Registry, tokenize } from "./registry.ts";
@@ -76,6 +76,8 @@ export class Engine {
   /** Change kinds the user accepted for the rest of the session (`/accept`). */
   standing: ChangeKind[] = [];
   quit = false;
+  /** Set by the terminal layer: runs `fn` with the terminal handed over (to an editor), then takes it back. */
+  suspend: (<T>(fn: () => Promise<T>) => Promise<T>) | undefined;
   /** Called after the session is pointed at another thread (the terminal layer re-watches it). */
   onRebind: (() => void) | undefined;
   readonly #confirm: (q: string) => Promise<boolean>;
@@ -92,6 +94,14 @@ export class Engine {
     this.state = o.session?.state ?? emptyState();
     this.registry = new Registry(defaultCommands());
     this.#confirm = o.confirm ?? (async () => false);
+  }
+
+  /** Open a file in the user's editor, with the terminal handed over for the duration. */
+  async edit(path: string): Promise<boolean> {
+    const edit = this.io.edit;
+    if (edit === undefined) throw new CliError("there is no editor here", "run `chattree chat` in a terminal, or edit the file yourself");
+    const run = (): Promise<boolean> => edit.call(this.io, path);
+    return this.suspend === undefined ? run() : this.suspend(run);
   }
 
   get sessionId(): string | undefined {
