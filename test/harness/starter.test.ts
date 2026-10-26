@@ -80,9 +80,9 @@ describe("read", () => {
     const lines = Array.from({ length: 12 }, (_, i) => `line ${i + 1}`).join("\n") + "\n";
     const { call } = await workspace({ "a.txt": lines, "b.txt": "only\n" });
     const whole = await call("read", { files: [{ path: "b.txt" }] });
-    assert.match(whole.content, /^=== b.txt \(1 line, v [0-9a-f]{8}\) ===\n1\tonly$/);
+    assert.match(whole.content, /^=== b.txt \(1 line, version [0-9a-f]{8}\) ===\n1\tonly$/);
     const part = await call("read", { files: [{ path: "a.txt", offset: 2, limit: 3 }] });
-    assert.match(part.content, /^=== a.txt \(lines 3-5 of 12, v [0-9a-f]{8}\) ===\n3\tline 3\n4\tline 4\n5\tline 5\n\.\.\. 7 more lines; read again with offset 5 for the rest$/);
+    assert.match(part.content, /^=== a.txt \(lines 3-5 of 12, version [0-9a-f]{8}\) ===\n3\tline 3\n4\tline 4\n5\tline 5\n\.\.\. 7 more lines; read again with offset 5 for the rest$/);
     const tail = await call("read", { files: [{ path: "a.txt", offset: 9 }] });
     assert.match(tail.content, /lines 10-12 of 12/);
     assert.match(tail.content, /^ ?10\tline 10$/m.source.replace("^ ?", "") ? /10\tline 10/ : /x/);
@@ -94,9 +94,9 @@ describe("read", () => {
     await writeFile(join(dir, "latin.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9]));
     const r = await call("read", { files: [{ path: "ok.txt" }, { path: "missing.txt" }, { path: "empty.txt" }, { path: "bin.dat" }, { path: "latin.txt" }, { path: "../x" }, { path: "ok.txt", offset: 5 }, { path: "sub" }, { path: ".git/config" }] });
     assert.equal(r.is_error, false, "at least one file was read");
-    assert.match(r.content, /=== ok.txt \(1 line, v [0-9a-f]{8}\) ===\n1\tfine/);
+    assert.match(r.content, /=== ok.txt \(1 line, version [0-9a-f]{8}\) ===\n1\tfine/);
     assert.match(r.content, /=== missing.txt: no such file ===/);
-    assert.match(r.content, /=== empty.txt \(empty file, v [0-9a-f]{8}\) ===/);
+    assert.match(r.content, /=== empty.txt \(empty file, version [0-9a-f]{8}\) ===/);
     assert.match(r.content, /=== bin.dat: a binary file ===/);
     assert.match(r.content, /=== latin.txt: not UTF-8 text ===/);
     assert.match(r.content, /=== \.\.\/x: \.\.\/x is outside the workspace ===/);
@@ -129,7 +129,7 @@ describe("write", () => {
     await chmod(join(dir, "run.sh"), 0o755);
     const r = await call("write", { files: [{ path: "new/deep/a.txt", content: "héllo" }, { path: "old.txt", content: "x" }, { path: "run.sh", content: "#!/bin/sh\necho\n" }] });
     assert.equal(r.is_error, undefined);
-    assert.match(r.content, /^created new\/deep\/a.txt \(6 bytes, v [0-9a-f]{8}\)\nreplaced old.txt \(1 bytes, was 5, v [0-9a-f]{8}\)\nreplaced run.sh \(15 bytes, was 10, v [0-9a-f]{8}\)$/);
+    assert.match(r.content, /^created new\/deep\/a.txt \(6 bytes, version [0-9a-f]{8}\)\nreplaced old.txt \(1 bytes, was 5, version [0-9a-f]{8}\)\nreplaced run.sh \(15 bytes, was 10, version [0-9a-f]{8}\)$/);
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "new/deep/a.txt"))), "héllo");
     assert.equal((await stat(join(dir, "run.sh"))).mode & 0o777, 0o755);
   });
@@ -138,7 +138,7 @@ describe("write", () => {
     const { dir, call } = await workspace({ "d/x": "x" });
     const r = await call("write", { files: [{ path: "one.txt", content: "1" }, { path: "d", content: "x" }, { path: "three.txt", content: "3" }, { path: "four.txt", content: "4" }] });
     assert.equal(r.is_error, true);
-    assert.match(r.content, /^created one.txt \(1 bytes, v [0-9a-f]{8}\)\nfailed: d: d is a directory; the other 2 files were not written$/);
+    assert.match(r.content, /^created one.txt \(1 bytes, version [0-9a-f]{8}\)\nfailed: d: d is a directory; the other 2 files were not written$/);
     assert.equal(await host.fs.stat(join(dir, "three.txt")), undefined);
     const refused = await call("write", { files: [{ path: "chat.yml", content: "x" }] });
     assert.equal(refused.is_error, true);
@@ -203,18 +203,18 @@ describe("edit", () => {
   test("on disk: the version is required and checked, results give the new version, and a failing file changes nothing", async () => {
     const { dir, call } = await workspace({ "a.txt": "alpha\nbeta\ngamma\n", "b.txt": "one\n" });
     const read = await call("read", { files: [{ path: "a.txt" }] });
-    const v = /v ([0-9a-f]{8})/.exec(read.content)?.[1] as string;
+    const v = /version ([0-9a-f]{8})/.exec(read.content)?.[1] as string;
     assert.equal(v, await versionOf(new TextEncoder().encode("alpha\nbeta\ngamma\n")));
     const ok = await call("edit", { files: [{ path: "a.txt", version: v, changes: [{ start: 2, end: 2, content: "BETA" }, { after: 3, content: "delta" }] }] });
     assert.equal(ok.is_error, undefined);
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "alpha\nBETA\ngamma\ndelta\n");
-    const nv = /edited a.txt \(now 4 lines, v ([0-9a-f]{8})\)/.exec(ok.content)?.[1] as string;
+    const nv = /edited a.txt \(now 4 lines, version ([0-9a-f]{8})\)/.exec(ok.content)?.[1] as string;
     assert.equal(nv, await versionOf(new TextEncoder().encode("alpha\nBETA\ngamma\ndelta\n")));
     assert.match(ok.content, /change 1: replaced lines 2-2 with 1 line; now lines 2-2\n- 2\tbeta\n\+ 2\tBETA/);
 
     const stale = await call("edit", { files: [{ path: "a.txt", version: v, changes: [{ start: 1, end: 1, content: "x" }] }] });
     assert.equal(stale.is_error, true);
-    assert.match(stale.content, new RegExp(`a.txt is not the version you read \\(you gave v ${v}, it is now v ${nv}\\); read it again`));
+    assert.match(stale.content, new RegExp(`a.txt has changed since you read it \\(you gave ${v}, it is at ${nv} now\\); read it again`));
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "alpha\nBETA\ngamma\ndelta\n");
 
     const bv = await versionOf(new TextEncoder().encode("one\n"));
@@ -228,13 +228,25 @@ describe("edit", () => {
     assert.match((await call("edit", { files: [{ path: "harness.yml", version: "x", changes: [{ after: 0, content: "x" }] }] })).content, /cannot be written/);
   });
 
+  test("the version is read loosely: the header's own words, a v prefix or capitals still match; no digits at all is explained", async () => {
+    const { dir, call } = await workspace({ "a.txt": "one\ntwo\n" });
+    const v = await versionOf(new TextEncoder().encode("one\ntwo\n"));
+    for (const given of [v, `version ${v}`, `v ${v}`, `v${v}`, v.toUpperCase(), `(1 line, version ${v})`]) {
+      const r = await call("edit", { files: [{ path: "a.txt", version: given, changes: [{ after: 0, content: "x" }, { start: 1, end: 1, content: "one" }] }] });
+      assert.equal(r.is_error, undefined, given);
+      await writeFile(join(dir, "a.txt"), "one\ntwo\n");
+    }
+    const none = await call("edit", { files: [{ path: "a.txt", version: "latest", changes: [{ after: 0, content: "x" }] }] });
+    assert.match(none.content, new RegExp(`must be the 8 hex digits that read shows after "version" \\(the file is at ${v} now\\)`));
+  });
+
   test("read and write report the version edit needs", async () => {
     const { call } = await workspace({ "e.txt": "" });
     const w = await call("write", { files: [{ path: "n.txt", content: "x\n" }] });
-    const wv = /v ([0-9a-f]{8})/.exec(w.content)?.[1];
+    const wv = /version ([0-9a-f]{8})/.exec(w.content)?.[1];
     assert.equal(wv, await versionOf(new TextEncoder().encode("x\n")));
-    assert.match((await call("read", { files: [{ path: "n.txt" }] })).content, new RegExp(`^=== n.txt \\(1 line, v ${wv}\\) ===`));
-    assert.match((await call("read", { files: [{ path: "e.txt" }] })).content, /\(empty file, v [0-9a-f]{8}\)/);
+    assert.match((await call("read", { files: [{ path: "n.txt" }] })).content, new RegExp(`^=== n.txt \\(1 line, version ${wv}\\) ===`));
+    assert.match((await call("read", { files: [{ path: "e.txt" }] })).content, /\(empty file, version [0-9a-f]{8}\)/);
   });
 });
 

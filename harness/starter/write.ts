@@ -45,7 +45,7 @@ export function writeTool(): Tool {
           if (before?.isDirectory === true) throw new PathRefused(`${name} is a directory`);
           const bytes = enc.encode(f.content);
           await host.fs.writeAtomic(abs, bytes, { keepMode: true });
-          lines.push(before === undefined ? `created ${name} (${bytes.length} bytes, v ${await versionOf(bytes)})` : `replaced ${name} (${bytes.length} bytes, was ${before.size}, v ${await versionOf(bytes)})`);
+          lines.push(before === undefined ? `created ${name} (${bytes.length} bytes, version ${await versionOf(bytes)})` : `replaced ${name} (${bytes.length} bytes, was ${before.size}, version ${await versionOf(bytes)})`);
         } catch (e) {
           const rest = files.length - i - 1;
           lines.push(`failed: ${f.path}: ${e instanceof Error ? e.message : String(e)}${rest > 0 ? `; the other ${rest} file${rest === 1 ? " was" : "s were"} not written` : ""}`);

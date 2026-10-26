@@ -106,3 +106,55 @@ export function validateArgs(schema: unknown, value: unknown): string[] {
   walk(schema, value, "");
   return problems;
 }
+
+const NUMBER_RE = /^\s*-?\d+(\.\d+)?\s*$/;
+
+/**
+ * Repair the slips small models make that have only one possible meaning, guided by the schema, before the arguments are
+ * validated (docs/tools.md, 3.6): a lone item where a list belongs (`files: {path: "a"}`, `argv: "ls"`), a list or object
+ * sent as a JSON string, numbers and booleans sent as text, and text sent as a number or boolean. Anything that could mean
+ * more than one thing is left alone for `validateArgs` to report. Returns a new value; the input is not changed.
+ */
+export function coerceArgs(schema: unknown, value: unknown): unknown {
+  if (!isObject(schema)) return value;
+  const type = schema["type"];
+  if (type === "object") {
+    let v = value;
+    if (typeof v === "string") v = parseAs(v, "object") ?? v;
+    if (!isObject(v)) return v;
+    const props = isObject(schema["properties"]) ? (schema["properties"] as Record<string, unknown>) : {};
+    const out: Record<string, unknown> = {};
+    for (const [k, x] of Object.entries(v)) out[k] = k in props ? coerceArgs(props[k], x) : x;
+    return out;
+  }
+  if (type === "array") {
+    let v = value;
+    if (typeof v === "string") {
+      const parsed = parseAs(v, "array");
+      if (parsed !== undefined) v = parsed;
+      else if (isObject(schema["items"]) && schema["items"]["type"] === "string") return [v];
+      else return v;
+    } else if (!Array.isArray(v)) {
+      const items = schema["items"];
+      // A single object or scalar where a list of them belongs.
+      if (isObject(items) && ((items["type"] === "object" && isObject(v)) || (SCALAR.has(items["type"] as string) && (typeof v === "number" || typeof v === "boolean")))) return [coerceArgs(items, v)];
+      return v;
+    }
+    return (v as unknown[]).map((x) => coerceArgs(schema["items"], x));
+  }
+  if ((type === "integer" || type === "number") && typeof value === "string" && NUMBER_RE.test(value)) return Number(value);
+  if (type === "boolean" && typeof value === "string" && /^\s*(true|false)\s*$/i.test(value)) return value.trim().toLowerCase() === "true";
+  if (type === "string" && (typeof value === "number" || typeof value === "boolean")) return String(value);
+  return value;
+}
+
+function parseAs(text: string, kind: "object" | "array"): unknown {
+  const t = text.trim();
+  if (!(kind === "object" ? t.startsWith("{") : t.startsWith("["))) return undefined;
+  try {
+    const v: unknown = JSON.parse(t);
+    return kind === "array" ? (Array.isArray(v) ? v : undefined) : isObject(v) ? v : undefined;
+  } catch {
+    return undefined;
+  }
+}

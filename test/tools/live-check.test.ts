@@ -153,7 +153,7 @@ const toolCalls = (...cs: { id: string; name: string; args: unknown }[]): Reply 
 });
 const lastVersion = (body: { messages: { role: string; content?: string }[] }): string => {
   const tools = body.messages.filter((m) => m.role === "tool");
-  return /v ([0-9a-f]{8})/.exec(tools.at(-1)?.content ?? "")?.[1] ?? "00000000";
+  return /version ([0-9a-f]{8})/.exec(tools.at(-1)?.content ?? "")?.[1] ?? "00000000";
 };
 const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: boolean } = {}) => (_n: number, seen: Seen): Reply => {
   const body = JSON.parse(seen.body) as { messages: { role: string; content?: string }[]; tools?: unknown[] };
@@ -165,14 +165,15 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
   if (prompt.includes("Read notes.txt, then use the edit tool")) {
     if (results === 0) return read("notes.txt");
     if (results === 1) return edit("notes.txt", [{ start: 1, end: 1, content: "status: final" }]);
-    if (results === 2) return toolCalls({ id: "x1", name: "run", args: { argv: ["cat", "notes.txt"] } });
-    return chatText(["It prints status: final."]);
+    if (results === 2) return toolCalls({ id: "x1", name: "run", args: { argv: ["git", "log", "--oneline", "-n", "3"] } });
+    return chatText(["It printed 1 line."]);
   }
   // tools-edit cases: read the file, then edit it with the version read showed
   const cases: [string, string, unknown[]][] = [
     ["change the word draft", "notes.txt", [{ start: 1, end: 1, content: opts.wrongLines === true ? "oops" : "status: final" }]],
     ["set retries to 5", "app.conf", [{ start: 2, end: 2, content: "retries = 5" }, { start: 3, end: 3, content: "verbose = true" }]],
     ["start with `drop`", "list.txt", [{ start: 2, end: 4, content: "" }]],
+    ["make add return", "calc.js", [{ start: 2, end: 3, content: "  return a + b;" }]],
     ["import sys", "main.py", [{ after: 1, content: "import sys" }, { after: 4, content: "main()" }]],
   ];
   for (const [key, path, changes] of cases) if (prompt.includes(key)) return results === 0 ? read(path) : results === 1 ? edit(path, changes) : chatText(["done"]);
@@ -180,7 +181,7 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
   if (results > 0) return chatText(["done"]);
   if (prompt.includes("two independent things")) return toolCalls({ id: "p1", name: "read", args: { files: [{ path: "a.txt" }] } }, { id: "p2", name: "run", args: { argv: ["ls", "-la"] } });
   if (prompt.includes("Use the read tool")) return toolCalls({ id: "s1", name: "read", args: { files: [{ path: "notes.txt" }] } });
-  if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { argv: "ls -la" } : { argv: ["ls", "-la"] } });
+  if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { argv: {} } : { argv: ["ls", "-la"] } });
   return chatText(["pong"]);
 };
 
@@ -193,7 +194,7 @@ describe("runLiveChecks, tool scenarios", () => {
       for (const name of names) assert.equal(r[name]?.status, "pass", `${name}: ${r[name]?.detail}`);
       assert.match(r["tools-parallel"]?.detail ?? "", /2 calls \(read, run\) with distinct ids/);
       assert.match(r["tools-reliability"]?.detail ?? "", /run 4\/4 valid/);
-      assert.match(r["tools-edit"]?.detail ?? "", /^5\/5 correct/);
+      assert.match(r["tools-edit"]?.detail ?? "", /^6\/6 correct/);
       assert.match(r["agent-loop"]?.detail ?? "", /tools used: edit, read, run/);
     } finally {
       await server.close();
@@ -205,7 +206,7 @@ describe("runLiveChecks, tool scenarios", () => {
     try {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-edit"] }));
       assert.equal(r["tools-edit"]?.status, "pass");
-      assert.match(r["tools-edit"]?.detail ?? "", /^4\/5 correct; one line: WRONG.*"notes.txt":"oops/);
+      assert.match(r["tools-edit"]?.detail ?? "", /^5\/6 correct; one line: WRONG notes.txt is "oops/);
     } finally {
       await server.close();
     }

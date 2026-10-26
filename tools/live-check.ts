@@ -16,18 +16,12 @@
  * reasoning) is reported as `skip`, not as a failure. Ollama is a zero-cost stand-in: it speaks the Anthropic
  * and OpenAI Responses shapes. It ignores some fields (cache_control, tool_choice) and may not report in-stream errors.
  */
-import { mkdtemp, mkdir, readFile, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { z } from "zod";
-import { nodeHost } from "../hosts/node.ts";
-import { Conversation } from "../harness/conversation.ts";
-import { runLoop, syncTools } from "../harness/loop.ts";
-import { envSource } from "../harness/secrets.ts";
 import { leafTools } from "../harness/starter/index.ts";
+import { runAgentTask } from "./agent-task.ts";
+import { EDIT_TASKS, TASKS, type Task } from "./tasks.ts";
 import { ToolRegistry } from "../harness/tools.ts";
-import { verifyHistory } from "../harness/verify.ts";
-import { AdapterRegistry, defineAdapter } from "../providers/registry.ts";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import { emptySetup, type AgentSetup } from "../harness/setup.ts";
 import { anthropicAdapter } from "../providers/anthropic.ts";
@@ -84,36 +78,6 @@ export function makeAdapter(o: Pick<LiveOptions, "flavor" | "baseUrl" | "apiKey"
 
 const summary = (c: ModelContext): RequestSummary => ({ last: c.turns.at(-1), tools: c.tools.map((t) => t.name) });
 
-/** Passes a stream through unchanged and reports each request's events to `report` when it ends, however it ends. */
-function recording(inner: ProviderAdapter, report: (run: StreamRun, c: ModelContext) => void | Promise<void>): ProviderAdapter {
-  return {
-    ...inner,
-    stream(req) {
-      const events: StreamRun["events"] = [];
-      const source = inner.stream(req);
-      return (async function* () {
-        const run: StreamRun = { events };
-        try {
-          for (;;) {
-            const n = await source.next();
-            if (n.done === true) {
-              run.completed = n.value;
-              return n.value;
-            }
-            events.push(n.value);
-            yield n.value;
-          }
-        } catch (e) {
-          run.error = e;
-          throw e;
-        } finally {
-          await report(run, req.context);
-        }
-      })();
-    },
-  };
-}
-
 const user = (text: string): Turn => ({ role: "user", parts: [{ type: "text", text }] });
 const WEATHER = { name: "get_weather", description: "Get the current weather for a city.", input_schema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } };
 
@@ -138,53 +102,11 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   const assistantTurn = (blocks: Block[], ext?: Record<string, unknown>): Turn => ({ role: "assistant", provider: "live", model: o.model, blocks, ...(ext === undefined ? {} : { ext }) });
   const textOf = (blocks: readonly Block[]): string => blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
 
-  /** One agent task in a fresh temporary workspace, through the real loop. Never throws for a model's failure: the caller scores the outcome. */
-  const agent = async (scenario: string, label: string, files: Record<string, string>, prompt: string) => {
-    const registry = new ToolRegistry(leafTools());
-    const live = new AdapterRegistry().register(
-      defineAdapter({
-        $tag: "live",
-        config: z.strictObject({ $tag: z.literal("live") }),
-        settings: z.looseObject({}),
-        jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
-        secrets: () => [],
-        create: () => recording(adapter, (run, c) => o.onRun?.(scenario, run, summary(c))),
-      }),
-    );
-    const dir = join(await mkdtemp(join(tmpdir(), "chattree-live-")), "c");
-    const convo = await Conversation.create(nodeHost(), dir, { providers: { registry: live, secrets: envSource({}) }, config: "providers:\n  live:\n    $tag: live\n" });
-    await convo.setupChange({ model: setup.model as NonNullable<AgentSetup["model"]> });
-    await syncTools(convo, registry);
-    for (const [name, text] of Object.entries(files)) await writeFile(join(dir, name), text);
-    await convo.append({ $tag: "user", content: [{ $tag: "text", text: prompt }] });
-    const used = new Set<string>();
-    const trail: unknown[] = [];
-    let errors = 0;
-    let status = "";
-    let requests = 0;
-    const gen = runLoop(convo, { system: "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.", cost: false, registry, signal: AbortSignal.timeout(180_000) });
-    for (;;) {
-      const n = await gen.next();
-      if (n.done === true) {
-        status = n.value.status;
-        requests = n.value.requests;
-        break;
-      }
-      const e = n.value;
-      if (e.type === "tool.start") {
-        used.add(e.name);
-        trail.push({ call: e.name, args: e.args });
-      } else if (e.type === "tool.result") {
-        trail.push({ result: e.content, is_error: e.is_error });
-        if (e.is_error) errors++;
-      }
-    }
-    const read = async (name: string): Promise<string> => readFile(join(dir, name), "utf8").catch(() => "");
-    const after: Record<string, string> = {};
-    for (const name of Object.keys(files)) after[name] = await read(name);
-    await o.onLog?.(scenario, label, { workspace: dir, prompt, status, trail, files: after });
-    const problems = await verifyHistory(convo);
-    return { dir, status, requests, used, errors, after, calls: trail.filter((t) => "call" in (t as object)).map((t) => (t as { call: string }).call), problems };
+  /** One task through the real loop in a temporary workspace (tools/agent-task.ts), recorded under the scenario's name. */
+  const agent = async (scenario: string, label: string, task: Task) => {
+    const r = await runAgentTask({ adapter, model: setup.model as NonNullable<AgentSetup["model"]>, files: task.files, prompt: task.prompt, onRequest: (run, c) => o.onRun?.(scenario, run, summary(c)) });
+    await o.onLog?.(scenario, label, { workspace: r.dir, prompt: task.prompt, status: r.status, steps: r.steps, answer: r.answer, files: r.after });
+    return { ...r, outcome: await task.check(r) };
   };
 
   const scenarios: [string, () => Promise<string>][] = [
@@ -283,54 +205,25 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
     }],
     ["tools-edit", async () => {
       // Scored by outcome: did the file end up right? Each case is a fresh workspace and the real loop (read first, then edit).
-      const cases: { name: string; files: Record<string, string>; prompt: string; want: Record<string, string> }[] = [
-        { name: "one line", files: { "notes.txt": "status: draft\n" }, prompt: "In notes.txt change the word draft to final.", want: { "notes.txt": "status: final\n" } },
-        {
-          name: "two places",
-          files: { "app.conf": "name = demo\nretries = 3\nverbose = false\ntimeout = 10\n" },
-          prompt: "In app.conf set retries to 5 and verbose to true. Change nothing else.",
-          want: { "app.conf": "name = demo\nretries = 5\nverbose = true\ntimeout = 10\n" },
-        },
-        {
-          name: "delete a block",
-          files: { "list.txt": "keep 1\ndrop a\ndrop b\ndrop c\nkeep 2\nkeep 3\n" },
-          prompt: "Remove the three lines that start with `drop` from list.txt.",
-          want: { "list.txt": "keep 1\nkeep 2\nkeep 3\n" },
-        },
-        {
-          name: "insert and append",
-          files: { "main.py": "import os\n\ndef main():\n    print('hi')\n" },
-          prompt: "In main.py add the line `import sys` right after `import os`, and add a final line `main()` at the end of the file.",
-          want: { "main.py": "import os\nimport sys\n\ndef main():\n    print('hi')\nmain()\n" },
-        },
-        {
-          name: "edit after edit",
-          files: { "f.txt": "alpha\nbeta\ngamma\n" },
-          prompt: "In f.txt first insert the line `# v2` at the top. Once that is done, change the line `gamma` to `GAMMA`.",
-          want: { "f.txt": "# v2\nalpha\nbeta\nGAMMA\n" },
-        },
-      ];
       let right = 0;
       let attempted = 0;
       const notes: string[] = [];
-      for (const c of cases) {
-        const r = await agent("tools-edit", c.name.replaceAll(" ", "-"), c.files, c.prompt);
+      for (const task of EDIT_TASKS) {
+        const r = await agent("tools-edit", task.name.replaceAll(" ", "-"), task);
         if (r.used.size === 0) continue;
         attempted++;
-        const correct = Object.entries(c.want).every(([f, text]) => r.after[f] === text);
-        if (correct) right++;
-        notes.push(`${c.name}: ${correct ? "ok" : `WRONG ${JSON.stringify(r.after)}`}${r.errors > 0 ? ` (${r.errors} tool error${r.errors === 1 ? "" : "s"})` : ""}`);
+        if (r.outcome === undefined) right++;
+        notes.push(`${task.name}: ${r.outcome === undefined ? "ok" : `WRONG ${r.outcome}`}${r.errors > 0 ? ` (${r.errors} tool error${r.errors === 1 ? "" : "s"})` : ""}`);
       }
       if (attempted === 0) return skip("the model did not call a tool (it may not support tools)");
       ok(right > 0, `no case came out right: ${notes.join("; ")}`);
       return `${right}/${attempted} correct; ${notes.join("; ")}`;
     }],
     ["agent-loop", async () => {
-      const r = await agent("agent-loop", "loop", { "notes.txt": "status: draft\n" }, "Read notes.txt, then use the edit tool to change the word draft to final, then run `cat notes.txt` with the run tool and tell me what it prints.");
+      const task = TASKS.find((t) => t.name === "edit then run") as Task;
+      const r = await agent("agent-loop", "loop", task);
       if (r.used.size === 0) return skip("the model did not call a tool (it may not support tools)");
-      ok(r.status === "completed", `the loop ended with ${r.status}`);
-      const file = r.after["notes.txt"];
-      ok(file === "status: final\n", `notes.txt is ${JSON.stringify(file)} after ${r.calls.join(" → ")}`);
+      ok(r.outcome === undefined, `${r.outcome} after ${r.steps.map((s) => s.name).join(" → ")}`);
       ok(r.problems.length === 0, `the history does not verify: ${JSON.stringify(r.problems).slice(0, 300)}`);
       return `${r.requests} requests, tools used: ${[...r.used].sort().join(", ")}${r.errors > 0 ? `, ${r.errors} tool error(s) recovered` : ""}; file edited; history verifies`;
     }],

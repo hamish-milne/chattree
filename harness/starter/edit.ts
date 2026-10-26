@@ -108,7 +108,7 @@ export function editTool(): Tool {
     definition: {
       name: "edit",
       description:
-        "Change lines of existing files, using the line numbers and version that read shows (read the file first; the numbers are only valid for that version). Each change is either `start` and `end` (inclusive line numbers) with `content` replacing those lines (empty `content` deletes them), or `after` with `content` inserted after that line (0 is the top, the last line number appends). `content` is the new lines as plain text, without line numbers. All changes to a file in one call use the numbering you read, so do not adjust for earlier changes; they must not overlap. Whole files are applied or not at all. The result shows what was removed and added, with the new line numbers and the new version. To create a file or rewrite one entirely, use write.",
+        "Change lines of existing files, using the line numbers and the `version` that read shows (read the file first; the numbers are only valid for that version). Each change is either `start` and `end` (inclusive line numbers) with `content` replacing those lines (empty `content` deletes them), or `after` with `content` inserted after that line (0 is the top, the last line number appends). `content` is the new lines as plain text, without line numbers. All changes to a file in one call use the numbering you read, so do not adjust for earlier changes; they must not overlap. Whole files are applied or not at all. The result shows what was removed and added, with the new line numbers and the new version. To create a file or rewrite one entirely, use write.",
       input_schema: {
         type: "object",
         additionalProperties: false,
@@ -125,7 +125,7 @@ export function editTool(): Tool {
               required: ["path", "version", "changes"],
               properties: {
                 path: { type: "string", description: "Path relative to the workspace root." },
-                version: { type: "string", description: "The file's version as read showed it (`v ...` in its header)." },
+                version: { type: "string", description: "The file's version: the 8 hex digits after `version` in its header from read." },
                 changes: {
                   type: "array",
                   minItems: 1,
@@ -168,11 +168,14 @@ export function editTool(): Tool {
             throw new EditFailed(`${name} is not UTF-8 text`);
           }
           const now = await versionOf(bytes);
-          if (f.version !== now) throw new EditFailed(`${name} is not the version you read (you gave v ${f.version}, it is now v ${now}); read it again and use its numbers`);
+          // Models copy the header loosely ("version 1f08cd1f", "v 1f08cd1f"): what counts is the 8 hex digits.
+          const given = /[0-9a-f]{8}/i.exec(f.version)?.[0]?.toLowerCase();
+          if (given === undefined) throw new EditFailed(`\`version\` must be the 8 hex digits that read shows after "version" (the file is at ${now} now)`);
+          if (given !== now) throw new EditFailed(`${name} has changed since you read it (you gave ${given}, it is at ${now} now); read it again and use its numbers`);
           const out = applyChanges(original, f.changes);
           const written = enc.encode(out.text);
           await host.fs.writeAtomic(abs, written, { keepMode: true });
-          lines.push(`edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, v ${await versionOf(written)})`, ...out.report);
+          lines.push(`edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, version ${await versionOf(written)})`, ...out.report);
         } catch (err) {
           if (!(err instanceof EditFailed) && !(err instanceof Error && err.name === "PathRefused")) throw err;
           const rest = files.length - i - 1;

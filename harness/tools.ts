@@ -2,7 +2,7 @@ import type { BlobStore } from "../src/index.ts";
 import type { Host } from "../src/host.ts";
 import { pinDefinition, type ToolDefinition } from "./definitions.ts";
 import type { PinnedDefinition } from "./setup.ts";
-import { checkSchema, validateArgs } from "./tool-schema.ts";
+import { checkSchema, coerceArgs, validateArgs } from "./tool-schema.ts";
 
 /**
  * The host's tool registry (docs/tools.md, sections 3 and 4): what a tool is, how its call is checked, and how
@@ -97,9 +97,10 @@ export class ToolRegistry {
     const tool = this.#tools.get(call.name);
     if (tool === undefined) return { error: `there is no tool called ${call.name}; the tools are: ${this.names().join(", ")}` };
     if (call.args_raw !== undefined) return { error: `the arguments for ${call.name} were not valid JSON: ${call.args_raw.length > 200 ? `${call.args_raw.slice(0, 200)}...` : call.args_raw}` };
-    const problems = validateArgs(tool.definition.input_schema, call.args);
+    const args = coerceArgs(tool.definition.input_schema, call.args);
+    const problems = validateArgs(tool.definition.input_schema, args);
     if (problems.length > 0) return { error: `${call.name}: ${problems.join("; ")}` };
-    return { tool, args: call.args as Record<string, unknown> };
+    return { tool, args: args as Record<string, unknown> };
   }
 }
 

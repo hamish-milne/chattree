@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { MemoryBlobStore, sha256Hex } from "../../src/index.ts";
 import { hashDefinition, loadDefinitions } from "../../harness/definitions.ts";
 import { foldSetup } from "../../harness/setup.ts";
-import { checkSchema, validateArgs } from "../../harness/tool-schema.ts";
+import { checkSchema, coerceArgs, validateArgs } from "../../harness/tool-schema.ts";
 import { DEFAULT_RESULT_LIMIT, ToolError, ToolRegistry, isStarted, shapeResult, type Tool } from "../../harness/tools.ts";
 
 const read = {
@@ -143,5 +143,42 @@ describe("result shaping", () => {
         assert.doesNotMatch(r.content, /�/, `${unit} at limit ${limit}`);
       }
     }
+  });
+});
+
+describe("repairing unambiguous slips in arguments", () => {
+  const schema = {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      files: { type: "array", items: { type: "object", additionalProperties: false, properties: { path: { type: "string" }, limit: { type: "integer" } } } },
+      argv: { type: "array", items: { type: "string" } },
+      timeout: { type: "integer" },
+      append: { type: "boolean" },
+      note: { type: "string" },
+    },
+  };
+  const fix = (v: unknown) => coerceArgs(schema, v);
+  test("a lone item becomes a list, JSON text becomes the value, text numbers and booleans are converted", () => {
+    assert.deepEqual(fix({ files: { path: "a" } }), { files: [{ path: "a" }] });
+    assert.deepEqual(fix({ files: '[{"path":"a"}]' }), { files: [{ path: "a" }] });
+    assert.deepEqual(fix({ argv: "ls" }), { argv: ["ls"] });
+    assert.deepEqual(fix({ argv: '["ls","-la"]' }), { argv: ["ls", "-la"] });
+    assert.deepEqual(fix({ files: [{ path: "a", limit: "5" }], timeout: " 30 ", append: "True", note: 7 }), { files: [{ path: "a", limit: 5 }], timeout: 30, append: true, note: "7" });
+    assert.deepEqual(fix('{"argv":["x"]}'), { argv: ["x"] });
+  });
+  test("anything that could mean more than one thing is left for validation to report", () => {
+    assert.deepEqual(fix({ timeout: "soon", append: "yes", files: "a.txt", argv: {} }), { timeout: "soon", append: "yes", files: "a.txt", argv: {} });
+    assert.deepEqual(fix({ extra: "1" }), { extra: "1" });
+    const input = { files: { path: "a" } };
+    fix(input);
+    assert.deepEqual(input, { files: { path: "a" } }, "the input is not changed");
+  });
+  test("the registry validates the repaired call and hands the tool the repaired arguments", () => {
+    const reg = new ToolRegistry([{ definition: { name: "t", description: "d", input_schema: schema }, execute: async () => ({ content: "" }) }]);
+    const r = reg.check({ name: "t", args: { files: { path: "a" }, timeout: "9" } });
+    assert.ok(!("error" in r));
+    assert.deepEqual((r as { args: unknown }).args, { files: [{ path: "a" }], timeout: 9 });
+    assert.match((reg.check({ name: "t", args: { timeout: "soon" } }) as { error: string }).error, /timeout must be a number/);
   });
 });
