@@ -1,6 +1,6 @@
 # The CLI host (draft plan)
 
-Status: **draft for discussion, not committed.** The CLI is the first consumer of the harness library. It is a host: it owns the terminal, the user's files and the process, and it makes the decisions the library deliberately leaves to hosts (when to confirm a change, how to show a warning, what to do when a provider fails). Nothing in `harness/` should learn that a terminal exists.
+Status: **agreed plan** (revised after the first review; the few points still open are in section 10). The CLI is the first consumer of the harness library. It is a host: it owns the terminal, the user's files and the process, and it makes the decisions the library deliberately leaves to hosts (when to confirm a change, how to show a warning, what to do when a provider fails). Nothing in `harness/` should learn that a terminal exists.
 
 ## 1. Shape
 
@@ -27,32 +27,36 @@ Dependencies: none beyond the repository's (`node:readline`, `node:util` `parseA
 
 **Project** = a git working tree that contains `harness.yml`. Detection starts at `-C <dir>` (or the working directory) and walks up. The nearest ancestor that is a git top level decides: if it has `harness.yml` that is the project; if it does not, stop with "not initialised, run `chattree init`". It never climbs across a repository boundary (a nested repo must not silently adopt its parent's conversation).
 
-**Thread** = a branch, and each thread lives in its own worktree (the library's model: `chat.yml` is one file per worktree, forks and subagents already get worktrees). The thread a command acts on is the branch checked out in the worktree where it was started, i.e. "inferred from git HEAD". Consequences:
+**Thread** = a branch, and each thread lives in its own worktree (the library's model: `chat.yml` is one file per worktree; forks and subagents already get worktrees). The main checkout is simply the worktree of whatever branch it has checked out.
 
-- A detached HEAD is an error that says how to fix it; the CLI never guesses a thread.
-- Threads are never switched by changing HEAD in a worktree that something else may be using. `chattree chat <thread>` opens that branch's worktree (creating it if needed, under `.chattree/threads/<branch>/`, which is already ignored) and runs there.
-- `/thread <name>` inside a session rebinds the session to that worktree.
+- `chattree chat` with no thread name takes the thread from the worktree of the working directory: the branch checked out there. It **throws** (never defaults to `main`) when there is no project, when HEAD is detached, or when that branch is not a thread (no `chat.yml`), each with the command that fixes it (`init`, `chat <thread>`, `/thread new`).
+- `chattree chat <thread>` opens that branch's worktree (creating the worktree if the branch has none, under `.chattree/threads/<branch>/`, which is already ignored) and runs there.
+- The CLI never changes HEAD in a worktree something else may be using; switching threads means pointing at another worktree.
 
-`init` (see 5) creates the repository's first thread. Decision needed: in an *existing* repository with history, `init` should put the conversation on a new branch (`chat/main`, from HEAD), not on the user's working branch, because the conversation commits and snapshots would otherwise be interleaved with their own commits.
+**A session points at a thread; a thread does not own sessions.** The session id is stable and `/thread <name>` re-points the same session (draft, staged attachments, history and preferences travel with it). Which sessions are on a thread is derived by looking at the session files (`/threads` shows the count).
 
 ## 3. Sessions and persistent state
 
-A **session** is one running CLI process attached to one thread. Everything a user has typed or staged but not sent lives in the session, never in the transcript:
+A **session** is one running CLI process. Everything a user has typed or staged but not sent lives in the session, never in the transcript:
 
-- the half-typed prompt, the prompt history for the session, attachments staged for the next prompt, and any other "affects the next prompt" state;
-- the thread it is bound to, and the display preferences chosen with commands.
+- the half-typed prompt, the prompt history, the attachments staged for the next prompt, and any other "affects the next prompt" state;
+- the thread it currently points at, and the display preferences chosen with commands.
 
-Storage: one JSON file per session at `<git-common-dir>/chattree/cli/sessions/<ulid>.json`, next to the request journal. That directory is shared by all worktrees of the repository, is not part of the working tree (nothing for `git status` to show or for a commit to sweep up), and survives deleting a thread's worktree. It is rewritten atomically (`writeAtomic`) when the state changes, with typing debounced to about once a second and flushed on `SIGINT`, `SIGTERM` and `SIGHUP`; a hard crash loses at most the last second of typing. A snapshot file is simpler than the journal-style `jsonl` the idea suggested, because the state is small and has no history worth replaying.
+**Attachments are staged by path, not by content.** The session records the file's path, size, modification time and the media type and charset decided at `/attach` time (the CLI reads the file then, to detect the type and to refuse early what `attach` would refuse). No blob is written until the prompt is sent: at send time the file is read again, and if its size or modification time changed, or it is gone, the send stops and says which file, and `/attach` stages it again. So nothing staged is unreferenced in the repository, and `gcBlobs` has nothing to protect. Stdin cannot be staged in an interactive session; `chattree say --attach -` takes it for a one-shot.
 
-Locking: `<ulid>.lock` using `src/lock.ts` with a heartbeat, like the journal. Starting a session resumes the **earliest unlocked session bound to this thread** (so a crashed or closed terminal comes back with its draft); with none, it creates one. `--session <id>` and `--new-session` override; `/sessions` lists them. A session whose state is empty is deleted on exit; one with pending state is kept. A session is never resumed for another thread than the one inferred from the working directory, so a draft does not appear somewhere surprising.
+**Storage and format.** One YAML file per session at `<git-common-dir>/chattree/cli/sessions/<ulid>.yml`, next to the request journal. That directory is shared by all worktrees, is not part of any working tree (nothing for `git status` to show or for a commit to sweep up) and survives deleting a thread's worktree. It is written with the repository's own canonical emitter and read back through the strict parser and a schema (`format: 1`), so a corrupt file is detected, not half read, and drafts holding any text (multi-line, control characters, unicode) round-trip exactly. YAML rather than JSON for consistency; there is no technical reason that favours JSON here. Writes are atomic (`writeAtomic`), with typing debounced to about once a second and flushed on `SIGINT`, `SIGTERM` and `SIGHUP`; a hard crash loses at most the last second of typing.
 
-Several sessions on one thread, and sessions on different threads, are both supported. That depends on library work (section 7).
+**Locking.** `<ulid>.lock` using `src/lock.ts` with a heartbeat, like the journal. Starting a session resumes the **earliest unlocked session whose thread is the one asked for** (the inferred or named thread), so a crashed terminal comes back with its draft; with none it creates one. `--session <id>` and `--new-session` override; `/sessions` lists them. A session with empty state is deleted on exit; one with pending state is kept. If a session's thread has lost its worktree, resuming reopens the branch (`openBranch`) or says that the branch is gone.
+
+Several sessions on one thread and sessions on different threads are both supported. The first depends on library work (section 7).
 
 ## 4. The prompt
 
-A line starting with `/` is a command: `/name args...`, arguments split shell-style (quotes, backslash escapes). Anything else is sent as `/say <the line>`. To say text that starts with a slash, use `/say /text` (or `//text`). An unknown command is an error and is never sent to the model.
+A line starting with `/` is a command: `/name args...`, arguments split shell-style (quotes, backslash escapes), run as soon as the line is entered. Anything else is bare text, sent as `/say <the text>`. To say text that starts with a slash, use `/say /text` (or `//text`). An unknown command is an error and is never sent to the model.
 
-Multi-line input: bracketed paste is taken as one input (a pasted block must never send itself line by line); a trailing `\` continues the line; `/edit` opens `$VISUAL`/`$EDITOR` on the draft. Ctrl-C clears the line (twice, or Ctrl-D on an empty line, exits); history is per session and persisted with it. Tab completes command names, thread names, file paths for `/attach`, and setting keys.
+**Two modes.** *Plain* (not a tty, `NO_COLOR`, `--plain`): line-oriented, no spinner, no colour, no completion; bare text is one line per message or the whole of stdin; this is what scripts and golden tests use. *User* (a tty): a line editor with history, tab completion (command names, thread names, file paths for `/attach`, setting keys), a spinner while a request runs, and colour. Ghost-text suggestions are a later refinement (parking lot).
+
+**Ending bare text (user mode).** The intent is that bare text can have paragraphs. How a message ends is an open question (section 10); the likely shape is that Enter adds a line, a blank line sends, and a pasted block is taken whole whatever blank lines it contains (bracketed paste, so a paste never sends itself line by line). `/edit` opens `$VISUAL`/`$EDITOR` on the draft for anything longer. Ctrl-C clears the draft (twice, or Ctrl-D on an empty line, exits); history is per session and persisted with it.
 
 A command is declared with: its name and aliases, a one-line summary, an argument parser, `busy: "allowed" | "blocked"` (whether it may run while a request is in flight; `blocked` commands say why), and optionally the **state** it owns.
 
@@ -89,8 +93,9 @@ Threads
 
 | Command | Does |
 |---|---|
-| `/threads` | List branches: last activity, whether a request is running, worktree, which sessions are attached. |
-| `/thread [name]` | Show or switch (opens or creates the worktree). |
+| `/threads [archived\|merged\|running\|idle\|all]` | List threads: last activity, whether a request is running, worktree, how many sessions point at it. By default only threads that are not archived; the arguments widen or filter it (see 5.1). |
+| `/thread archive [name]`, `/thread unarchive [name]` | Hide a thread from the default list (an abandoned fork), or bring it back (see 5.1). |
+| `/thread [name]` | Show the current thread, or re-point this session at another (opens or creates the worktree). |
 | `/thread new <name> [--from <entry>]` | A new thread, optionally from an earlier point. |
 | `/fork [<entry>] [name]` | Fork this thread (a side conversation). |
 | `/merge <thread>` | Merge a fork back (`fork_merge`, with the summary the user or the model writes). |
@@ -121,9 +126,14 @@ Non-interactive verbs use the same engine: `chattree say "text" [--attach f]... 
 
 ## 5. Verbs
 
-- `chattree init [dir] [--provider anthropic|openai|compatible --base-url U] [--model M] [-y]`: creates the repository if needed, writes `harness.yml` (providers detected from `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, with `api_key_env`, never the key), adds the ignore entries, commits the header, sets the first `agent_setup` (model and settings), and pins the current prices so costs work from the first message. It never stores a secret. Without flags it asks a few questions; with `-y` it takes defaults and fails if it cannot.
-- `chattree chat [thread]`: opens the session. On start it prints the last few entries (everything since the last user message, at most ten, long text truncated with the way to see the rest), the thread, model and spend, then the prompt.
+- `chattree init [dir] [--provider anthropic|openai|compatible --base-url U] [--model M] [-y] [--existing | --force]`: creates the repository, writes `harness.yml` (providers detected from `ANTHROPIC_API_KEY` and `OPENAI_API_KEY`, with `api_key_env`, never the key), adds the ignore entries, commits the header, sets the first `agent_setup` (model and settings), and pins the current prices so costs work from the first message. It never stores a secret. Without flags it asks a few questions; with `-y` it takes defaults and fails if it cannot.
+  - Inside an existing git repository, plain `init` **throws** and says why: the conversation would share a branch with the user's own work, and every append commits the workspace's pending changes along with the entry (that is how snapshots work). `--existing` accepts that and initialises on the **current branch** at the repository's top level (it says so if the working directory was a subdirectory); it requires a clean working tree, and `harness.yml`, `chat.yml` and the ignore entries are its first commit. `--force` always runs `git init` in the given directory, even inside another repository (a nested repository).
+- `chattree chat [thread]`: opens the session (2, 3). On start it prints the last few entries (everything since the last user message, at most ten, long text truncated with the way to see the rest), then the thread, model and spend, then the prompt.
 - `chattree <verb> -C <dir>`: the project switch for everything.
+
+### 5.1 Archiving threads
+
+`/threads` can grow long, so a thread can be archived: a **zero-diff commit** on its branch with the trailer `Chattree-Archived: true` (and the `Chattree-Offset`, as the snapshot and gc commits carry, so the entry index skips it the way it skips them). Reading the state is the tip's trailer, which one `git for-each-ref --format=...%(contents:trailers)` gives for all branches at once. The archive commit is made with `commit-tree` and `update-ref` under the branch lock, so it needs no worktree and does not touch a checked-out one (same tree, so `git status` stays clean). Any later commit on the branch (an entry, a snapshot) makes the tip non-archived, which is the implicit un-archive; `/thread unarchive` writes the same kind of commit with `Chattree-Archived: false` for when nothing else is to be said. `/threads` hides archived threads unless asked for `archived` or `all`; the other filters are `merged` (the thread has entries of its own and its tip is contained in another thread), `running` (a live journal), and `idle`. `readCommitGraph` shows the commit as an archive marker.
 
 ## 6. Activity
 
@@ -134,7 +144,9 @@ The transcript and the request journal say what is going on, so a session needs 
 - Tool calls will appear the same way once the tool loop exists; the activity model carries a `tool` kind from the start but nothing produces it yet.
 - Streaming in the session that owns the request is rendered live. A second session shows only the spinner at first and prints the finished entries when they land; tailing the journal to stream another session's reply is a later refinement.
 
-`/abort` in the owning session fires its `AbortController`. From another session (or after the owner is gone) it writes an abort marker next to the journal, which the turn runner checks on its flush timer; for a stale journal it recovers instead.
+**`/abort`.** In the owning session it fires that request's `AbortController`. From another session (or a script) it writes an abort marker file next to the journal, which the turn runner checks on its existing 250 ms flush timer; for a stale journal (owner gone) it recovers instead. The journal's start record gains `pid`, host and session id, so a session can say who owns a request, and so `/abort` can tell a dead owner from a live one. Signals are not used for the abort: they are not portable to Windows (where `process.kill` terminates the process), a pid can be reused (the marker is checked against the journal's nonce instead), and the 250 ms latency of the marker is already as fast as the turn runner's other timers.
+
+**A daemon was considered** (one process per project owning the writes, with a named-pipe protocol). It would remove the multi-writer problem outright, give instant abort, live streaming of one session's reply to another, and a natural home for background tool processes. It would also be a second source of truth beside git and files, with its own lifecycle (starting, stopping, stale sockets, versioning, security, Windows pipes), in a design whose point is that the repository and a few lock files are the whole state. Decision: not now. The library gets the coordination operations (`sync`, `watch`, `activity`, `requestAbort`) behind a small interface so that a daemon could implement them later; revisit when the tool loop brings long-running background work.
 
 ## 7. What the library must gain first
 
@@ -142,10 +154,13 @@ Checked against the current code; these are small, but the CLI cannot work witho
 
 1. **A handle that survives other writers.** `Conversation` asserts that `chat.yml` is exactly the size it expects and says "reopen" otherwise. Two sessions on one thread share the worktree and the file, so the second append fails. Needed: under the branch lock, an append first adopts what other writers appended (the file ends cleanly and HEAD is a descendant of what the handle knew) instead of failing, plus `convo.sync()`.
 2. **Seeing other sessions' entries.** `onEvent` only reports this handle's own changes. Needed: `convo.watch()` (poll the file size and HEAD) that yields foreign entries, so a session re-renders when another session answers.
-3. **Activity as a query.** `convo.activity()` -> `idle | request{since, model, owner, live}`, from the journal, and `convo.requestAbort()` for the marker.
-4. **Blobs staged but not committed must survive `gcBlobs`.** `attach` writes a blob immediately; a staged attachment is referenced only by the session file. `gcBlobs` needs a grace period or a way to treat blobs listed by the host as live.
-5. **Creating a thread from nothing and in a chosen worktree path** (today only `fork`/`openBranch` create branches and worktrees).
-6. **The tool loop.** It is still parked. The CLI's first version is chat without tools; the engine, activity model and renderer leave room for it, but "ongoing tool call" has nothing to show until it is built. Whether the tool loop comes before or after the CLI is a scheduling decision for the project owner.
+3. **Activity and abort as operations.** `convo.activity()` -> `idle | request{since, model, owner, live}`, from the journal (whose start record gains `pid`, host and session id), and `convo.requestAbort()` for the marker the turn runner polls.
+4. **Adopting an existing repository.** `Conversation.create` refuses any directory that is already a git repository. `--existing` needs a way to add the header, `harness.yml` and ignore entries to an existing repository on its current branch, requiring a clean tree.
+5. **Archiving.** `convo.archive(branch)` / `unarchive`, the zero-diff commit above, and reading the state in `listBranches` (archived, running, merged).
+6. **Creating a thread from nothing in a chosen worktree path** (today only `fork` and `openBranch` create branches and worktrees).
+7. **The tool loop** stays parked: the CLI's first version is chat without tools, and the tool loop is a fast follow. The engine, activity model and renderer leave room for it, but "ongoing tool call" has nothing to show until it is built.
+
+(Staged attachments no longer need anything from `gcBlobs`: they are paths until sent.)
 
 ## 8. Host decisions the CLI makes
 
@@ -163,8 +178,10 @@ Checked against the current code; these are small, but the CLI cannot work witho
 
 ## 10. Open questions
 
-1. Branch placement for `init` in an existing repo (section 2): new `chat/main` branch, or the current branch?
-2. Is the tool loop built before the CLI, with it, or after (section 7.6)?
-3. Do display preferences (`/thinking`, colour, editor) belong in a per-user file (`~/.config/chattree/cli.yml`) or only in the session? Proposal: session only for v1, user file later.
-4. Should a second session on a thread stream the first one's reply by tailing the journal in v1, or print it when finished?
-5. Bracketed-paste handling in `node:readline`: believed to be supported through its keypress parser, but undocumented; to be checked before committing to readline over a small purpose-built line editor.
+1. **How a bare-text message ends in user mode.** "A blank line sends" cannot also be how paragraphs are typed, because a paragraph break is a blank line. Options: (A) Enter sends, with Alt+Enter or a trailing `\` for a new line and paste taken whole; (B) Enter adds a line and the first blank line sends, with paragraph breaks coming from paste, `\` continuation or `/edit`; (C) Enter adds a line and two blank lines in a row send, so one blank line is a paragraph break; (D) a configurable choice with one of these as the default. Slash commands run on Enter in every option.
+2. **`init --existing` and the workspace.** Every append commits the workspace's pending changes with the entry. On the user's own branch that means their uncommitted edits end up in chat commits. Planned mitigation: clean tree required at init, and the warning printed. Is that enough, or should `--existing` also stage only the conversation's own files (a library change to the snapshot behaviour)?
+3. Should a second session on a thread stream the first one's reply by tailing the journal in v1, or print it when finished? (Proposed: print when finished; tailing later.)
+4. Bracketed-paste handling in `node:readline` is believed to work through its keypress parser but is undocumented; to be checked before committing to readline over a small purpose-built line editor.
+5. Display preferences (`/thinking`, colour, editor): session only for v1, a per-user file later.
+
+Decided in review: tool loop after the CLI; daemon not now; abort by marker file; attachments staged by path; session file in YAML; sessions point at threads; plain `chat` outside a thread throws; archive by zero-diff commit; `init` inside a repository throws unless `--existing` or `--force`.

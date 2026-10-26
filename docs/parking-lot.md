@@ -109,6 +109,9 @@ also lets one agent flow work across several repositories. It touches snapshots,
 
 ## Low
 
+- **CLI refinements**: ghost-text suggestions in the prompt; streaming one session's reply to another by tailing the
+  journal; a per-user preferences file; a coordination daemon over a named pipe (revisit with the tool loop).
+
 - **Attachment capabilities**: a per-model `input: [text, image, pdf]` list so a request with a file the model cannot take
   is refused early and a model switch warns (`capability_loss`); today the provider's error is the signal, and the
   Chat Completions adapter refuses PDFs itself. Also: downscaling large images before sending, and SVG (sent as text).
