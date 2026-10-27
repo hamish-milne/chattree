@@ -56,7 +56,21 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string }):
     if (o.keyEnv !== undefined) lines.push(`    api_key_env: ${o.keyEnv}`);
     if (local) lines.push("    pricing: { free: true }");
   } else lines.push(`  ${provider}:`, `    $tag: ${provider}`, `    api_key_env: ${o.keyEnv ?? KEY_ENV[provider]}`);
-  lines.push("limits:", "  max_request_usd: 1", "  max_turn_usd: 5", "  max_conversation_usd: 50", "  warn_at: 0.8", "");
+  lines.push("limits:", "  max_request_usd: 1", "  max_turn_usd: 5", "  max_conversation_usd: 50", "  warn_at: 0.8");
+  lines.push(
+    "# Approvals: a tool call runs without asking only while a key here covers it (key: until). `all` covers every call of the tool;",
+    "# anything else asks, and the answer can add a key. `safe` lists commands known to be read-only, offered as `<command> **`.",
+    "tools:",
+    "  read:",
+    "    allow: { all: 2999-01-01 }",
+    "  write:",
+    "    allow: { all: 2999-01-01 }",
+    "  edit:",
+    "    allow: { all: 2999-01-01 }",
+    "  run:",
+    "    safe: [cat, grep, head, tail, wc, ls, diff, git status, git diff, git log]",
+    "",
+  );
   return { text: lines.join("\n"), name };
 }
 
