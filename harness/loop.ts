@@ -71,7 +71,7 @@ export type LoopEvent =
   | { type: "request.end"; n: number; result: TurnResult }
   | { type: "tool.start"; callId: string; name: string; args: Record<string, unknown> }
   /** The answer to the approval question, when it was asked. */
-  | { type: "tool.approval"; callId: string; name: string; allowed: boolean; reason?: string; via?: "allowlist" | "asked" | "headless"; key?: string; granted?: { keys: string[]; until: string }; grantError?: string }
+  | { type: "tool.approval"; callId: string; name: string; allowed: boolean; reason?: string; via?: "allowlist" | "asked" | "headless"; keys?: string[]; granted?: { keys: string[]; until: string }; grantError?: string }
   /** `content` is what was recorded; `skipped` says why a call that did not run got an error result instead. */
   | { type: "tool.result"; callId: string; name: string; content: string; is_error: boolean; truncated: boolean; ms: number; skipped?: string };
 
@@ -181,6 +181,7 @@ export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGen
   if (unsupported.tools.length > 0) throw new ToolsNotSupported(unsupported.convention, unsupported.tools);
 
   const now = convo.now;
+  const approvalCtx = { workspace: convo.dir, host: convo.host };
   let deadline = opts.deadline;
   if (deadline === undefined) {
     const config = await convo.readConfig();
@@ -249,14 +250,14 @@ export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGen
       };
       let proceed = true;
       if (opts.grants !== undefined) {
-        const hit = await permitted(checked.tool, checked.args, await opts.grants.allow(call.name), now());
-        if (hit.permitted) yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "allowlist", key: hit.key };
+        const hit = await permitted(checked.tool, checked.args, await opts.grants.allow(call.name), now(), approvalCtx);
+        if (hit.permitted) yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "allowlist", keys: hit.keys };
         else if (opts.approve === undefined) {
           proceed = false;
           yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via: "headless" };
           yield* record(call, { content: "This call needs the user's approval and none is available here, so it did not run.", is_error: true }, t0);
         } else {
-          const keys = (await checked.tool.allowKeys?.(checked.args)) ?? null;
+          const keys = (await checked.tool.allowKeys?.(checked.args, approvalCtx)) ?? null;
           const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys });
           if (!decision.allow) {
             proceed = false;

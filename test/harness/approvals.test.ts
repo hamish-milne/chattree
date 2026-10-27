@@ -68,22 +68,22 @@ describe("expiry", () => {
 });
 
 describe("permitted", () => {
+  const ctx = { workspace: "/w", host: undefined as never };
   test("all covers every call, but only while live", async () => {
     const t = tool();
-    assert.deepEqual(await permitted(t, {}, { all: FOREVER }, NOW), { permitted: true, key: ALL });
-    assert.deepEqual(await permitted(t, {}, { all: "2026-10-27T11:00:00Z" }, NOW), { permitted: false });
-    assert.deepEqual(await permitted(t, {}, undefined, NOW), { permitted: false });
+    assert.deepEqual(await permitted(t, {}, { all: FOREVER }, NOW, ctx), { permitted: true, keys: [ALL] });
+    assert.deepEqual(await permitted(t, {}, { all: "2026-10-27T11:00:00Z" }, NOW, ctx), { permitted: false });
+    assert.deepEqual(await permitted(t, {}, undefined, NOW, ctx), { permitted: false });
   });
-  test("other keys are the tool's to judge, and an expired key is never asked", async () => {
-    const seen: string[] = [];
-    const t = tool({ covers: (key, args) => (seen.push(key), key === "x" && args["v"] === 1) });
-    assert.deepEqual(await permitted(t, { v: 1 }, { x: FOREVER, y: FOREVER, old: "2020-01-01" }, NOW), { permitted: true, key: "x" });
-    assert.deepEqual(seen, ["x"]);
-    assert.deepEqual(await permitted(t, { v: 2 }, { x: FOREVER, y: FOREVER, old: "2020-01-01" }, NOW), { permitted: false });
-    assert.deepEqual(seen, ["x", "x", "y"], "expired keys are skipped");
+  test("other keys are judged together by the tool, and expired keys are never offered to it", async () => {
+    const seen: string[][] = [];
+    const t = tool({ covers: (keys, args) => (seen.push([...keys]), args["v"] === 1 ? ["x"] : undefined) });
+    assert.deepEqual(await permitted(t, { v: 1 }, { x: FOREVER, y: FOREVER, old: "2020-01-01" }, NOW, ctx), { permitted: true, keys: ["x"] });
+    assert.deepEqual(await permitted(t, { v: 2 }, { x: FOREVER, y: FOREVER, old: "2020-01-01" }, NOW, ctx), { permitted: false });
+    assert.deepEqual(seen, [["x", "y"], ["x", "y"]]);
   });
   test("a tool without `covers` is covered only by all", async () => {
-    assert.deepEqual(await permitted(tool(), {}, { "grep **": FOREVER }, NOW), { permitted: false });
+    assert.deepEqual(await permitted(tool(), {}, { "grep **": FOREVER }, NOW, ctx), { permitted: false });
   });
 });
 
@@ -91,7 +91,7 @@ describe("keyProblem", () => {
   test("all is always fine; other keys need a tool that has keys, and its own check", () => {
     assert.equal(keyProblem(tool(), ALL), undefined);
     assert.match(keyProblem(tool(), "grep **") ?? "", /only the key "all"/);
-    const t = tool({ covers: () => false, validateKey: (k) => (k.startsWith("git") ? undefined : "must start with git") });
+    const t = tool({ covers: () => undefined, validateKey: (k) => (k.startsWith("git") ? undefined : "must start with git") });
     assert.equal(keyProblem(t, "git status **"), undefined);
     assert.equal(keyProblem(t, "ls"), "must start with git");
     assert.match(keyProblem(t, "  ") ?? "", /empty/);

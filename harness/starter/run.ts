@@ -4,6 +4,7 @@ import { GlobError, expandGlob } from "./glob.ts";
 import { NotAvailable, portableStage, shellStage } from "./portable.ts";
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool, ToolContext, ToolOutput } from "../tools.ts";
+import { runAllowKeys, runCovers, validateRunKey } from "./run-keys.ts";
 
 /**
  * `run` and `script` (docs/tools.md, 4.1). `run` takes one command line in a small bash-like syntax that `command.ts`
@@ -16,6 +17,8 @@ export interface RunToolOptions {
   env?: { allow: readonly string[] | "*"; values: Readonly<Record<string, string | undefined>> };
   /** Environment variable names to hide from commands, besides anything that looks like a secret. */
   secretEnv?: readonly string[];
+  /** Command prefixes known to be read-only (`tools.run.safe` in harness.yml): a grant for one is offered as `<prefix> **`. Default: none. */
+  safe?: readonly string[];
   /** Default timeout for a command (seconds). Default 120. */
   timeoutSeconds?: number;
   /** Path to busybox.exe, which stands in for common utilities (cat, ls, grep, ...) on Windows. */
@@ -90,6 +93,9 @@ export function runTool(opts: RunToolOptions = {}): Tool {
         },
       },
     },
+    allowKeys: (args, ctx) => runAllowKeys(args["command"] as string, { ...ctx, expand: envLookup(opts.env), safe: opts.safe ?? [] }),
+    covers: (keys, args, ctx) => runCovers(keys, args["command"] as string, { ...ctx, expand: envLookup(opts.env), safe: opts.safe ?? [] }),
+    validateKey: validateRunKey,
     async execute(args, ctx) {
       const { host, workspace } = ctx;
       if (host.run === undefined) return { content: "this host cannot run commands", is_error: true };

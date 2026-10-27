@@ -22,6 +22,12 @@ export interface ToolContext {
   blobs?: BlobStore;
 }
 
+/** What a tool may look at to decide about approvals: the workspace and the host that can inspect it. */
+export interface ApprovalContext {
+  workspace: string;
+  host: Host;
+}
+
 export interface ToolOutput {
   content: string;
   is_error?: boolean;
@@ -51,14 +57,16 @@ export interface Tool {
    * Approvals (docs/tools.md, section 5). The keys a grant for this call would add to the tool's `allow` map in
    * harness.yml, shown to the user as "allow all of these for 5 minutes / 1 hour / forever". Usually one; a pipeline
    * with two uncovered stages returns two. `null` (also the default) means the call can only be allowed once.
-   * Pure, and called on arguments that already passed validation.
+   * Called on arguments that already passed validation.
    */
-  allowKeys?(args: Record<string, unknown>): string[] | null | Promise<string[] | null>;
+  allowKeys?(args: Record<string, unknown>, ctx: ApprovalContext): string[] | null | Promise<string[] | null>;
   /**
-   * Whether a stored key other than `all` covers this call. Default: no. A tool that offers keys implements this, and
-   * must answer false for anything it cannot be sure of; a stored key never widens beyond what `allowKeys` would offer.
+   * Given the tool's live keys other than `all`, the ones that together cover this call, or undefined if they do not.
+   * Judged jointly because one call can need several keys (each stage of a pipeline). A tool that offers keys implements
+   * this and answers undefined for anything it cannot be sure of; a stored key never widens beyond what `allowKeys` could
+   * have offered. Default: no key covers.
    */
-  covers?(key: string, args: Record<string, unknown>): boolean | Promise<boolean>;
+  covers?(keys: readonly string[], args: Record<string, unknown>, ctx: ApprovalContext): string[] | undefined | Promise<string[] | undefined>;
   /** Why a key (one the user typed or edited) is not usable for this tool, or undefined if it is. */
   validateKey?(key: string): string | undefined;
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutput | StartedJob>;

@@ -2,7 +2,7 @@ import { editConfig, type ConfigResult } from "../src/config.ts";
 import type { Document } from "yaml";
 import { isMap, isScalar } from "yaml";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
-import type { Tool } from "./tools.ts";
+import type { ApprovalContext, Tool } from "./tools.ts";
 
 /**
  * Approvals (docs/tools.md, section 5). A tool's `allow` map in harness.yml says, key by key, until when a class of
@@ -38,16 +38,17 @@ export function liveKeys(map: AllowMap | undefined, nowMs: number): string[] {
   });
 }
 
-/** What a stored grant says about one call. */
-export type Permit = { permitted: true; key: string } | { permitted: false };
+/** What a stored grant says about one call: the keys that cover it. */
+export type Permit = { permitted: true; keys: string[] } | { permitted: false };
 
-/** Is this call covered by a live key? `all` covers everything; any other key is the tool's to judge. */
-export async function permitted(tool: Tool, args: Record<string, unknown>, map: AllowMap | undefined, nowMs: number): Promise<Permit> {
+/** Is this call covered by live keys? `all` covers everything; the rest is the tool's to judge, jointly. */
+export async function permitted(tool: Tool, args: Record<string, unknown>, map: AllowMap | undefined, nowMs: number, ctx: ApprovalContext): Promise<Permit> {
   const live = liveKeys(map, nowMs);
-  if (live.includes(ALL)) return { permitted: true, key: ALL };
-  if (tool.covers === undefined) return { permitted: false };
-  for (const key of live) if (await tool.covers(key, args)) return { permitted: true, key };
-  return { permitted: false };
+  if (live.includes(ALL)) return { permitted: true, keys: [ALL] };
+  const others = live.filter((k) => k !== ALL);
+  if (tool.covers === undefined || others.length === 0) return { permitted: false };
+  const used = await tool.covers(others, args, ctx);
+  return used === undefined ? { permitted: false } : { permitted: true, keys: used };
 }
 
 /** A key set is usable only if the tool accepts each key; `all` is always accepted. */

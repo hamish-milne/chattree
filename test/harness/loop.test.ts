@@ -296,7 +296,7 @@ describe("approvals", () => {
     const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true })) });
     assert.deepEqual(ran, ["c1"]);
     assert.equal(asked, 0);
-    assert.deepEqual(approvalEvents(events).map((e) => [e.allowed, e.via, e.key]), [[true, "allowlist", "all"]]);
+    assert.deepEqual(approvalEvents(events).map((e) => [e.allowed, e.via, e.keys]), [[true, "allowlist", ["all"]]]);
   });
 
   test("an expired key does not cover; the host is asked, with the keys the tool offers", async () => {
