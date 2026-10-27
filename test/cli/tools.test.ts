@@ -53,6 +53,22 @@ function terminal(dir: string) {
   return { io, type: (s: string) => void input.write(s), screen: () => strip(raw + io.stdout + io.stderr), done, end: () => void input.end() };
 }
 
+describe("/retry at a tool call", () => {
+  test("an assistant turn that ended on tool calls nothing answered can be retried", async () => {
+    const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "a.txt" } }), answer("carried on")]);
+    try {
+      assert.equal(await main(["say", "look at a.txt"], testIo(dir)), 0);
+      assert.equal((await entries(dir)).at(-1)?.$tag, "assistant");
+      const again = testIo(dir);
+      assert.equal(await main(["retry"], again), 0, again.stderr);
+      assert.equal((await entries(dir)).at(-1)?.$tag, "assistant");
+      assert.equal(again.stdout, "carried on\n");
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("tools in a plain chat", () => {
   test("a call the starting grants cover runs, and is shown as a start line and a result line", async () => {
     const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "hello.txt" } }), answer("It says hello.")], { "hello.txt": "hello world\n" });

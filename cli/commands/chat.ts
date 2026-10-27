@@ -66,13 +66,16 @@ const say: Command = {
 
 const retry: Command = {
   name: "retry",
-  summary: "ask again when the last message got no answer",
+  summary: "ask again when the last message, tool result or tool call got no answer",
   usage: "/retry",
   busy: "blocked",
   async *run(ctx) {
     const entries = (await ctx.convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
     const last = [...entries].reverse().find((e) => e.$tag !== "agent_setup");
-    if (last?.$tag !== "user" && last?.$tag !== "tool_result") {
+    // Where the model is owed a reply: a user message, a tool result (or a job's event after one), or an assistant turn that
+    // ended on tool calls nothing has answered (the loop answers those "did not run" and asks again; it never re-runs a call).
+    const owed = last?.$tag === "user" || last?.$tag === "tool_result" || last?.$tag === "job_event" || (last?.$tag === "assistant" && last.blocks.some((b) => b.$tag === "tool_call"));
+    if (!owed) {
       yield { type: "error", message: `there is nothing to retry: the last entry is ${last === undefined ? "missing" : `a ${last.$tag}`}`, ...(last?.$tag === "interrupted" ? { hint: "/continue asks the model to carry on from where it stopped" } : {}) };
       return;
     }
