@@ -47,6 +47,20 @@ export interface Tool {
    * validation (for example arguments one level too flat). Pure; must leave anything it does not understand alone.
    */
   normalize?(args: unknown): unknown;
+  /**
+   * Approvals (docs/tools.md, section 5). The keys a grant for this call would add to the tool's `allow` map in
+   * harness.yml, shown to the user as "allow all of these for 5 minutes / 1 hour / forever". Usually one; a pipeline
+   * with two uncovered stages returns two. `null` (also the default) means the call can only be allowed once.
+   * Pure, and called on arguments that already passed validation.
+   */
+  allowKeys?(args: Record<string, unknown>): string[] | null | Promise<string[] | null>;
+  /**
+   * Whether a stored key other than `all` covers this call. Default: no. A tool that offers keys implements this, and
+   * must answer false for anything it cannot be sure of; a stored key never widens beyond what `allowKeys` would offer.
+   */
+  covers?(key: string, args: Record<string, unknown>): boolean | Promise<boolean>;
+  /** Why a key (one the user typed or edited) is not usable for this tool, or undefined if it is. */
+  validateKey?(key: string): string | undefined;
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutput | StartedJob>;
 }
 

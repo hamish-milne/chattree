@@ -17,9 +17,31 @@ const provider = z.looseObject({ $tag: z.string().min(1) });
 
 const usd = z.number().positive();
 
+/**
+ * When a grant ends: a date (00:00 UTC) or a datetime that carries its zone. "Forever" is a far-future date
+ * (`2999-01-01`), not a special word. YAML 1.2 reads both as plain strings.
+ */
+export const untilTimestamp = z.string().refine(
+  (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s) || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(s)) && !Number.isNaN(Date.parse(s)),
+  "expected a date (2999-01-01) or a datetime with a zone (2026-10-27T15:00:00Z)",
+);
+
+/** One tool's approvals (docs/tools.md, section 5): the keys the user has granted, each with the time it ends. */
+const toolEntry = z.object({
+  /** Key to expiry. `all` covers every call; other keys are the tool's own (for `run`, argv patterns such as `grep **`). */
+  allow: z.record(z.string().min(1), untilTimestamp).default({}),
+  /** `run` only: programs known to be read-only, which may be granted as `<program> **`. */
+  safe: z.array(z.string().min(1)).optional(),
+});
+
 export const harnessConfig = z.object({
   /** Providers by name (the name is what an agent's model setting refers to). */
   providers: z.record(name, provider).default({}),
+  /**
+   * Per-tool approvals, by tool name. A call runs without asking only when the tool's `allow` map holds an unexpired
+   * key that covers it; a tool without an entry asks. `env` is not a tool: the environment variables `run` may expand.
+   */
+  tools: z.object({ env: z.array(z.string().min(1)).optional() }).catchall(toolEntry).default({}),
   /** Hard limits: a request that would exceed one is not sent. To go past one, change it here. */
   limits: z
     .object({
