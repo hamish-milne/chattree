@@ -202,7 +202,7 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
     spec.stages.forEach((stage, i) => {
       const [program, ...args] = stage as readonly [string, ...string[]];
       const last = i === spec.stages.length - 1;
-      const child = spawn(program, args, { cwd: spec.cwd, env: env as NodeJS.ProcessEnv, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: process.platform !== "win32", windowsHide: true });
+      const child = spawn(program, args, { cwd: spec.cwd, env: env as NodeJS.ProcessEnv, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: process.platform !== "win32", windowsHide: true, windowsVerbatimArguments: spec.verbatim?.[i] === true });
       children.push(child);
       let done = false;
       const end = (code: number): void => {

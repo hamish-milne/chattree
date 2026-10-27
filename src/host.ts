@@ -104,6 +104,11 @@ export interface RunSpec {
   maxOutput?: number;
   /** Aborting kills the whole process group. */
   signal?: AbortSignal;
+  /**
+   * Windows only: stages (by index) whose arguments are already a command line and are passed as they are, without the usual
+   * quoting (for `cmd.exe /s /c "..."`). Ignored elsewhere.
+   */
+  verbatim?: readonly boolean[];
 }
 
 export interface RunOutcome {

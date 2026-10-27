@@ -27,7 +27,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const env = config?.tools.env ?? [];
   const jobs = new JobRegistry(convo, { resume: config?.background.resume === true, onCommitted: hooks.onCommitted, onResume: hooks.onResume, busy: hooks.busy });
   const safe = config?.tools["run"]?.safe ?? [];
-  const registry = new ToolRegistry([...leafTools({ env: { allow: env, values: io.env }, safe }), ...jobTools(jobs)]);
+  const registry = new ToolRegistry([...leafTools({ env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, hostEnv: io.env }), ...jobTools(jobs)]);
   return { registry, jobs };
 }
 

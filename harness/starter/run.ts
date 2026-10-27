@@ -4,6 +4,7 @@ import { GlobError, expandGlob } from "./glob.ts";
 import { NotAvailable, portableStage, shellStage } from "./portable.ts";
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import { isStarted, type Tool, type ToolContext, type ToolOutput } from "../tools.ts";
+import { batchProblem, batchStage, findProgram, isBatch } from "./batch.ts";
 import { runAllowKeys, runCovers, validateRunKey } from "./run-keys.ts";
 
 /**
@@ -17,6 +18,10 @@ export interface RunToolOptions {
   env?: { allow: readonly string[] | "*"; values: Readonly<Record<string, string | undefined>> };
   /** Environment variable names to hide from commands, besides anything that looks like a secret. */
   secretEnv?: readonly string[];
+  /** Windows: allow `.cmd` and `.bat` programs (`tools.run.batch`). Default false: they are refused with a message that says what to set. */
+  batch?: boolean;
+  /** The host's own environment (`PATH`, `ComSpec`), for finding programs. Not what commands may read: that is `env`. */
+  hostEnv?: Readonly<Record<string, string | undefined>>;
   /** Command prefixes known to be read-only (`tools.run.safe` in harness.yml): a grant for one is offered as `<prefix> **`. Default: none. */
   safe?: readonly string[];
   /** Default timeout for a command (seconds). Default 120. */
@@ -48,8 +53,9 @@ export function expandEnv(arg: string, opts: RunToolOptions["env"]): string {
 /** Environment lookup for the command parser: allowed names only. */
 const envLookup = (opts: RunToolOptions["env"]) => (name: string): string => expandEnv(`$${name}`, opts);
 
-async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOptions): Promise<string[][]> {
+async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOptions): Promise<{ stages: string[][]; verbatim: boolean[] }> {
   const out: string[][] = [];
+  const verbatim: boolean[] = [];
   for (const stage of parsed.stages) {
     const words: string[] = [];
     for (const [k, w] of stage.entries()) {
@@ -59,9 +65,22 @@ async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOpt
         words.push(...hits);
       } else words.push(w.text);
     }
-    out.push(portableStage(words, ctx.host.platform, opts.busybox));
+    const mapped = portableStage(words, ctx.host.platform, opts.busybox);
+    if (ctx.host.platform === "windows" && mapped[0] === words[0]) {
+      const found = await findProgram(ctx.host, ctx.workspace, words[0] as string, opts.hostEnv ?? {});
+      if (found !== undefined && isBatch(found)) {
+        if (opts.batch !== true) throw new RunRefused(`${words[0]} is a batch program (${found}), which run does not start by default because cmd.exe re-interprets its arguments; set tools.run.batch: true in harness.yml to allow it, or use the script tool`);
+        const problem = batchProblem(found, words.slice(1));
+        if (problem !== undefined) throw new RunRefused(`${words[0]}: ${problem}`);
+        out.push(batchStage(opts.hostEnv?.["ComSpec"] ?? opts.hostEnv?.["COMSPEC"] ?? "cmd.exe", found, words.slice(1)));
+        verbatim.push(true);
+        continue;
+      }
+    }
+    out.push(mapped);
+    verbatim.push(false);
   }
-  return out;
+  return { stages: out, verbatim };
 }
 
 function report(outcome: RunOutcome, timeoutSeconds: number, extra: string[]): ToolOutput {
@@ -138,7 +157,7 @@ function plainRunTool(opts: RunToolOptions): Tool {
       const timeout = Math.min((args["timeout_seconds"] as number | undefined) ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
       try {
         const parsed = parseCommand(args["command"] as string, envLookup(opts.env));
-        const stages = await prepare(parsed, ctx, opts);
+        const { stages, verbatim } = await prepare(parsed, ctx, opts);
         let stdin: Uint8Array | undefined;
         if (parsed.stdin !== undefined) {
           const abs = await resolveInWorkspace(host, workspace, parsed.stdin.text, "read");
@@ -155,6 +174,7 @@ function plainRunTool(opts: RunToolOptions): Tool {
         }
         const outcome = await host.run({
           stages,
+          ...(verbatim.some((v) => v) ? { verbatim } : {}),
           cwd: workspace,
           ...(stdin === undefined ? {} : { stdin }),
           ...(out === undefined ? {} : { captureStdout: true, maxOutput: MAX_REDIRECT_BYTES }),

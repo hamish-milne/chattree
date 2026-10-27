@@ -32,6 +32,11 @@ const toolEntry = z.object({
   allow: z.record(z.string().min(1), untilTimestamp).default({}),
   /** `run` only: programs known to be read-only, which may be granted as `<program> **`. */
   safe: z.array(z.string().min(1)).optional(),
+  /**
+   * `run` only, Windows: start `.cmd` and `.bat` programs (npm, pnpm, build scripts) through cmd.exe. Off by default because cmd.exe
+   * re-interprets the command line; arguments with its special characters are refused (see harness/starter/batch.ts).
+   */
+  batch: z.boolean().optional(),
 });
 
 export const harnessConfig = z.object({

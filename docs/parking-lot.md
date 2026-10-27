@@ -222,3 +222,8 @@ Not part of the first tool loop.
 - **Live job output.** `job_output` reads a job's output only once it has ended, because `Host.run` collects output rather than streaming it. Streaming (an `onOutput` callback in `RunSpec`, a log kept in the job) would let the model read progress and `tail` a server.
 - **Forks and lost jobs.** Recovery decides a job is lost when the branch's history says it started and has no event, and this process is not running it. A fork made while the parent's job is still running inherits that history, so the fork would mark the job lost although the parent still owns it. Fix by recording which branch a job belongs to (in the start result or a `job_start` marker) and recovering only that branch's.
 - **Jobs and approvals.** A background job is approved when it starts; nothing re-checks a grant that lapses while it runs (noted in 5.1). A long-running job holding a stale permission is acceptable while jobs are only `run` and `script`; revisit for `subagent`.
+
+## Windows batch programs
+
+- **Resolve shims instead of running them through cmd.exe.** npm, pnpm and yarn install `.cmd` shims that only start `node <script>`. Reading the shim and starting `node` directly would avoid `cmd.exe` altogether, so no flag and no argument restrictions; it needs a parser for each tool's shim format, and breaks when a shim changes.
+- **Local shims.** `node_modules\.bin` entries are inside the workspace and so are not found by name; `.\node_modules\.bin\vitest.cmd` works with the flag on. A per-project allowance (a list of directories under `tools.run`) might be worth having.
