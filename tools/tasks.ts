@@ -17,8 +17,12 @@ export interface Task {
   needs?: "utils"[];
 }
 
-const same = (r: AgentTaskResult, want: Record<string, string>): string | undefined => {
-  for (const [f, text] of Object.entries(want)) if (r.after[f] !== text) return `${f} is ${JSON.stringify(r.after[f])}`;
+const noIndent = (t: string | undefined): string | undefined => t?.split("\n").map((l) => l.trim()).join("\n");
+const same = (r: AgentTaskResult, want: Record<string, string>, ignoreIndent = false): string | undefined => {
+  for (const [f, text] of Object.entries(want)) {
+    const got = r.after[f];
+    if (ignoreIndent ? noIndent(got) !== noIndent(text) : got !== text) return `${f} is ${JSON.stringify(got)}`;
+  }
   return undefined;
 };
 const ranOk = (r: AgentTaskResult, tool: string): boolean => r.steps.some((s) => s.name === tool && s.is_error === false);
@@ -58,7 +62,8 @@ export const EDIT_TASKS: Task[] = [
     group: "edit",
     files: { "calc.js": "function add(a, b) {\n  // TODO\n  return 0;\n}\n\nfunction sub(a, b) {\n  return a - b;\n}\n" },
     prompt: "In calc.js make add return `a + b` (remove the TODO comment). Leave sub alone.",
-    check: (r) => same(r, { "calc.js": "function add(a, b) {\n  return a + b;\n}\n\nfunction sub(a, b) {\n  return a - b;\n}\n" }),
+    // Indentation is the model's choice, not the tool's: compare lines without it.
+    check: (r) => same(r, { "calc.js": "function add(a, b) {\nreturn a + b;\n}\n\nfunction sub(a, b) {\nreturn a - b;\n}\n" }, true),
   },
 ];
 
@@ -132,7 +137,7 @@ export const TASKS: Task[] = [
     group: "run",
     needs: ["utils"],
     files: { "a.txt": "1\n2\n", "b.txt": "1\n2\n3\n", "c.md": "x\n" },
-    prompt: "Use the run tool to count the lines in every .txt file in this directory with `wc -l *.txt` and tell me the total.",
+    prompt: "Use the run tool to count the lines in every .txt file in this directory with `wc -l *.txt` and tell me the number on the `total` line.",
     check: (r) => (ranOk(r, "run") && /\b5\b/.test(r.answer) ? undefined : `answer ${JSON.stringify(r.answer.slice(0, 80))}`),
   },
   {

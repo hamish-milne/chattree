@@ -191,9 +191,9 @@ describe("edit", () => {
     assert.equal(r.text, "A1\nA2\nb\nmid\nD\n");
     assert.equal(r.lines, 5);
     assert.deepEqual(r.report.map((x) => x.split("\n")[0]), [
-      "change 2: replaced lines 1-1 with 2 lines; now lines 1-2",
-      "change 3: inserted 1 line after line 2; now lines 4-4",
-      "change 4: deleted lines 3-3; line 5 is now what followed them",
+      "change 2: replaced lines 1-1 with 2 lines; now lines 1-2; the lines after it moved down by 1",
+      "change 3: inserted 1 line after line 2; now lines 4-4; the lines after it moved down by 1",
+      "change 4: deleted lines 3-3; line 5 is now what followed them; the lines after it moved up by 1",
       "change 1: replaced lines 4-4 with 1 line; now lines 5-5",
     ]);
   });
@@ -208,9 +208,9 @@ describe("edit", () => {
     const code = "function add(a, b) {\n  // TODO\n  return 0;\n}\n";
     const r = apply(code, { start: 1, end: 3, content: "function add(a, b) {\n  return a + b;\n}" });
     assert.equal(r.report[0], "change 1: replaced lines 1-3 with 3 lines; now lines 1-3\n- 1\tfunction add(a, b) {\n- 2\t  // TODO\n- 3\t  return 0;\n+ 1\tfunction add(a, b) {\n+ 2\t  return a + b;\n+ 3\t}\n  4\t}");
-    assert.equal(apply(L, { after: 0, content: "top" }).report[0], "change 1: inserted 1 line after line 0; now lines 1-1\n+ 1\ttop\n  2\ta");
+    assert.equal(apply(L, { after: 0, content: "top" }).report[0], "change 1: inserted 1 line after line 0; now lines 1-1; the lines after it moved down by 1\n+ 1\ttop\n  2\ta");
     assert.equal(apply(L, { after: 4, content: "end" }).report[0], "change 1: inserted 1 line after line 4; now lines 5-5\n  4\td\n+ 5\tend");
-    assert.equal(apply(L, { start: 2, end: 3, content: "" }).report[0], "change 1: deleted lines 2-3; line 2 is now what followed them\n- 2\tb\n- 3\tc\n  1\ta\n  2\td");
+    assert.equal(apply(L, { start: 2, end: 3, content: "" }).report[0], "change 1: deleted lines 2-3; line 2 is now what followed them; the lines after it moved up by 2\n- 2\tb\n- 3\tc\n  1\ta\n  2\td");
   });
 
   test("bad numbers, both shapes at once, an empty insert, and overlaps are refused with the file's size", () => {
@@ -270,6 +270,19 @@ describe("edit", () => {
       v = /version ([0-9a-f]{8})\)/.exec(r.content)?.[1] as string;
     }
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "2\ntwo and a half\n3\nfour\n", "content may be left out to delete");
+  });
+
+  test("end defaults to start, so one line needs only start; end alone is still an error", async () => {
+    const { dir, call } = await workspace({ "a.txt": "one\ntwo\nthree\n" });
+    const v = await versionOf(new TextEncoder().encode("one\ntwo\nthree\n"));
+    const r = await call("edit", { path: "a.txt", version: v, start: 2, content: "TWO" });
+    assert.equal(r.is_error, undefined, r.content);
+    assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "one\nTWO\nthree\n");
+    const nv = /version ([0-9a-f]{8})\)/.exec(r.content)?.[1] as string;
+    const del = await call("edit", { path: "a.txt", version: nv, start: 1 });
+    assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "TWO\nthree\n", del.content);
+    const bad = await call("edit", { path: "a.txt", version: await versionOf(new TextEncoder().encode("TWO\nthree\n")), end: 2, content: "x" });
+    assert.match(bad.content, /give `start` and `end`/);
   });
 
   test("the version is read loosely: the header's own words, a v prefix or capitals still match; no digits at all is explained", async () => {

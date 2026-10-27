@@ -141,7 +141,7 @@ export function scriptTool(opts: RunToolOptions = {}): Tool {
     definition: {
       name: "script",
       description:
-        "Run a POSIX sh script (`sh -c`; on Windows busybox's ash) in the workspace: use it for shell syntax (&&, ;, loops, $(...), redirecting stderr, $variables) that the run tool does not do. It always needs the user's approval, so prefer run for a single command. Other languages (bash, python, powershell) are started with run when the host has them. Returns the exit code, then stdout and stderr in the order they were produced.",
+        "Run a POSIX sh script (`sh -c`; on Windows busybox's ash) in the workspace. Plain POSIX only: no bash extras such as `{1..3}`, `[[ ]]` or arrays (write `for i in 1 2 3` or use `seq`). Use it for shell syntax (&&, ;, loops, $(...), redirecting stderr, $variables) that the run tool does not do. It always needs the user's approval, so prefer run for a single command. Other languages (bash, python, powershell) are started with run when the host has them. Returns the exit code, then stdout and stderr in the order they were produced.",
       input_schema: {
         type: "object",
         additionalProperties: false,
