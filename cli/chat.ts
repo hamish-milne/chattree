@@ -60,8 +60,9 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
     ({ session, resumed, skipped } = r);
   }
 
-  const engine = new Engine({ io, project, opened, session, sessions, confirm: io.ask === undefined || o.yes === true ? async () => o.yes === true : async (q) => /^y(es)?$/i.test(await (io.ask as NonNullable<Io["ask"]>)(`${q} [y/N]`, "n")) });
+  const engine = new Engine({ io, project, opened, session, sessions, tools: true, confirm: io.ask === undefined || o.yes === true ? async () => o.yes === true : async (q) => /^y(es)?$/i.test(await (io.ask as NonNullable<Io["ask"]>)(`${q} [y/N]`, "n")) });
   if (o.thinking !== undefined) engine.state.thinking = o.thinking;
+  if (!interactive) engine.ask = undefined; // lines of a script are not answers: calls no grant covers are declined
 
   const stop = io.onSignal?.(() => {
     void shutdown().then(() => process.exit(130));
@@ -71,6 +72,7 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
     if (closed) return;
     closed = true;
     stop?.();
+    await engine.stopJobs();
     await session.close();
   };
 
@@ -114,6 +116,7 @@ async function runPlain(engine: Engine, io: Io): Promise<number> {
       if (o.type === "error" || (o.type === "request_end" && o.status !== "completed")) failed = true;
       await render.render(o);
     }
+    for (const n of engine.notices.splice(0)) io.err(`[${n}]\n`);
   };
   for (const raw of lines) {
     if (pending !== undefined || raw.endsWith("\\")) {

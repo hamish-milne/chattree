@@ -3,6 +3,8 @@ import type { ChangeKind } from "../harness/entries.ts";
 import { LimitExceeded } from "../harness/limits.ts";
 import { JournalBusy } from "../harness/journal.ts";
 import { requestStream } from "../harness/turn.ts";
+import { runLoop, syncTools, ToolsNotSupported, ToolsOutOfSync, type LoopEvent } from "../harness/loop.ts";
+import { summarizeCall } from "./tool-lines.ts";
 import { ProviderError, type StreamEvent } from "../providers/types.ts";
 import { CliError } from "./io.ts";
 import type { Ctx } from "./engine.ts";
@@ -21,9 +23,36 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   engine.running = true;
   try {
     let drift: ChangeKind[] = [];
+    const tools = await engine.toolset();
     for (let attempt = 0; attempt < 3; attempt++) {
       const warnings: string[] = [];
       let model = "";
+      if (tools !== undefined) {
+        try {
+          yield* toolLoop(ctx, tools, { signal: ac.signal, standing: [...engine.standing, ...drift], drift, warnings, setModel: (m) => (model = m), model: () => model });
+          return;
+        } catch (e) {
+          if (e instanceof ChangeNotAllowed && attempt < 2) {
+            yield { type: "notice", message: e.changes.map((c) => `${c.kind}: ${c.message}`).join("\n") };
+            if (!(await ctx.confirm("Go ahead anyway?"))) {
+              yield { type: "error", message: "not sent", hint: "nothing was sent; /accept accepts a change the provider made, then /retry asks again" };
+              return;
+            }
+            if (e.allowWith.includes("pricing_changed")) {
+              await convo.pinPricing();
+              yield { type: "notice", message: "pinned the provider's current prices" };
+            }
+            drift = [...new Set([...drift, ...e.allowWith.filter((k) => k !== "pricing_changed")])];
+            continue;
+          }
+          if (e instanceof ToolsNotSupported || e instanceof ToolsOutOfSync) {
+            yield { type: "error", message: e.message, hint: "the model cannot be given these tools; /model another model, or set tool_convention for it in harness.yml" };
+            return;
+          }
+          yield failure(e);
+          return;
+        }
+      }
       const gen = requestStream(convo, {
         system: engine.system,
         signal: ac.signal,
@@ -83,6 +112,90 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   } finally {
     engine.running = false;
     engine.abort = undefined;
+  }
+}
+
+/** One request-and-tools run: the loop's events as outputs. Throws what the loop throws (a refused change, a limit, tools the model cannot take). */
+async function* toolLoop(
+  ctx: Ctx,
+  tools: Awaited<NonNullable<ReturnType<Ctx["engine"]["toolset"]>>>,
+  o: { signal: AbortSignal; standing: ChangeKind[]; drift: ChangeKind[]; warnings: string[]; setModel: (m: string) => void; model: () => string },
+): AsyncGenerator<Output, void> {
+  const { engine, convo } = ctx;
+  await syncTools(convo, tools.registry);
+  const approve = engine.approver();
+  const loop = runLoop(convo, {
+    system: engine.system,
+    registry: tools.registry,
+    jobs: tools.jobs,
+    grants: convo.grantStore(),
+    ...(approve === undefined ? {} : { approve }),
+    signal: o.signal,
+    owner: { pid: process.pid, ...(engine.sessionId === undefined ? {} : { session: engine.sessionId }) },
+    standing: o.standing,
+    allowDrift: o.drift,
+    onPrepared: (p) => {
+      o.setModel(p.setup.model?.id ?? "");
+      for (const w of p.warnings) o.warnings.push(w.message);
+    },
+  });
+  let startPending = false;
+  for (;;) {
+    const n = await loop.next();
+    for (const w of o.warnings.splice(0)) yield { type: "warning", message: w };
+    if (n.done) {
+      const r = n.value;
+      if (r.status === "stopped") yield { type: "notice", message: "stopped; the calls that had not run were answered as not run" };
+      else if (r.status === "deadline") yield { type: "notice", message: "the turn's time limit passed; the calls that had not run were answered as not run" };
+      return;
+    }
+    const e = n.value;
+    if (startPending && (e.type === "stream" || e.type === "request.end")) {
+      startPending = false;
+      yield { type: "request_start", model: o.model() };
+    }
+    const out = await mapLoopEvent(convo, e, () => (startPending = true));
+    for (const x of out) yield x;
+  }
+}
+
+async function mapLoopEvent(convo: Ctx["convo"], e: LoopEvent, started: () => void): Promise<Output[]> {
+  switch (e.type) {
+    case "request.start":
+      started();
+      return [];
+    case "stream": {
+      const m = mapEvent(e.event);
+      return m === undefined ? [] : [m];
+    }
+    case "request.end": {
+      const r = e.result;
+      const ledger = await convo.ledger().catch(() => undefined);
+      const usage = r.status === "completed" ? r.completed.usage : undefined;
+      const out: Output[] = [
+        {
+          type: "request_end",
+          status: r.status,
+          ...(usage === undefined ? {} : { usage: { input: usage.input_tokens, output: usage.output_tokens, cached: usage.cache_read_tokens ?? 0 } }),
+          ...(ledger === undefined ? {} : { turnUsd: ledger.turn.usd, threadUsd: ledger.conversation.usd, unpriced: ledger.conversation.unpriced > 0 }),
+          ...(r.status === "completed" ? { stopReason: r.completed.stop_reason } : {}),
+        },
+      ];
+      if (r.status === "interrupted") out.push({ type: "notice", message: r.by === "user" ? "stopped; what arrived is saved (/continue asks the model to carry on)" : "the reply was cut short; what arrived is saved (/continue asks the model to carry on)" });
+      return out;
+    }
+    case "tool.start":
+      return [{ type: "tool_start", callId: e.callId, name: e.name, summary: summarizeCall(e.name, e.args) }];
+    case "tool.approval": {
+      const out: Output[] = [];
+      if (e.granted !== undefined) out.push({ type: "notice", message: `allowed until ${e.granted.until}: ${e.granted.keys.join("; ")}` });
+      if (e.grantError !== undefined) out.push({ type: "warning", message: `the call was allowed once, but the grant was not saved: ${e.grantError}` });
+      return out;
+    }
+    case "tool.result":
+      return [{ type: "tool_result", callId: e.callId, name: e.name, is_error: e.is_error, content: e.content, ms: e.ms, truncated: e.truncated }];
+    case "job.event":
+      return [{ type: "job_event", job: e.job, status: e.status, summary: e.summary }];
   }
 }
 

@@ -37,6 +37,7 @@ export async function* sendMessage(ctx: Ctx, text: string, sent: () => void): As
     const r = await ctx.convo.recoverRequest();
     if (r !== undefined) yield { type: "notice", message: `recovered a request that was cut off (${r.outcome})` };
   }
+  await ctx.engine.prepareTools();
   try {
     const files = await materialize(ctx);
     const content = [...(text === "" ? [] : [{ $tag: "text" as const, text }]), ...files];

@@ -96,6 +96,11 @@ export class Terminal {
     this.#rl.on("close", () => void this.#end(true));
     this.#engine.onRebind = () => this.#startWatch();
     this.#engine.suspend = (fn) => this.#suspend(fn);
+    this.#engine.ask = (q, fallback) => this.#ask(q, fallback);
+    this.#engine.onNotice = () => this.#flushNotices();
+    this.#engine.onResume = () => {
+      this.#chain = this.#chain.then(() => this.#dispatchResume());
+    };
   }
 
   readonly #onKeypress = (_s: string | undefined, key: { name?: string } | undefined): void => {
@@ -125,6 +130,61 @@ export class Terminal {
   /** Leave: stop watching, restore the terminal. Idempotent. */
   async close(): Promise<void> {
     await this.#end(true);
+  }
+
+  /**
+   * A question from the engine (a tool approval) in the middle of a request: the spinner and the muting step aside, what was
+   * half-typed is dropped so it cannot be taken for the answer, and the answer is the next line the user enters.
+   */
+  async #ask(question: string, fallback?: string): Promise<string> {
+    const stop = this.#engine.abort?.signal;
+    if (stop?.aborted === true) return fallback ?? "";
+    const wasMuted = this.#gate.muted;
+    this.#stopSpinner();
+    this.#gate.muted = false;
+    this.#rl.write(null, { ctrl: true, name: "u" });
+    this.#tty.output.write("\r\x1b[K");
+    const asking = new AbortController();
+    const answer = await new Promise<string>((resolve) => {
+      const onStop = (): void => {
+        asking.abort();
+        resolve("");
+      };
+      stop?.addEventListener("abort", onStop, { once: true });
+      this.#rl.question(`${question} `, { signal: asking.signal }, (a) => {
+        stop?.removeEventListener("abort", onStop);
+        resolve(a);
+      });
+    });
+    this.#gate.muted = wasMuted;
+    if (wasMuted && this.#engine.running) this.#startSpinner();
+    const t = answer.trim();
+    return t === "" ? (fallback ?? "") : t;
+  }
+
+  #flushNotices(): void {
+    const notes = this.#engine.notices.splice(0);
+    if (notes.length > 0) this.print(`${notes.map((n) => this.#style.dim(`[${n}]`)).join("\n")}\n`);
+  }
+
+  /** A background job ended while idle and `background.resume` is on: let the model react. */
+  async #dispatchResume(): Promise<void> {
+    if (this.#closing || this.#engine.running) return;
+    this.#startSpinner();
+    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t) }, () => this.#engine.convo, this.#engine.state.thinking, this.#style);
+    try {
+      this.#gate.muted = true;
+      for await (const o of this.#engine.resume()) {
+        if (o.type === "request_start") this.#spinLabel = `waiting for ${o.model}`;
+        await render.render(o);
+      }
+    } catch (e) {
+      this.#emit(this.#style.red(`error: ${e instanceof Error ? e.message : String(e)}\n`));
+    } finally {
+      this.#stopSpinner();
+      this.#gate.muted = false;
+    }
+    this.#showPrompt();
   }
 
   /** Hand the terminal to a program that wants it (an editor): ordinary mode while it runs, ours again after. */
@@ -195,6 +255,7 @@ export class Terminal {
       await this.#end(false);
       return;
     }
+    this.#flushNotices();
     this.#showPrompt();
   }
 
@@ -287,6 +348,9 @@ export class Terminal {
     this.#rl.close();
     this.#engine.onRebind = undefined;
     this.#engine.suspend = undefined;
+    this.#engine.ask = undefined;
+    this.#engine.onNotice = undefined;
+    this.#engine.onResume = undefined;
     this.#tty.output.write(`${BRACKETED_PASTE_OFF}`);
     this.#done();
   }

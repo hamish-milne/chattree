@@ -1,6 +1,7 @@
 import type { Appended, Conversation } from "../harness/conversation.ts";
 import type { ChatEntry } from "../harness/entries.ts";
 import { inlineBlobs } from "../harness/context-builder.ts";
+import { resultLines } from "./tool-lines.ts";
 
 /**
  * What the engine says. Nothing here knows about terminals: a renderer turns outputs into text for a plain stream or a
@@ -19,6 +20,11 @@ export type Output =
   | { type: "clear" }
   | { type: "request_start"; model: string }
   | { type: "stream"; kind: "text" | "reasoning"; text: string }
+  /** A tool call the model made, as the loop starts it. */
+  | { type: "tool_start"; callId: string; name: string; summary: string }
+  | { type: "tool_result"; callId: string; name: string; is_error: boolean; content: string; ms: number; truncated: boolean }
+  /** A background job's event was committed. */
+  | { type: "job_event"; job: string; status: string; summary: string }
   | { type: "request_end"; status: "completed" | "interrupted" | "cancelled"; usage?: { input: number; output: number; cached: number }; turnUsd?: number; threadUsd?: number; unpriced?: boolean; stopReason?: string };
 
 export type Thinking = "off" | "brief" | "on";
@@ -143,6 +149,21 @@ export class PlainRenderer {
         this.#sink.clear?.();
         return;
       case "request_start":
+        return;
+      case "tool_start":
+        this.#flush();
+        this.#sink.err(`${this.#style.dim(`→ ${o.summary}`)}\n`);
+        return;
+      case "tool_result": {
+        this.#flush();
+        const r = resultLines(o);
+        const paint = o.is_error ? this.#style.red : this.#style.dim;
+        this.#sink.err(`${paint(`  ← ${r.head}`)}\n${r.preview.map((l) => `${this.#style.dim(`    ${l}`)}\n`).join("")}${r.more ? `${this.#style.dim("    … /expand shows all of it")}\n` : ""}`);
+        return;
+      }
+      case "job_event":
+        this.#flush();
+        this.#sink.err(`${this.#style.dim(`[job ${o.job} ${o.status}] ${o.summary}`)}\n`);
         return;
       case "stream":
         if (o.kind === "reasoning") {

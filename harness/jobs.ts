@@ -133,6 +133,14 @@ export class JobRegistry {
     for (const id of this.#jobs.keys()) this.stop(id);
   }
 
+  /** Stop every running job and wait (a short while) for them to end and their events to be committed: the host is leaving. */
+  async shutdown(waitMs = 3000): Promise<void> {
+    this.stopAll();
+    const end = Date.now() + waitMs;
+    while (this.list().some((j) => j.status === "running") && Date.now() < end) await new Promise((r) => setTimeout(r, 20));
+    await this.flush().catch(() => undefined);
+  }
+
   async #entries(): Promise<ChatEntry[]> {
     return (await this.#convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   }
