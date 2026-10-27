@@ -2,6 +2,7 @@ import type { Tool } from "../tools.ts";
 import { versionOf } from "./version.ts";
 import { PATH_ALIASES, flattenArgs } from "./args.ts";
 import { display, resolveInWorkspace } from "./workspace.ts";
+import { ALL } from "../approvals.ts";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder("utf-8", { fatal: true });
@@ -136,6 +137,7 @@ export function editTool(): Tool {
         },
       },
     },
+    allowKeys: () => [ALL],
     async execute(args, ctx) {
       const { host, workspace } = ctx;
       const f = args as { path: string; version: string; start?: number; end?: number; after?: number; content?: string };

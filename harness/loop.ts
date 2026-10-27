@@ -8,6 +8,7 @@ import type { Block } from "./context-builder.ts";
 import type { ToolConvention } from "../providers/registry.ts";
 import { servedModelId, type ModelSetup } from "./setup.ts";
 import { flatProblems } from "./tool-schema.ts";
+import { keyProblem, permitted, untilAfter, type AllowMap } from "./approvals.ts";
 
 /**
  * The tool loop (docs/tools.md, section 3): ask the model, run what it asked for, write the results, ask again, until
@@ -24,14 +25,42 @@ export interface ApprovalRequest {
   name: string;
   args: Record<string, unknown>;
   tool: Tool;
+  /**
+   * What a grant would add to the tool's `allow` map (`Tool.allowKeys`), so the host can offer "allow all of these for
+   * 5 minutes / 1 hour / forever". `null`: the call can only be allowed once, and the host should offer nothing longer.
+   */
+  keys: string[] | null;
 }
 
-export type Approval = { allow: true } | { allow: false; reason?: string };
+/** A grant the user chose along with "yes": the request's keys, for `seconds` (`Infinity` is forever). */
+export interface GrantChoice {
+  seconds: number;
+  /** Commit the change to harness.yml on its own. Default: only a forever grant. Otherwise it rides with the next commit. */
+  commit?: boolean;
+}
+
+export type Approval = { allow: true; grant?: GrantChoice } | { allow: false; reason?: string };
+
+/** Where grants live: the tool's `allow` map in harness.yml (`Conversation.grantStore`). */
+export interface GrantStore {
+  /** The tool's map as the file has it now, read fresh for each call so hand edits and `/tools` take effect at once. */
+  allow(tool: string): Promise<AllowMap | undefined>;
+  /** Add keys to the tool's map until `until`. */
+  grant(tool: string, keys: readonly string[], until: string, opts: { commit: boolean }): Promise<void>;
+}
 
 export interface LoopOptions extends TurnOptions {
   registry: ToolRegistry;
-  /** Asked before each call. Default: allow everything (the host's approval policy goes here). */
+  /**
+   * Asked before a call that no live grant covers. Without `grants`: asked before every call, and with no `approve`
+   * either, every call is allowed (the caller has auto-approved).
+   */
   approve?: (request: ApprovalRequest) => Promise<Approval>;
+  /**
+   * Approvals the user has already given (docs/tools.md, section 5). When set, a call runs unasked only if a live key
+   * covers it; otherwise `approve` is asked, and without `approve` the call is declined, never run.
+   */
+  grants?: GrantStore;
   /** The most bytes of a result the model is shown; the rest is kept as a blob. Default 30,000. */
   resultLimit?: number;
 }
@@ -42,7 +71,7 @@ export type LoopEvent =
   | { type: "request.end"; n: number; result: TurnResult }
   | { type: "tool.start"; callId: string; name: string; args: Record<string, unknown> }
   /** The answer to the approval question, when it was asked. */
-  | { type: "tool.approval"; callId: string; name: string; allowed: boolean; reason?: string }
+  | { type: "tool.approval"; callId: string; name: string; allowed: boolean; reason?: string; via?: "allowlist" | "asked" | "headless"; key?: string; granted?: { keys: string[]; until: string }; grantError?: string }
   /** `content` is what was recorded; `skipped` says why a call that did not run got an error result instead. */
   | { type: "tool.result"; callId: string; name: string; content: string; is_error: boolean; truncated: boolean; ms: number; skipped?: string };
 
@@ -214,14 +243,49 @@ export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGen
         yield* record(call, { content: checked.error, is_error: true }, t0);
         continue;
       }
-      if (opts.approve !== undefined) {
-        const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool });
+      const decline = async function* (reason: string | undefined, via: "asked" | "headless"): AsyncGenerator<LoopEvent, void, void> {
+        yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via, ...(reason === undefined ? {} : { reason }) };
+        yield* record(call, { content: `The user declined to run this call${reason === undefined || reason === "" ? "." : `: ${reason}`}`, is_error: true }, t0);
+      };
+      let proceed = true;
+      if (opts.grants !== undefined) {
+        const hit = await permitted(checked.tool, checked.args, await opts.grants.allow(call.name), now());
+        if (hit.permitted) yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "allowlist", key: hit.key };
+        else if (opts.approve === undefined) {
+          proceed = false;
+          yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via: "headless" };
+          yield* record(call, { content: "This call needs the user's approval and none is available here, so it did not run.", is_error: true }, t0);
+        } else {
+          const keys = (await checked.tool.allowKeys?.(checked.args)) ?? null;
+          const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys });
+          if (!decision.allow) {
+            proceed = false;
+            yield* decline(decision.reason, "asked");
+          } else {
+            const ev: Extract<LoopEvent, { type: "tool.approval" }> = { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "asked" };
+            if (decision.grant !== undefined && keys !== null && keys.length > 0) {
+              const bad = keys.map((k) => keyProblem(checked.tool, k)).find((p) => p !== undefined);
+              const until = untilAfter(now(), decision.grant.seconds);
+              try {
+                if (bad !== undefined) throw new Error(bad);
+                await opts.grants.grant(call.name, keys, until, { commit: decision.grant.commit ?? !Number.isFinite(decision.grant.seconds) });
+                ev.granted = { keys, until };
+              } catch (e) {
+                ev.grantError = e instanceof Error ? e.message : String(e); // the user said yes: this call still runs, once
+              }
+            }
+            yield ev;
+          }
+        }
+      } else if (opts.approve !== undefined) {
+        const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys: null });
         yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: decision.allow, ...(decision.allow || decision.reason === undefined ? {} : { reason: decision.reason }) };
         if (!decision.allow) {
+          proceed = false;
           yield* record(call, { content: `The user declined to run this call${decision.reason === undefined || decision.reason === "" ? "." : `: ${decision.reason}`}`, is_error: true }, t0);
-          continue;
         }
       }
+      if (!proceed) continue;
       const signals = [opts.signal, deadline === undefined ? undefined : AbortSignal.timeout(Math.max(1, deadline - now()))].filter((s): s is AbortSignal => s !== undefined);
       const signal = signals.length === 0 ? new AbortController().signal : AbortSignal.any(signals);
       let out: ToolOutput;

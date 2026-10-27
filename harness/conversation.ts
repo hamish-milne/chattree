@@ -20,6 +20,8 @@ import {
 } from "../src/index.ts";
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
+import { addGrants, revokeGrants } from "./approvals.ts";
+import type { GrantStore } from "./loop.ts";
 import { SCHEMA_COMMENT, SCHEMA_PATH, configJsonSchema } from "./config-schema.ts";
 import { redactionPatterns, type SecretSource } from "./secrets.ts";
 import { ProviderSetupError, buildProviders, validateProviders, type AdapterRegistry, type BuiltProviders } from "../providers/registry.ts";
@@ -1305,6 +1307,46 @@ export class Conversation {
     if (!r.ok || this.#opts.providers === undefined) return r;
     const { issues } = await validateProviders(r.value.providers, this.#opts.providers.registry);
     return issues.length > 0 ? { ok: false, issues } : r;
+  }
+
+  // ---- approvals -------------------------------------------------------------------------------------------
+
+  /**
+   * Where the loop reads and writes the user's grants: the `tools.<name>.allow` maps of `harness.yml` (docs/tools.md,
+   * section 5). A grant is a change to that file; by default it is committed with whatever commit comes next, and
+   * `commit: true` makes it a commit of its own (only the file), so a long-lived grant has a place in history.
+   */
+  grantStore(): GrantStore {
+    const path = this.host.path.join(this.dir, CONFIG_FILE);
+    return {
+      allow: async (tool) => {
+        if ((await this.host.fs.stat(path)) === undefined) return undefined;
+        const r = await parseConfig(dec.decode(await this.host.fs.read(path)), harnessConfig);
+        return r.ok ? r.value.tools[tool]?.allow : undefined; // a file that does not parse grants nothing
+      },
+      grant: (tool, keys, until, opts) => this.changeGrants((text, now) => addGrants(text, tool, keys, until, now), `allow ${tool}: ${keys.join(", ")} until ${until}`, opts.commit),
+    };
+  }
+
+  /** Remove one key of a tool, or all of them (`key` undefined). For `/tools revoke`. */
+  revokeGrant(tool: string, key: string | undefined, opts: { commit?: boolean } = {}): Promise<void> {
+    return this.changeGrants((text, now) => revokeGrants(text, tool, key, now), `revoke ${tool}${key === undefined ? "" : `: ${key}`}`, opts.commit ?? false);
+  }
+
+  changeGrants(edit: (text: string, nowMs: number) => Promise<{ ok: true; text: string } | { ok: false; message: string }>, what: string, commit: boolean): Promise<void> {
+    return this.#transaction(async () => {
+      const path = this.host.path.join(this.dir, CONFIG_FILE);
+      if ((await this.host.fs.stat(path)) === undefined) throw new ConversationError(`there is no ${CONFIG_FILE} to hold the approval`);
+      const r = await edit(dec.decode(await this.host.fs.read(path)), this.now());
+      if (!r.ok) throw new ConversationError(`${CONFIG_FILE}: ${r.message}`);
+      await this.host.fs.writeAtomic(path, enc.encode(r.text));
+      if (!commit) return;
+      const size = await this.#assertIntact();
+      await this.git.add([CONFIG_FILE]);
+      const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
+      const hash = await this.git.commit({ message: `approvals: ${what}`, trailers: [["Chattree-Offset", String(size)], ["Chattree-Config", "true"]], author: committer, committer, paths: [CONFIG_FILE], ...Conversation.#dateOpt(this.#opts) });
+      this.#advance(hash);
+    });
   }
 
   // ---- agent setup -----------------------------------------------------------------------------------------

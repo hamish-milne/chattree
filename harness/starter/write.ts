@@ -2,6 +2,7 @@ import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool } from "../tools.ts";
 import { versionOf } from "./version.ts";
 import { PATH_ALIASES, flattenArgs } from "./args.ts";
+import { ALL } from "../approvals.ts";
 
 const enc = new TextEncoder();
 
@@ -22,6 +23,7 @@ export function writeTool(): Tool {
         },
       },
     },
+    allowKeys: () => [ALL],
     async execute(args, ctx) {
       const { host, workspace } = ctx;
       const f = args as { path: string; content: string };

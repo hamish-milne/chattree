@@ -2,6 +2,7 @@ import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool, ToolContext } from "../tools.ts";
 import { versionOf } from "./version.ts";
 import { PATH_ALIASES, flattenArgs } from "./args.ts";
+import { ALL } from "../approvals.ts";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_LINES = 2000;
@@ -90,6 +91,7 @@ export function readTool(): Tool {
         },
       },
     },
+    allowKeys: () => [ALL],
     async execute(args, ctx) {
       const r = await readOne(ctx, args as unknown as Item);
       return { content: r.text, is_error: !r.ok };

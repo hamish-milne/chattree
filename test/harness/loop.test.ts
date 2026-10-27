@@ -277,3 +277,145 @@ describe("the tool loop", () => {
     assert.equal((await drive(convo, other)).result.status, "completed");
   });
 });
+
+describe("approvals", () => {
+  const CFG = "providers:\n  f:\n    $tag: fake\n";
+  const keyed = (name: string, ran: string[]): Tool => ({
+    ...tool(name, (_a, ctx) => (ran.push(ctx.callId), Promise.resolve({ content: "ran" }))),
+    allowKeys: () => ["all"],
+  });
+  const approvalEvents = (events: LoopEvent[]) => events.flatMap((e) => (e.type === "tool.approval" ? [e] : []));
+  const harnessYml = (dir: string) => readFile(join(dir, "harness.yml"), "utf8");
+
+  test("a live key covers the call: it runs without asking, and the event says which key", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, `${CFG}tools:\n  echo:\n    allow:\n      all: 2999-01-01\n`);
+    queue = [calls(call("c1", "echo")), answer("ok")];
+    let asked = 0;
+    const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true })) });
+    assert.deepEqual(ran, ["c1"]);
+    assert.equal(asked, 0);
+    assert.deepEqual(approvalEvents(events).map((e) => [e.allowed, e.via, e.key]), [[true, "allowlist", "all"]]);
+  });
+
+  test("an expired key does not cover; the host is asked, with the keys the tool offers", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, `${CFG}tools:\n  echo:\n    allow:\n      all: 2020-01-01\n`);
+    queue = [calls(call("c1", "echo")), answer("ok")];
+    const seen: (string[] | null)[] = [];
+    await drive(convo, registry, { grants: convo.grantStore(), approve: (r) => (seen.push(r.keys), Promise.resolve({ allow: true })) });
+    assert.deepEqual(seen, [["all"]]);
+    assert.deepEqual(ran, ["c1"]);
+  });
+
+  test("yes once stores nothing, so the next call asks again", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo, dir } = await fresh(registry, CFG);
+    const initial = await harnessYml(dir);
+    queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("ok")];
+    let asked = 0;
+    await drive(convo, registry, { grants: convo.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true })) });
+    assert.equal(asked, 2);
+    assert.equal(await harnessYml(dir), initial);
+  });
+
+  test("a grant for five minutes is written to harness.yml, covers the next call at once, and rides with the next commit", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo, dir } = await fresh(registry, CFG);
+    const before = await convo.git.isClean();
+    queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("ok")];
+    let asked = 0;
+    const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true, grant: { seconds: 300 } })) });
+    assert.equal(asked, 1, "the second call is covered by the grant just made");
+    assert.deepEqual(ran, ["c1", "c2"]);
+    const via = approvalEvents(events).map((e) => e.via);
+    assert.deepEqual(via, ["asked", "allowlist"]);
+    const m = /all: (\S+)/.exec(await harnessYml(dir));
+    assert.ok(m !== null, await harnessYml(dir));
+    const delta = Date.parse(m[1]!) - convo.now();
+    assert.ok(delta > 290_000 && delta <= 300_000, `expiry is about five minutes away (${delta} ms)`);
+    assert.ok(before);
+  });
+
+  test("a forever grant is a commit of its own holding only harness.yml", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo, dir } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo")), answer("ok")];
+    await drive(convo, registry, { grants: convo.grantStore(), approve: () => Promise.resolve({ allow: true, grant: { seconds: Infinity } }) });
+    assert.match(await harnessYml(dir), /all: 2999-01-01/);
+    const text = async (a: string[]) => new TextDecoder().decode((await convo.git.run(a)).stdout);
+    const log = await text(["log", "--format=%s", "-n", "6"]);
+    assert.match(log, /approvals: allow echo: all until 2999-01-01/);
+    const files = await text(["log", "--name-only", "--format=", "--grep=approvals:", "-n", "1"]);
+    assert.ok(files.trim().split("\n").every((f: string) => f === "harness.yml" || f === ""), files);
+  });
+
+  test("a decline carries its reason to the model and the tool does not run", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo")), answer("ok")];
+    await drive(convo, registry, { grants: convo.grantStore(), approve: () => Promise.resolve({ allow: false, reason: "not that one" }) });
+    assert.deepEqual(ran, []);
+    const [r] = await results(convo);
+    assert.match(str(r!.content), /declined.*not that one/);
+  });
+
+  test("with grants and no host to ask, a call no key covers is declined, never run", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo")), answer("ok")];
+    const { events } = await drive(convo, registry, { grants: convo.grantStore() });
+    assert.deepEqual(ran, []);
+    assert.deepEqual(approvalEvents(events).map((e) => [e.allowed, e.via]), [[false, "headless"]]);
+    const [r] = await results(convo);
+    assert.equal(r!.is_error, true);
+    assert.match(str(r!.content), /needs the user's approval and none is available/);
+  });
+
+  test("a tool that offers no keys is asked with keys null, and a grant the host sends anyway is ignored", async () => {
+    const ran: string[] = [];
+    const bare = tool("bare", (_a, ctx) => (ran.push(ctx.callId), Promise.resolve({ content: "ran" })));
+    const registry = reg(bare);
+    const { convo, dir } = await fresh(registry, CFG);
+    const initial = await harnessYml(dir);
+    queue = [calls(call("c1", "bare")), answer("ok")];
+    const seen: (string[] | null)[] = [];
+    await drive(convo, registry, { grants: convo.grantStore(), approve: (r) => (seen.push(r.keys), Promise.resolve({ allow: true, grant: { seconds: Infinity } })) });
+    assert.deepEqual(seen, [null]);
+    assert.deepEqual(ran, ["c1"]);
+    assert.equal(await harnessYml(dir), initial);
+  });
+
+  test("keys the tool will not accept are not stored; the call the user approved still runs once", async () => {
+    const ran: string[] = [];
+    const odd: Tool = { ...tool("odd", (_a, ctx) => (ran.push(ctx.callId), Promise.resolve({ content: "ran" }))), allowKeys: () => ["grep **"] };
+    const registry = reg(odd);
+    const { convo, dir } = await fresh(registry, CFG);
+    const initial = await harnessYml(dir);
+    queue = [calls(call("c1", "odd")), answer("ok")];
+    const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => Promise.resolve({ allow: true, grant: { seconds: 60 } }) });
+    assert.deepEqual(ran, ["c1"]);
+    assert.match(approvalEvents(events)[0]?.grantError ?? "", /only the key "all"/);
+    assert.equal(await harnessYml(dir), initial);
+  });
+
+  test("a hand edit to harness.yml takes effect for the next call without reopening", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo, dir } = await fresh(registry, CFG);
+    const store = convo.grantStore();
+    assert.equal(await store.allow("echo"), undefined);
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(dir, "harness.yml"), `${CFG}tools:\n  echo:\n    allow: {all: 2999-01-01}\n`);
+    assert.deepEqual(await store.allow("echo"), { all: "2999-01-01" });
+    await convo.revokeGrant("echo", undefined);
+    assert.deepEqual(await store.allow("echo"), {});
+  });
+});
