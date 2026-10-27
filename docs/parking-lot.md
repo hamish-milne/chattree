@@ -226,4 +226,4 @@ Not part of the first tool loop.
 ## Windows batch programs
 
 - **Resolve shims instead of running them through cmd.exe.** npm, pnpm and yarn install `.cmd` shims that only start `node <script>`. Reading the shim and starting `node` directly would avoid `cmd.exe` altogether, so no flag and no argument restrictions; it needs a parser for each tool's shim format, and breaks when a shim changes.
-- **Local shims.** `node_modules\.bin` entries are inside the workspace and so are not found by name; `.\node_modules\.bin\vitest.cmd` works with the flag on. A per-project allowance (a list of directories under `tools.run`) might be worth having.
+- **Local shims.** Done as `tools.run.local`, a glob allowlist for batch files that resolve inside the workspace (e.g. `./node_modules/.bin/*.cmd`). A custom shim parser (reading what the `.cmd` shim runs and starting that directly) is still not built.

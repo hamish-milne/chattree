@@ -1,4 +1,5 @@
 import type { Host } from "../../src/host.ts";
+import { globRegex } from "./run-keys.ts";
 
 /**
  * Windows batch programs (`npm.cmd`, `pnpm.cmd`, `build.bat`) for `run`, behind `tools.run.batch` in harness.yml.
@@ -9,9 +10,9 @@ import type { Host } from "../../src/host.ts";
  * not escaped but checked: any argument containing one of those characters (or a line break) is refused, and the rest are
  * passed verbatim, in double quotes when they hold spaces.
  *
- * Also, only what is found is run: bare names are looked up in the absolute `PATH` entries outside the workspace (Windows
- * itself would look in the current directory first, so a planted `git.cmd` would win); a path or `.cmd`/`.bat` name must be a
- * file inside the workspace. Without the flag the same lookup is made only to say what to set.
+ * Programs are found as the shell would find them (`PATH`, relative entries from the workspace, never the bare current
+ * directory), and one that resolves inside the workspace (a planted or built `.cmd`) must also be listed in `tools.run.local`,
+ * for example `./node_modules/.bin/*.cmd`, or it is refused. Without the flag the lookup is only made to say what to set.
  */
 
 const UNSAFE = /[%^&|<>"!\r\n\0]/;
@@ -38,29 +39,44 @@ export function batchStage(comspec: string, file: string, args: readonly string[
 
 const slash = (s: string): string => s.replaceAll("\\", "/");
 
+/** Where a program name leads, and whether that is inside the workspace (then `local` is its `./relative` path). */
+export interface Found {
+  path: string;
+  local?: string;
+}
+
 /**
- * Where a program name leads on Windows: the first match along `PATH` (absolute entries outside the workspace only) among
- * `.com .exe .bat .cmd`; a name with a directory or a `.cmd`/`.bat` extension is looked for in the workspace. Undefined when not found.
+ * Where a program name leads on Windows, resolved plainly: a name with a directory or a batch extension is taken relative to
+ * the workspace, a bare name is searched along `PATH` (relative entries relative to the workspace, as the shell would), the
+ * first match among `.com .exe .bat .cmd` in each directory. Links are followed. Undefined when nothing is found.
  */
-export async function findProgram(host: Host, workspace: string, name: string, env: Readonly<Record<string, string | undefined>>): Promise<string | undefined> {
+export async function findProgram(host: Host, workspace: string, name: string, env: Readonly<Record<string, string | undefined>>): Promise<Found | undefined> {
   const isFile = async (p: string): Promise<boolean> => (await host.fs.stat(p))?.isFile === true;
+  const root = (await host.fs.realpath(workspace)) ?? host.path.resolve(workspace);
+  const found = async (p: string): Promise<Found> => {
+    const real = (await host.fs.realpath(p)) ?? p;
+    const rel = slash(host.path.relative(root, real));
+    const inside = rel === "" || (rel !== ".." && !rel.startsWith("../") && !host.path.isAbsolute(rel));
+    return { path: p, ...(inside ? { local: `./${rel}` } : {}) };
+  };
   if (/[\\/]/.test(name) || isBatch(name)) {
     const abs = host.path.resolve(workspace, name);
-    const rel = slash(host.path.relative(workspace, abs));
-    if (rel === ".." || rel.startsWith("../") || host.path.isAbsolute(rel)) return undefined;
-    if (await isFile(abs)) return abs;
-    for (const ext of EXTENSIONS) if (!/\.[A-Za-z]+$/.test(name) && (await isFile(abs + ext))) return abs + ext;
+    if (await isFile(abs)) return found(abs);
+    if (!/\.[A-Za-z]+$/.test(name)) for (const ext of EXTENSIONS) if (await isFile(abs + ext)) return found(abs + ext);
     return undefined;
   }
-  const path = env["PATH"] ?? env["Path"] ?? "";
-  for (const dir of path.split(";")) {
-    if (dir === "" || !host.path.isAbsolute(dir)) continue;
-    const rel = slash(host.path.relative(workspace, dir));
-    if (rel === "" || (rel !== ".." && !rel.startsWith("../") && !host.path.isAbsolute(rel))) continue; // inside the workspace
+  for (const dir of (env["PATH"] ?? env["Path"] ?? "").split(";")) {
+    if (dir === "") continue;
+    const abs = host.path.resolve(workspace, dir);
     for (const ext of EXTENSIONS) {
-      const candidate = host.path.join(dir, name + ext);
-      if (await isFile(candidate)) return candidate;
+      const candidate = host.path.join(abs, name + ext);
+      if (await isFile(candidate)) return found(candidate);
     }
   }
   return undefined;
+}
+
+/** Is a batch file inside the workspace listed in `tools.run.local`? Globs are compared with the `./relative` path, ignoring case. */
+export function localAllowed(local: string, allowed: readonly string[]): boolean {
+  return allowed.some((g) => globRegex(g.startsWith("./") ? g.toLowerCase() : `./${g.toLowerCase()}`).test(local.toLowerCase()));
 }

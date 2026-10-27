@@ -4,7 +4,7 @@ import { GlobError, expandGlob } from "./glob.ts";
 import { NotAvailable, portableStage, shellStage } from "./portable.ts";
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import { isStarted, type Tool, type ToolContext, type ToolOutput } from "../tools.ts";
-import { batchProblem, batchStage, findProgram, isBatch } from "./batch.ts";
+import { batchProblem, batchStage, findProgram, isBatch, localAllowed } from "./batch.ts";
 import { runAllowKeys, runCovers, validateRunKey } from "./run-keys.ts";
 
 /**
@@ -20,6 +20,8 @@ export interface RunToolOptions {
   secretEnv?: readonly string[];
   /** Windows: allow `.cmd` and `.bat` programs (`tools.run.batch`). Default false: they are refused with a message that says what to set. */
   batch?: boolean;
+  /** Windows: globs (relative to the workspace) of batch files inside the workspace that may be started (`tools.run.local`). */
+  batchLocal?: readonly string[];
   /** The host's own environment (`PATH`, `ComSpec`), for finding programs. Not what commands may read: that is `env`. */
   hostEnv?: Readonly<Record<string, string | undefined>>;
   /** Command prefixes known to be read-only (`tools.run.safe` in harness.yml): a grant for one is offered as `<prefix> **`. Default: none. */
@@ -68,11 +70,12 @@ async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOpt
     const mapped = portableStage(words, ctx.host.platform, opts.busybox);
     if (ctx.host.platform === "windows" && mapped[0] === words[0]) {
       const found = await findProgram(ctx.host, ctx.workspace, words[0] as string, opts.hostEnv ?? {});
-      if (found !== undefined && isBatch(found)) {
-        if (opts.batch !== true) throw new RunRefused(`${words[0]} is a batch program (${found}), which run does not start by default because cmd.exe re-interprets its arguments; set tools.run.batch: true in harness.yml to allow it, or use the script tool`);
-        const problem = batchProblem(found, words.slice(1));
+      if (found !== undefined && isBatch(found.path)) {
+        if (opts.batch !== true) throw new RunRefused(`${words[0]} is a batch program (${found.path}), which run does not start by default because cmd.exe re-interprets its arguments; set tools.run.batch: true in harness.yml to allow it, or use the script tool`);
+        if (found.local !== undefined && !localAllowed(found.local, opts.batchLocal ?? [])) throw new RunRefused(`${words[0]} resolves to ${found.local}, a batch file inside the workspace, and tools.run.local in harness.yml does not list it (for example ./node_modules/.bin/*.cmd)`);
+        const problem = batchProblem(found.path, words.slice(1));
         if (problem !== undefined) throw new RunRefused(`${words[0]}: ${problem}`);
-        out.push(batchStage(opts.hostEnv?.["ComSpec"] ?? opts.hostEnv?.["COMSPEC"] ?? "cmd.exe", found, words.slice(1)));
+        out.push(batchStage(opts.hostEnv?.["ComSpec"] ?? opts.hostEnv?.["COMSPEC"] ?? "cmd.exe", found.path, words.slice(1)));
         verbatim.push(true);
         continue;
       }

@@ -92,7 +92,7 @@ export function validateRunKey(key: string): string | undefined {
 }
 
 /** A glob as a regular expression over a whole string: `*` and `?` stop at `/`, `**` does not. */
-function globRegex(pat: string): RegExp {
+export function globRegex(pat: string): RegExp {
   let re = "";
   for (let i = 0; i < pat.length; i++) {
     const c = pat[i] as string;

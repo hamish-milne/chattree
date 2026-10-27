@@ -37,6 +37,8 @@ const toolEntry = z.object({
    * re-interprets the command line; arguments with its special characters are refused (see harness/starter/batch.ts).
    */
   batch: z.boolean().optional(),
+  /** `run` only, with `batch`: globs of batch files inside the workspace that may be started, such as `./node_modules/.bin/*.cmd`. */
+  local: z.array(z.string().min(1)).optional(),
 });
 
 export const harnessConfig = z.object({
