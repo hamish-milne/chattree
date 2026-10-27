@@ -43,12 +43,12 @@ const entries = async (dir: string) => (await (await Conversation.open(host, dir
 const toolResults = async (dir: string) => (await entries(dir)).flatMap((e) => (e.$tag === "tool_result" ? [e] : []));
 const text = (c: unknown): string => (typeof c === "string" ? c : "");
 
-function terminal(dir: string) {
+function terminal(dir: string, over: Parameters<typeof testIo>[1] = {}) {
   const input = new PassThrough();
   const output = new PassThrough();
   let raw = "";
   output.on("data", (d: Buffer) => void (raw += d.toString()));
-  const io = testIo(dir, { interactive: true, tty: { input, output }, env: { PATH: process.env["PATH"] } });
+  const io = testIo(dir, { interactive: true, tty: { input, output }, env: { PATH: process.env["PATH"] }, ...over });
   const done = main(["chat", "--thread", "main"], io);
   return { io, type: (s: string) => void input.write(s), screen: () => strip(raw + io.stdout + io.stderr), done, end: () => void input.end() };
 }
@@ -208,6 +208,30 @@ describe("approvals in the terminal", () => {
       t.type("/quit\n");
       await t.done;
       assert.doesNotMatch(await readFile(join(dir, "harness.yml"), "utf8"), /script:\s*\n\s+allow/);
+    } finally {
+      t.end();
+      await server.close();
+    }
+  });
+});
+
+describe("questions from commands in a terminal", () => {
+  test("/undo asks through the terminal's own prompt, and the prompt works afterwards", async () => {
+    const { server, dir } = await started([answer("hi")]);
+    // A second prompt on the same keyboard is what left the session stuck, so one here would fail the test.
+    const t = terminal(dir, { ask: async () => { throw new Error("a second prompt was opened"); } });
+    try {
+      await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
+      t.type("hello\n\n");
+      await waitFor(() => t.screen().includes("hi"), "the reply");
+      t.type("/undo\n");
+      await waitFor(() => t.screen().includes("Go back? [y/N]"), "the question");
+      t.type("y\n");
+      await waitFor(() => t.screen().includes("done."), "the undo");
+      t.type("/drafts\n");
+      await waitFor(() => t.screen().includes("no named drafts"), "the next command");
+      t.type("/quit\n");
+      await t.done;
     } finally {
       t.end();
       await server.close();

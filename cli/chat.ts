@@ -36,6 +36,18 @@ async function statusLine(engine: Engine, resumed: boolean): Promise<string> {
 }
 
 /** `chattree chat`: open (or resume) a session on a thread and run it until the user leaves. Returns the exit status. */
+/**
+ * Yes/no questions from commands (`/undo`, a changed price table). In a terminal they go through the engine's own prompt, the one
+ * that owns the keyboard: a second `readline` on the same input would take it over and leave the session unresponsive.
+ */
+function confirmWith(engine: () => Engine, io: Io, yes: boolean): (q: string) => Promise<boolean> {
+  if (yes) return async () => true;
+  return async (q) => {
+    const ask = engine().ask ?? io.ask?.bind(io);
+    return ask === undefined ? false : /^y(es)?$/i.test(await ask(`${q} [y/N]`, "n"));
+  };
+}
+
 export async function runChat(io: Io, start: string, o: ChatOptions): Promise<number> {
   const project = await findProject(io, start);
   const sessions = await SessionStore.open(io, project.git);
@@ -60,7 +72,7 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
     ({ session, resumed, skipped } = r);
   }
 
-  const engine = new Engine({ io, project, opened, session, sessions, tools: true, confirm: io.ask === undefined || o.yes === true ? async () => o.yes === true : async (q) => /^y(es)?$/i.test(await (io.ask as NonNullable<Io["ask"]>)(`${q} [y/N]`, "n")) });
+  const engine = new Engine({ io, project, opened, session, sessions, tools: true, confirm: confirmWith(() => engine, io, o.yes === true) });
   if (o.thinking !== undefined) engine.state.thinking = o.thinking;
   if (!interactive) engine.ask = undefined; // lines of a script are not answers: calls no grant covers are declined
 
