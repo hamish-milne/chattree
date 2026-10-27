@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { Completed, ProviderAdapter } from "../../providers/types.ts";
-import { distance, formatProbeReport, judge, makeItems, parseProbeArgs, place, runProbe, type NativeChat } from "../../tools/copy-probe.ts";
+import { distance, formatProbeReport, judge, makeItems, nonAscii, parseProbeArgs, place, runProbe, type NativeChat } from "../../tools/copy-probe.ts";
 
 const usage = { input_tokens: 1, output_tokens: 1 };
 const reply = (blocks: Completed["blocks"], stop = "end_turn"): Completed => ({ blocks, stop_reason: stop, usage, observed: { model: "m" }, ext: {} });
@@ -22,6 +22,18 @@ describe("judging a copy", () => {
     assert.deepEqual(judge("1f08cd1", "1f08cd1f"), { kind: "near", got: "1f08cd1", distance: 1 });
     assert.deepEqual(judge("I could not find it.", "PELICAN"), { kind: "other" });
     assert.deepEqual(judge("", "PELICAN"), { kind: "other" });
+  });
+
+  test("invisible characters inside the string are a verdict of their own, with the code points; elsewhere they are only listed", () => {
+    // The two answers found in the logs: PEL, ZWSP, IC, ZWSP, AN, space, 4417 and PEL, ZWSP, ICAN, NBSP, 4417.
+    const a15 = Buffer.from("50454CE2808B4943E2808B414E20343431 37".replace(" ", ""), "hex").toString("utf8");
+    const a18 = Buffer.from("50454CE2808B4943414EC2A0 34343137".replace(" ", ""), "hex").toString("utf8");
+    assert.deepEqual(judge(a15, "PELICAN"), { kind: "hidden", chars: ["U+200B"] });
+    assert.deepEqual(judge(a18, "PELICAN"), { kind: "hidden", chars: ["U+200B", "U+00A0"] });
+    assert.deepEqual(judge("PELICAN\u00a04417", "PELICAN"), { kind: "exact" }, "a no-break space between words does not change the copy");
+    assert.deepEqual(nonAscii("PELICAN\u00a04417\u202f"), ["U+00A0", "U+202F"]);
+    assert.deepEqual(nonAscii("plain ASCII\n\ttext"), []);
+    assert.deepEqual(judge("PEL\u200bIPCAN", "PELICAN"), { kind: "near", got: "PELIPCAN", distance: 1 }, "the typo is still found once the invisible character is taken out");
   });
 
   test("a wrong copy is placed by what the reasoning holds", () => {
@@ -90,6 +102,19 @@ describe("running the probe", () => {
     assert.match(report, /3  tool: already wrong in the reasoning|2  tool: already wrong in the reasoning/);
   });
 
+  test("an answer with a zero-width space inside the word is reported as hidden characters, per arm, and not as a typo", async () => {
+    const adapter = { $tag: "p", async *stream() { return reply([{ type: "text", text: "PEL\u200bICAN and 4417" }]); }, retrieve: async () => undefined } as unknown as ProviderAdapter;
+    const native: NativeChat = async () => ({ content: "PELICAN and\u00a04417", thinking: "fine" });
+    const samples = await runProbe({ flavor: "anthropic", baseUrl: "http://x", model: "m", adapter, native, repeat: 2, arms: ["plain", "native"], items: [one[0] as (typeof one)[0]] });
+    assert.deepEqual(samples.map((s) => s.verdict.kind), ["hidden", "hidden", "exact", "exact"]);
+    assert.deepEqual(samples.map((s) => s.hidden), [["U+200B"], ["U+200B"], ["U+00A0"], ["U+00A0"]]);
+    const report = formatProbeReport(samples, { flavor: "anthropic", model: "m" });
+    assert.match(report, /plain\s+answers with any: 2\/2 \(U\+200B in 2\); reasoning: none/);
+    assert.match(report, /native\s+answers with any: 2\/2 \(U\+00A0 in 2\)/);
+    assert.match(report, /2 answer\(s\) were the right string with those characters inside it/);
+    assert.doesNotMatch(report, /near misses/);
+  });
+
   test("a typo with the right reasoning is placed in the answer, and arms can be chosen", async () => {
     const { adapter, native } = pretend(false);
     const samples = await runProbe({ flavor: "anthropic", baseUrl: "http://x", model: "m", adapter, native, repeat: 2, arms: ["plain"], items: one });
@@ -113,6 +138,8 @@ describe("the flags", () => {
   test("are checked, and the settings you leave out are not set", () => {
     const { options } = parseProbeArgs(["--base-url", "http://h:11434", "--model", "m", "--arms", "plain,native", "--temperature", "0", "--reasoning-effort", "low", "--repeat", "3"], {});
     assert.deepEqual([options.arms, options.temperature, options.reasoningEffort, options.repeat], [["plain", "native"], 0, "low", 3]);
+    assert.equal(parseProbeArgs(["--base-url", "u", "--model", "m", "--shape", "single"], {}).options.shape, "single");
+    assert.throws(() => parseProbeArgs(["--base-url", "u", "--model", "m", "--shape", "triple"], {}), /--shape must be/);
     const bare = parseProbeArgs(["--base-url", "http://h", "--model", "m"], {}).options;
     assert.equal("temperature" in bare, false);
     assert.throws(() => parseProbeArgs(["--base-url", "u", "--model", "m", "--arms", "tool,fast"], {}), /--arms must be/);

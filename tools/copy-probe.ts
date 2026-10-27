@@ -5,7 +5,7 @@
  *   node tools/copy-probe.ts --flavor anthropic --base-url http://localhost:11434 --model gpt-oss:20b --repeat 5
  *   node tools/copy-probe.ts ... --arms tool,plain,native --temperature 0 --record ./probe/ --out probe.json
  *
- * Three arms, the same sentence ("the code word is X") each time, only X varies:
+ * Three arms, the same file content ("the code word is X", and "the number is 4417" in the pair shape) each time, only X varies:
  *   tool    the real loop: the model reads note.txt with the read tool, then answers (our whole path, tools included);
  *   plain   our adapter, no tools: the sentence is pasted in the prompt (our request and response mapping, no tools);
  *   native  Ollama's own /api/chat, no tools, no harness (the control: nothing of ours is involved). Needs --ollama-url,
@@ -14,7 +14,8 @@
  * server's translation layer. Each sample records the model's reasoning (the thinking text), so a typo can be placed: already
  * in the reasoning, or only in the answer.
  *
- * Flags: --flavor, --base-url, --model, --api-key-env NAME, --repeat N (per item, default 5), --arms LIST, --temperature N,
+ * Flags: --flavor, --base-url, --model, --api-key-env NAME, --repeat N (per item, default 5), --arms LIST, --shape single|pair
+ * (pair, the default, asks for a word and a number together as the sampler's "read two files" does), --temperature N,
  * --reasoning-effort low|medium|high (sent as reasoning_effort on openai-compatible and as `think` on native), --max-tokens
  * (default 4096), --ollama-url URL, --timeout-seconds (per sample, default 180), --busybox PATH, --out FILE, --record DIR, --list.
  * Settings you do not give are not sent, so the server's own defaults apply (what a user gets).
@@ -76,12 +77,25 @@ export function distance(a: string, b: string): number {
   return row[b.length] as number;
 }
 
-export type Verdict = { kind: "exact" } | { kind: "near"; got: string; distance: number } | { kind: "other" };
+export type Verdict = { kind: "exact" } | { kind: "hidden"; chars: string[] } | { kind: "near"; got: string; distance: number } | { kind: "other" };
 
-/** Did the answer contain the string whole (`exact`), something within two edits of it (`near`, the typo we are after), or neither. */
+/** The characters in `text` outside printable ASCII (the strings copied are all ASCII), as `U+200B`; they look like nothing or like a space when printed. */
+export function nonAscii(text: string): string[] {
+  return [...new Set([...text.matchAll(/[^\x20-\x7e\n\r\t]/gu)].map((m) => `U+${(m[0].codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`))];
+}
+
+/**
+ * Did the answer contain the string whole (`exact`), whole once its non-ASCII characters are taken out, spaces of other widths becoming plain spaces (`hidden`: the
+ * zero-width space or no-break space that looks like nothing), something within two edits of it (`near`, a typo), or neither.
+ */
 export function judge(answer: string, expected: string): Verdict {
   const tokens: string[] = answer.match(/[A-Za-z0-9_]+/g) ?? [];
   if (tokens.includes(expected)) return { kind: "exact" };
+  const chars = nonAscii(answer);
+  if (chars.length > 0) {
+    const inner = judge(answer.replace(/\p{Zs}/gu, " ").replace(/[^\x20-\x7e\n\r\t]/gu, ""), expected);
+    return inner.kind === "exact" ? { kind: "hidden", chars } : inner;
+  }
   let best: { got: string; distance: number } | undefined;
   for (const t of tokens) {
     if (t.length < 3) continue;
@@ -119,6 +133,8 @@ export interface ProbeOptions {
   apiKey?: string;
   repeat?: number;
   arms?: readonly Arm[];
+  /** What the model is asked to copy: just the word, or the word and a number (default). */
+  shape?: Shape;
   temperature?: number;
   reasoningEffort?: string;
   maxTokens?: number;
@@ -140,15 +156,20 @@ export interface ProbeSample {
   verdict: Verdict;
   /** For a wrong copy: where it happened. */
   placed?: string;
+  /** Non-ASCII characters in the answer and in the reasoning, even when the copy was exact (a no-break space between two words, say). */
+  hidden: string[];
+  hiddenInReasoning: string[];
   answer: string;
   reasoning: string;
   error?: string;
   ms: number;
 }
 
-const SENTENCE = (x: string): string => `the code word is ${x}`;
-export const PLAIN_PROMPT = (x: string): string => `Here is the content of note.txt:\n\n${SENTENCE(x)}\n\nWhat is the code word? Answer with just the code word.`;
-export const TOOL_PROMPT = "What is the code word in note.txt? Answer with just the code word.";
+export type Shape = "single" | "pair";
+/** `pair` is the sampler's "read two files" shape (a word and a number, answered together), where the typo was first seen. */
+const CONTENT = (x: string, shape: Shape): string => (shape === "pair" ? `the code word is ${x}\nthe number is 4417` : `the code word is ${x}`);
+export const PLAIN_PROMPT = (x: string, shape: Shape = "pair"): string => `Here is the content of note.txt:\n\n${CONTENT(x, shape)}\n\n${shape === "pair" ? "What is the code word and the number? Answer with both." : "What is the code word? Answer with just the code word."}`;
+export const TOOL_PROMPT = (shape: Shape = "pair"): string => (shape === "pair" ? "What is the code word and the number in note.txt? Answer with both." : "What is the code word in note.txt? Answer with just the code word.");
 
 const reasoningOf = (run: Pick<StreamRun, "completed">): string => (run.completed?.blocks ?? []).flatMap((b) => (b.type === "reasoning" && b.visible !== undefined ? [b.visible] : [])).join("\n");
 const textOf = (run: Pick<StreamRun, "completed">): string => (run.completed?.blocks ?? []).flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
@@ -162,6 +183,7 @@ export async function runProbe(o: ProbeOptions): Promise<ProbeSample[]> {
   const model = { provider: "live", id: o.model, settings } as NonNullable<AgentSetup["model"]>;
   const setup: AgentSetup = { ...emptySetup(), model };
   const native = o.native ?? ollamaNative({ url: o.ollamaUrl ?? o.baseUrl.replace(/\/v1\/?$/, ""), model: o.model, temperature: o.temperature, think: o.reasoningEffort });
+  const shape = o.shape ?? "pair";
   const timeoutMs = (o.timeoutSeconds ?? 180) * 1000;
   const out: ProbeSample[] = [];
   const total = arms.length * items.length * repeat;
@@ -175,18 +197,18 @@ export async function runProbe(o: ProbeOptions): Promise<ProbeSample[]> {
         try {
           if (arm === "tool") {
             const runs: StreamRun[] = [];
-            const r = await runAgentTask({ adapter, model, busybox: o.busybox, files: { "note.txt": `${SENTENCE(item.text)}\n` }, prompt: TOOL_PROMPT, timeoutMs, onRequest: (run) => void runs.push(run) });
+            const r = await runAgentTask({ adapter, model, busybox: o.busybox, files: { "note.txt": `${CONTENT(item.text, shape)}\n` }, prompt: TOOL_PROMPT(shape), timeoutMs, onRequest: (run) => void runs.push(run) });
             answer = r.answer;
             reasoning = runs.map(reasoningOf).filter((t) => t !== "").join("\n---\n");
             if (!r.used.has("read")) error = "the model did not call read";
           } else if (arm === "plain") {
-            const context: ModelContext = { system: "You are terse. Follow instructions exactly.", instructions: undefined, turns: [{ role: "user", parts: [{ type: "text", text: PLAIN_PROMPT(item.text) }] }], tools: [], cacheHints: [] };
+            const context: ModelContext = { system: "You are terse. Follow instructions exactly.", instructions: undefined, turns: [{ role: "user", parts: [{ type: "text", text: PLAIN_PROMPT(item.text, shape) }] }], tools: [], cacheHints: [] };
             const run = await collectStream(adapter.stream({ context, setup, signal: AbortSignal.timeout(timeoutMs) }));
             if (run.error !== undefined) throw run.error;
             answer = textOf(run);
             reasoning = reasoningOf(run);
           } else {
-            const r = await native({ prompt: PLAIN_PROMPT(item.text), signal: AbortSignal.timeout(timeoutMs) });
+            const r = await native({ prompt: PLAIN_PROMPT(item.text, shape), signal: AbortSignal.timeout(timeoutMs) });
             answer = r.content;
             reasoning = r.thinking;
           }
@@ -194,7 +216,7 @@ export async function runProbe(o: ProbeOptions): Promise<ProbeSample[]> {
           error = e instanceof Error ? e.message : String(e);
         }
         const verdict = judge(answer, item.text);
-        const s: ProbeSample = { arm, kind: item.kind, expected: item.text, n, verdict, ...(verdict.kind === "exact" ? {} : { placed: place(reasoning, item.text, verdict.kind === "near" ? verdict.got : undefined) }), answer, reasoning, ...(error === undefined ? {} : { error }), ms: Date.now() - t0 };
+        const s: ProbeSample = { arm, kind: item.kind, expected: item.text, n, verdict, ...(verdict.kind === "exact" ? {} : { placed: place(reasoning, item.text, verdict.kind === "near" ? verdict.got : undefined) }), hidden: nonAscii(answer), hiddenInReasoning: nonAscii(reasoning), answer, reasoning, ...(error === undefined ? {} : { error }), ms: Date.now() - t0 };
         out.push(s);
         o.onSample?.(s, out.length, total);
       }
@@ -219,9 +241,24 @@ export function formatProbeReport(samples: readonly ProbeSample[], o: Pick<Probe
     });
     lines.push(`${k.padEnd(w)}  ${cells.join("  ")}`);
   }
+  const hiddenWrong = samples.filter((s) => s.verdict.kind === "hidden");
+  const withHidden = samples.filter((s) => s.hidden.length > 0);
   const near = samples.filter((s) => s.verdict.kind === "near");
   const other = samples.filter((s) => s.verdict.kind === "other");
   const errors = samples.filter((s) => s.error !== undefined);
+  if (withHidden.length > 0 || samples.some((s) => s.hiddenInReasoning.length > 0)) {
+    lines.push("", "non-ASCII characters (invisible or look like a space; the strings copied are plain ASCII):");
+    for (const a of arms) {
+      const mine = samples.filter((s) => s.arm === a);
+      const inAnswer = new Map<string, number>();
+      for (const s of mine) for (const c of s.hidden) inAnswer.set(c, (inAnswer.get(c) ?? 0) + 1);
+      const inThought = new Map<string, number>();
+      for (const s of mine) for (const c of s.hiddenInReasoning) inThought.set(c, (inThought.get(c) ?? 0) + 1);
+      const show = (m: Map<string, number>): string => ([...m].sort().map(([c, n]) => `${c} in ${n}`).join(", ") || "none");
+      lines.push(`  ${a.padEnd(6)} answers with any: ${frac(mine.filter((s) => s.hidden.length > 0).length, mine.length)} (${show(inAnswer)}); reasoning: ${show(inThought)}`);
+    }
+    if (hiddenWrong.length > 0) lines.push(`  ${hiddenWrong.length} answer(s) were the right string with those characters inside it, so a plain comparison fails`);
+  }
   if (near.length > 0) {
     lines.push("", "near misses (a typo in the copy):");
     for (const s of near) lines.push(`  ${s.arm.padEnd(6)} ${s.expected} -> ${s.verdict.kind === "near" ? s.verdict.got : ""}   ${s.placed}`);
@@ -247,7 +284,7 @@ export function parseProbeArgs(argv: readonly string[], env: Record<string, stri
       flags.set(a, v);
     } else throw new Error(`unexpected argument ${a}`);
   }
-  const known = new Set(["--flavor", "--base-url", "--model", "--api-key-env", "--repeat", "--arms", "--temperature", "--reasoning-effort", "--max-tokens", "--ollama-url", "--timeout-seconds", "--busybox", "--out", "--record"]);
+  const known = new Set(["--flavor", "--base-url", "--model", "--api-key-env", "--repeat", "--arms", "--shape", "--temperature", "--reasoning-effort", "--max-tokens", "--ollama-url", "--timeout-seconds", "--busybox", "--out", "--record"]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = flags.get("--flavor") ?? "anthropic";
   if (!(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${FLAVORS.join(", ")}`);
@@ -263,6 +300,8 @@ export function parseProbeArgs(argv: readonly string[], env: Record<string, stri
   };
   const armList = flags.get("--arms")?.split(",").map((a) => a.trim());
   for (const a of armList ?? []) if (!(ARMS as readonly string[]).includes(a)) throw new Error(`--arms must be a list of ${ARMS.join(", ")}`);
+  const shape = flags.get("--shape");
+  if (shape !== undefined && shape !== "single" && shape !== "pair") throw new Error("--shape must be single or pair");
   const temp = flags.get("--temperature");
   if (temp !== undefined && (!Number.isFinite(Number(temp)) || Number(temp) < 0)) throw new Error("--temperature must be a number, 0 or more");
   const keyEnv = flags.get("--api-key-env");
@@ -288,6 +327,7 @@ export function parseProbeArgs(argv: readonly string[], env: Record<string, stri
       ...(apiKey === undefined ? {} : { apiKey }),
       ...(repeat === undefined ? {} : { repeat }),
       ...(armList === undefined ? {} : { arms: armList as Arm[] }),
+      ...(shape === undefined ? {} : { shape }),
       ...(temp === undefined ? {} : { temperature: Number(temp) }),
       ...(effort === undefined ? {} : { reasoningEffort: effort }),
       ...(maxTokens === undefined ? {} : { maxTokens }),
