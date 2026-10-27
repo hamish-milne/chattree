@@ -7,7 +7,9 @@ Format spec: [docs/format.md](./docs/format.md).
 
 ```
 pnpm install
-pnpm test        # 515 tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation, fork and subagents with crash injection, compaction/config events, history verification, random-operation fuzzing, batched git reads and fast-import, events and the index cache, an end-to-end lifecycle test, and housekeeping (blob GC, worktrees, crash debris, processes) (needs git >= 2.38 on PATH)
+pnpm test        # the quick group, over a thousand tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation, fork and subagents with crash injection, compaction/config events, history verification, random-operation fuzzing, batched git reads and fast-import, events and the index cache, an end-to-end lifecycle test, and housekeeping (blob GC, worktrees, crash debris, processes) (needs git >= 2.38 on PATH)
+pnpm test:slow   # the [slow] suites only (exhaustive crash injection, random operations, live-check runs; about 2.5 minutes); skipped by `pnpm test`
+pnpm test:all    # both groups. Run the slow group before a release and after changing the journal, forks, subagents or history invariants
 pnpm typecheck   # src is checked with no Node types; tests and bench with @types/node
 pnpm bench       # strings vs bytes, see below
 ```

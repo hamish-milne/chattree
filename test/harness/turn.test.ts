@@ -14,6 +14,7 @@ import { AdapterRegistry, defineAdapter } from "../../providers/registry.ts";
 import { ProviderError, type Completed, type ProviderAdapter, type StreamEvent, type StreamRequest } from "../../providers/types.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
+import { slow, slowOptions } from "../support/slow.ts";
 
 const host = nodeHost();
 
@@ -365,7 +366,7 @@ describe("recovery in open", () => {
   });
 });
 
-describe("crash sweep over the journal", () => {
+describe(slow("crash sweep over the journal"), slowOptions, () => {
   test("a journal cut anywhere recovers to a valid transcript, and a complete one to the response", async () => {
     const src = await fresh();
     const path = await crash(src.convo, [{ type: "started" }, { type: "observed", observed: { response_id: "r" } }, ...text(0, "hello"), { type: "text.delta", index: 1, text: "wor" }, { type: "usage", usage: { input_tokens: 3, output_tokens: 1 } }], { done: done([{ type: "text", text: "hello world" }]) });

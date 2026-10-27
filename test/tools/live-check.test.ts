@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { parseArgs, runLiveChecks, type ScenarioResult } from "../../tools/live-check.ts";
 import { FakeServer, type Reply, type Seen } from "../support/fake-server.ts";
+import { slow, slowOptions } from "../support/slow.ts";
 
 const ev = (name: string, data: object): string => `event: ${name}\ndata: ${JSON.stringify({ type: name, ...data })}\n\n`;
 const msgStart = ev("message_start", { message: { id: "m", model: "fake", usage: { input_tokens: 10, output_tokens: 1 } } });
@@ -48,7 +49,7 @@ const chatPretend = (_n: number, seen: Seen): Reply => {
   return chatText(["pong"]);
 };
 
-describe("runLiveChecks", () => {
+describe(slow("runLiveChecks"), slowOptions, () => {
   test("the Chat Completions flavor against a minimal server: retrieval is skipped, chaining falls back to replay", async () => {
     const server = await FakeServer.start(chatPretend);
     try {
@@ -187,7 +188,7 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
   return chatText(["pong"]);
 };
 
-describe("runLiveChecks, tool scenarios", () => {
+describe(slow("runLiveChecks, tool scenarios"), slowOptions, () => {
   test("tools-nesting says flat for a model that sends bare strings for a list of objects, and where to set it", async () => {
     const server = await FakeServer.start(agentPretend({ bareItems: true }));
     try {

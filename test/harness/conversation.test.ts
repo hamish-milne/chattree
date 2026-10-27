@@ -10,6 +10,7 @@ import { ULID_RE } from "../../harness/ulid.ts";
 import { faultyHost } from "../support/hosts.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
+import { slow, slowOptions } from "../support/slow.ts";
 
 const host = nodeHost();
 const dec = new TextDecoder();
@@ -398,7 +399,7 @@ describe("describeEntry", () => {
   });
 });
 
-describe("crash at every step", () => {
+describe(slow("crash at every step"), slowOptions, () => {
   /**
    * Run `act` on a host that dies at the Nth side-effecting operation, for every N, then reopen with a healthy
    * host (as a restarted process would) and check the repository: valid history at every commit, the

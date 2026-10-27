@@ -10,6 +10,7 @@ import { verifyHistory } from "../../harness/verify.ts";
 import { Rng } from "../support/gen.ts";
 import { assertContextBuilds, assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
+import { slow, slowOptions } from "../support/slow.ts";
 
 const host = nodeHost();
 const CONFIG = "providers:\n  main:\n    $tag: anthropic\n    api_key_env: K\n";
@@ -111,7 +112,7 @@ async function run(seed: number, steps: number): Promise<void> {
   }
 }
 
-describe("random operations", () => {
+describe(slow("random operations"), slowOptions, () => {
   for (const seed of [1, 2, 3, 4, 5, 6]) {
     test(`seed ${seed}`, { timeout: 240_000 }, () => run(seed, 40));
   }

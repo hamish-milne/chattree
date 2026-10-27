@@ -8,6 +8,7 @@ import { CHAT_FILE, Conversation, ConversationError, summarizeMerge, type NewEnt
 import { assertHistoryInvariants } from "../support/history.ts";
 import { faultyHost } from "../support/hosts.ts";
 import { tempDir } from "../support/tmp.ts";
+import { slow, slowOptions } from "../support/slow.ts";
 
 const host = nodeHost();
 const dec = new TextDecoder();
@@ -344,7 +345,7 @@ describe("summarizeMerge", () => {
   });
 });
 
-describe("crash during spawn and finish", () => {
+describe(slow("crash during spawn and finish"), slowOptions, () => {
   async function sweep(name: string, setup: (c: Conversation) => Promise<unknown>, act: (c: Conversation, ctx: unknown) => Promise<unknown>): Promise<void> {
     const probeHost = faultyHost(host, Infinity);
     const probe = await fresh({}, probeHost);

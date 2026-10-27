@@ -9,6 +9,7 @@ import { ULID_RE } from "../../harness/ulid.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { faultyHost } from "../support/hosts.ts";
 import { tempDir } from "../support/tmp.ts";
+import { slow, slowOptions } from "../support/slow.ts";
 
 const host = nodeHost();
 
@@ -400,7 +401,7 @@ describe("mergeFork", () => {
   });
 });
 
-describe("crash during a fork", () => {
+describe(slow("crash during a fork"), slowOptions, () => {
   test("at every step the repository is valid and the new branch either exists complete or not at all", async () => {
     const probeHost = faultyHost(host, Infinity);
     const probe = await fresh({}, probeHost);
