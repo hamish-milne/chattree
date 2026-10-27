@@ -50,8 +50,11 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const env = config?.tools.env ?? [];
   const jobs = new JobRegistry(convo, { resume: config?.background.resume === true, onCommitted: hooks.onCommitted, onResume: hooks.onResume, busy: hooks.busy });
   const safe = config?.tools["run"]?.safe ?? [];
-  const busybox = await resolveBusybox(io, config?.tools["run"]?.busybox);
-  const registry = new ToolRegistry([...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), ...jobTools(jobs)]);
+  // Only tools listed under `tools` in harness.yml are offered; leaving one out turns it off.
+  const listed = (name: string): boolean => config?.tools[name] !== undefined;
+  const busybox = listed("run") || listed("script") ? await resolveBusybox(io, config?.tools["run"]?.busybox) : undefined;
+  const all = [...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), ...jobTools(jobs)];
+  const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));
   return { registry, jobs };
 }
 

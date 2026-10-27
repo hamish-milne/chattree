@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { resolveBusybox } from "../../cli/toolset.ts";
 import { CliError } from "../../cli/io.ts";
-import { BusyboxError, ensureBusybox, sha256Of, type BusyboxDeps } from "../../hosts/busybox.ts";
+import { BUSYBOX_RELEASE, BusyboxError, ensureBusybox, sha256Of, type BusyboxDeps } from "../../hosts/busybox.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { tempDir } from "../support/tmp.ts";
 import { testIo } from "../cli/support.ts";
@@ -34,6 +34,11 @@ function deps(o: { bytes?: Uint8Array; fail?: boolean; applets?: string[] | unde
 }
 
 describe("fetching busybox", () => {
+  test("the release is pinned to a SHA-256", () => {
+    assert.match(BUSYBOX_RELEASE.sha256, /^[0-9a-f]{64}$/);
+  });
+
+
   test("the pinned zip is fetched, checked, unpacked and installed, and the user is told", async () => {
     const dir = await tempDir();
     const said: string[] = [];

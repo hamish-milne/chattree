@@ -15,7 +15,7 @@ import { BUSYBOX_DIR, findBusybox } from "./node.ts";
 /** The release that is fetched and the hash its zip must have. */
 export const BUSYBOX_RELEASE = {
   url: "https://github.com/xpack-dev-tools/windows-build-tools-xpack/releases/download/v4.4.1-3/xpack-windows-build-tools-4.4.1-3-win32-x64.zip",
-  sha256: "",
+  sha256: "113d4dfdbbc56dc9b865c9f75d38cd0da82f0d7094187e6f7a803fe6eef1d218",
 } as const;
 
 export class BusyboxError extends Error {

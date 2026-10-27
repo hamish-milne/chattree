@@ -60,6 +60,7 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string }):
   lines.push(
     "# Approvals: a tool call runs without asking only while a key here covers it (key: until). `all` covers every call of the tool;",
     "# anything else asks, and the answer can add a key. `safe` lists commands known to be read-only, offered as `<command> **`.",
+    "# Only the tools listed here are offered to the model: delete an entry to turn that tool off.",
     "tools:",
     "  read:",
     "    allow: { all: 2999-01-01 }",
@@ -73,6 +74,8 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string }):
     "    allow: { all: 2999-01-01 }",
     "  job_stop:",
     "    allow: { all: 2999-01-01 }",
+    "  script:",
+    "    allow: {}",
     "  run:",
     "    safe: [cat, grep, head, tail, wc, ls, diff, git status, git diff, git log]",
     "",
