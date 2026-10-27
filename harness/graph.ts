@@ -54,6 +54,8 @@ export function summarizeEntry(e: ChatEntry | undefined, fallback: string): stri
       return `subagent done: ${flat(e.summary)}`;
     case "fork_merge":
       return `fork merged: ${flat(e.summary)}`;
+    case "job_event":
+      return `job ${e.job} ${e.status}: ${flat(e.summary)}`;
     case "interrupted":
       return `interrupted by ${e.by}`;
     case "header":
@@ -139,6 +141,7 @@ const TAGGED: Record<string, string> = {
   interrupted: "interrupted",
   subagent_result: "subagent result",
   fork_merge: "fork merge",
+  job_event: "job",
   branch_start: "start",
   header: "header",
   gc: "blob gc",

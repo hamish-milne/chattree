@@ -42,6 +42,13 @@ export const harnessConfig = z.object({
    * key that covers it; a tool without an entry asks. `env` is not a tool: the environment variables `run` may expand.
    */
   tools: z.object({ env: z.array(z.string().min(1)).optional() }).catchall(toolEntry).default({}),
+  /** Background jobs (docs/tools.md, 3.5). */
+  background: z
+    .object({
+      /** When a job ends while the conversation is idle, also send a request so the model can react. Off by default: it spends money unattended. */
+      resume: z.boolean().default(false),
+    })
+    .default({ resume: false }),
   /** Hard limits: a request that would exceed one is not sent. To go past one, change it here. */
   limits: z
     .object({

@@ -3,7 +3,7 @@ import { CommandSyntax, parseCommand, type ParsedCommand } from "./command.ts";
 import { GlobError, expandGlob } from "./glob.ts";
 import { NotAvailable, portableStage, shellStage } from "./portable.ts";
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
-import type { Tool, ToolContext, ToolOutput } from "../tools.ts";
+import { isStarted, type Tool, type ToolContext, type ToolOutput } from "../tools.ts";
 import { runAllowKeys, runCovers, validateRunKey } from "./run-keys.ts";
 
 /**
@@ -25,7 +25,7 @@ export interface RunToolOptions {
   busybox?: string | undefined;
 }
 
-const MAX_TIMEOUT = 600;
+const MAX_TIMEOUT = 3600;
 /** Names that look like credentials are not passed to commands. */
 export const SECRET_ENV_PATTERN = "(^|_)(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_KEY)($|_)";
 const MAX_REDIRECT_BYTES = 64 * 1024 * 1024;
@@ -75,9 +75,45 @@ function report(outcome: RunOutcome, timeoutSeconds: number, extra: string[]): T
   return { content: lines.join("\n"), is_error: outcome.exitCode !== 0 || outcome.timedOut || outcome.aborted };
 }
 
-const timeoutProp = { type: "integer", minimum: 1, maximum: MAX_TIMEOUT, description: `Seconds before the command is killed. Default 120, at most ${MAX_TIMEOUT}.` };
+const timeoutProp = { type: "integer", minimum: 1, maximum: MAX_TIMEOUT, description: `Seconds before the command is killed. Default 120 (3600 with background), at most ${MAX_TIMEOUT}.` };
+
+const backgroundProp = { type: "boolean", description: "Start it as a background job and return at once, for something long (a build, a server, a test run). You are told when it ends; the jobs, job_output and job_stop tools manage it. Default false." };
+
+/** Let a tool be started as a background job (`background: true`): the same execution, not tied to the turn, with a long default timeout. */
+function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => string): Tool {
+  const inner = tool.execute;
+  const schema = tool.definition.input_schema as { properties: Record<string, unknown> };
+  return {
+    ...tool,
+    background: true,
+    definition: { ...tool.definition, input_schema: { ...schema, properties: { ...schema.properties, background: backgroundProp } } as never },
+    async execute(args, ctx) {
+      if (args["background"] !== true) return inner(args, ctx);
+      const stop = new AbortController();
+      const { background: _b, ...rest } = args;
+      const done = inner({ timeout_seconds: 3600, ...rest }, { ...ctx, signal: stop.signal }).then(
+        (r): ToolOutput => (isStarted(r) ? { content: "nested background job", is_error: true } : r),
+        (e: unknown): ToolOutput => ({ content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true }),
+      );
+      return { started: { summary: label(args), done, stop: () => stop.abort() } };
+    },
+  };
+}
+
+const oneLine = (s: string, max = 80): string => {
+  const t = s.replace(/\s+/g, " ").trim();
+  return t.length <= max ? t : `${t.slice(0, max - 1)}…`;
+};
 
 export function runTool(opts: RunToolOptions = {}): Tool {
+  return backgroundable(plainRunTool(opts), (a) => `run: ${oneLine(a["command"] as string)}`);
+}
+
+export function scriptTool(opts: RunToolOptions = {}): Tool {
+  return backgroundable(plainScriptTool(opts), (a) => `script: ${oneLine((a["script"] as string).split("\n")[0] ?? "")}`);
+}
+
+function plainRunTool(opts: RunToolOptions): Tool {
   return {
     definition: {
       name: "run",
@@ -142,7 +178,7 @@ export function runTool(opts: RunToolOptions = {}): Tool {
   };
 }
 
-export function scriptTool(opts: RunToolOptions = {}): Tool {
+function plainScriptTool(opts: RunToolOptions): Tool {
   return {
     definition: {
       name: "script",

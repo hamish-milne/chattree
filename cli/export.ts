@@ -52,6 +52,9 @@ export async function exportMarkdown(convo: Conversation, entries: readonly Chat
       case "fork_merge":
         out.push(`*A side conversation (${e.branch}) was merged back:*\n\n${(await text(e.summary)).split("\n").map((l) => `> ${l}`).join("\n")}`);
         break;
+      case "job_event":
+        out.push(`*Background job ${e.job} ${e.status}:* ${await text(e.summary)}${e.output === undefined ? "" : `\n\n${fence(await text(e.output))}`}`);
+        break;
       case "subagent_result":
         out.push(`*Subagent ${e.branch} finished:*\n\n${(await text(e.summary)).split("\n").map((l) => `> ${l}`).join("\n")}`);
         break;

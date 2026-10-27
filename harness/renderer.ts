@@ -23,6 +23,8 @@ export interface Renderer {
   compaction(summary: string): string;
   /** A fork merged back into this branch. */
   forkMerge(summary: string, files: MergedFiles): string;
+  /** A background job that ended, shown as a message. `output` is everything it printed, if anything. */
+  jobEvent(job: string, status: string, summary: string, output: string | undefined): string;
   /** A subagent's result, as the result of the call that started it. */
   subagentResult(summary: string, files: MergedFiles): string;
   /** A subagent's result when no call here started it (the call was compacted away): shown as a message. */
@@ -56,6 +58,10 @@ function filesNote(f: MergedFiles): string {
 export const chattreeEnglishV1: Renderer = Object.freeze({
   compaction: (summary: string) => `[Summary of the earlier conversation]\n${summary}`,
   forkMerge: (summary: string, files: MergedFiles) => `[A side conversation that branched from this one was merged back]\n${summary}${filesNote(files)}`,
+  jobEvent: (job: string, status: string, summary: string, output: string | undefined) => {
+    const shown = output === undefined || output === "" ? "(no output)" : output.length <= 4000 ? output : `${output.slice(0, 3000)}\n[... ${output.length - 4000} characters left out; job_output ${job} reads them ...]\n${output.slice(-1000)}`;
+    return `[Background job ${job} ${status}] ${summary}\n${shown}`;
+  },
   subagentResult: (summary: string, files: MergedFiles) => `${summary}${filesNote(files)}`,
   subagentResultUnattached: (summary: string, files: MergedFiles) => `[A subagent finished]\n${summary}${filesNote(files)}`,
   cutOffCall: (toolName: string) => `[A call to ${toolName} was cut off before it finished and did not run]`,

@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 1, minor: 3 } as const;
+export const FORMAT = { format: "chatlog", major: 1, minor: 4 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -223,6 +223,24 @@ export const forkMerge = z.object({
   spend: spendRollup.optional(),
 });
 
+/**
+ * A background job ended (format 1.4). Committed on the branch when the job finishes (or is found lost after a crash)
+ * and shown to the model as a user message. `call_id` is the call that started the job, whose result said `started job <id>`.
+ */
+export const jobEvent = z.object({
+  $tag: z.literal("job_event"),
+  id: ulid,
+  /** The job's id on this branch (`j1`). */
+  job: z.string().min(1),
+  call_id: z.string(),
+  /** `completed`: it ended and succeeded; `failed`: it ended with an error or timed out; `stopped`: stopped on request; `lost`: the process that ran it ended first. */
+  status: z.enum(["completed", "failed", "stopped", "lost"]),
+  /** One line: what it was and how it ended. */
+  summary: text,
+  /** Everything it printed (a blob when large). */
+  output: text.optional(),
+});
+
 export const interrupted = z.object({
   $tag: z.literal("interrupted"),
   id: ulid,
@@ -244,6 +262,7 @@ export type ChatEntry =
   | z.infer<typeof branchStart>
   | z.infer<typeof subagentResult>
   | z.infer<typeof forkMerge>
+  | z.infer<typeof jobEvent>
   | z.infer<typeof interrupted>;
 
 export const entryTypes = [
@@ -256,6 +275,7 @@ export const entryTypes = [
   defineEntry("branch_start", branchStart),
   defineEntry("subagent_result", subagentResult),
   defineEntry("fork_merge", forkMerge),
+  defineEntry("job_event", jobEvent),
   defineEntry("interrupted", interrupted),
 ];
 

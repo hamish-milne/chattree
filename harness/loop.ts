@@ -8,6 +8,7 @@ import type { Block } from "./context-builder.ts";
 import type { ToolConvention } from "../providers/registry.ts";
 import { servedModelId, type ModelSetup } from "./setup.ts";
 import { flatProblems } from "./tool-schema.ts";
+import type { JobRegistry, JobStatus } from "./jobs.ts";
 import { keyProblem, permitted, untilAfter, type AllowMap } from "./approvals.ts";
 
 /**
@@ -61,12 +62,19 @@ export interface LoopOptions extends TurnOptions {
    * covers it; otherwise `approve` is asked, and without `approve` the call is declined, never run.
    */
   grants?: GrantStore;
+  /**
+   * Where background jobs live. With it, a tool called with `background: true` starts a job; the loop commits the events of jobs
+   * that ended before each request, and marks jobs lost in an earlier process. Without it such a call is refused.
+   */
+  jobs?: JobRegistry;
   /** The most bytes of a result the model is shown; the rest is kept as a blob. Default 30,000. */
   resultLimit?: number;
 }
 
 export type LoopEvent =
   | { type: "request.start"; n: number }
+  /** A background job's event was committed; the next request shows it to the model. */
+  | { type: "job.event"; job: string; status: JobStatus; summary: string }
   | { type: "stream"; event: StreamEvent }
   | { type: "request.end"; n: number; result: TurnResult }
   | { type: "tool.start"; callId: string; name: string; args: Record<string, unknown> }
@@ -174,6 +182,15 @@ type CallBlock = Extract<Block, { type: "tool_call" }>;
  * transcript is always valid when they are; asking again after fixing them continues the same turn.
  */
 export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGenerator<LoopEvent, LoopResult, void> {
+  opts.jobs?.enterLoop();
+  try {
+    return yield* loopBody(convo, opts);
+  } finally {
+    opts.jobs?.leaveLoop();
+  }
+}
+
+async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator<LoopEvent, LoopResult, void> {
   const { registry } = opts;
   const drift = await toolDrift(convo, registry);
   if (drift.missing.length + drift.changed.length + drift.extra.length > 0) throw new ToolsOutOfSync(drift);
@@ -204,6 +221,8 @@ export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGen
     yield { type: "tool.result", callId: call.call_id, name: call.name, content: shaped.content, is_error: shaped.is_error, truncated: shaped.truncated, ms: now() - t0, ...(skipped === undefined ? {} : { skipped }) };
   };
 
+  if (opts.jobs !== undefined) for (const id of await opts.jobs.recover()) yield { type: "job.event", job: id, status: "lost", summary: `job ${id} was lost` };
+
   // Calls an earlier loop left unanswered are not run now; the model hears that they did not run.
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const names = new Map<string, string>();
@@ -214,6 +233,7 @@ export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGen
   if (deadline === undefined) delete (turnOpts as { deadline?: number }).deadline;
   let requests = 0;
   for (;;) {
+    if (opts.jobs !== undefined) for (const j of await opts.jobs.flush()) yield { type: "job.event", ...j };
     requests++;
     yield { type: "request.start", n: requests };
     const gen = requestStream(convo, turnOpts);
@@ -292,8 +312,14 @@ export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGen
       let out: ToolOutput;
       try {
         const res = await checked.tool.execute(checked.args, { signal, callId: call.call_id, workspace: convo.dir, host: convo.host, blobs: convo.store });
-        out = isStarted(res) ? { content: "background jobs are not supported yet", is_error: true } : res;
-        if (isStarted(res)) res.started.stop();
+        if (!isStarted(res)) out = res;
+        else if (opts.jobs === undefined) {
+          res.started.stop();
+          out = { content: "background jobs are not available here", is_error: true };
+        } else {
+          const id = await opts.jobs.start(call.call_id, res.started);
+          out = { content: `started job ${id}: ${res.started.summary}. It keeps running; you will be told when it ends (jobs lists jobs, job_stop stops one).` };
+        }
       } catch (e) {
         out = { content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true };
       }

@@ -7,9 +7,10 @@ import { nodeHost } from "../../hosts/node.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
+import { JobRegistry, jobTools } from "../../harness/jobs.ts";
 import { runLoop, syncTools, toolDrift, ToolsNotSupported, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
 import { leafTools } from "../../harness/starter/index.ts";
-import { ToolRegistry, type Tool } from "../../harness/tools.ts";
+import { ToolRegistry, type Tool, type ToolOutput } from "../../harness/tools.ts";
 import { envSource } from "../../harness/secrets.ts";
 import { AdapterRegistry, defineAdapter, type ToolConvention } from "../../providers/registry.ts";
 import { ProviderError, type Completed } from "../../providers/types.ts";
@@ -417,5 +418,170 @@ describe("approvals", () => {
     assert.deepEqual(await store.allow("echo"), { all: "2999-01-01" });
     await convo.revokeGrant("echo", undefined);
     assert.deepEqual(await store.allow("echo"), {});
+  });
+});
+
+describe("background jobs", () => {
+  const gate = () => {
+    let resolve!: (o: ToolOutput) => void;
+    const promise = new Promise<ToolOutput>((r) => (resolve = r));
+    return { promise, resolve };
+  };
+  const slow = (g: ReturnType<typeof gate>, stopped: { n: number } = { n: 0 }): Tool => ({
+    ...tool("slow", () => Promise.resolve({ started: { summary: "slow thing", done: g.promise, stop: () => (stopped.n++, g.resolve({ content: "cut short", is_error: true })) } }) as never),
+    background: true,
+  });
+  const tags = async (c: Conversation) => (await entries(c)).map((e) => e.$tag === "tool_result" ? `result:${e.call_id}` : e.$tag === "job_event" ? `job:${e.job}:${e.status}` : e.$tag);
+  const events = async (c: Conversation) => (await entries(c)).flatMap((e) => (e.$tag === "job_event" ? [e] : []));
+  const settle = () => new Promise((r) => setTimeout(r, 30));
+
+  test("a call that starts a job is answered at once; the job's event is committed before the next request after it ends, and the model is shown it", async () => {
+    const g = gate();
+    const registry = reg(slow(g), echo);
+    const { convo } = await fresh(registry);
+    const jobs = new JobRegistry(convo);
+    const seen: string[] = [];
+    queue = [
+      calls(call("c1", "slow")),
+      async () => (g.resolve({ content: "exit 0\nbuild ok" }), await settle(), calls(call("c2", "echo"))),
+      answer("done"),
+    ];
+    const { events: ev } = await drive(convo, registry, { jobs, onRequest: undefined } as never);
+    assert.deepEqual(await tags(convo), ["header", "agent_setup", "agent_setup", "user", "assistant", "result:c1", "assistant", "result:c2", "job:j1:completed", "assistant"]);
+    const [r1] = await results(convo);
+    assert.match(str(r1!.content), /^started job j1: slow thing/);
+    const [je] = await events(convo);
+    assert.equal(je!.call_id, "c1");
+    assert.match(str(je!.summary), /slow thing completed after/);
+    assert.equal(str(je!.output), "exit 0\nbuild ok");
+    assert.deepEqual(ev.filter((e) => e.type === "job.event").map((e) => (e as { job: string }).job), ["j1"]);
+    void seen;
+    await assertHistoryInvariants(convo);
+  });
+
+  test("a job that ends while idle is committed at once and the host told; resume asks for a request only when on", async () => {
+    for (const resume of [false, true]) {
+      const g = gate();
+      const registry = reg(slow(g));
+      const { convo } = await fresh(registry);
+      const told: string[][] = [];
+      let resumed = 0;
+      const jobs = new JobRegistry(convo, { resume, onCommitted: (e) => told.push(e.map((x) => `${x.job}:${x.status}`)), onResume: () => resumed++ });
+      queue = [calls(call("c1", "slow")), answer("started")];
+      await drive(convo, registry, { jobs });
+      assert.deepEqual(told, []);
+      g.resolve({ content: "late" });
+      await settle();
+      assert.deepEqual(told, [["j1:completed"]]);
+      assert.equal(resumed, resume ? 1 : 0);
+      assert.deepEqual((await events(convo)).map((e) => e.job), ["j1"]);
+    }
+  });
+
+  test("a failed job is failed, and job_stop stops a running one: status stopped, with what it had printed", async () => {
+    const g1 = gate();
+    const g2 = gate();
+    const stopped = { n: 0 };
+    const a = slow(g1);
+    const b = { ...slow(g2, stopped), definition: { ...slow(g2).definition, name: "slow2" } };
+    const { convo } = await fresh(reg(a, b, ...[]));
+    const jobs = new JobRegistry(convo);
+    const registry = reg(a, b, ...jobTools(jobs));
+    await syncTools(convo, registry);
+    queue = [calls(call("c1", "slow"), call("c2", "slow2")), calls(call("c3", "job_stop", { job: "j2" }), call("c4", "jobs")), answer("ok")];
+    g1.resolve({ content: "exit 2\nboom", is_error: true });
+    await drive(convo, registry, { jobs });
+    await settle();
+    assert.equal(stopped.n, 1);
+    const evs = await events(convo);
+    assert.deepEqual(evs.map((e) => [e.job, e.status]).sort(), [["j1", "failed"], ["j2", "stopped"]]);
+    const rs = await results(convo);
+    assert.match(str(rs[2]!.content), /Asked job j2 to stop/);
+    assert.match(str(rs[3]!.content), /j1  failed  slow thing/);
+  });
+
+  test("job_output reads from an offset, says when a job has nothing yet, and finds a job from an earlier process in the history", async () => {
+    const g = gate();
+    const { convo } = await fresh(reg(echo));
+    const jobs = new JobRegistry(convo);
+    const t = Object.fromEntries(jobTools(jobs).map((x) => [x.definition.name, x]));
+    const ctx = { signal: new AbortController().signal, callId: "x", workspace: convo.dir, host };
+    const out = (args: Record<string, unknown>) => t["job_output"]!.execute(args, ctx).then((r) => r as ToolOutput);
+    assert.match((await out({ job: "j9" })).content, /There is no job j9/);
+    await jobs.start("c1", { summary: "thing", done: g.promise, stop: () => undefined });
+    assert.match((await out({ job: "j1" })).content, /running: there is no output yet/);
+    g.resolve({ content: "0123456789" });
+    await settle();
+    assert.equal((await out({ job: "j1", limit: 4 })).content, "0123\n[job j1 completed; continue from offset 4]");
+    assert.equal((await out({ job: "j1", offset: 8 })).content, "89\n[job j1 completed; end of output at 10]");
+    const again = new JobRegistry(convo);
+    assert.match((await again.output("j1"))?.output ?? "", /0123456789/);
+  });
+
+  test("a job started and never ended in the history is marked lost once, and numbering continues after it", async () => {
+    const registry = reg(echo);
+    const { convo } = await fresh(registry);
+    await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "started job j1: run: sleep 100. It keeps running" });
+    await convo.append({ $tag: "tool_result", call_id: "c2", is_error: false, content: "started job j2: run: ls. It keeps running" });
+    await convo.append({ $tag: "job_event", job: "j2", call_id: "c2", status: "completed", summary: "ls completed after 0s" });
+    const jobs = new JobRegistry(convo);
+    assert.deepEqual(await jobs.recover(), ["j1"]);
+    assert.deepEqual(await jobs.recover(), []);
+    const lost = (await events(convo)).filter((e) => e.status === "lost");
+    assert.equal(lost.length, 1);
+    assert.equal(lost[0]!.job, "j1");
+    assert.equal(lost[0]!.call_id, "c1");
+    const g = gate();
+    assert.equal(await jobs.start("c9", { summary: "next", done: g.promise, stop: () => undefined }), "j3");
+    g.resolve({ content: "" });
+    await settle();
+  });
+
+  test("runLoop recovers lost jobs when it starts, and says so", async () => {
+    const registry = reg(echo);
+    const { convo } = await fresh(registry);
+    await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "started job j1: run: x" });
+    queue = [answer("ok")];
+    const { events: ev } = await drive(convo, registry, { jobs: new JobRegistry(convo) });
+    assert.deepEqual(ev.filter((e) => e.type === "job.event").map((e) => [(e as { job: string }).job, (e as { status: string }).status]), [["j1", "lost"]]);
+  });
+
+  test("without a registry a background start is refused and the job is stopped", async () => {
+    const g = gate();
+    const stopped = { n: 0 };
+    const registry = reg(slow(g, stopped));
+    const { convo } = await fresh(registry);
+    queue = [calls(call("c1", "slow")), answer("ok")];
+    await drive(convo, registry);
+    const [r] = await results(convo);
+    assert.equal(r!.is_error, true);
+    assert.match(str(r!.content), /not available here/);
+    assert.equal(stopped.n, 1);
+  });
+
+  test("the real run tool starts a background job that outlives the call and reports its output", async () => {
+    const jobs0 = leafTools();
+    const { convo } = await fresh(reg(...jobs0));
+    const jobs = new JobRegistry(convo);
+    const registry = reg(...jobs0, ...jobTools(jobs));
+    await syncTools(convo, registry);
+    const js = JSON.stringify(`console.log("hello from the job")`);
+    queue = [calls(call("c1", "run", { command: `${process.execPath} -e ${js}`, background: true })), answer("started")];
+    await drive(convo, registry, { jobs });
+    const [r] = await results(convo);
+    assert.match(str(r!.content), /^started job j1: run: /);
+    await new Promise((r2) => setTimeout(r2, 800));
+    const [je] = await events(convo);
+    assert.ok(je !== undefined, `no job event; jobs: ${JSON.stringify(jobs.list())}`);
+    assert.equal(je.status, "completed", str(je.output));
+    assert.match(str(je.output), /hello from the job/);
+  });
+
+  test("run and script declare background, with a boolean argument, and stay flat", () => {
+    for (const t of leafTools().filter((x) => x.definition.name === "run" || x.definition.name === "script")) {
+      assert.equal(t.background, true);
+      assert.deepEqual(flatProblems(t.definition.input_schema), []);
+      assert.equal((t.definition.input_schema as { properties: Record<string, { type: string }> }).properties["background"]?.type, "boolean");
+    }
   });
 });

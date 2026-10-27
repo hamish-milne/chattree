@@ -20,6 +20,9 @@ describe("chattree-english-v1 is frozen", () => {
     assert.equal(r.compaction("S"), "[Summary of the earlier conversation]\nS");
     assert.equal(r.forkMerge("S", files), "[A side conversation that branched from this one was merged back]\nS\n[Files: added: b.md; changed: a.md; not kept (conflicted): c.md]");
     assert.equal(r.forkMerge("S", none), "[A side conversation that branched from this one was merged back]\nS");
+    assert.equal(r.jobEvent("j1", "completed", "run: make completed after 3s", "ok"), "[Background job j1 completed] run: make completed after 3s\nok");
+    assert.equal(r.jobEvent("j1", "lost", "gone", undefined), "[Background job j1 lost] gone\n(no output)");
+    assert.equal(r.jobEvent("j2", "failed", "s", "a".repeat(5000)), `[Background job j2 failed] s\n${"a".repeat(3000)}\n[... 1000 characters left out; job_output j2 reads them ...]\n${"a".repeat(1000)}`);
     assert.equal(r.subagentResult("S", files), "S\n[Files: added: b.md; changed: a.md; not kept (conflicted): c.md]");
     assert.equal(r.subagentResultUnattached("S", none), "[A subagent finished]\nS");
     assert.equal(r.cutOffCall("write"), "[A call to write was cut off before it finished and did not run]");

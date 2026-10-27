@@ -77,6 +77,8 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
       return `[a fork was merged back]\n${indent(await t(e.summary))}`;
     case "subagent_result":
       return `[subagent ${e.branch} finished]\n${indent(await t(e.summary))}`;
+    case "job_event":
+      return `[background job ${e.job} ${e.status}] ${await t(e.summary)}${e.output === undefined ? "" : `\n${indent(clip(await t(e.output), 400))}`}`;
   }
 }
 

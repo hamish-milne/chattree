@@ -147,6 +147,9 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       case "fork_merge":
         userText(render.forkMerge(await text(e.summary), e.files));
         break;
+      case "job_event":
+        userText(render.jobEvent(e.job, e.status, await text(e.summary), e.output === undefined ? undefined : await text(e.output)));
+        break;
       case "interrupted": {
         const blocks: Block[] = [];
         for (const b of e.partial) {

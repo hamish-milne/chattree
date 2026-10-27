@@ -377,6 +377,8 @@ export function describeEntry(e: ChatEntry): string {
       return `subagent_result: ${oneLine(e.branch, 40)}`;
     case "fork_merge":
       return `fork_merge: ${oneLine(e.branch, 40)}`;
+    case "job_event":
+      return `job_event: ${oneLine(e.job, 20)} ${e.status}`;
     case "interrupted":
       return `interrupted: ${e.by}`;
   }
