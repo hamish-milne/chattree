@@ -155,7 +155,7 @@ const lastVersion = (body: { messages: { role: string; content?: string }[] }): 
   const tools = body.messages.filter((m) => m.role === "tool");
   return /version ([0-9a-f]{8})/.exec(tools.at(-1)?.content ?? "")?.[1] ?? "00000000";
 };
-const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: boolean } = {}) => (_n: number, seen: Seen): Reply => {
+const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: boolean; bareItems?: boolean } = {}) => (_n: number, seen: Seen): Reply => {
   const body = JSON.parse(seen.body) as { messages: { role: string; content?: string }[]; tools?: unknown[] };
   const results = body.messages.filter((m) => m.role === "tool").length;
   const prompt = body.messages.find((m) => m.role === "user")?.content ?? "";
@@ -180,6 +180,7 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
   for (const [key, path, changes] of cases) if (prompt.includes(key)) return results === 0 ? read(path) : results <= changes.length ? edit(path, changes[results - 1]) : chatText(["done"]);
   if (prompt.includes("insert the line `# v2`")) return results === 0 ? read("f.txt") : results === 1 ? edit("f.txt", { after: 0, content: "# v2" }) : results === 2 ? edit("f.txt", { start: 4, end: 4, content: "GAMMA" }) : chatText(["done"]);
   if (results > 0) return chatText(["done"]);
+  if (prompt.includes("record_items")) return toolCalls({ id: "n1", name: "record_items", args: { items: opts.bareItems === true ? ["apples", "pears"] : [{ name: "apples", quantity: 3 }, { name: "pears", quantity: 5 }] } });
   if (prompt.includes("two independent things")) return toolCalls({ id: "p1", name: "read", args: { path: "a.txt" } }, { id: "p2", name: "run", args: { command: "ls -la" } });
   if (prompt.includes("Use the read tool")) return toolCalls({ id: "s1", name: "read", args: { path: "notes.txt" } });
   if (prompt.includes("run tool")) return toolCalls({ id: "ru", name: "run", args: opts.badArgv === true ? { cmd: "ls -la" } : { command: "ls -la" } });
@@ -187,12 +188,24 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
 };
 
 describe("runLiveChecks, tool scenarios", () => {
-  const names = ["tools-schema", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop"];
+  test("tools-nesting says flat for a model that sends bare strings for a list of objects, and where to set it", async () => {
+    const server = await FakeServer.start(agentPretend({ bareItems: true }));
+    try {
+      const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: ["tools-nesting"] }));
+      assert.equal(r["tools-nesting"]?.status, "pass");
+      assert.match(r["tools-nesting"]?.detail ?? "", /^tool_convention: flat \(0 of 3 calls had the list of objects exactly right; for example .*items.*\); set it under providers\.<name>\.models in harness\.yml$/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  const names = ["tools-schema", "tools-nesting", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop"];
   test("a model that uses the tools well passes all four, including the real loop in a temporary workspace", async () => {
     const server = await FakeServer.start(agentPretend());
     try {
       const r = byName(await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only: names }));
       for (const name of names) assert.equal(r[name]?.status, "pass", `${name}: ${r[name]?.detail}`);
+      assert.match(r["tools-nesting"]?.detail ?? "", /^tool_convention: full \(3 of 3 calls had the list of objects exactly right\)$/);
       assert.match(r["tools-parallel"]?.detail ?? "", /2 calls \(read, run\) with distinct ids/);
       assert.match(r["tools-reliability"]?.detail ?? "", /run 4\/4 valid/);
       assert.match(r["tools-edit"]?.detail ?? "", /^6\/6 correct/);

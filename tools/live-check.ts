@@ -23,6 +23,7 @@ import { findBusybox } from "../hosts/node.ts";
 import { runAgentTask } from "./agent-task.ts";
 import { EDIT_TASKS, TASKS, type Task } from "./tasks.ts";
 import { ToolRegistry } from "../harness/tools.ts";
+import { validateArgs } from "../harness/tool-schema.ts";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import { emptySetup, type AgentSetup } from "../harness/setup.ts";
 import { anthropicAdapter } from "../providers/anthropic.ts";
@@ -82,6 +83,34 @@ export function makeAdapter(o: Pick<LiveOptions, "flavor" | "baseUrl" | "apiKey"
 const summary = (c: ModelContext): RequestSummary => ({ last: c.turns.at(-1), tools: c.tools.map((t) => t.name) });
 
 const user = (text: string): Turn => ({ role: "user", parts: [{ type: "text", text }] });
+/** A tool with a list of objects, to find out whether the model is shown and fills nested arguments (docs/tools.md, 3.7). */
+const NESTING = {
+  name: "record_items",
+  description: "Record the items of an order.",
+  input_schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["items"],
+    properties: {
+      items: {
+        type: "array",
+        description: "The items ordered.",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["name", "quantity"],
+          properties: { name: { type: "string", description: "The item's name." }, quantity: { type: "integer", minimum: 1, description: "How many." } },
+        },
+      },
+    },
+  },
+};
+const NESTING_PROMPTS = [
+  "Use the record_items tool to record this order: 3 apples and 5 pears.",
+  "Use the record_items tool to record this order: 2 lamps, 1 desk and 4 chairs.",
+  "Use the record_items tool to record this order: 10 bolts and 12 nuts.",
+];
+
 const WEATHER = { name: "get_weather", description: "Get the current weather for a city.", input_schema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } };
 
 export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
@@ -157,8 +186,25 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       ok(!("error" in checked), `the call fails the schema: ${"error" in checked ? checked.error : ""}`);
       return `${starter.names().length} definitions accepted; read args=${JSON.stringify(call.args)}`;
     }],
+    ["tools-nesting", async () => {
+      // Does the model fill a list of objects exactly as the schema says, with no repair? If not, the setup should say `tool_convention: flat` for it.
+      let exact = 0;
+      let made = 0;
+      const seen: string[] = [];
+      for (const prompt of NESTING_PROMPTS) {
+        const r = clean(await go(ctx([user(prompt)], [NESTING])));
+        const call = (r.completed?.blocks ?? []).find((b) => b.type === "tool_call");
+        if (call?.type !== "tool_call" || call.name !== "record_items") continue;
+        made++;
+        if (validateArgs(NESTING.input_schema, call.args).length === 0) exact++;
+        else if (seen.length < 2) seen.push(JSON.stringify(call.args).slice(0, 80));
+      }
+      if (made === 0) return skip("the model did not call the tool (it may not support tools)");
+      const verdict = exact === made ? "full" : "flat";
+      return `tool_convention: ${verdict} (${exact} of ${made} calls had the list of objects exactly right${seen.length > 0 ? `; for example ${seen.join(" and ")}` : ""})${verdict === "flat" ? "; set it under providers.<name>.models in harness.yml" : ""}`;
+    }],
     ["tools-parallel", async () => {
-      // `read` takes a list of files, so asking for two reads is rightly one call; two different tools cannot be batched.
+      // Asking for a read and a run: two different tools cannot be batched into one call.
       const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
       const c1 = ctx([user("Do two independent things: read the file a.txt, and run `ls -la`. Neither needs the other's result, so request both tools in the same step.")], starter.definitions());
       const r1 = clean(await go(c1));
@@ -314,7 +360,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   return results;
 }
 
-export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "tools-schema", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
+export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "tools-schema", "tools-nesting", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
 
 export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: LiveOptions; record?: string; list: boolean } {
   const flags = new Map<string, string[]>();

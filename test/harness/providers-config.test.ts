@@ -137,6 +137,19 @@ describe("JSON Schema", () => {
   });
 });
 
+describe("a model's tool convention", () => {
+  const withModels = (convention: string): string => `providers:\n  local:\n    $tag: openai-compatible\n    base_url: http://localhost:11434/v1\n    models:\n      "gpt-oss:20b":\n        tool_convention: ${convention}\n`;
+  test("is set per model in harness.yml, read back by modelInfo, and unknown for a model that was not named", async () => {
+    const dir = await dirOf();
+    const convo = await Conversation.create(host, dir, { ...opts(), config: withModels("flat") });
+    assert.equal(convo.modelInfo("local", "gpt-oss:20b")?.tool_convention, "flat");
+    assert.equal(convo.modelInfo("local", "gemma4:12b")?.tool_convention, undefined);
+  });
+  test("a value other than full or flat is refused where it is written", async () => {
+    await assert.rejects(Conversation.create(host, await dirOf(), { ...opts(), config: withModels("nested") }), /tool_convention/);
+  });
+});
+
 describe("create and open", () => {
   test("create validates, adds the editor line, writes the schema into an ignored directory, and nothing of it is committed", async () => {
     const dir = await dirOf();

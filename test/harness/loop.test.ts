@@ -7,12 +7,13 @@ import { nodeHost } from "../../hosts/node.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
-import { runLoop, syncTools, toolDrift, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
+import { runLoop, syncTools, toolDrift, ToolsNotSupported, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
 import { leafTools } from "../../harness/starter/index.ts";
 import { ToolRegistry, type Tool } from "../../harness/tools.ts";
 import { envSource } from "../../harness/secrets.ts";
-import { AdapterRegistry, defineAdapter } from "../../providers/registry.ts";
+import { AdapterRegistry, defineAdapter, type ToolConvention } from "../../providers/registry.ts";
 import { ProviderError, type Completed } from "../../providers/types.ts";
+import { flatProblems } from "../../harness/tool-schema.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
 
@@ -35,6 +36,7 @@ const calls = (...cs: { id: string; name: string; args: unknown }[]): Completed 
 });
 const call = (id: string, name: string, args: unknown = {}) => ({ id, name, args });
 
+let convention: ToolConvention | undefined;
 const adapters = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
@@ -42,6 +44,7 @@ const adapters = new AdapterRegistry().register(
     settings: z.strictObject({}),
     jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
     secrets: () => [],
+    models: () => (convention === undefined ? {} : { m1: { tool_convention: convention } }),
     create: () => ({
       $tag: "fake",
       async *stream(req) {
@@ -91,6 +94,42 @@ async function drive(convo: Conversation, registry: ToolRegistry, extra: Partial
     events.push(n.value);
   }
 }
+
+describe("the model's tool convention", () => {
+  const nested: Tool = { definition: { name: "nest", description: "a tool with a list of objects", input_schema: { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: { type: "object", additionalProperties: false, properties: { a: { type: "string" } } } }, cfg: { type: "object", additionalProperties: false, properties: {} } } } }, execute: () => Promise.resolve({ content: "ok" }) };
+
+  test("a flat model is refused any tool with nested arguments, naming the tool and why", async () => {
+    convention = "flat";
+    try {
+      const registry = reg(echo, nested);
+      const { convo } = await fresh(registry);
+      queue = [answer("never")];
+      await assert.rejects(drive(convo, registry), (e: unknown) => e instanceof ToolsNotSupported && e.convention === "flat" && e.tools.length === 1 && e.tools[0]?.name === "nest" && /items is a list of objects, cfg is an object/.test(e.message));
+      assert.equal(requests, 0, "no request is made");
+      const flat = reg(echo);
+      const second = await fresh(flat);
+      queue = [answer("fine")];
+      assert.equal((await drive(second.convo, flat)).result.status, "completed");
+    } finally {
+      convention = undefined;
+    }
+  });
+
+  test("full is the default and takes any tool in the portable subset", async () => {
+    for (const c of [undefined, "full" as const]) {
+      convention = c;
+      const registry = reg(echo, nested);
+      const { convo } = await fresh(registry);
+      queue = [answer("fine")];
+      assert.equal((await drive(convo, registry)).result.status, "completed");
+    }
+    convention = undefined;
+  });
+
+  test("the starter tools are flat, so every convention can have them", () => {
+    for (const d of leafTools().map((t) => t.definition)) assert.deepEqual(flatProblems(d.input_schema), [], d.name);
+  });
+});
 
 describe("the tool loop", () => {
   test("several calls in one response run in order, each result its own commit, then the model answers", async () => {

@@ -3,7 +3,7 @@ import { describe, test } from "node:test";
 import { MemoryBlobStore, sha256Hex } from "../../src/index.ts";
 import { hashDefinition, loadDefinitions } from "../../harness/definitions.ts";
 import { foldSetup } from "../../harness/setup.ts";
-import { checkSchema, coerceArgs, validateArgs } from "../../harness/tool-schema.ts";
+import { checkSchema, coerceArgs, flatProblems, validateArgs } from "../../harness/tool-schema.ts";
 import { DEFAULT_RESULT_LIMIT, ToolError, ToolRegistry, isStarted, shapeResult, type Tool } from "../../harness/tools.ts";
 
 const read = {
@@ -143,6 +143,15 @@ describe("result shaping", () => {
         assert.doesNotMatch(r.content, /�/, `${unit} at limit ${limit}`);
       }
     }
+  });
+});
+
+describe("flat schemas", () => {
+  const obj = (properties: Record<string, unknown>) => ({ type: "object", additionalProperties: false, properties });
+  test("scalars and lists of scalars are flat; objects and lists of objects or lists are not, each named", () => {
+    assert.deepEqual(flatProblems(obj({ a: { type: "string" }, b: { type: "integer" }, c: { type: "boolean", enum: [true] }, d: { type: "array", items: { type: "string" } } })), []);
+    assert.deepEqual(flatProblems(obj({ files: { type: "array", items: obj({ path: { type: "string" } }) }, cfg: obj({}), m: { type: "array", items: { type: "array", items: { type: "string" } } } })), ["files is a list of objects", "cfg is an object", "m is a list of arrays"]);
+    assert.deepEqual(flatProblems(obj({})), []);
   });
 });
 

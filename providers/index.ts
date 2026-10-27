@@ -10,4 +10,5 @@ export function defaultRegistry(): AdapterRegistry {
 
 export { AdapterRegistry, ProviderSetupError, buildProviders, defineAdapter, validateProviders, type AdapterDefinition, type BuiltProviders } from "./registry.ts";
 export { costOf, effectiveTable, findModel, tableHash, type ModelPrice, type PriceTable } from "./pricing.ts";
-export type { ModelInfo } from "./registry.ts";
+export type { ModelInfo, ToolConvention } from "./registry.ts";
+export { TOOL_CONVENTIONS } from "./registry.ts";

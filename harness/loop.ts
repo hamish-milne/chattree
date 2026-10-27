@@ -5,6 +5,9 @@ import { DEFAULT_RESULT_LIMIT, ToolRegistry, isStarted, shapeResult, type Tool, 
 import { requestStream, type TurnOptions, type TurnResult } from "./turn.ts";
 import type { StreamEvent } from "../providers/types.ts";
 import type { Block } from "./context-builder.ts";
+import type { ToolConvention } from "../providers/registry.ts";
+import { servedModelId, type ModelSetup } from "./setup.ts";
+import { flatProblems } from "./tool-schema.ts";
 
 /**
  * The tool loop (docs/tools.md, section 3): ask the model, run what it asked for, write the results, ask again, until
@@ -73,6 +76,26 @@ export class ToolsOutOfSync extends Error {
   }
 }
 
+/** A tool the model's calling convention cannot show properly (docs/tools.md, 3.7). */
+export class ToolsNotSupported extends Error {
+  override name = "ToolsNotSupported";
+  readonly convention: ToolConvention;
+  readonly tools: { name: string; why: string[] }[];
+  constructor(convention: ToolConvention, tools: { name: string; why: string[] }[]) {
+    super(`the model's tool convention is ${convention}, which cannot show: ${tools.map((t) => `${t.name} (${t.why.join(", ")})`).join("; ")}; give these tools flat arguments, remove them, or set tool_convention for this model`);
+    this.convention = convention;
+    this.tools = tools;
+  }
+}
+
+/** The tools in the registry that the agent's model cannot be given (none unless its convention is `flat`). */
+export function toolConventionProblems(convo: Conversation, registry: ToolRegistry, model: ModelSetup | undefined): { convention: ToolConvention; tools: { name: string; why: string[] }[] } {
+  const info = model === undefined ? undefined : convo.modelInfo(model.provider, servedModelId(model));
+  const convention = info?.tool_convention ?? "full";
+  if (convention === "full") return { convention, tools: [] };
+  return { convention, tools: registry.definitions().flatMap((d) => { const why = flatProblems(d.input_schema); return why.length > 0 ? [{ name: d.name, why }] : []; }) };
+}
+
 /** How the agent's pinned tools differ from the registry. */
 export async function toolDrift(convo: Conversation, registry: ToolRegistry): Promise<{ missing: string[]; changed: string[]; extra: string[] }> {
   const pinned = (await convo.setup()).tools;
@@ -125,6 +148,8 @@ export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGen
   const { registry } = opts;
   const drift = await toolDrift(convo, registry);
   if (drift.missing.length + drift.changed.length + drift.extra.length > 0) throw new ToolsOutOfSync(drift);
+  const unsupported = toolConventionProblems(convo, registry, (await convo.setup()).model);
+  if (unsupported.tools.length > 0) throw new ToolsNotSupported(unsupported.convention, unsupported.tools);
 
   const now = convo.now;
   let deadline = opts.deadline;

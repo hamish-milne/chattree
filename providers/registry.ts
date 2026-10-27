@@ -12,10 +12,22 @@ import type { ProviderAdapter } from "./types.ts";
  * each adapter must be able to emit JSON Schema for the editor.
  */
 
-/** What is known about a model's size. Unknown fields are unknown; the harness only warns on what it can tell. */
+/**
+ * How tool definitions must be written for the model to see and fill them properly (docs/tools.md, 3.7). `full`: any
+ * JSON Schema in the portable subset, nested objects and lists of objects included. `flat`: the model is shown only a
+ * tool's top-level properties with their types and descriptions (some servers, such as Ollama for gpt-oss, print a list as
+ * `any[]` and an object as `Record<string, any>`), so a tool must have scalar properties only. Reserved, not built: `text`
+ * (calls written as text for models with no native tool calling) and `raw` (one unescaped text argument).
+ */
+export const TOOL_CONVENTIONS = ["full", "flat"] as const;
+export type ToolConvention = (typeof TOOL_CONVENTIONS)[number];
+
+/** What is known about a model. Unknown fields are unknown; the harness only warns on what it can tell. */
 export interface ModelInfo {
   context_window?: number | undefined;
   max_output_tokens?: number | undefined;
+  /** Default `full`. Measured by the `tools-nesting` live check, or set in `harness.yml`. */
+  tool_convention?: ToolConvention | undefined;
 }
 
 export interface AdapterDefinition<C extends { $tag: string } = { $tag: string }> {
@@ -68,8 +80,8 @@ export const commonProviderFields = {
   max_attempts: z.number().int().positive().optional(),
   /** Price overrides, or `free: true` for a local server. Without either, a model with no bundled price has an unknown price. */
   pricing: pricingConfig.optional(),
-  /** What you know about models the adapter does not (context window, maximum output). */
-  models: z.record(z.string(), z.strictObject({ context_window: z.number().int().positive().optional(), max_output_tokens: z.number().int().positive().optional() })).optional(),
+  /** What you know about models the adapter does not (context window, maximum output, how tools must be written: `tool_convention` `full` or `flat`). */
+  models: z.record(z.string(), z.strictObject({ context_window: z.number().int().positive().optional(), max_output_tokens: z.number().int().positive().optional(), tool_convention: z.enum(TOOL_CONVENTIONS).optional() })).optional(),
 };
 
 export interface CommonProviderConfig {

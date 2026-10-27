@@ -31,6 +31,7 @@ import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
 import { DEFAULT_MAX_ATTACHMENT_BYTES, attachmentKind, decodeText, mimeCharset, normalizeMime } from "./attachments.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
+import type { ModelInfo } from "../providers/registry.ts";
 import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type SetupChange } from "./setup.ts";
 import { createUlid } from "./ulid.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
@@ -1257,7 +1258,7 @@ export class Conversation {
   }
 
   /** What is known about a model of a provider (dated ids match the entry they extend). */
-  modelInfo(provider: string, model: string): { context_window?: number | undefined; max_output_tokens?: number | undefined } | undefined {
+  modelInfo(provider: string, model: string): ModelInfo | undefined {
     const all = this.#opts.built?.models.get(provider);
     if (all === undefined) return undefined;
     if (all[model] !== undefined) return all[model];

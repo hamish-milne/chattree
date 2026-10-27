@@ -107,6 +107,25 @@ export function validateArgs(schema: unknown, value: unknown): string[] {
   return problems;
 }
 
+/**
+ * Why a schema is not flat (empty: it is). A flat schema is an object whose properties are strings, numbers, integers or
+ * booleans, or lists of those: nothing nested, because some servers show a model only the top-level types (docs/tools.md, 3.7).
+ */
+export function flatProblems(schema: unknown): string[] {
+  const out: string[] = [];
+  const props = isObject(schema) && isObject(schema["properties"]) ? (schema["properties"] as Record<string, unknown>) : {};
+  for (const [k, p] of Object.entries(props)) {
+    if (!isObject(p)) continue;
+    const type = p["type"];
+    if (type === "object") out.push(`${k} is an object`);
+    else if (type === "array") {
+      const items = p["items"];
+      if (!isObject(items) || !SCALAR.has(items["type"] as string)) out.push(`${k} is a list of ${isObject(items) && typeof items["type"] === "string" ? `${items["type"]}s` : "things that are not plain values"}`);
+    }
+  }
+  return out;
+}
+
 const NUMBER_RE = /^\s*-?\d+(\.\d+)?\s*$/;
 
 /**
