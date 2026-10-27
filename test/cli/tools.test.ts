@@ -258,6 +258,26 @@ describe("which tools are offered", () => {
   });
 });
 
+describe("init on Windows", () => {
+  test("lists tools.run.batch: true only when the host is Windows, and the file still parses", async () => {
+    const server = await FakeServer.start([]);
+    try {
+      const base = await tempDir();
+      const win = join(base, "win");
+      const w = testIo(win);
+      assert.equal(await main(initArgs(server, win), { ...w, host: { ...w.host, platform: "windows" as const } }), 0, w.stderr);
+      assert.match(await readFile(join(win, "harness.yml"), "utf8"), /^ {4}batch: true$/m);
+      const posix = join(base, "posix");
+      assert.equal(await main(initArgs(server, posix), testIo(posix)), 0);
+      assert.doesNotMatch(await readFile(join(posix, "harness.yml"), "utf8"), /batch:/);
+      const cfg = await (await Conversation.open(host, win)).readConfig();
+      assert.equal(cfg?.ok === true && cfg.value.tools["run"]?.batch, true);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("stopping at a question", () => {
   test("Ctrl-C while a question is open declines the call and ends the turn", async () => {
     const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo hi > out.txt" } }), answer("never")]);

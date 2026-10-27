@@ -71,7 +71,7 @@ describe("settings", () => {
 describe("request body", () => {
   const turns: ModelContext["turns"] = [
     { role: "user", parts: [{ type: "text", text: "weather?" }] },
-    { role: "assistant", provider: "main", model: "gpt-5.4", blocks: [{ type: "reasoning", provider: "main", payload: JSON.stringify(REASONING_ITEM), visible: "Thinking it over." }, { type: "text", text: "Let me look.", ext: { item_id: "msg_1" } }, { type: "tool_call", call_id: "call_1", name: "get_weather", args: { city: "SF" }, ext: { item_id: "fc_1" } }, { type: "tool_call", call_id: "call_2", name: "broken", args: {}, args_raw: '{"a": ' }] },
+    { role: "assistant", provider: "main", model: "gpt-5.4", blocks: [{ type: "reasoning", provider: "main", payload: REASONING_ITEM, visible: "Thinking it over." }, { type: "text", text: "Let me look.", ext: { item_id: "msg_1" } }, { type: "tool_call", call_id: "call_1", name: "get_weather", args: { city: "SF" }, ext: { item_id: "fc_1" } }, { type: "tool_call", call_id: "call_2", name: "broken", args: {}, args_raw: '{"a": ' }] },
     { role: "tool_results", results: [{ call_id: "call_1", is_error: false, content: "sunny", truncated: false }, { call_id: "call_2", is_error: true, content: "bad", truncated: false }] },
     { role: "user", parts: [{ type: "text", text: "thanks" }] },
   ];
@@ -161,7 +161,7 @@ describe("stream", () => {
   test("reasoning item kept whole; a function call with its ids; stop reason tool_use; both replay in the next request", async () => {
     const r = good(await run(replay(TOOL)));
     assert.deepEqual(r.completed?.blocks, [
-      { type: "reasoning", provider: "main", payload: JSON.stringify(REASONING_ITEM), visible: "Thinking it over." },
+      { type: "reasoning", provider: "main", payload: REASONING_ITEM, visible: "Thinking it over." },
       { type: "tool_call", call_id: "call_1", name: "get_weather", args: { city: "SF" }, ext: { item_id: "fc_1" } },
     ]);
     assert.equal(r.completed?.stop_reason, "tool_use");

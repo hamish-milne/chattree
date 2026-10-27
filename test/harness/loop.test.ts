@@ -433,7 +433,11 @@ describe("background jobs", () => {
   });
   const tags = async (c: Conversation) => (await entries(c)).map((e) => e.$tag === "tool_result" ? `result:${e.call_id}` : e.$tag === "job_event" ? `job:${e.job}:${e.status}` : e.$tag);
   const events = async (c: Conversation) => (await entries(c)).flatMap((e) => (e.$tag === "job_event" ? [e] : []));
-  const settle = () => new Promise((r) => setTimeout(r, 30));
+  const settle = () => new Promise((r) => setTimeout(r, 150));
+  /** Wait until something that happens in the background (a commit) has happened, instead of guessing how long it takes. */
+  const until = async (pred: () => boolean): Promise<void> => {
+    for (let i = 0; i < 400 && !pred(); i++) await new Promise((r) => setTimeout(r, 15));
+  };
 
   test("a call that starts a job is answered at once; the job's event is committed before the next request after it ends, and the model is shown it", async () => {
     const g = gate();
@@ -471,7 +475,7 @@ describe("background jobs", () => {
       await drive(convo, registry, { jobs });
       assert.deepEqual(told, []);
       g.resolve({ content: "late" });
-      await settle();
+      await until(() => told.length > 0 && (resumed > 0 || !resume));
       assert.deepEqual(told, [["j1:completed"]]);
       assert.equal(resumed, resume ? 1 : 0);
       assert.deepEqual((await events(convo)).map((e) => e.job), ["j1"]);

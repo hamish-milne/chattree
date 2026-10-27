@@ -40,6 +40,7 @@ describe("the starter tools are valid registry entries", () => {
     assert.match((registry.check({ name: "read", args: { files: [{ path: "a", bogus: 1 }] } }) as { error: string }).error, /bogus is not a known argument/);
     assert.match((registry.check({ name: "run", args: { argv: ["ls"] } }) as { error: string }).error, /argv is not a known argument \(known: command, timeout_seconds, background\)/);
     assert.match((registry.check({ name: "run", args: {} }) as { error: string }).error, /command is required/);
+    assert.match((registry.check({ name: "write", args: { content: "x" } }) as { error: string }).error, /path is required \(the arguments are: path, content\)/, "a missing argument says what the tool takes");
   });
 });
 

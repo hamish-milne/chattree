@@ -71,7 +71,7 @@ async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOpt
     if (ctx.host.platform === "windows" && mapped[0] === words[0]) {
       const found = await findProgram(ctx.host, ctx.workspace, words[0] as string, opts.hostEnv ?? {});
       if (found !== undefined && isBatch(found.path)) {
-        if (opts.batch !== true) throw new RunRefused(`${words[0]} is a batch program (${found.path}), which run does not start by default because cmd.exe re-interprets its arguments; set tools.run.batch: true in harness.yml to allow it, or use the script tool`);
+        if (opts.batch !== true) throw new RunRefused(`${words[0]} is a batch program (${found.path}), which run does not start by default because cmd.exe re-interprets its arguments; the user can allow it with tools.run.batch: true in harness.yml`);
         if (found.local !== undefined && !localAllowed(found.local, opts.batchLocal ?? [])) throw new RunRefused(`${words[0]} resolves to ${found.local}, a batch file inside the workspace, and tools.run.local in harness.yml does not list it (for example ./node_modules/.bin/*.cmd)`);
         const problem = batchProblem(found.path, words.slice(1));
         if (problem !== undefined) throw new RunRefused(`${words[0]}: ${problem}`);

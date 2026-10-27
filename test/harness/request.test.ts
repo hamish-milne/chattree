@@ -54,7 +54,7 @@ describe("prepareContext", () => {
   test("reasoning goes only to the model that wrote it, using the dated id after resolution", async () => {
     const convo = await fresh();
     await convo.append({ $tag: "user", content: [{ $tag: "text", text: "hi" }] });
-    await convo.appendResponse({ ...say("gpt-5.4-2026-03-05"), blocks: [{ $tag: "reasoning", provider: "main", payload: "ENC" }, { $tag: "text", text: "a" }] }, { model: "gpt-5.4-2026-03-05" });
+    await convo.appendResponse({ ...say("gpt-5.4-2026-03-05"), blocks: [{ $tag: "reasoning", provider: "main", payload: { encrypted: "ENC" } }, { $tag: "text", text: "a" }] }, { model: "gpt-5.4-2026-03-05" });
     await convo.append({ $tag: "user", content: [{ $tag: "text", text: "more" }] });
     const { context } = await prepareContext(convo, { system: "s", source: source() });
     const a = context.turns[1];

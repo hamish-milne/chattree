@@ -55,10 +55,10 @@ describe("settings", () => {
 describe("request body", () => {
   const turns: ModelContext["turns"] = [
     { role: "user", parts: [{ type: "text", text: "weather?" }] },
-    { role: "assistant", provider: "local", model: "qwen3:4b", blocks: [{ type: "reasoning", provider: "local", payload: "{}", visible: "hmm" }, { type: "text", text: "Let me look." }, { type: "tool_call", call_id: "c1", name: "get_weather", args: { city: "SF" } }, { type: "tool_call", call_id: "c2", name: "get_time", args: {} }] },
+    { role: "assistant", provider: "local", model: "qwen3:4b", blocks: [{ type: "reasoning", provider: "local", visible: "hmm" }, { type: "text", text: "Let me look." }, { type: "tool_call", call_id: "c1", name: "get_weather", args: { city: "SF" } }, { type: "tool_call", call_id: "c2", name: "get_time", args: {} }] },
     { role: "tool_results", results: [{ call_id: "c1", is_error: false, content: "sunny", truncated: false }, { call_id: "c2", is_error: true, content: "no clock", truncated: false }] },
     { role: "assistant", provider: "local", model: "qwen3:4b", blocks: [{ type: "tool_call", call_id: "c3", name: "get_time", args: {} }] },
-    { role: "assistant", provider: "local", model: "qwen3:4b", blocks: [{ type: "reasoning", provider: "local", payload: "{}", visible: "only thoughts" }] },
+    { role: "assistant", provider: "local", model: "qwen3:4b", blocks: [{ type: "reasoning", provider: "local", visible: "only thoughts" }] },
     { role: "user", parts: [{ type: "text", text: "thanks" }, { type: "text", text: "really" }] },
   ];
   const tools = [{ name: "get_weather", description: "Weather", input_schema: { type: "object" }, flags: { read_only: true } }];
@@ -158,7 +158,7 @@ describe("stream", () => {
   test("reasoning in either field becomes a reasoning block before the text", async () => {
     for (const [events, field] of [[LLAMA_THINKING, "reasoning_content"], [OLLAMA_THINKING, "reasoning"]] as const) {
       const r = good(await run(replay(events)));
-      assert.deepEqual(r.completed?.blocks, [{ type: "reasoning", provider: "local", payload: JSON.stringify({ [field]: "Let me think." }), visible: "Let me think." }, { type: "text", text: "Done." }]);
+      assert.deepEqual(r.completed?.blocks, [{ type: "reasoning", provider: "local", visible: "Let me think." }, { type: "text", text: "Done." }]);
       assert.equal(r.completed?.usage.reasoning_tokens, 22);
       assert.ok(r.events.findIndex((e) => e.type === "block.done") < r.events.findIndex((e) => e.type === "text.delta"), "the thinking block is complete before the answer starts");
     }
@@ -167,7 +167,7 @@ describe("stream", () => {
   test("inline <think> in the content becomes a reasoning block, whichever way the tags are split across chunks", async () => {
     const pieces = ["<th", "ink>Let me ", "think.</th", "ink>\n\n", "The ", "answer."];
     const r = good(await run(replay([...pieces.map((c) => chunk({ content: c })), chunk({}, "stop"), DONE])));
-    assert.deepEqual(r.completed?.blocks, [{ type: "reasoning", provider: "local", payload: JSON.stringify({ think_tags: "Let me think." }), visible: "Let me think." }, { type: "text", text: "The answer." }]);
+    assert.deepEqual(r.completed?.blocks, [{ type: "reasoning", provider: "local", visible: "Let me think." }, { type: "text", text: "The answer." }]);
     assert.ok(r.events.findIndex((e) => e.type === "block.done") < r.events.findIndex((e) => e.type === "text.delta"));
     const sizes = good(await run(replay([...pieces.map((c) => chunk({ content: c })), chunk({}, "stop"), DONE], [7, 3, 11])));
     assert.deepEqual(sizes, r);

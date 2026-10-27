@@ -209,7 +209,7 @@ describe("retrieval", () => {
       assert.equal(server.seen[0]?.url, "/v1/responses/resp_9");
       assert.equal(server.seen[0]?.headers["authorization"], `Bearer ${KEY}`);
       assert.deepEqual(c?.blocks, [
-        { type: "reasoning", provider: "main", payload: JSON.stringify({ id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "hm" }], encrypted_content: "ENC" }), visible: "hm" },
+        { type: "reasoning", provider: "main", payload: { id: "rs_1", type: "reasoning", summary: [{ type: "summary_text", text: "hm" }], encrypted_content: "ENC" }, visible: "hm" },
         { type: "text", text: "Recovered text", ext: { item_id: "msg_9" } },
         { type: "tool_call", call_id: "c9", name: "lookup", args: { q: 1 }, ext: { item_id: "fc_9" } },
       ]);

@@ -26,7 +26,7 @@ section 9; the few questions still open are in section 8.
   does not produce provider messages, and nothing yet renders `subagent_result`, `fork_merge` or `interrupted`
   as text, or decides what happens to reasoning from another model. **That builder is the first piece of work
   (P1).**
-- The `assistant` entry carries `provider`, `model`, `blocks` (text, reasoning with an opaque `payload` and a
+- The `assistant` entry carries `provider`, `model`, `blocks` (text, reasoning with a readable `visible`, an optional `payload` (a map) and a
   `provider` tag, tool calls with `args_raw`), `stop_reason`, `usage`, `ext`; `interrupted` carries `partial`
   blocks and `by`.
 - `harness.yml` still holds a single `model:` block, tool/skill names and MCP servers, and a recorded

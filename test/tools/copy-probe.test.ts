@@ -70,7 +70,7 @@ function pretend(wrongInReasoning: boolean): { adapter: ProviderAdapter; native:
       const toolResult = turns.find((t) => t.role === "tool_results")?.results?.[0]?.content;
       if (toolResult === undefined && turns[0]?.parts?.[0]?.text.includes("note.txt") && !turns[0].parts[0].text.includes("Here is")) return reply([{ type: "tool_call", call_id: "r", name: "read", args: { path: "note.txt" } }], "tool_use");
       const c = copy(wordIn(toolResult ?? turns[0]?.parts?.[0]?.text ?? ""));
-      return reply([{ type: "reasoning", provider: "p", payload: "{}", visible: c.thought }, { type: "text", text: c.answer }]);
+      return reply([{ type: "reasoning", provider: "p", visible: c.thought }, { type: "text", text: c.answer }]);
     },
     retrieve: async () => undefined,
   } as unknown as ProviderAdapter;

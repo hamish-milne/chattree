@@ -46,7 +46,7 @@ async function chooseProvider(io: Io, o: InitOptions): Promise<string> {
   throw new CliError(have.length === 0 ? "no provider chosen, and neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set" : "both ANTHROPIC_API_KEY and OPENAI_API_KEY are set; choose one", "pass --provider anthropic | openai | compatible (with --base-url and --model)");
 }
 
-function configText(provider: string, o: { baseUrl?: string; keyEnv?: string }): { text: string; name: string } {
+function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; windows?: boolean }): { text: string; name: string } {
   const lines = ["# chattree configuration: the outside world (providers, limits). The agent's own setup (model, settings, instructions) is in the transcript.", "providers:"];
   let name = provider;
   if (provider === "compatible") {
@@ -78,6 +78,7 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string }):
     "    allow: {}",
     "  run:",
     "    safe: [cat, grep, head, tail, wc, ls, diff, git status, git diff, git log]",
+    ...(o.windows === true ? ["    # Windows: lets run start .cmd programs such as npm and pnpm through cmd.exe, which re-reads their arguments; arguments with its", "    # special characters are refused. Programs inside the workspace (node_modules\\.bin) also need a glob in `local`.", "    batch: true"] : []),
     "",
   );
   return { text: lines.join("\n"), name };
@@ -107,7 +108,7 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   if (provider === "compatible" && o.baseUrl === undefined) throw new CliError("an OpenAI-compatible provider needs its address", "pass --base-url http://localhost:11434/v1 (the address of the server, including /v1)");
   const model = o.model ?? DEFAULT_MODEL[provider];
   if (model === undefined) throw new CliError("an OpenAI-compatible provider needs a model name", "pass --model <name>, as the server calls it");
-  const cfg = configText(provider, { ...(o.baseUrl === undefined ? {} : { baseUrl: o.baseUrl }), ...(o.keyEnv === undefined ? {} : { keyEnv: o.keyEnv }) });
+  const cfg = configText(provider, { ...(o.baseUrl === undefined ? {} : { baseUrl: o.baseUrl }), ...(o.keyEnv === undefined ? {} : { keyEnv: o.keyEnv }), windows: io.host.platform === "windows" });
 
   // The providers are built to check the configuration and to price the setup. A key that is not exported yet must not stop init, so
   // a variable that is missing gets a placeholder here; it exists only for this call and is never written anywhere.

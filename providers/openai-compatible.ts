@@ -201,7 +201,7 @@ function close(o: Open | undefined, s: State, events: StreamEvent[]): void {
   if (o === undefined) return;
   let block: Block;
   if (o.kind === "text") block = { type: "text", text: o.text };
-  else if (o.kind === "reasoning") block = { type: "reasoning", provider: s.provider, payload: JSON.stringify({ [o.field]: o.text }), visible: o.text };
+  else if (o.kind === "reasoning") block = { type: "reasoning", provider: s.provider, visible: o.text };
   else {
     try {
       const parsed: unknown = o.args === "" ? {} : JSON.parse(o.args);

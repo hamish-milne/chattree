@@ -20,7 +20,7 @@ const say = (blocks: Blocks | string, over: Partial<Extract<ChatEntry, { $tag: "
 });
 const call = (call_id: string, name = "run"): Blocks[number] => ({ $tag: "tool_call", call_id, name, args: { x: 1 } });
 const result = (call_id: string, content = "ok", is_error = false): ChatEntry => ({ $tag: "tool_result", id: id(), call_id, is_error, content });
-const think = (provider = "anthropic"): Blocks[number] => ({ $tag: "reasoning", provider, payload: "SIG==", visible: "hmm" });
+const think = (provider = "anthropic"): Blocks[number] => ({ $tag: "reasoning", provider, payload: { signature: "SIG==" }, visible: "hmm" });
 const target = { provider: "anthropic", model: "sonnet" };
 const build = (entries: ChatEntry[], over: Partial<Parameters<typeof buildContext>[1]> = {}) => buildContext(entries, { system: "sys", target, ...over });
 const roles = (c: ModelContext): string[] => c.turns.map((t) => t.role);
@@ -90,7 +90,7 @@ describe("reasoning", () => {
   const withThinking = [user("q"), say([think(), { $tag: "text", text: "a" }]), user("q2")];
   test("kept for the model that produced it, verbatim", async () => {
     const t = (await build(withThinking)).turns[1];
-    assert.ok(t?.role === "assistant" && t.blocks[0]?.type === "reasoning" && t.blocks[0].payload === "SIG==");
+    assert.ok(t?.role === "assistant" && t.blocks[0]?.type === "reasoning" && t.blocks[0].payload?.["signature"] === "SIG==");
   });
   test("dropped for another model, another provider, or a block tagged for another provider", async () => {
     for (const tgt of [{ provider: "anthropic", model: "opus" }, { provider: "openai", model: "sonnet" }]) {
@@ -131,13 +131,13 @@ describe("pairing", () => {
 
 describe("blobs and hints", () => {
   const ref = { $tag: "blob" as const, sha256: "ab".repeat(32), bytes: 5 };
-  const entries: ChatEntry[] = [user("go"), say([call("a")], { stop_reason: "tool_use" }), { $tag: "tool_result", id: id(), call_id: "a", is_error: false, content: ref, truncated: true }, say([{ $tag: "reasoning", provider: "anthropic", payload: ref }, { $tag: "text", text: ref }])];
+  const entries: ChatEntry[] = [user("go"), say([call("a")], { stop_reason: "tool_use" }), { $tag: "tool_result", id: id(), call_id: "a", is_error: false, content: ref, truncated: true }, say([{ $tag: "reasoning", provider: "anthropic", visible: ref }, { $tag: "text", text: ref }])];
   test("large texts are read in; without a reader it is an error", async () => {
     const c = ok(await build(entries, { readText: async (r) => `blob:${r.sha256.slice(0, 2)}` }));
     const r = c.turns[2];
     assert.ok(r?.role === "tool_results" && r.results[0]?.content === "blob:ab" && r.results[0].truncated === true);
     const a = c.turns[3];
-    assert.ok(a?.role === "assistant" && a.blocks.map((b) => (b.type === "text" ? b.text : b.type === "reasoning" ? b.payload : "")).join() === "blob:ab,blob:ab");
+    assert.ok(a?.role === "assistant" && a.blocks.map((b) => (b.type === "text" ? b.text : b.type === "reasoning" ? b.visible : "")).join() === "blob:ab,blob:ab");
     await assert.rejects(build(entries), /readText/);
   });
   test("cache hints: the end of the previous exchange and the last turn", async () => {

@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 1, minor: 4 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 0 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -26,8 +26,11 @@ const textBlock = z.object({ $tag: z.literal("text"), text, ext: blockExt });
 const reasoningBlock = z.object({
   $tag: z.literal("reasoning"),
   provider: z.string(),
-  /** Opaque, provider-specific, replayed verbatim (Anthropic thinking signature, OpenAI encrypted reasoning, ...). */
-  payload: text,
+  /**
+   * What the provider needs back that `visible` does not hold, as the provider's own object (an Anthropic thinking block without its
+   * text, redacted thinking, an OpenAI reasoning item). Opaque to the harness; absent when `visible` is all there is to replay.
+   */
+  payload: json.optional(),
   /** Readable form of the reasoning when the provider exposes one. */
   visible: text.optional(),
   ext: blockExt,

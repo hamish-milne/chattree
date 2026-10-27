@@ -75,7 +75,7 @@ export function validateArgs(schema: unknown, value: unknown): string[] {
     if (type === "object") {
       if (!isObject(v)) return void problems.push(`${where} must be an object`);
       const props = (isObject(s["properties"]) ? s["properties"] : {}) as Record<string, Schema>;
-      for (const r of (s["required"] as string[] | undefined) ?? []) if (!(r in v)) problems.push(`${at(path, r)} is required`);
+      for (const r of (s["required"] as string[] | undefined) ?? []) if (!(r in v)) problems.push(`${at(path, r)} is required${Object.keys(props).length === 0 ? "" : ` (${path === "" ? "the arguments are" : `${path} takes`}: ${Object.keys(props).join(", ")})`}`);
       for (const [k, sub] of Object.entries(v)) {
         const def = props[k];
         if (def === undefined) problems.push(`${at(path, k)} is not a known argument${Object.keys(props).length === 0 ? "" : ` (known: ${Object.keys(props).join(", ")})`}`);

@@ -25,7 +25,7 @@ type EntryBlock = Extract<ChatEntry, { $tag: "assistant" }>["blocks"][number];
 /** An assistant block with its texts read in. `payload` is opaque and goes back to the provider verbatim. */
 export type Block =
   | { type: "text"; text: string; ext?: Record<string, unknown> }
-  | { type: "reasoning"; provider: string; payload: string; visible?: string; ext?: Record<string, unknown> }
+  | { type: "reasoning"; provider: string; payload?: Record<string, unknown>; visible?: string; ext?: Record<string, unknown> }
   | { type: "provider_compaction"; provider: string; payload: string; ext?: Record<string, unknown> }
   | { type: "tool_call"; call_id: string; name: string; args: Record<string, unknown>; args_raw?: string; ext?: Record<string, unknown> };
 type BlobRef = { $tag: "blob"; sha256: string; bytes: number; mime?: string | undefined };
@@ -92,7 +92,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     const ext = b.ext === undefined ? {} : { ext: b.ext };
     if (b.$tag === "text") return { type: "text", text: await text(b.text), ...ext };
     if (b.$tag === "provider_compaction") return { type: "provider_compaction", provider: b.provider, payload: await text(b.payload), ...ext };
-    if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, payload: await text(b.payload), ...(b.visible === undefined ? {} : { visible: await text(b.visible) }), ...ext };
+    if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, ...(b.payload === undefined ? {} : { payload: b.payload }), ...(b.visible === undefined ? {} : { visible: await text(b.visible) }), ...ext };
     return { type: "tool_call", call_id: b.call_id, name: b.name, args: (await inlineBlobs(b.args, text)) as Record<string, unknown>, ...(b.args_raw === undefined ? {} : { args_raw: await text(b.args_raw) }), ...ext };
   };
 

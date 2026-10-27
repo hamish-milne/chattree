@@ -75,8 +75,8 @@ describe("settings", () => {
 // ---- request --------------------------------------------------------------------------------------------------
 
 describe("request body", () => {
-  const sig = JSON.stringify({ type: "thinking", thinking: "hmm", signature: "SIG", extra_field: 1 });
-  const redacted = JSON.stringify({ type: "redacted_thinking", data: "OPAQUE" });
+  const sig = { type: "thinking", signature: "SIG", extra_field: 1 };
+  const redacted = { type: "redacted_thinking", data: "OPAQUE" };
   const turns: ModelContext["turns"] = [
     { role: "user", parts: [{ type: "text", text: "weather?" }] },
     { role: "assistant", provider: "main", model: "claude-sonnet-5-5", blocks: [{ type: "reasoning", provider: "main", payload: sig, visible: "hmm" }, { type: "reasoning", provider: "main", payload: redacted }, { type: "text", text: "Let me look." }, { type: "tool_call", call_id: "toolu_1", name: "get_weather", args: { city: "SF" } }, { type: "tool_call", call_id: "toolu_2", name: "get_time", args: {} }] },
@@ -97,7 +97,7 @@ describe("request body", () => {
       tools: [{ name: "get_weather", description: "Weather", input_schema: { type: "object" } }],
       messages: [
         { role: "user", content: [{ type: "text", text: "weather?" }] },
-        { role: "assistant", content: [JSON.parse(sig), JSON.parse(redacted), { type: "text", text: "Let me look." }, { type: "tool_use", id: "toolu_1", name: "get_weather", input: { city: "SF" } }, { type: "tool_use", id: "toolu_2", name: "get_time", input: {} }] },
+        { role: "assistant", content: [{ ...sig, thinking: "hmm" }, redacted, { type: "text", text: "Let me look." }, { type: "tool_use", id: "toolu_1", name: "get_weather", input: { city: "SF" } }, { type: "tool_use", id: "toolu_2", name: "get_time", input: {} }] },
         { role: "user", content: [{ type: "tool_result", tool_use_id: "toolu_1", content: "sunny" }, { type: "tool_result", tool_use_id: "toolu_2", content: "no clock", is_error: true }, { type: "text", text: "and tomorrow?" }] },
         { role: "assistant", content: [{ type: "text", text: "Rain." }] },
         { role: "user", content: [{ type: "text", text: "thanks" }] },
@@ -148,7 +148,7 @@ describe("request body", () => {
     ];
     const c = await buildContext(entries, { system: "S", target: { provider: "main", model: "claude-sonnet-5-5" } });
     const body = buildAnthropicBody(c, setupFor(), { cacheControl: false });
-    assert.deepEqual(((body["messages"] as { content: unknown[] }[])[1] as { content: unknown[] }).content[0], JSON.parse(sig));
+    assert.deepEqual(((body["messages"] as { content: unknown[] }[])[1] as { content: unknown[] }).content[0], { ...sig, thinking: "hmm" });
   });
 });
 
@@ -181,8 +181,8 @@ describe("stream", () => {
   test("thinking and redacted thinking are kept whole, and come back identically in the next request", async () => {
     const r = good(await run(replay(THINKING)));
     const [t, red, text] = r.completed?.blocks ?? [];
-    assert.deepEqual(t, { type: "reasoning", provider: "main", payload: JSON.stringify({ type: "thinking", thinking: "Let me think.", signature: "EqQBCgIYAhIM" }), visible: "Let me think." });
-    assert.deepEqual(red, { type: "reasoning", provider: "main", payload: JSON.stringify({ type: "redacted_thinking", data: "EmwKAhgBEgy3va3pzix" }) });
+    assert.deepEqual(t, { type: "reasoning", provider: "main", payload: { type: "thinking", signature: "EqQBCgIYAhIM" }, visible: "Let me think." });
+    assert.deepEqual(red, { type: "reasoning", provider: "main", payload: { type: "redacted_thinking", data: "EmwKAhgBEgy3va3pzix" } });
     assert.deepEqual(text, { type: "text", text: "Done." });
     assert.equal(r.completed?.usage.reasoning_tokens, 22);
     const next = buildAnthropicBody(ctx({ turns: [{ role: "user", parts: [{ type: "text", text: "q" }] }, { role: "assistant", provider: "main", model: "m", blocks: r.completed?.blocks ?? [] }, { role: "user", parts: [{ type: "text", text: "q2" }] }] }), setupFor(), { cacheControl: false });

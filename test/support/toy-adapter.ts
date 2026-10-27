@@ -66,7 +66,7 @@ export const toyMapper = (baseUrl: string): HttpMapper<ToyState> => ({
         if (b === undefined) throw new ProviderError({ kind: "protocol", message: `end of unknown block ${i}` });
         let block: Block;
         if (b.type === "text") block = { type: "text", text: b.text };
-        else if (b.type === "reasoning") block = { type: "reasoning", provider: "toy", payload: b.sig ?? "", visible: b.text };
+        else if (b.type === "reasoning") block = { type: "reasoning", provider: "toy", ...(b.sig === undefined ? {} : { payload: { sig: b.sig } }), visible: b.text };
         else {
           try {
             block = { type: "tool_call", call_id: b.id as string, name: b.name as string, args: JSON.parse(b.args || "{}") as Record<string, unknown> };

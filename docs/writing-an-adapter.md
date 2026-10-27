@@ -22,7 +22,11 @@ Closing it early cancels the request.
   `reasoning.delta` (the readable part only), `tool_call.start` / `.delta`, `block.done`, `usage`. The deltas are
   for showing progress; `block.done` carries the **complete** block. Anything opaque (a thinking signature,
   encrypted reasoning, a provider compaction item) goes in a block's `payload` **exactly as the provider sent
-  it**, because it is replayed verbatim and the provider rejects it if it changed.
+  it**, because it is replayed verbatim and the provider rejects it if it changed. A reasoning block's `payload` is the
+  provider's own object (a map, stored as YAML in the transcript) and **holds only what `visible` does not**: the readable
+  text is stored once, in `visible`, and the adapter puts it back when it replays (Anthropic keeps `{type, signature}` and
+  rebuilds `thinking` from `visible`; a server that only returns reasoning text, like Ollama or llama-server, needs no payload at
+  all). A compaction item's `payload` is still the provider's JSON as text.
 - **Usage** is cumulative for the response so far and never decreases. Thinking tokens are included in
   `output_tokens` (providers bill them as output); report them separately in `reasoning_tokens` too.
 - **`Completed`**: the blocks in order, a `stop_reason` (`end_turn`, `tool_use`, `max_tokens`, `refusal`, `pause`,

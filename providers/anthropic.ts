@@ -109,8 +109,9 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: Jso
         if (b.type === "text") return b.text === "" ? [] : [{ type: "text", text: b.text }];
         if (b.type === "tool_call") return [{ type: "tool_use", id: b.call_id, name: b.name, input: b.args }];
         if (b.type === "provider_compaction") return []; // another provider's opaque state: never ours to send
-        const original = parseOriginal(b.payload);
-        return original === undefined ? [] : [original];
+        if (b.payload === undefined) return [];
+        // A thinking block is stored without its text (that is `visible`); the text goes back in here.
+        return [b.payload["type"] === "thinking" && b.payload["thinking"] === undefined ? { ...b.payload, thinking: b.visible ?? "" } : b.payload];
       });
       if (content.length > 0) push("assistant", content, i);
     }
@@ -124,16 +125,6 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: Jso
     }
   }
   return messages.map((m) => ({ role: m.role, content: m.content }));
-}
-
-/** A thinking block is stored as the provider's own block, as JSON, and replayed exactly. */
-function parseOriginal(payload: string): Json | undefined {
-  try {
-    const v = JSON.parse(payload) as unknown;
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Json) : undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 // ---- stream ---------------------------------------------------------------------------------------------------
@@ -291,8 +282,8 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           let block: Block;
           if (o.kind === "skip") return [];
           if (o.kind === "text") block = { type: "text", text: o.text };
-          else if (o.kind === "thinking") block = { type: "reasoning", provider: s.provider, payload: JSON.stringify({ type: "thinking", thinking: o.thinking, signature: o.signature, ...o.extra }), visible: o.thinking };
-          else if (o.kind === "redacted") block = { type: "reasoning", provider: s.provider, payload: JSON.stringify(o.block) };
+          else if (o.kind === "thinking") block = { type: "reasoning", provider: s.provider, payload: { type: "thinking", signature: o.signature, ...o.extra }, visible: o.thinking };
+          else if (o.kind === "redacted") block = { type: "reasoning", provider: s.provider, payload: o.block };
           else {
             try {
               const parsed: unknown = o.args === "" ? {} : JSON.parse(o.args);

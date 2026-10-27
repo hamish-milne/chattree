@@ -152,7 +152,7 @@ function toItems(turns: readonly Turn[], opts: RequestOptions): Json[][] {
   });
 }
 
-/** Opaque items (reasoning, compaction) go back as the provider sent them; an unreadable payload cannot be replayed. */
+/** Compaction items go back as the provider sent them; an unreadable payload cannot be replayed. */
 function opaqueItem(payload: string): Json | undefined {
   try {
     const item = JSON.parse(payload) as unknown;
@@ -166,7 +166,9 @@ function assistantItems(blocks: readonly Block[], opts: RequestOptions): Json[] 
   const items: Json[] = [];
   for (const b of blocks) {
     const id = opts.replayItemIds && typeof b.ext?.["item_id"] === "string" ? { id: b.ext["item_id"] } : {};
-    if (b.type === "reasoning" || b.type === "provider_compaction") {
+    if (b.type === "reasoning") {
+      if (b.payload !== undefined) items.push(b.payload as Json);
+    } else if (b.type === "provider_compaction") {
       const item = opaqueItem(b.payload);
       if (item !== undefined) items.push(item);
     } else if (b.type === "text") {
@@ -282,7 +284,7 @@ function finishBlock(s: State, i: number, o: Open, item?: Json): StreamEvent[] {
   } else {
     const original = item ?? { ...o.item, summary: o.summary === "" ? (o.item["summary"] ?? []) : [{ type: "summary_text", text: o.summary }] };
     const visible = Array.isArray(original["summary"]) ? (original["summary"] as Json[]).map((x) => (typeof x["text"] === "string" ? x["text"] : "")).join("\n\n") : o.summary;
-    block = { type: "reasoning", provider: s.provider, payload: JSON.stringify(original), ...(visible === "" ? {} : { visible }) };
+    block = { type: "reasoning", provider: s.provider, payload: original, ...(visible === "" ? {} : { visible }) };
   }
   s.open.delete(i);
   s.out[i] = block;
@@ -309,7 +311,7 @@ function outputBlocks(output: unknown, provider: string): { blocks: Block[]; ref
     } else if (item["type"] === "function_call") blocks.push(toolBlock(String(item["call_id"] ?? item["id"] ?? ""), String(item["name"] ?? ""), String(item["arguments"] ?? ""), String(item["id"] ?? "")));
     else if (item["type"] === "reasoning") {
       const visible = Array.isArray(item["summary"]) ? (item["summary"] as Json[]).map((x) => (typeof x["text"] === "string" ? x["text"] : "")).join("\n\n") : "";
-      blocks.push({ type: "reasoning", provider, payload: JSON.stringify(item), ...(visible === "" ? {} : { visible }) });
+      blocks.push({ type: "reasoning", provider, payload: item, ...(visible === "" ? {} : { visible }) });
     } else if (item["type"] === "compaction") blocks.push({ type: "provider_compaction", provider, payload: JSON.stringify(item) });
   }
   return { blocks, refused };

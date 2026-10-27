@@ -151,7 +151,7 @@ describe("append", () => {
     const content = "const x = 1;\n".repeat(100);
     await convo.append(assistantEntry("", {
       blocks: [
-        { $tag: "reasoning", provider: "anthropic", payload: "{}", visible: thinking },
+        { $tag: "reasoning", provider: "anthropic", visible: thinking },
         { $tag: "tool_call", call_id: "c1", name: "write", args: { path: "a.js", nested: [{ content }] }, args_raw: thinking },
       ],
     }));
