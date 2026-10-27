@@ -227,3 +227,5 @@ Not part of the first tool loop.
 
 - **Resolve shims instead of running them through cmd.exe.** npm, pnpm and yarn install `.cmd` shims that only start `node <script>`. Reading the shim and starting `node` directly would avoid `cmd.exe` altogether, so no flag and no argument restrictions; it needs a parser for each tool's shim format, and breaks when a shim changes.
 - **Local shims.** Done as `tools.run.local`, a glob allowlist for batch files that resolve inside the workspace (e.g. `./node_modules/.bin/*.cmd`). A custom shim parser (reading what the `.cmd` shim runs and starting that directly) is still not built.
+
+- **Unlisted tools are still offered.** docs/tools.md 5.1 says a tool that is not listed under `tools` in harness.yml is not offered to the model, but `buildToolSet` offers every leaf tool whatever the file says (and `init` does not list `script`). So there is no way yet to disable `run` for a user who cannot have busybox; `tools.run.busybox: off` is the stopgap. Needs a decision: filter by listing and have `init` list every tool it wants offered.

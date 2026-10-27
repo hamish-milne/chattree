@@ -137,6 +137,12 @@ export class Engine {
         },
         onResume: () => this.onResume?.(),
       });
+      // A set that could not be built (no busybox) is built again next time, once the user has dealt with it.
+      p.catch(() => {
+        if (this.#toolsets.get(convo) === p) this.#toolsets.delete(convo);
+        const i = this.#sets.indexOf(p as Promise<ToolSet>);
+        if (i >= 0) this.#sets.splice(i, 1);
+      });
       this.#toolsets.set(convo, p);
       this.#sets.push(p);
     }
@@ -145,7 +151,7 @@ export class Engine {
 
   /** Pin the session's tools to the agent (once, and again if they change) before a message is sent, so a first message is not split from its reply by a setup entry. */
   async prepareTools(): Promise<void> {
-    const set = await this.toolset();
+    const set = await this.toolset(); // a tool set that cannot be built is the user's to fix: this throws
     if (set === undefined) return;
     try {
       const { syncTools } = await import("../harness/loop.ts");

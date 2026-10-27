@@ -23,7 +23,13 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   engine.running = true;
   try {
     let drift: ChangeKind[] = [];
-    const tools = await engine.toolset();
+    let tools: Awaited<NonNullable<ReturnType<typeof engine.toolset>>> | undefined;
+    try {
+      tools = await engine.toolset();
+    } catch (e) {
+      yield failure(e);
+      return;
+    }
     for (let attempt = 0; attempt < 3; attempt++) {
       const warnings: string[] = [];
       let model = "";

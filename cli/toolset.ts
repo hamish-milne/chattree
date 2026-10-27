@@ -3,7 +3,9 @@ import { JobRegistry, jobTools } from "../harness/jobs.ts";
 import type { Approval, ApprovalRequest } from "../harness/loop.ts";
 import { leafTools } from "../harness/starter/index.ts";
 import { ToolRegistry } from "../harness/tools.ts";
-import type { Io } from "./io.ts";
+import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
+import { findBusybox } from "../hosts/node.ts";
+import { CliError, type Io } from "./io.ts";
 import { describeCall } from "./tool-lines.ts";
 
 /** The tools a session offers its model and the jobs they start, built from `harness.yml` (`tools.env`, `tools.run.safe`, `background.resume`). */
@@ -21,13 +23,35 @@ export interface ToolSetHooks {
   busy(): boolean;
 }
 
+/**
+ * The busybox.exe `run` uses on Windows, or undefined elsewhere. `tools.run.busybox` is `auto` (default: the one that is there, else
+ * the pinned release is fetched), `off` (use one that is there, never fetch) or the path of a busybox.exe. Failing to get one is the
+ * user's problem, not the model's, so it is a CliError raised before anything is sent.
+ */
+export async function resolveBusybox(io: Io, mode: string | undefined, ensure: typeof ensureBusybox = ensureBusybox): Promise<string | undefined> {
+  if (io.host.platform !== "windows") return undefined;
+  const how = mode ?? "auto";
+  if (how === "off") return findBusybox(io.env);
+  if (how !== "auto") {
+    if ((await io.host.fs.stat(how))?.isFile !== true) throw new CliError(`tools.run.busybox is ${how}, which is not a file`, BUSYBOX_HINT);
+    return how;
+  }
+  try {
+    return await ensure({ env: io.env, say: (m) => io.err(`${m}\n`) });
+  } catch (e) {
+    if (e instanceof BusyboxError) throw new CliError(e.message, e.hint);
+    throw e;
+  }
+}
+
 export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHooks): Promise<ToolSet> {
   const cfg = await convo.readConfig();
   const config = cfg?.ok === true ? cfg.value : undefined;
   const env = config?.tools.env ?? [];
   const jobs = new JobRegistry(convo, { resume: config?.background.resume === true, onCommitted: hooks.onCommitted, onResume: hooks.onResume, busy: hooks.busy });
   const safe = config?.tools["run"]?.safe ?? [];
-  const registry = new ToolRegistry([...leafTools({ env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), ...jobTools(jobs)]);
+  const busybox = await resolveBusybox(io, config?.tools["run"]?.busybox);
+  const registry = new ToolRegistry([...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), ...jobTools(jobs)]);
   return { registry, jobs };
 }
 
