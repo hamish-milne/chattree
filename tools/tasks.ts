@@ -47,7 +47,7 @@ export const EDIT_TASKS: Task[] = [
     name: "insert and append",
     group: "edit",
     files: { "main.py": "import os\n\ndef main():\n    print('hi')\n" },
-    prompt: "In main.py add the line `import sys` right after `import os`, and add a final line `main()` directly after the last line (no blank line before it).",
+    prompt: "In main.py add the line `import sys` right after `import os` without removing any existing line (the blank line stays), and add a final line `main()` directly after the last line (no blank line before it).",
     check: (r) => same(r, { "main.py": "import os\nimport sys\n\ndef main():\n    print('hi')\nmain()\n" }),
   },
   {

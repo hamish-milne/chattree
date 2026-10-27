@@ -79,7 +79,7 @@ export function runTool(opts: RunToolOptions = {}): Tool {
     definition: {
       name: "run",
       description:
-        "Run a command in the workspace, written in a cross-platform bash-like syntax with common shell utilities (cat, ls, grep, sed, sort, wc, ...), as well as programs available to the host (git, node, ...). It is not a real shell: the supported syntax is quotes, `|` pipes, `<` `>` `>>` with workspace files, `*` `?` `[...]` `{a,b}` globs, `2>&1`, and `$NAME` for environment variables the user has allowed. Not supported: `;` `&&` `||` `&`, `$(...)`, backticks, subshells, heredocs, `VAR=x cmd` and `~` (use the script tool for those, which needs the user's approval). Returns the exit code, then stdout and stderr in the order they were produced.",
+        "Run a command in the workspace, written in a cross-platform bash-like syntax with common shell utilities (cat, ls, grep, sed, sort, wc, ...), as well as programs available to the host (git, node, ...). It is not a real shell: the supported syntax is quotes, `|` pipes, `<` `>` `>>` with workspace files, `*` `?` `[...]` `{a,b}` globs, `2>&1`, and `$NAME` for environment variables the user has allowed. Not supported: `;` `&&` `||` `&`, loops and conditions (`for`, `while`, `if`), `$(...)`, backticks, subshells, heredocs, `VAR=x cmd` and `~` (use the script tool for those, which needs the user's approval). Returns the exit code, then stdout and stderr in the order they were produced.",
       input_schema: {
         type: "object",
         additionalProperties: false,
