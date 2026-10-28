@@ -650,7 +650,7 @@ export class Git {
         parents: (f[1] ?? "") === "" ? [] : (f[1] ?? "").split(" "),
         authorName: f[2] ?? "",
         authorEmail: f[3] ?? "",
-        authorDate: f[4] ?? "",
+        authorDate: (f[4] ?? "").replace(/Z$/, "+00:00"),
         committerName: f[5] ?? "",
         committerEmail: f[6] ?? "",
         subject: f[7] ?? "",
