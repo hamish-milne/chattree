@@ -11,6 +11,8 @@ export interface Project {
   root: string;
   /** The repository's main working tree: threads that have no worktree get one under its `.chattree/threads/`. */
   mainRoot: string;
+  /** Where threads without a worktree get one: `git config chattree.worktrees` (relative to `mainRoot`, or absolute), default `.chattree/threads`. */
+  worktreeRoot: string;
   git: Git;
   /** The branch checked out at `root`. */
   branch: string;
@@ -32,7 +34,10 @@ export async function findProject(io: Io, start: string): Promise<Project> {
   const branch = await git.currentBranch();
   if (branch === undefined) throw new CliError("HEAD is detached, so there is no thread to infer", "check out a branch, or name the thread: `chattree chat <thread>`");
   const worktrees = await git.worktrees();
-  return { root, mainRoot: worktrees[0]?.path ?? root, git, branch };
+  const mainRoot = worktrees[0]?.path ?? root;
+  const configured = (await git.getConfig("chattree.worktrees").catch(() => undefined))?.trim();
+  const worktreeRoot = io.host.path.resolve(mainRoot, configured === undefined || configured === "" ? io.host.path.join(".chattree", "threads") : configured);
+  return { root, mainRoot, worktreeRoot, git, branch };
 }
 
 /** Conversation options for this machine: every provider adapter, secrets from the environment, the user's git identity on their entries. */
@@ -55,11 +60,20 @@ export interface OpenedThread {
 
 /**
  * Open a thread. With no `name`, the thread of the working tree the project was found in (it throws if that branch is not a
- * thread). With a name, that branch's worktree, created under `.chattree/threads/` if it has none.
+ * thread). With a name, that branch's worktree, created under the worktree root if it has none.
  * `providers: "optional"` opens without providers when their keys are missing, for commands that only read.
  */
-/** Where a thread without a worktree gets one: under the main working tree's `.chattree/threads/`. */
-export const threadDir = (io: Io, project: Project, name: string): string => io.host.path.join(project.mainRoot, ".chattree", "threads", encodeURIComponent(name));
+/** A directory name for a thread: letters, digits, `.`, `_` and `-` only (no `%` or `/`, which URL-minded tools such as vite and cmd.exe mishandle). */
+export const safeDirName = (name: string): string => name.replace(/[^A-Za-z0-9._-]+/g, "-").replace(/^[.-]+/, "").replace(/-+$/, "") || "thread";
+
+/** Where a thread without a worktree gets one: under the project's worktree root, in a directory nothing else uses (`fork-1`, then `fork-1-2` ...). */
+export async function threadDir(io: Io, project: Project, name: string): Promise<string> {
+  const base = safeDirName(name);
+  for (let n = 1; ; n++) {
+    const dir = io.host.path.join(project.worktreeRoot, n === 1 ? base : `${base}-${n}`);
+    if ((await io.host.fs.stat(dir)) === undefined) return dir;
+  }
+}
 
 export async function openThread(io: Io, project: Project, name?: string, opts: { providers?: "required" | "optional" } = {}): Promise<OpenedThread> {
   const thread = name ?? project.branch;
@@ -70,7 +84,7 @@ export async function openThread(io: Io, project: Project, name?: string, opts: 
     const existing = (await project.git.worktrees()).find((w) => w.branch === ref);
     if (existing !== undefined) dir = existing.path;
     else {
-      dir = threadDir(io, project, name);
+      dir = await threadDir(io, project, name);
       await io.host.fs.mkdir(io.host.path.dirname(dir));
       await project.git.addWorktree(dir, { branch: name });
     }

@@ -68,7 +68,7 @@ const thread: Command = {
           yield { type: "error", message: "give the new thread's name", hint: "/thread new <name> [--from <entry>]" };
           return;
         }
-        const dir = threadDir(ctx.io, engine.project, name);
+        const dir = await threadDir(ctx.io, engine.project, name);
         await ctx.io.host.fs.mkdir(ctx.io.host.path.dirname(dir));
         let convo: Conversation;
         if (parsed.values.from === undefined) convo = await ctx.convo.newThread(name, { worktree: dir, inheritSetup: true });
@@ -133,7 +133,7 @@ const fork: Command = {
       let branch = name ?? (await nextForkName(ctx.convo));
       let r: Awaited<ReturnType<Conversation["fork"]>> | undefined;
       for (let attempt = 0; r === undefined; attempt++) {
-        const dir = threadDir(ctx.io, engine.project, branch);
+        const dir = await threadDir(ctx.io, engine.project, branch);
         await ctx.io.host.fs.mkdir(ctx.io.host.path.dirname(dir));
         try {
           r = await ctx.convo.fork(at, { name: branch, worktree: dir });

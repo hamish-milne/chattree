@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
@@ -90,6 +91,22 @@ describe("threads", () => {
       assert.doesNotMatch(prompt, /ALPHA question/, "what was already merged is not summarised again");
       assert.doesNotMatch(prompt, /hello/, "nor is the main thread's own conversation");
       assert.match(prompt, /already known to the reader/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("worktrees get safe directory names (no percent-encoding), and chattree.worktrees moves them", async () => {
+    const { server, dir } = await started([answer("one")]);
+    try {
+      const a = await session(dir, "hello", "/fork", "/thread", "/thread main", "/fork my/odd%name", "/thread");
+      const paths = a.out.split("\n").filter((l) => l.startsWith("worktree: ")).map((l) => l.slice(10).replace(/\\/g, "/"));
+      assert.deepEqual(paths.map((p) => p.slice(p.indexOf(".chattree"))), [".chattree/threads/fork-1", ".chattree/threads/my-odd-name"]);
+      assert.doesNotMatch(a.all, /%2F/);
+      execFileSync("git", ["-C", dir, "config", "chattree.worktrees", "../elsewhere"]);
+      const b = await session(dir, "/fork", "/thread");
+      const moved = (b.out.split("\n").find((l) => l.startsWith("worktree: ")) ?? "").slice(10).replace(/\\/g, "/");
+      assert.equal(moved, `${join(dir, "..", "elsewhere").replace(/\\/g, "/")}/fork-2`);
     } finally {
       await server.close();
     }
