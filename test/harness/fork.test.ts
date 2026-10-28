@@ -323,6 +323,21 @@ describe("mergeFork", () => {
     }
   };
 
+  test("assertMergeable gives mergeFork's refusals without changing anything", async () => {
+    const { convo } = await fresh();
+    const ids = await talk(convo);
+    const { conversation: fork, branch } = await convo.fork(ids[1] as string);
+    assert.ok(fork !== undefined);
+    await fork.append(user("in the fork"));
+    await convo.assertMergeable(branch);
+    await assert.rejects(convo.assertMergeable(convo.branch), /into itself/);
+    await assert.rejects(convo.assertMergeable("nope"), /no such branch/);
+    const before = (await convo.index()).length;
+    await convo.mergeFork(fork, { summary: "s" });
+    await assert.rejects(convo.assertMergeable(branch), /already merged/);
+    assert.equal((await convo.index()).length, before + 1, "checking added nothing; only the merge did");
+  });
+
   test("merges the fork back and records what was discussed and what changed", async () => {
     const { dir, convo } = await fresh();
     await files(dir, { "plan.md": "plan\n", "shared.md": "a\nb\nc\n" });

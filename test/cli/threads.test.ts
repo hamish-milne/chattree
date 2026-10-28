@@ -57,8 +57,39 @@ describe("threads", () => {
       assert.deepEqual(forkSent.messages.map((m) => m.role), ["system", "user", "assistant", "user"], "the fork kept the first exchange, not the second");
       assert.match(r.all, /summary by qwen3:4b/);
       assert.match(r.all, /They agreed on option B\./);
-      assert.match(r.all, /merged detour: /);
+      assert.match(r.all, /merged detour into main: /);
       assert.ok((await tagsOn(dir, "main")).includes("fork_merge"));
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("unnamed forks are fork/1, fork/2; /merge with no argument merges this fork into its parent, checks before asking the model, and moves there", async () => {
+    const { server, dir } = await started([answer("one"), answer("fork reply"), answer("They settled on B.")]);
+    try {
+      const r = await session(dir, "hello", "/fork", "in the fork", "/merge", "/thread", "/thread fork/1", "/merge", "/thread main", "/fork");
+      assert.match(r.all, /forked fork\/1 from main/);
+      assert.match(r.all, /They settled on B\./);
+      assert.match(r.all, /merged fork\/1 into main: /);
+      assert.match(r.out, /thread: main\n/);
+      assert.match(r.err, /already merged/, "a second merge is refused");
+      assert.equal(server.seen.length, 3, "the refused merge asked the model for no summary");
+      assert.match(r.all, /forked fork\/2 from main/, "the number is not reused");
+      assert.ok((await tagsOn(dir, "main")).includes("fork_merge"));
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("the model's summary covers only what the fork wrote since it was last merged, and says the main thread is not shown", async () => {
+    const { server, dir } = await started([answer("one"), answer("first fork reply"), answer("second fork reply"), answer("Only the second part.")]);
+    try {
+      await session(dir, "hello", "/fork", "ALPHA question", "/merge Alpha is done.", "/thread fork/1", "BETA question", "/merge");
+      const prompt = (JSON.parse(server.seen[3]?.body ?? "") as { messages: { content: string }[] }).messages.at(-1)?.content ?? "";
+      assert.match(prompt, /BETA question/);
+      assert.doesNotMatch(prompt, /ALPHA question/, "what was already merged is not summarised again");
+      assert.doesNotMatch(prompt, /hello/, "nor is the main thread's own conversation");
+      assert.match(prompt, /already known to the reader/);
     } finally {
       await server.close();
     }
@@ -69,7 +100,7 @@ describe("threads", () => {
     try {
       const r = await session(dir, "hello", "/fork side", "side question", "/thread main", "/merge nonexistent", "/merge side We settled on B.", "/merge side again");
       assert.match(r.err, /nonexistent/);
-      assert.match(r.all, /merged side: /);
+      assert.match(r.all, /merged side into main: /);
       assert.match(r.err, /already merged/);
       assert.equal(server.seen.length, 2, "no request was made for the summary");
       const c = await Conversation.open(host, dir);
@@ -104,7 +135,7 @@ describe("threads", () => {
       assert.match(r.err, /give one thread name/);
       assert.match(r.err, /too many arguments/);
       assert.match(r.err, /no entry matches 99/);
-      assert.match(r.err, /say which thread to merge/);
+      assert.match(r.err, /main is not a fork/);
       assert.notEqual(r.code, 0);
     } finally {
       await server.close();

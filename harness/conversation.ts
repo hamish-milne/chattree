@@ -1682,6 +1682,20 @@ export class Conversation {
     }));
   }
 
+  /**
+   * Whether `child` could be merged into this branch now, without changing anything: the same refusals `mergeFork` makes before it
+   * writes (a branch into itself, a missing branch, one that is already merged, one with no common history). A host calls it first so
+   * that work done in preparation (writing a summary) is not wasted on a merge that cannot happen.
+   */
+  async assertMergeable(child: string): Promise<void> {
+    if (child === this.branch) throw new ConversationError("a branch cannot be merged into itself");
+    const [head, tip] = [await this.git.head(), await this.git.revParse(`refs/heads/${child}`)];
+    if (head === undefined) throw new ConversationError("the conversation has no commits");
+    if (tip === undefined) throw new ConversationError(`no such branch: ${child}`);
+    if (await this.git.isAncestor(tip, head)) throw new ConversationError(`branch ${child} is already merged into ${this.branch}`);
+    if ((await this.git.mergeBase(head, tip)) === undefined) throw new ConversationError(`branches ${this.branch} and ${child} have no common history`);
+  }
+
   async #mergeBranch(
     child: Conversation | string,
     removeWorktree: boolean,

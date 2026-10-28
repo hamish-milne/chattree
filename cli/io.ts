@@ -57,9 +57,14 @@ export function nodeIo(): Io {
     },
     async edit(path) {
       const { spawn } = await import("node:child_process");
-      const editor = process.env["VISUAL"] ?? process.env["EDITOR"] ?? "vi";
+      const configured = process.env["VISUAL"] ?? process.env["EDITOR"];
       return await new Promise<boolean>((resolve) => {
-        const child = spawn(editor, [path], { stdio: "inherit", shell: true });
+        // $VISUAL and $EDITOR may carry arguments ("code -w"), so they go through a shell, with the path quoted. Without either, Windows
+        // has no vi: Notepad is started directly (no shell needed) and waited for.
+        const child =
+          configured === undefined && process.platform === "win32"
+            ? spawn("notepad", [path], { stdio: "inherit" })
+            : spawn(`${configured ?? "vi"} "${path.replace(/"/g, '\\"')}"`, { stdio: "inherit", shell: true });
         child.on("exit", (code) => resolve(code === 0));
         child.on("error", () => resolve(false));
       });
