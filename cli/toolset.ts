@@ -5,6 +5,7 @@ import { leafTools } from "../harness/starter/index.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
 import { findBusybox } from "../hosts/node.ts";
+import type { AskFn, Choice } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
 import { describeCall } from "./tool-lines.ts";
 
@@ -70,10 +71,13 @@ export function parseAnswer(answer: string, request: ApprovalRequest): "no" | Ap
 }
 
 /** Ask the user about a call. `ask` is the terminal's question; without one nothing is asked and the call is declined. */
-export function makeApprover(ask: (question: string, fallback?: string) => Promise<string>): (request: ApprovalRequest) => Promise<Approval> {
+export function makeApprover(ask: AskFn): (request: ApprovalRequest) => Promise<Approval> {
   return async (request) => {
-    const menu = request.keys === null || request.keys.length === 0 ? "[y] yes, once  [n] no" : `[y] yes, once  [5] 5 minutes  [h] 1 hour  [f] forever  [n] no\n  (5, h and f allow: ${request.keys.join("; ")})`;
-    const answer = await ask(`\nAllow this?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}\n  ${menu}\n>`, "n");
+    const grant = request.keys !== null && request.keys.length > 0;
+    const choices: Choice[] = grant
+      ? [{ key: "y", label: "yes, once" }, { key: "5", label: "yes, for 5 minutes" }, { key: "h", label: "yes, for 1 hour" }, { key: "f", label: "yes, forever" }, { key: "n", label: "no" }]
+      : [{ key: "y", label: "yes, once" }, { key: "n", label: "no" }];
+    const answer = await ask(`\nAllow this?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${(request.keys as string[]).join("; ")})` : ""}`, "n", choices);
     const parsed = parseAnswer(answer, request);
     if (parsed !== "no") return parsed;
     const reason = (await ask("Why not? (sent to the model; Enter to skip)", "")).trim();

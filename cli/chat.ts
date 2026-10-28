@@ -45,7 +45,7 @@ function confirmWith(engine: () => Engine, io: Io, yes: boolean): (q: string) =>
   if (yes) return async () => true;
   return async (q) => {
     const ask = engine().ask ?? io.ask?.bind(io);
-    return ask === undefined ? false : /^y(es)?$/i.test(await ask(`${q} [y/N]`, "n"));
+    return ask === undefined ? false : /^y(es)?$/i.test(await ask(q, "n", [{ key: "y", label: "yes" }, { key: "n", label: "no" }]));
   };
 }
 
@@ -94,6 +94,7 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
     for (const s of skipped) io.err(`note: ${s}\n`);
     if (engine.degraded !== undefined) io.err(`warning: providers are unavailable (${engine.degraded}); you can read the thread but not send\n`);
     const style = interactive && io.env.NO_COLOR === undefined && io.env.TERM !== "dumb" ? ansiStyle : plainStyle;
+    engine.style = style;
     for (const t of await recentEntries(engine)) io.out(`${t}\n`);
     io.out(`${style.dim(await statusLine(engine, resumed))}\n`);
     const act = await engine.convo.activity();

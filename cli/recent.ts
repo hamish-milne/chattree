@@ -10,6 +10,6 @@ export async function recentEntries(engine: Engine): Promise<string[]> {
   let from = entries.length - RECENT;
   const lastUser = entries.map((e) => e.$tag).lastIndexOf("user");
   if (lastUser >= 0) from = Math.max(from, lastUser);
-  return formatTranscript(engine.convo, entries.slice(Math.max(0, from)), { thinking: engine.state.thinking, tools: engine.state.tools, max: 600 });
+  return formatTranscript(engine.convo, entries.slice(Math.max(0, from)), { thinking: engine.state.thinking, tools: engine.state.tools, max: 600, style: engine.style, width: engine.width() });
 }
 

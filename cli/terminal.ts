@@ -1,6 +1,6 @@
 import { emitKeypressEvents, createInterface, type Interface } from "node:readline";
 import { Writable } from "node:stream";
-import type { Engine } from "./engine.ts";
+import type { Choice, Engine } from "./engine.ts";
 import type { Tty } from "./io.ts";
 import { ansiStyle, formatEntry, PlainRenderer, plainStyle, type Style } from "./output.ts";
 import { parseCommand } from "./registry.ts";
@@ -63,6 +63,9 @@ export class Terminal {
   #spinSince = 0;
   #exitArmed = 0;
   #closing = false;
+  /** A selection is open: arrow keys move, Enter chooses, a letter jumps. Lines readline completes meanwhile are not input. */
+  #selecting: ((key: { name?: string; ctrl?: boolean }) => void) | undefined;
+  #swallowLines = false;
   #watch: AbortController | undefined;
   #done: () => void = () => undefined;
   readonly finished: Promise<void>;
@@ -96,14 +99,18 @@ export class Terminal {
     this.#rl.on("close", () => void this.#end(true));
     this.#engine.onRebind = () => this.#startWatch();
     this.#engine.suspend = (fn) => this.#suspend(fn);
-    this.#engine.ask = (q, fallback) => this.#ask(q, fallback);
+    this.#engine.ask = (q, fallback, choices) => (choices === undefined ? this.#ask(q, fallback) : this.#select(q, choices, fallback));
     this.#engine.onNotice = () => this.#flushNotices();
     this.#engine.onResume = () => {
       this.#chain = this.#chain.then(() => this.#dispatchResume());
     };
   }
 
-  readonly #onKeypress = (_s: string | undefined, key: { name?: string } | undefined): void => {
+  readonly #onKeypress = (_s: string | undefined, key: { name?: string; ctrl?: boolean } | undefined): void => {
+    if (this.#selecting !== undefined && key !== undefined) {
+      this.#selecting(key);
+      return;
+    }
     if (key?.name === "paste-start") this.#pasting = true;
     else if (key?.name === "paste-end") this.#pasting = false;
   };
@@ -162,6 +169,61 @@ export class Terminal {
     return t === "" ? (fallback ?? "") : t;
   }
 
+  /**
+   * A question with fixed answers, as a list to move through: up and down (or k and j) change the highlight, a key that names a choice
+   * jumps to it, Enter chooses, Escape or Ctrl-C gives the default. Highlighting starts on the default, so Enter alone is the safe answer.
+   * Returns the chosen key. The list is replaced by the answer once it is given.
+   */
+  async #select(question: string, choices: readonly Choice[], fallback = ""): Promise<string> {
+    const stop = this.#engine.abort?.signal;
+    if (stop?.aborted === true) return fallback;
+    const wasMuted = this.#gate.muted;
+    this.#stopSpinner();
+    this.#gate.muted = true; // readline still sees the keys, but must not draw them
+    this.#rl.write(null, { ctrl: true, name: "u" });
+    const out = this.#tty.output;
+    const style = this.#style;
+    let index = Math.max(0, choices.findIndex((c) => c.key === fallback));
+    const lines = (): string[] => choices.map((c, i) => (i === index ? style.bold(`❯ [${c.key}] ${c.label}`) : style.dim(`  [${c.key}] ${c.label}`)));
+    const draw = (first: boolean): void => {
+      if (!first) out.write(`\x1b[${choices.length}A`);
+      out.write(lines().map((l) => `\r\x1b[K${l}\n`).join(""));
+    };
+    out.write(`\r\x1b[K${question}\n`);
+    draw(true);
+    const chosen = await new Promise<string>((resolve) => {
+      const finish = (key: string): void => {
+        stop?.removeEventListener("abort", onStop);
+        this.#selecting = undefined;
+        resolve(key);
+      };
+      const onStop = (): void => finish(fallback);
+      stop?.addEventListener("abort", onStop, { once: true });
+      this.#selecting = (key) => {
+        const name = key.name ?? "";
+        const hit = choices.findIndex((c) => c.key.toLowerCase() === name.toLowerCase());
+        if (name === "up" || name === "k") index = (index + choices.length - 1) % choices.length;
+        else if (name === "down" || name === "j") index = (index + 1) % choices.length;
+        else if (name === "return" || name === "enter") return finish((choices[index] as Choice).key);
+        else if (name === "escape" || (key.ctrl === true && name === "c")) return finish(fallback);
+        else if (hit >= 0) index = hit;
+        else return;
+        draw(false);
+      };
+    });
+    const picked = choices.find((c) => c.key === chosen);
+    out.write(`\x1b[${choices.length}A\r\x1b[J${style.dim(`  → ${picked?.label ?? chosen}`)}\n`);
+    // Readline gets the Enter after we do: keep it from being taken for a message, and drop what was typed on the way.
+    this.#swallowLines = true;
+    setImmediate(() => {
+      this.#swallowLines = false;
+      this.#rl.write(null, { ctrl: true, name: "u" });
+    });
+    this.#gate.muted = wasMuted;
+    if (wasMuted && this.#engine.running) this.#startSpinner();
+    return chosen;
+  }
+
   #flushNotices(): void {
     const notes = this.#engine.notices.splice(0);
     if (notes.length > 0) this.print(`${notes.map((n) => this.#style.dim(`[${n}]`)).join("\n")}\n`);
@@ -172,6 +234,7 @@ export class Terminal {
     if (this.#closing || this.#engine.running) return;
     this.#startSpinner();
     const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t) }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);
+    render.width = () => this.#engine.width();
     try {
       this.#gate.muted = true;
       for await (const o of this.#engine.resume()) {
@@ -209,6 +272,8 @@ export class Terminal {
   }
 
   #onLine(line: string): void {
+    // The Enter that chose an answer (and keys typed on the way) also reach readline: they are not messages.
+    if (this.#selecting !== undefined || this.#swallowLines) return;
     const action = this.#prompt.line(line, this.#pasting);
     this.#exitArmed = 0;
     this.#engine.session?.touch();
@@ -237,6 +302,7 @@ export class Terminal {
     const blocking = known?.busy === "blocked";
     if (blocking) this.#startSpinner();
     const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t), clear: () => this.#tty.output.write("\x1b[2J\x1b[H") }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);
+    render.width = () => this.#engine.width();
     try {
       if (blocking) this.#gate.muted = true;
       for await (const o of this.#engine.submit(line)) {
@@ -287,6 +353,12 @@ export class Terminal {
   }
 
   #onInterrupt(): void {
+    if (this.#selecting !== undefined) {
+      // Ctrl-C at a question gives the default answer, and stops the turn the question belongs to.
+      this.#selecting({ name: "escape" });
+      if (this.#engine.running) void this.#dispatch("/abort");
+      return;
+    }
     if (this.#engine.running) {
       void this.#dispatch("/abort");
       return;
@@ -328,7 +400,7 @@ export class Terminal {
     void (async () => {
       try {
         for await (const e of convo.watch({ signal: ac.signal, pollMs: this.#watchMs })) {
-          const text = await formatEntry(convo, e.value, { thinking: this.#engine.state.thinking, tools: this.#engine.state.tools, max: 600 });
+          const text = await formatEntry(convo, e.value, { thinking: this.#engine.state.thinking, tools: this.#engine.state.tools, max: 600, style: this.#style, width: this.#engine.width() });
           if (text !== undefined) this.print(`${this.#style.dim("(from another session)")}\n${text}\n`);
         }
       } catch {

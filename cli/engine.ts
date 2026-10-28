@@ -2,7 +2,7 @@ import type { Conversation } from "../harness/conversation.ts";
 import type { ChangeKind } from "../harness/entries.ts";
 import { CliError, type Io } from "./io.ts";
 import type { OpenedThread, Project } from "./project.ts";
-import type { Output, Thinking, ToolView } from "./output.ts";
+import { plainStyle, type Output, type Style, type Thinking, type ToolView } from "./output.ts";
 import { parseCommand, Registry, tokenize } from "./registry.ts";
 import { defaultCommands } from "./commands/index.ts";
 import type { Session, SessionStore } from "./session.ts";
@@ -24,6 +24,15 @@ export interface NamedDraft {
   name: string;
   text: string;
 }
+
+/** One answer to a question: the key that names it (what comes back), and what it means. */
+export interface Choice {
+  key: string;
+  label: string;
+}
+/** A question for the user. With `choices` a terminal can offer a selection; the answer is the chosen key (or what was typed). */
+export type AskFn = (question: string, fallback?: string, choices?: readonly Choice[]) => Promise<string>;
+export const choiceMenu = (choices: readonly Choice[]): string => choices.map((c) => `[${c.key}] ${c.label}`).join("  ");
 
 export interface SessionState {
   draft: string;
@@ -64,7 +73,7 @@ export interface EngineOptions {
   /** Give the model the starter tools and a tool loop (a chat session does; the one-shot verbs do not). Default false. */
   tools?: boolean;
   /** Asks the user a question (the terminal's own prompt, for approvals). Default: `io.ask`. */
-  ask?: (question: string, fallback?: string) => Promise<string>;
+  ask?: AskFn;
 }
 
 export const DEFAULT_SYSTEM = "You are a helpful assistant. The conversation is stored in a git repository; be concise and say plainly when you are unsure.";
@@ -99,9 +108,15 @@ export class Engine {
   /** The model has tools and a loop in this session. */
   readonly tools: boolean;
   /** How questions reach the user (approvals); the terminal layer replaces it with its own prompt. */
-  ask: ((question: string, fallback?: string) => Promise<string>) | undefined;
+  ask: AskFn | undefined;
   /** Things that happened while the user was not looking (a background job ended), shown before the next prompt. */
   notices: string[] = [];
+  /** How this session's text is coloured (the terminal layer sets it; plain elsewhere). */
+  style: Style = plainStyle;
+  /** The width of the terminal, or undefined when output is not a terminal. */
+  width(): number | undefined {
+    return this.io.tty?.output.columns;
+  }
   /** Called when `notices` gained something while idle. */
   onNotice: (() => void) | undefined;
   /** Called when a background job ended while idle and `background.resume` is on: the host should run `resume()`. */
@@ -122,7 +137,9 @@ export class Engine {
     this.registry = new Registry(defaultCommands());
     this.#confirm = o.confirm ?? (async () => false);
     this.tools = o.tools === true;
-    this.ask = o.ask ?? o.io.ask?.bind(o.io);
+    // Without a terminal prompt of our own, choices become a line of text ("[y] yes  [n] no") and the answer is typed.
+    const plain = o.io.ask?.bind(o.io);
+    this.ask = o.ask ?? (plain === undefined ? undefined : (q, fallback, choices) => plain(choices === undefined ? q : `${q}\n  ${choiceMenu(choices)}\n>`, fallback));
   }
 
   /** The tools for the current thread (built once from harness.yml), or undefined when this session has none. */

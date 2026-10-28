@@ -151,7 +151,7 @@ describe("approvals in the terminal", () => {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
       t.type("go\n\n");
       await waitFor(() => t.screen().includes("Allow this?") && t.screen().includes("echo first"), "the first question");
-      assert.match(t.screen(), /\[y\] yes, once\s+\[5\] 5 minutes\s+\[h\] 1 hour\s+\[f\] forever/);
+      assert.match(t.screen(), /\[y\] yes, once\s+\[5\] yes, for 5 minutes\s+\[h\] yes, for 1 hour\s+\[f\] yes, forever/);
       t.type("y\n");
       await waitFor(() => (t.screen().match(/Allow this\?/g) ?? []).length === 2, "the second question");
       t.type("f\n");
@@ -226,7 +226,7 @@ describe("questions from commands in a terminal", () => {
       t.type("hello\n\n");
       await waitFor(() => t.screen().includes("hi"), "the reply");
       t.type("/undo\n");
-      await waitFor(() => t.screen().includes("Go back? [y/N]"), "the question");
+      await waitFor(() => t.screen().includes("Go back?"), "the question");
       t.type("y\n");
       await waitFor(() => t.screen().includes("done."), "the undo");
       t.type("/drafts\n");
@@ -296,6 +296,52 @@ describe("/display", () => {
       assert.match(io.stderr, /loud is not full, brief or off/);
       assert.match(io.stderr, /nonsense is not thinking or tools/);
     } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("choosing with the arrow keys", () => {
+  test("the list starts on the default (no), arrows move, Enter chooses, and the Enter is not sent as a message", async () => {
+    const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo chosen" } }), answer("all done")]);
+    const t = terminal(dir);
+    try {
+      await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
+      t.type("go\n\n");
+      await waitFor(() => t.screen().includes("Allow this?") && t.screen().includes("[n] no"), "the question");
+      assert.match(t.screen(), /❯ \[n\] no/, "the default is highlighted");
+      t.type("\x1b[A\x1b[A\x1b[A\x1b[A"); // up to the first choice
+      t.type("\r");
+      await waitFor(() => t.screen().includes("all done"), "the reply");
+      assert.match(t.screen(), /→ yes, once/, "the list is replaced by the answer");
+      assert.match((await toolResults(dir))[0]?.content as string, /chosen/);
+      t.type("/quit\n");
+      await t.done;
+      assert.deepEqual((await entries(dir)).filter((e) => e.$tag === "user").length, 1, "nothing but the first message was sent");
+    } finally {
+      t.end();
+      await server.close();
+    }
+  });
+
+  test("a letter jumps to its choice, and Escape gives the default", async () => {
+    const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo declined" } }), answer("fine")]);
+    const t = terminal(dir);
+    try {
+      await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
+      t.type("go\n\n");
+      await waitFor(() => t.screen().includes("[n] no"), "the question");
+      t.type("y"); // highlight moves to yes ...
+      t.type("\x1b"); // ... but Escape is the default answer: no
+      await waitFor(() => t.screen().includes("Why not?"), "the reason prompt");
+      t.type("\n");
+      await waitFor(() => t.screen().includes("fine"), "the reply");
+      assert.match((await toolResults(dir))[0]?.content as string, /declined/);
+      assert.match((await toolResults(dir))[0]?.content as string, /not run|declined/i);
+      t.type("/quit\n");
+      await t.done;
+    } finally {
+      t.end();
       await server.close();
     }
   });
