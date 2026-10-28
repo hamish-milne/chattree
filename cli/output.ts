@@ -1,7 +1,7 @@
 import type { Appended, Conversation } from "../harness/conversation.ts";
 import type { ChatEntry } from "../harness/entries.ts";
 import { inlineBlobs } from "../harness/context-builder.ts";
-import { resultLines } from "./tool-lines.ts";
+import { resultLines, summarizeCall } from "./tool-lines.ts";
 
 /**
  * What the engine says. Nothing here knows about terminals: a renderer turns outputs into text for a plain stream or a
@@ -28,6 +28,10 @@ export type Output =
   | { type: "request_end"; status: "completed" | "interrupted" | "cancelled"; usage?: { input: number; output: number; cached: number }; turnUsd?: number; threadUsd?: number; unpriced?: boolean; stopReason?: string };
 
 export type Thinking = "off" | "brief" | "on";
+/** How much of the tool calls and results is shown: none, a line each with a short preview, or everything. */
+export type ToolView = "off" | "brief" | "full";
+/** What earlier assistant entries asked for, by call id, so a result can say what it answers. */
+export type CallMap = Map<string, { name: string; args: Record<string, unknown> }>;
 
 const textOf = async (convo: Conversation, t: string | { sha256: string; bytes: number }): Promise<string> => {
   if (typeof t === "string") return t;
@@ -39,8 +43,9 @@ const clip = (s: string, n: number | undefined): string => (n === undefined || s
 const indent = (s: string, by = "  "): string => s.split("\n").map((l) => (l === "" ? l : by + l)).join("\n");
 
 /** One transcript entry as plain text. `max` clips long texts (the full entry is `/show`). */
-export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thinking?: Thinking; max?: number } = {}): Promise<string | undefined> {
+export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thinking?: Thinking; tools?: ToolView; max?: number; calls?: CallMap } = {}): Promise<string | undefined> {
   const thinking = opts.thinking ?? "off";
+  const tools = opts.tools ?? "brief";
   const t = (x: string | { sha256: string; bytes: number }): Promise<string> => textOf(convo, x).then((s) => clip(s, opts.max));
   switch (e.$tag) {
     case "header":
@@ -60,12 +65,22 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
         else if (b.$tag === "reasoning" && thinking !== "off" && b.visible !== undefined && b.visible !== "") {
           const visible = await t(b.visible);
           parts.push(`(thinking) ${thinking === "brief" ? clip(visible, 200) : visible}`);
-        } else if (b.$tag === "tool_call") parts.push(`[tool call: ${b.name} ${JSON.stringify(await inlineBlobs(b.args, t))}]`);
+        } else if (b.$tag === "tool_call") {
+          const args = (await inlineBlobs(b.args, t)) as Record<string, unknown>;
+          opts.calls?.set(b.call_id, { name: b.name, args });
+          if (tools === "brief") parts.push(`→ ${summarizeCall(b.name, args)}`);
+          else if (tools === "full") parts.push(`→ ${summarizeCall(b.name, args)}\n${indent(JSON.stringify(args, null, 2), "    ")}`);
+        }
       }
-      return `${e.model}:\n${indent(parts.join("\n"))}`;
+      return parts.length === 0 ? undefined : `${e.model}:\n${indent(parts.join("\n"))}`;
     }
-    case "tool_result":
-      return `[tool result${e.is_error ? " (error)" : ""}] ${clip((await t(e.content)).replace(/\s+/g, " "), 200)}`;
+    case "tool_result": {
+      if (tools === "off") return undefined;
+      const content = await textOf(convo, e.content);
+      const r = resultLines({ is_error: e.is_error, content, truncated: e.truncated === true });
+      if (tools === "full") return `  ← ${r.head}\n${indent(clip(content, opts.max), "    ")}`;
+      return `  ← ${r.head}${r.preview.map((l) => `\n    ${l}`).join("")}${r.more ? "\n    …" : ""}`;
+    }
     case "interrupted": {
       const parts: string[] = [];
       for (const b of e.partial) if (b.$tag === "text") parts.push(await t(b.text));
@@ -86,6 +101,17 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
     case "job_event":
       return `[background job ${e.job} ${e.status}] ${await t(e.summary)}${e.output === undefined ? "" : `\n${indent(clip(await t(e.output), 400))}`}`;
   }
+}
+
+/** A run of entries as text, one block per shown entry, with tool results knowing which call they answer. */
+export async function formatTranscript(convo: Conversation, entries: readonly ChatEntry[], opts: { thinking?: Thinking; tools?: ToolView; max?: number } = {}): Promise<string[]> {
+  const calls: CallMap = new Map();
+  const out: string[] = [];
+  for (const e of entries) {
+    const t = await formatEntry(convo, e, { ...opts, calls });
+    if (t !== undefined) out.push(t);
+  }
+  return out;
 }
 
 /** What a renderer does with outputs: plain text for pipes and tests. */
@@ -109,11 +135,14 @@ export class PlainRenderer {
   readonly #sink: PlainSink;
   readonly #convo: () => Conversation;
   readonly thinking: Thinking;
+  readonly tools: ToolView;
+  readonly #calls: CallMap = new Map();
   readonly #style: Style;
   #open: "text" | "reasoning" | undefined;
   #atLineStart = true;
 
-  constructor(sink: PlainSink, convo: () => Conversation, thinking: Thinking = "off", style: Style = plainStyle) {
+  constructor(sink: PlainSink, convo: () => Conversation, thinking: Thinking = "off", style: Style = plainStyle, tools: ToolView = "brief") {
+    this.tools = tools;
     this.#style = style;
     this.#sink = sink;
     this.#convo = convo;
@@ -140,7 +169,7 @@ export class PlainRenderer {
         return;
       case "entry": {
         this.#flush();
-        const text = await formatEntry(this.#convo(), o.value, { thinking: this.thinking, max: 600 });
+        const text = await formatEntry(this.#convo(), o.value, { thinking: this.thinking, tools: this.tools, max: 600, calls: this.#calls });
         if (text !== undefined) this.#sink.out(`${text}\n`);
         return;
       }
@@ -151,13 +180,19 @@ export class PlainRenderer {
       case "request_start":
         return;
       case "tool_start":
+        if (this.tools === "off") return;
         this.#flush();
         this.#sink.err(`${this.#style.dim(`→ ${o.summary}`)}\n`);
         return;
       case "tool_result": {
+        if (this.tools === "off") return;
         this.#flush();
         const r = resultLines(o);
         const paint = o.is_error ? this.#style.red : this.#style.dim;
+        if (this.tools === "full") {
+          this.#sink.err(`${paint(`  ← ${r.head}`)}\n${this.#style.dim(o.content.split("\n").map((l) => `    ${l}`).join("\n"))}\n`);
+          return;
+        }
         this.#sink.err(`${paint(`  ← ${r.head}`)}\n${r.preview.map((l) => `${this.#style.dim(`    ${l}`)}\n`).join("")}${r.more ? `${this.#style.dim("    … /expand shows all of it")}\n` : ""}`);
         return;
       }

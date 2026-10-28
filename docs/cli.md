@@ -87,7 +87,7 @@ Reading
 |---|---|
 | `/history [n]` | Print the last n entries (default 10). |
 | `/show <n\|id>` | One entry in full: reasoning, tool calls, usage, the commit. |
-| `/thinking on\|off\|brief` | Whether reasoning is shown while streaming and in history. |
+| `/display [thinking on\|brief\|off] [tools full\|brief\|off]` | What is shown of the model's reasoning and of tool calls and results: live, in `/history`, in the recap when a thread opens, and in the text a model summarises. `tools brief` (default) is a `→ read a.txt` line and a `← ok · 73 B` line with a short preview; `full` adds the arguments and the whole result; `off` hides them. `--thinking` and `--tools` set the same at start. |
 | `/usage` | The ledger: this turn, this thread, by model; the estimate for the next request. |
 | `/status` | Thread, branch, model and settings, price pin, activity, session, staged state, warnings. |
 | `/log` | The commit graph (`readCommitGraph`). |
@@ -204,7 +204,7 @@ Decided in review: tool loop after the CLI; daemon not now; abort by marker file
 Steps 1 to 5 are done; tests are in `test/cli/`. Step 4: `Lock.refresh()`, `cli/session.ts`, `/sessions`. Step 5: `chattree chat`.
 
 - `cli/prompt.ts` holds the prompt rules with no terminal in them (blank line sends, trailing `\\` continues, `//` is a literal slash, pasted lines are taken whole, a recalled multi-line message sends again).
-- `cli/terminal.ts` is the `readline` layer: bracketed paste, tab completion (command names, and per-command `complete` hooks: `/attach` paths and options, `/detach`, `/thinking`, `/threads`), a spinner while a blocking command runs, Ctrl-C (stops a running request; otherwise clears the draft; twice in 3 s leaves), Ctrl-D, live display of entries other sessions add (`convo.watch`), colour. Readline draws on a gated stream: while a request streams its echo is dropped and output goes straight through, so keys typed meanwhile are kept (not echoed) and messages typed ahead are sent in order afterwards; commands marked `allowed` still run at once.
+- `cli/terminal.ts` is the `readline` layer: bracketed paste, tab completion (command names, and per-command `complete` hooks: `/attach` paths and options, `/detach`, `/display`, `/threads`), a spinner while a blocking command runs, Ctrl-C (stops a running request; otherwise clears the draft; twice in 3 s leaves), Ctrl-D, live display of entries other sessions add (`convo.watch`), colour. Readline draws on a gated stream: while a request streams its echo is dropped and output goes straight through, so keys typed meanwhile are kept (not echoed) and messages typed ahead are sent in order afterwards; commands marked `allowed` still run at once.
 - `cli/chat.ts` opens or resumes the session (`--session <id>`, `--new-session`), prints the exchange since the last message and a status line, and runs the terminal or, for `--plain` or no terminal, a line-oriented mode (each line a command or message, `\\` continues, exit status 1 if anything failed).
 - Deviation from section 4: `NO_COLOR` (and `TERM=dumb`) turns colour off but keeps the editor; only `--plain` or a missing terminal selects plain mode.
 - Checked on a real pty (a python `pty` driver against a fake server) as well as in-process with streams.

@@ -171,7 +171,7 @@ export class Terminal {
   async #dispatchResume(): Promise<void> {
     if (this.#closing || this.#engine.running) return;
     this.#startSpinner();
-    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t) }, () => this.#engine.convo, this.#engine.state.thinking, this.#style);
+    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t) }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);
     try {
       this.#gate.muted = true;
       for await (const o of this.#engine.resume()) {
@@ -236,7 +236,7 @@ export class Terminal {
     const known = this.#engine.registry.find(cmd?.name ?? "say");
     const blocking = known?.busy === "blocked";
     if (blocking) this.#startSpinner();
-    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t), clear: () => this.#tty.output.write("\x1b[2J\x1b[H") }, () => this.#engine.convo, this.#engine.state.thinking, this.#style);
+    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t), clear: () => this.#tty.output.write("\x1b[2J\x1b[H") }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);
     try {
       if (blocking) this.#gate.muted = true;
       for await (const o of this.#engine.submit(line)) {
@@ -328,7 +328,7 @@ export class Terminal {
     void (async () => {
       try {
         for await (const e of convo.watch({ signal: ac.signal, pollMs: this.#watchMs })) {
-          const text = await formatEntry(convo, e.value, { thinking: this.#engine.state.thinking, max: 600 });
+          const text = await formatEntry(convo, e.value, { thinking: this.#engine.state.thinking, tools: this.#engine.state.tools, max: 600 });
           if (text !== undefined) this.print(`${this.#style.dim("(from another session)")}\n${text}\n`);
         }
       } catch {

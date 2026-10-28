@@ -278,6 +278,29 @@ describe("init on Windows", () => {
   });
 });
 
+describe("/display", () => {
+  test("tool calls and results in the history follow /display tools: brief by default, off hides them, full shows the arguments and the whole result", async () => {
+    const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "hello.txt" } }), answer("It says hello.")], { "hello.txt": "hello world\nsecond line\n" });
+    try {
+      const io = testIo(dir, { stdin: "what does hello.txt say?\n/history 4\n/display tools off\n/history 4\n/display tools full\n/history 4\n/display\n/display tools loud\n/display nonsense\n" });
+      await main(["chat", "--plain", "-y"], io);
+      const out = io.stdout;
+      const [brief, off, full] = out.split(/^you:$/m).slice(-3);
+      assert.match(brief ?? "", /→ read hello\.txt/);
+      assert.match(brief ?? "", /← ok · \d+ B\n\s+=== hello\.txt/, "a result is a head line and a short preview");
+      assert.doesNotMatch(off ?? "", /→ read|← ok/);
+      assert.match(off ?? "", /It says hello\./);
+      assert.match(full ?? "", /"path": "hello\.txt"/);
+      assert.match(full ?? "", /second line/);
+      assert.match(out, /thinking: off\ntools: full/);
+      assert.match(io.stderr, /loud is not full, brief or off/);
+      assert.match(io.stderr, /nonsense is not thinking or tools/);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("stopping at a question", () => {
   test("Ctrl-C while a question is open declines the call and ends the turn", async () => {
     const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo hi > out.txt" } }), answer("never")]);

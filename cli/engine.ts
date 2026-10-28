@@ -2,7 +2,7 @@ import type { Conversation } from "../harness/conversation.ts";
 import type { ChangeKind } from "../harness/entries.ts";
 import { CliError, type Io } from "./io.ts";
 import type { OpenedThread, Project } from "./project.ts";
-import type { Output, Thinking } from "./output.ts";
+import type { Output, Thinking, ToolView } from "./output.ts";
 import { parseCommand, Registry, tokenize } from "./registry.ts";
 import { defaultCommands } from "./commands/index.ts";
 import type { Session, SessionStore } from "./session.ts";
@@ -31,11 +31,13 @@ export interface SessionState {
   drafts: NamedDraft[];
   attachments: StagedAttachment[];
   thinking: Thinking;
+  /** How much of tool calls and results is shown (`/display tools`). */
+  tools: ToolView;
   /** What the user has entered, oldest first (for the up arrow). */
   history: string[];
 }
 
-export const emptyState = (): SessionState => ({ draft: "", drafts: [], attachments: [], thinking: "off", history: [] });
+export const emptyState = (): SessionState => ({ draft: "", drafts: [], attachments: [], thinking: "off", tools: "brief", history: [] });
 
 /** Nothing waiting to be sent: a session in this state is not worth keeping. (Preferences and history alone are not.) */
 export const hasPendingState = (s: SessionState): boolean => s.draft.trim() !== "" || s.drafts.length > 0 || s.attachments.length > 0;

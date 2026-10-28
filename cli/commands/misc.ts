@@ -5,7 +5,7 @@ import type { ChatEntry } from "../../harness/entries.ts";
 import type { Ctx } from "../engine.ts";
 import { exportMarkdown } from "../export.ts";
 import { askModel } from "../oneshot.ts";
-import { formatEntry } from "../output.ts";
+import { formatTranscript } from "../output.ts";
 import { resolveEntry } from "../refs.ts";
 import type { Command } from "../registry.ts";
 import { failure } from "../turn.ts";
@@ -39,11 +39,7 @@ const compact: Command = {
           yield { type: "error", message: "the range runs backwards: give the earlier entry first", hint: "numbers count back from the last entry, so the earlier entry has the larger number" };
           return;
         }
-        const lines: string[] = [];
-        for (const e of entries.slice(a, b + 1)) {
-          const t = await formatEntry(ctx.convo, e, { thinking: "off", max: 4000 });
-          if (t !== undefined && e.$tag !== "agent_setup") lines.push(t);
-        }
+        const lines = await formatTranscript(ctx.convo, entries.slice(a, b + 1).filter((e) => e.$tag !== "agent_setup"), { thinking: "off", tools: "brief", max: 4000 });
         const r = await askModel(ctx.convo, `Summarise this part of a conversation so that it can replace it in the model's context. Keep decisions, facts, names, numbers and open questions; drop pleasantries. Plain text.\n\n${lines.join("\n")}`);
         yield { type: "notice", message: `summary of ${b - a + 1} entries by ${r.model} (${r.usage.input} in, ${r.usage.output} out; not in the ledger):` };
         yield { type: "text", text: r.text };

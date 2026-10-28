@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import type { Conversation } from "../../harness/conversation.ts";
 import { ConversationError } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
-import { formatEntry } from "../output.ts";
+import { formatTranscript } from "../output.ts";
 import { askModel } from "../oneshot.ts";
 import { openThread, threadDir } from "../project.ts";
 import { recentEntries } from "../recent.ts";
@@ -160,12 +160,7 @@ async function forkTranscript(ctx: Ctx, parent: Conversation, name: string): Pro
   const merges = (await entriesOf(parent)).flatMap((e) => (e.$tag === "fork_merge" && e.branch === name ? [e.tip] : []));
   const last = merges.at(-1);
   if (last !== undefined) from = Math.max(from, (await ctx.convo.readEntriesAt(last)).length);
-  const lines: string[] = [];
-  for (const e of entries.slice(from)) {
-    const t = await formatEntry(ctx.convo, e, { thinking: "off", max: 2000 });
-    if (t !== undefined) lines.push(t);
-  }
-  return lines;
+  return formatTranscript(ctx.convo, entries.slice(from), { thinking: "off", tools: "brief", max: 2000 });
 }
 
 const SUMMARY_PROMPT = (lines: string[], parent: string): string =>

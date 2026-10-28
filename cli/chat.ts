@@ -1,6 +1,6 @@
 import { Engine, hasPendingState } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
-import { ansiStyle, PlainRenderer, plainStyle, type Thinking } from "./output.ts";
+import { ansiStyle, PlainRenderer, plainStyle, type Thinking, type ToolView } from "./output.ts";
 import { findProject, openThread } from "./project.ts";
 import { SessionStore, type Session } from "./session.ts";
 import { Terminal } from "./terminal.ts";
@@ -16,6 +16,7 @@ export interface ChatOptions {
   /** Line-oriented mode for scripts: no editor, spinner or colour. Default: when there is no terminal. */
   plain?: boolean;
   thinking?: Thinking | undefined;
+  tools?: ToolView | undefined;
   /** Answer "yes" to the questions a change or a price drift raises (`-y`). */
   yes?: boolean;
   /** Terminal tuning, for tests. */
@@ -74,6 +75,7 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
 
   const engine = new Engine({ io, project, opened, session, sessions, tools: true, confirm: confirmWith(() => engine, io, o.yes === true) });
   if (o.thinking !== undefined) engine.state.thinking = o.thinking;
+  if (o.tools !== undefined) engine.state.tools = o.tools;
   if (!interactive) engine.ask = undefined; // lines of a script are not answers: calls no grant covers are declined
 
   const stop = io.onSignal?.(() => {
@@ -123,7 +125,7 @@ async function runPlain(engine: Engine, io: Io): Promise<number> {
   let failed = false;
   let pending: string | undefined;
   const submit = async (line: string): Promise<void> => {
-    const render = new PlainRenderer(io, () => engine.convo, engine.state.thinking);
+    const render = new PlainRenderer(io, () => engine.convo, engine.state.thinking, undefined, engine.state.tools);
     for await (const o of engine.submit(line)) {
       if (o.type === "error" || (o.type === "request_end" && o.status !== "completed")) failed = true;
       await render.render(o);

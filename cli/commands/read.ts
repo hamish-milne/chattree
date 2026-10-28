@@ -1,5 +1,5 @@
 import type { ChatEntry } from "../../harness/entries.ts";
-import { formatEntry, type Thinking } from "../output.ts";
+import { formatEntry, type Thinking, type ToolView } from "../output.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import type { Command } from "../registry.ts";
 import type { Ctx } from "../engine.ts";
@@ -47,32 +47,47 @@ const show: Command = {
       yield { type: "error", message: `no entry matches ${want}` };
       return;
     }
-    const text = await formatEntry(ctx.convo, entry, { thinking: "on" });
+    const text = await formatEntry(ctx.convo, entry, { thinking: "on", tools: "full" });
     const extra = entry.$tag === "assistant" ? `\nstop: ${entry.stop_reason}${entry.usage === undefined ? "" : `  usage: ${JSON.stringify(entry.usage)}`}` : entry.$tag === "interrupted" && entry.usage !== undefined ? `\nusage: ${JSON.stringify(entry.usage)}` : "";
     yield { type: "text", text: `${"id" in entry ? `id ${entry.id}\n` : ""}${text ?? ""}${extra}` };
   },
 };
 
-const thinking: Command = {
-  name: "thinking",
-  async complete(_ctx, previous, partial) {
-    return previous.length > 0 ? [] : ["on", "off", "brief"].filter((f) => f.startsWith(partial));
-  },
-  summary: "whether the model's reasoning is shown",
-  usage: "/thinking [on | brief | off]",
+const THINKING = ["on", "brief", "off"];
+const TOOLS = ["full", "brief", "off"];
+
+const display: Command = {
+  name: "display",
+  summary: "what is shown of the model's reasoning and of tool calls and results",
+  usage: "/display  |  /display thinking [on | brief | off]  |  /display tools [full | brief | off]",
   busy: "allowed",
+  async complete(_ctx, previous, partial) {
+    if (previous.length === 0) return ["thinking", "tools"].filter((f) => f.startsWith(partial));
+    if (previous.length === 1) return (previous[0] === "thinking" ? THINKING : previous[0] === "tools" ? TOOLS : []).filter((f) => f.startsWith(partial));
+    return [];
+  },
   async *run(ctx, args) {
-    const v = args[0];
-    if (v === undefined) {
-      yield { type: "text", text: `thinking is ${ctx.state.thinking}` };
+    const [what, value] = args;
+    const now = (): string => `thinking: ${ctx.state.thinking}\ntools: ${ctx.state.tools}`;
+    if (what === undefined) {
+      yield { type: "text", text: now() };
       return;
     }
-    if (v !== "on" && v !== "off" && v !== "brief") {
-      yield { type: "error", message: `${v} is not on, brief or off` };
+    if (what !== "thinking" && what !== "tools") {
+      yield { type: "error", message: `${what} is not thinking or tools`, hint: "/display thinking [on | brief | off]  |  /display tools [full | brief | off]" };
       return;
     }
-    ctx.state.thinking = v as Thinking;
-    yield { type: "notice", message: `thinking is ${v}` };
+    if (value === undefined) {
+      yield { type: "text", text: `${what} is ${what === "thinking" ? ctx.state.thinking : ctx.state.tools}` };
+      return;
+    }
+    if (!(what === "thinking" ? THINKING : TOOLS).includes(value) || args.length > 2) {
+      yield { type: "error", message: `${value} is not ${what === "thinking" ? "on, brief or off" : "full, brief or off"}` };
+      return;
+    }
+    if (what === "thinking") ctx.state.thinking = value as Thinking;
+    else ctx.state.tools = value as ToolView;
+    yield { type: "notice", message: `${what} is ${value}; it applies to the live display, /history and the recap when a thread opens` };
   },
 };
 
@@ -110,7 +125,7 @@ const status: Command = {
       `spend:       ${l === undefined ? "unknown" : `$${l.conversation.usd.toFixed(4)}${l.conversation.unpriced > 0 ? "+" : ""} this thread, $${l.turn.usd.toFixed(4)} this turn`}`,
       `activity:    ${act.state === "idle" ? "idle" : act.live ? `a request to ${act.model} is running${act.owner?.pid === undefined ? "" : ` (process ${act.owner.pid})`}` : `a request to ${act.model} died; it is recorded when the thread is next used`}`,
       `session:     ${engine.sessionId ?? "(none: one-shot)"}`,
-      `staged:      ${engine.state.attachments.length} file${engine.state.attachments.length === 1 ? "" : "s"}, draft ${engine.state.draft.length} characters, thinking ${engine.state.thinking}`,
+      `staged:      ${engine.state.attachments.length} file${engine.state.attachments.length === 1 ? "" : "s"}, draft ${engine.state.draft.length} characters, thinking ${engine.state.thinking}, tools ${engine.state.tools}`,
     ];
     if (engine.degraded !== undefined) lines.push(`providers:   unavailable (${engine.degraded})`);
     if (setup.unacknowledged.length > 0) lines.push(`attention:   the provider changed the agent; /accept it to carry on`);
@@ -175,4 +190,4 @@ const maintain: Command = {
   },
 };
 
-export const readCommands: Command[] = [history, show, thinking, usage, status, threads, verify, maintain];
+export const readCommands: Command[] = [history, show, display, usage, status, threads, verify, maintain];

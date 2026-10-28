@@ -1,6 +1,6 @@
 import type { ChatEntry } from "../harness/entries.ts";
 import type { Engine } from "./engine.ts";
-import { formatEntry } from "./output.ts";
+import { formatTranscript } from "./output.ts";
 
 const RECENT = 10;
 
@@ -10,11 +10,6 @@ export async function recentEntries(engine: Engine): Promise<string[]> {
   let from = entries.length - RECENT;
   const lastUser = entries.map((e) => e.$tag).lastIndexOf("user");
   if (lastUser >= 0) from = Math.max(from, lastUser);
-  const out: string[] = [];
-  for (const e of entries.slice(Math.max(0, from))) {
-    const t = await formatEntry(engine.convo, e, { thinking: engine.state.thinking, max: 600 });
-    if (t !== undefined) out.push(t);
-  }
-  return out;
+  return formatTranscript(engine.convo, entries.slice(Math.max(0, from)), { thinking: engine.state.thinking, tools: engine.state.tools, max: 600 });
 }
 

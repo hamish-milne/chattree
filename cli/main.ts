@@ -3,7 +3,7 @@ import { runInit } from "./init.ts";
 import { CliError, type Io } from "./io.ts";
 import { Engine } from "./engine.ts";
 import { defaultCommands } from "./commands/index.ts";
-import { PlainRenderer, type Thinking } from "./output.ts";
+import { PlainRenderer, type Thinking, type ToolView } from "./output.ts";
 import { findProject, openThread } from "./project.ts";
 import { SessionStore } from "./session.ts";
 import { runChat } from "./chat.ts";
@@ -18,6 +18,7 @@ const OPTIONS = {
   yes: { type: "boolean", short: "y" },
   help: { type: "boolean", short: "h" },
   thinking: { type: "string" },
+  tools: { type: "string" },
   attach: { type: "string", multiple: true },
   mime: { type: "string" },
   provider: { type: "string" },
@@ -44,7 +45,7 @@ Any session command works as a verb too (chattree status, chattree history 20, c
 chattree usage, chattree verify ...). Inside a session they are /status, /history 20, and so on; /help lists them.
 
 options: -C <dir> run as if started there    -t <thread> the thread to use (default: the working tree's branch)
-         -y answer yes to questions          --plain no styling or spinner    --thinking on|brief|off
+         -y answer yes to questions          --plain no styling or spinner    --thinking on|brief|off  --tools full|brief|off
 `;
 
 const quote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
@@ -88,12 +89,14 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     const registry = new Registry(defaultCommands());
     if (verb === "chat") {
       if (values.thinking !== undefined && !["on", "off", "brief"].includes(values.thinking)) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
+      if (values.tools !== undefined && !["full", "brief", "off"].includes(values.tools)) throw new CliError(`--tools takes full, brief or off, not ${values.tools}`);
       return await runChat(where, start, {
         thread: values.thread ?? args[0],
         session: values.session,
         newSession: values["new-session"] === true,
         plain: values.plain === true,
         thinking: values.thinking as Thinking | undefined,
+        tools: values.tools as ToolView | undefined,
         yes: values.yes === true,
       });
     }
@@ -109,6 +112,10 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     if (values.thinking !== undefined) {
       if (!["on", "off", "brief"].includes(values.thinking)) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
       engine.state.thinking = values.thinking as Thinking;
+    }
+    if (values.tools !== undefined) {
+      if (!["full", "brief", "off"].includes(values.tools)) throw new CliError(`--tools takes full, brief or off, not ${values.tools}`);
+      engine.state.tools = values.tools as ToolView;
     }
 
     let line: string;
@@ -133,7 +140,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
 
 /** Run one line through the engine, rendering plain output. 1 if it reported an error or the request did not complete. */
 async function drain(engine: Engine, line: string, io: Io): Promise<number> {
-  const render = new PlainRenderer(io, () => engine.convo, engine.state.thinking);
+  const render = new PlainRenderer(io, () => engine.convo, engine.state.thinking, undefined, engine.state.tools);
   let failed = false;
   for await (const o of engine.submit(line)) {
     if (o.type === "error" || (o.type === "request_end" && o.status !== "completed")) failed = true;

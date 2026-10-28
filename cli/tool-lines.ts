@@ -32,10 +32,10 @@ export function describeCall(name: string, args: Record<string, unknown>): strin
 }
 
 /** The result line, and up to three lines of the output beneath it. */
-export function resultLines(o: { is_error: boolean; content: string; ms: number; truncated: boolean }): { head: string; preview: string[]; more: boolean } {
+export function resultLines(o: { is_error: boolean; content: string; ms?: number; truncated: boolean }): { head: string; preview: string[]; more: boolean } {
   const bytes = new TextEncoder().encode(o.content).length;
   const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`;
   const lines = o.content.split("\n");
   const preview = lines.slice(0, 3).map((l) => clip(l, 120)).filter((l) => l !== "");
-  return { head: `${o.is_error ? "failed" : "ok"} · ${size} · ${o.ms} ms${o.truncated ? " · cut for the model" : ""}`, preview, more: lines.length > 3 || o.truncated };
+  return { head: `${o.is_error ? "failed" : "ok"} · ${size}${o.ms === undefined ? "" : ` · ${o.ms} ms`}${o.truncated ? " · cut for the model" : ""}`, preview, more: lines.length > 3 || o.truncated };
 }

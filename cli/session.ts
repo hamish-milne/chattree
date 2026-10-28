@@ -31,6 +31,7 @@ const sessionFile = z.object({
   drafts: z.array(z.object({ name: z.string().min(1), text: z.string() })).default([]),
   history: z.array(z.string()),
   thinking: z.enum(["off", "brief", "on"]),
+  tools: z.enum(["off", "brief", "full"]).default("brief"),
   attachments: z.array(attachment),
 });
 type SessionFile = z.infer<typeof sessionFile>;
@@ -75,6 +76,7 @@ function toFile(s: Session): SessionFile {
     drafts: s.state.drafts.map((d) => ({ name: d.name, text: d.text })),
     history: s.state.history.slice(-HISTORY_LIMIT),
     thinking: s.state.thinking,
+    tools: s.state.tools,
     attachments: s.state.attachments.map((a) => ({ path: a.path, name: a.name, mime: a.mime, ...(a.charset === undefined ? {} : { charset: a.charset }), size: a.size, mtimeMs: a.mtimeMs })),
   };
 }
@@ -85,6 +87,7 @@ function toState(f: SessionFile): SessionState {
     drafts: f.drafts.map((d) => ({ name: d.name, text: d.text })),
     history: f.history,
     thinking: f.thinking,
+    tools: f.tools,
     attachments: f.attachments.map((a): StagedAttachment => ({ path: a.path, name: a.name, mime: a.mime, ...(a.charset === undefined ? {} : { charset: a.charset }), size: a.size, mtimeMs: a.mtimeMs })),
   };
 }
@@ -286,7 +289,7 @@ export class SessionStore {
     const lock = await this.#lock(id);
     if (lock === undefined) throw new CliError(`session ${id} is already locked`);
     const at = new Date(this.#now()).toISOString();
-    const session = new Session(this, lock, { $tag: "session", format: 1, id, thread, created: at, updated: at, draft: "", drafts: [], history: [], thinking: "off", attachments: [] }, this.#opts);
+    const session = new Session(this, lock, { $tag: "session", format: 1, id, thread, created: at, updated: at, draft: "", drafts: [], history: [], thinking: "off", tools: "brief", attachments: [] }, this.#opts);
     return session;
   }
 
