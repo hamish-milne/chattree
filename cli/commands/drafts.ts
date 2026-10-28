@@ -89,6 +89,36 @@ const drafts: Command = {
   },
 };
 
+const paste: Command = {
+  name: "paste",
+  summary: "bring a named draft back to the prompt to carry on typing it (Ctrl-O puts the prompt aside as one)",
+  usage: "/paste [name]  (the name can be left out when there is only one draft)",
+  busy: "allowed",
+  async complete(ctx, previous, partial) {
+    return previous.length > 0 ? [] : ctx.state.drafts.map((d) => d.name).filter((n) => n.startsWith(partial));
+  },
+  async *run(ctx, args) {
+    const name = args[0] ?? (ctx.state.drafts.length === 1 ? ctx.state.drafts[0]?.name : undefined);
+    const d = name === undefined ? undefined : ctx.state.drafts.find((x) => x.name === name);
+    if (d === undefined) {
+      yield { type: "error", message: name === undefined ? (ctx.state.drafts.length === 0 ? "there are no named drafts" : "say which draft") : `there is no draft ${name}`, hint: "see /drafts" };
+      return;
+    }
+    if (ctx.state.draft !== "") {
+      yield { type: "error", message: "the prompt already has a draft", hint: "send it, clear it with /draft clear, or put it aside with Ctrl-O first" };
+      return;
+    }
+    ctx.state.drafts = ctx.state.drafts.filter((x) => x.name !== d.name);
+    const lines = d.text.split("\n");
+    // The last line goes on the prompt itself, where it can be edited; the lines before it are the draft so far.
+    if (ctx.engine.prefill !== undefined) {
+      ctx.state.draft = lines.slice(0, -1).join("\n");
+      ctx.engine.prefill(lines.at(-1) ?? "");
+    } else ctx.state.draft = d.text;
+    yield { type: "notice", message: `draft ${d.name} is back on the prompt${lines.length > 1 ? ` (${lines.length} lines; a blank line sends it)` : ""}` };
+  },
+};
+
 const discard: Command = {
   name: "discard",
   summary: "remove a named draft (or all of them) without sending",
@@ -135,4 +165,4 @@ const send: Command = {
   },
 };
 
-export const draftCommands: Command[] = [draft, drafts, discard, send];
+export const draftCommands: Command[] = [draft, drafts, paste, discard, send];

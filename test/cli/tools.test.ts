@@ -347,6 +347,34 @@ describe("choosing with the arrow keys", () => {
   });
 });
 
+describe("putting a draft aside with Ctrl-O", () => {
+  test("Ctrl-O stashes what is being typed as a named draft, and /paste puts it back on the prompt line to carry on", async () => {
+    const { server, dir } = await started([answer("got it")]);
+    const t = terminal(dir);
+    try {
+      await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
+      t.type("\x0f");
+      await waitFor(() => t.screen().includes("nothing to put aside"), "the empty case");
+      t.type("first line\nsecond half");
+      t.type("\x0f");
+      await waitFor(() => t.screen().includes("put aside as draft 1"), "the stash");
+      t.type("/drafts\n");
+      await waitFor(() => /1 {2}22 characters/.test(t.screen()), "the drafts list");
+      t.type("/paste\n");
+      await waitFor(() => t.screen().includes("draft 1 is back on the prompt"), "the paste");
+      t.type(" and more\n\n");
+      await waitFor(() => t.screen().includes("got it"), "the reply");
+      t.type("/quit\n");
+      await t.done;
+      const sent = (await entries(dir)).find((e) => e.$tag === "user");
+      assert.equal(sent?.$tag === "user" && sent.content[0]?.$tag === "text" ? sent.content[0].text : "", "first line\nsecond half and more");
+    } finally {
+      t.end();
+      await server.close();
+    }
+  });
+});
+
 describe("stopping at a question", () => {
   test("Ctrl-C while a question is open declines the call and ends the turn", async () => {
     const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo hi > out.txt" } }), answer("never")]);

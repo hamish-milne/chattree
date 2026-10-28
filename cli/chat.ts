@@ -100,7 +100,7 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
     const act = await engine.convo.activity();
     if (act.state === "request" && act.live) io.err(`note: a request to ${act.model} is running on this thread${act.owner?.pid === undefined ? "" : ` (process ${act.owner.pid})`}\n`);
     if (interactive) {
-      io.out(`${style.dim("type a message and finish it with a blank line · /help lists commands · Ctrl-D leaves")}\n`);
+      io.out(`${style.dim("type a message and finish it with a blank line · /help lists commands · Ctrl-O puts a draft aside · Ctrl-D leaves")}\n`);
       const term = new Terminal({
         engine,
         tty: io.tty as NonNullable<Io["tty"]>,

@@ -5,6 +5,7 @@ import type { Tty } from "./io.ts";
 import { ansiStyle, formatEntry, PlainRenderer, plainStyle, type Style } from "./output.ts";
 import { parseCommand } from "./registry.ts";
 import { PromptBuffer } from "./prompt.ts";
+import { nextDraftName } from "./commands/drafts.ts";
 
 const BRACKETED_PASTE_ON = "\x1b[?2004h";
 const BRACKETED_PASTE_OFF = "\x1b[?2004l";
@@ -101,6 +102,7 @@ export class Terminal {
     this.#engine.suspend = (fn) => this.#suspend(fn);
     this.#engine.ask = (q, fallback, choices) => (choices === undefined ? this.#ask(q, fallback) : this.#select(q, choices, fallback));
     this.#engine.onNotice = () => this.#flushNotices();
+    this.#engine.prefill = (text) => this.#rl.write(text);
     this.#engine.onResume = () => {
       this.#chain = this.#chain.then(() => this.#dispatchResume());
     };
@@ -109,6 +111,10 @@ export class Terminal {
   readonly #onKeypress = (_s: string | undefined, key: { name?: string; ctrl?: boolean } | undefined): void => {
     if (this.#selecting !== undefined && key !== undefined) {
       this.#selecting(key);
+      return;
+    }
+    if (key?.ctrl === true && key.name === "o" && !this.#pasting) {
+      this.#stash();
       return;
     }
     if (key?.name === "paste-start") this.#pasting = true;
@@ -222,6 +228,22 @@ export class Terminal {
     this.#gate.muted = wasMuted;
     if (wasMuted && this.#engine.running) this.#startSpinner();
     return chosen;
+  }
+
+  /** Ctrl-O: put what is being typed (the draft so far and the current line) aside as a named draft, and leave the prompt empty. */
+  #stash(): void {
+    const text = [this.#prompt.draft, this.#rl.line].filter((t) => t !== "").join("\n");
+    if (text.trim() === "") {
+      this.print(`${this.#style.dim("(nothing to put aside)")}\n`);
+      return;
+    }
+    const state = this.#engine.state;
+    const name = nextDraftName(state.drafts);
+    state.drafts = [...state.drafts, { name, text }];
+    this.#prompt.clear();
+    this.#rl.write(null, { ctrl: true, name: "u" });
+    this.#engine.session?.touch();
+    this.print(`${this.#style.dim(`(put aside as draft ${name}; /paste ${name} brings it back here, /send ${name} sends it, /draft ${name} edits it)`)}\n`);
   }
 
   #flushNotices(): void {
@@ -422,6 +444,7 @@ export class Terminal {
     this.#engine.suspend = undefined;
     this.#engine.ask = undefined;
     this.#engine.onNotice = undefined;
+    this.#engine.prefill = undefined;
     this.#engine.onResume = undefined;
     this.#tty.output.write(`${BRACKETED_PASTE_OFF}`);
     this.#done();

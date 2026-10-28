@@ -111,6 +111,8 @@ export class Engine {
   ask: AskFn | undefined;
   /** Things that happened while the user was not looking (a background job ended), shown before the next prompt. */
   notices: string[] = [];
+  /** Put text on the prompt line to be edited (the terminal layer sets it; there is no such line in plain mode). */
+  prefill: ((text: string) => void) | undefined;
   /** How this session's text is coloured (the terminal layer sets it; plain elsewhere). */
   style: Style = plainStyle;
   /** The width of the terminal, or undefined when output is not a terminal. */
