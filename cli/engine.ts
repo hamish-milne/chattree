@@ -198,6 +198,14 @@ export class Engine {
     yield* runTurn(this.ctx);
   }
 
+  /** Run a program with the terminal handed over to it, as for the editor. */
+  async exec(stage: readonly string[], cwd: string): Promise<number> {
+    const exec = this.io.exec;
+    if (exec === undefined) throw new CliError("there is no terminal to run a program in", "run `chattree chat` in a terminal");
+    const run = (): Promise<number> => exec.call(this.io, stage, cwd);
+    return this.suspend === undefined ? run() : this.suspend(run);
+  }
+
   /** Open a file in the user's editor, with the terminal handed over for the duration. */
   async edit(path: string): Promise<boolean> {
     const edit = this.io.edit;

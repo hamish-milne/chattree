@@ -22,6 +22,11 @@ export interface Io {
   onSignal?(fn: (signal: string) => void): () => void;
   /** Open a file in the user's editor (`$VISUAL`, `$EDITOR`, else `vi`) and wait; true if it exited cleanly. Absent where there is no terminal. */
   edit?(path: string): Promise<boolean>;
+  /**
+   * Run a program with the terminal handed to it (stdin, stdout and stderr inherited: interactive programs work) and wait for it. Resolves to
+   * its exit code (127 when it could not be started). Ctrl-C goes to the program, not to us. Absent where there is no terminal.
+   */
+  exec?(stage: readonly string[], cwd: string): Promise<number>;
   /** Ask the user a question and return the answer (the default when they just press Enter). Present only when `interactive`. */
   ask?(question: string, fallback?: string): Promise<string>;
 }
@@ -68,6 +73,23 @@ export function nodeIo(): Io {
         child.on("exit", (code) => resolve(code === 0));
         child.on("error", () => resolve(false));
       });
+    },
+    async exec(stage, cwd) {
+      const { spawn } = await import("node:child_process");
+      // The terminal sends Ctrl-C to every process in the foreground group: while the program runs, it is the program's, so ours stand aside.
+      const saved = process.listeners("SIGINT");
+      process.removeAllListeners("SIGINT");
+      process.on("SIGINT", () => undefined);
+      try {
+        return await new Promise<number>((resolve) => {
+          const child = spawn(stage[0] as string, stage.slice(1), { cwd, stdio: "inherit" });
+          child.on("exit", (code, signal) => resolve(code ?? (signal === null ? 1 : 128)));
+          child.on("error", () => resolve(127));
+        });
+      } finally {
+        process.removeAllListeners("SIGINT");
+        for (const l of saved) process.on("SIGINT", l as NodeJS.SignalsListener);
+      }
     },
     async ask(question, fallback) {
       const { createInterface } = await import("node:readline/promises");

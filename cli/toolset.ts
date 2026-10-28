@@ -45,6 +45,12 @@ export async function resolveBusybox(io: Io, mode: string | undefined, ensure: t
   }
 }
 
+/** The busybox.exe for this thread's configuration (fetched on first use when `tools.run.busybox` is auto), or undefined off Windows. */
+export async function busyboxFor(io: Io, convo: Conversation): Promise<string | undefined> {
+  const cfg = await convo.readConfig();
+  return resolveBusybox(io, cfg?.ok === true ? cfg.value.tools["run"]?.busybox : undefined);
+}
+
 export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHooks): Promise<ToolSet> {
   const cfg = await convo.readConfig();
   const config = cfg?.ok === true ? cfg.value : undefined;

@@ -102,6 +102,7 @@ Threads
 | `/thread [name]` | Show the current thread, or re-point this session at another (opens or creates the worktree). |
 | `/thread new <name> [--from <entry>]` | A new thread, optionally from an earlier point. |
 | `/fork [<entry>] [name]` | Fork this thread (a side conversation). |
+| `/exec [command line]` | Run a command in this thread's worktree as yourself: no approval, nothing added to the transcript, the terminal handed over (so `/exec sh`, an editor or a watcher work; Ctrl-C goes to the program). The line goes to POSIX `sh -c`, which on Windows is busybox's (fetched on first use, see `tools.run.busybox`), so pipes, `&&` and redirects mean the same everywhere. No command starts a shell; a non-zero exit is reported. |
 | `/merge [summary]` | Merge this fork into the thread it came from and move there (`fork_merge`, with the summary the user or the model writes). |
 | `/merge <thread> [summary]` | Merge that fork into this thread. |
 | `/compact <from> <to>` | Replace a range with a summary (the CLI asks the model for the summary, shows it, asks to accept). |
