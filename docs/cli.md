@@ -76,6 +76,7 @@ Chat
 | `/attachments` | List staged attachments (name, type, size). | allowed |
 | `/detach <n\|all>` | Unstage. | allowed |
 | `/draft show\|edit\|clear\|set <text>`, `/edit` | Work on the prompt draft (what you are typing): look at it, edit it in `$EDITOR`, clear it, replace it. | allowed |
+| `/more` | The next page of the last command's output, when it was taller than the terminal (the page ends with a dim line saying how many lines are left). | allowed |
 | `/paste [name]` | Bring a named draft back to the prompt: its last line is on the prompt line itself, to edit and carry on, and the lines before it are the draft so far. Ctrl-O does the reverse: it puts whatever is being typed (the draft so far and the current line) aside as the next numbered draft and leaves the prompt empty. | allowed |
 | `/draft [name]` | Write a message ahead in `$EDITOR` as a **named draft** (no name: the smallest free number, 1, 2, ...). Opening an existing name edits it; saving it empty removes it. `show`, `edit`, `clear` and `set` are reserved. | allowed |
 | `/drafts`, `/discard <name\|all>` | List the named drafts (the `show` of the staged-state rule); remove one without sending (its `clear`). | allowed |

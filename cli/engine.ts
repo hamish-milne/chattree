@@ -119,6 +119,12 @@ export class Engine {
   width(): number | undefined {
     return this.io.tty?.output.columns;
   }
+  /** The height of the terminal, or undefined when output is not a terminal. */
+  rows(): number | undefined {
+    return this.io.tty?.output.rows;
+  }
+  /** What the last command printed beyond one screen: `/more` shows the next page of it. */
+  more = "";
   /** Called when `notices` gained something while idle. */
   onNotice: (() => void) | undefined;
   /** Called when a background job ended while idle and `background.resume` is on: the host should run `resume()`. */

@@ -123,4 +123,16 @@ const expand: Command = {
   },
 };
 
-export const toolCommands: Command[] = [tools, jobs, expand];
+const more: Command = {
+  name: "more",
+  summary: "the next page of output that did not fit the screen",
+  usage: "/more",
+  busy: "allowed",
+  async *run(ctx) {
+    const rest = ctx.engine.more;
+    ctx.engine.more = "";
+    yield rest === "" ? { type: "notice", message: "there is nothing more to show" } : { type: "text", text: rest };
+  },
+};
+
+export const toolCommands: Command[] = [tools, jobs, expand, more];

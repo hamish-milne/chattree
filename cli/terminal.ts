@@ -324,7 +324,8 @@ export class Terminal {
     const known = this.#engine.registry.find(cmd?.name ?? "say");
     const blocking = known?.busy === "blocked";
     if (blocking) this.#startSpinner();
-    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t), clear: () => this.#tty.output.write("\x1b[2J\x1b[H") }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);
+    const paged = cmd !== undefined && cmd.name !== "exec";
+    const render = new PlainRenderer({ out: (t) => (paged ? this.#page(t) : this.#emit(t)), err: (t) => this.#emit(t), clear: () => this.#tty.output.write("\x1b[2J\x1b[H") }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);
     render.width = () => this.#engine.width();
     try {
       if (blocking) this.#gate.muted = true;
@@ -347,6 +348,20 @@ export class Terminal {
     this.#flushNotices();
     if (!this.#closing) this.print(`${this.#style.dim(await this.#engine.statusLine())}\n`);
     this.#showPrompt();
+  }
+
+  /** A command's output taller than the screen: one page now, the rest kept for /more. */
+  #page(text: string): void {
+    const rows = this.#engine.rows();
+    const lines = text.split("\n");
+    const room = rows === undefined ? Infinity : Math.max(5, rows - 4);
+    if (lines.length - 1 <= room) {
+      this.#emit(text);
+      return;
+    }
+    const rest = lines.slice(room);
+    this.#engine.more = rest.join("\n");
+    this.#emit(`${lines.slice(0, room).join("\n")}\n${this.#style.dim(`-- ${rest.length - 1} more lines: /more shows the next page --`)}\n`);
   }
 
   /** Output from the renderer: written through while muted, above the prompt otherwise. */

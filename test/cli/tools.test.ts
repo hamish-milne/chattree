@@ -375,6 +375,33 @@ describe("putting a draft aside with Ctrl-O", () => {
   });
 });
 
+describe("paging", () => {
+  test("a command's output taller than the screen shows one page and /more the rest", async () => {
+    const { server, dir } = await started([answer("x")]);
+    const output = new PassThrough() as PassThrough & { rows?: number };
+    output.rows = 30;
+    const input = new PassThrough();
+    let raw = "";
+    output.on("data", (d: Buffer) => void (raw += d.toString()));
+    const io = testIo(dir, { interactive: true, tty: { input, output }, env: { PATH: process.env["PATH"] } });
+    const done = main(["chat", "--thread", "main"], io);
+    const screen = () => strip(raw + io.stdout);
+    try {
+      await waitFor(() => screen().includes("Ctrl-D leaves"), "the prompt");
+      input.write("/help\n");
+      await waitFor(() => /-- \d+ more lines: \/more/.test(screen()), "the page break");
+      assert.ok(!screen().includes("/quit  "), "the end of the list is not shown yet");
+      input.write("/more\n");
+      await waitFor(() => /\/quit/.test(screen().split("more lines")[1] ?? ""), "the rest");
+      input.write("/quit\n");
+      await done;
+    } finally {
+      input.end();
+      await server.close();
+    }
+  });
+});
+
 describe("the status line", () => {
   test("is printed between turns with the thread, the spend and what is waiting", async () => {
     const { server, dir } = await started([answer("done")]);

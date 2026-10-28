@@ -33,7 +33,7 @@ export interface Io {
 
 export interface Tty {
   input: NodeJS.ReadableStream & { setRawMode?: (mode: boolean) => unknown; isTTY?: boolean };
-  output: NodeJS.WritableStream & { columns?: number };
+  output: NodeJS.WritableStream & { columns?: number; rows?: number };
 }
 
 export function nodeIo(): Io {
