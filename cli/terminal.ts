@@ -125,6 +125,7 @@ export class Terminal {
   async run(): Promise<void> {
     this.#tty.output.write(BRACKETED_PASTE_ON);
     this.#startWatch();
+    this.#tty.output.write(`${this.#style.dim(await this.#engine.statusLine())}\n`);
     this.#showPrompt();
     await this.finished;
   }
@@ -344,6 +345,7 @@ export class Terminal {
       return;
     }
     this.#flushNotices();
+    if (!this.#closing) this.print(`${this.#style.dim(await this.#engine.statusLine())}\n`);
     this.#showPrompt();
   }
 

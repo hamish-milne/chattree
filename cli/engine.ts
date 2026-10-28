@@ -182,6 +182,25 @@ export class Engine {
     }
   }
 
+  /** One line for between turns: thread, model, what the thread has cost, and background jobs that are running. */
+  async statusLine(): Promise<string> {
+    const parts: string[] = [this.thread];
+    try {
+      const setup = await this.convo.setup();
+      if (setup.model !== undefined) parts.push(setup.model.resolved ?? setup.model.id);
+      const l = await this.convo.ledger();
+      parts.push(`$${l.conversation.usd.toFixed(2)}${l.conversation.unpriced > 0 ? "+" : ""}`);
+    } catch {
+      /* a status line is a convenience: say what is known */
+    }
+    let running = 0;
+    for (const p of this.#sets) running += (await p.catch(() => undefined))?.jobs.list().filter((j) => j.status === "running").length ?? 0;
+    if (running > 0) parts.push(`${running} job${running === 1 ? "" : "s"} running`);
+    if (this.state.attachments.length > 0) parts.push(`${this.state.attachments.length} file${this.state.attachments.length === 1 ? "" : "s"} staged`);
+    if (this.state.drafts.length > 0) parts.push(`${this.state.drafts.length} draft${this.state.drafts.length === 1 ? "" : "s"}`);
+    return parts.join(" · ");
+  }
+
   /** Stop the background jobs of this session and record how they ended (the process is leaving). */
   async stopJobs(): Promise<void> {
     for (const p of this.#sets) await (await p).jobs.shutdown();

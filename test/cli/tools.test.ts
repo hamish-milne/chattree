@@ -375,6 +375,26 @@ describe("putting a draft aside with Ctrl-O", () => {
   });
 });
 
+describe("the status line", () => {
+  test("is printed between turns with the thread, the spend and what is waiting", async () => {
+    const { server, dir } = await started([answer("done")]);
+    const t = terminal(dir);
+    try {
+      await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
+      t.type("one\x0f");
+      await waitFor(() => t.screen().includes("put aside as draft 1"), "the stash");
+      t.type("hello\n\n");
+      await waitFor(() => t.screen().includes("done"), "the reply");
+      await waitFor(() => /main · .*\$\d+\.\d\d.* · 1 draft/.test(t.screen()), "the status line");
+      t.type("/quit\n");
+      await t.done;
+    } finally {
+      t.end();
+      await server.close();
+    }
+  });
+});
+
 describe("stopping at a question", () => {
   test("Ctrl-C while a question is open declines the call and ends the turn", async () => {
     const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo hi > out.txt" } }), answer("never")]);
