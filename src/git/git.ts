@@ -139,6 +139,8 @@ function assertSafeArg(what: string, value: string): void {
  * and it fixes the settings that would otherwise let a user's configuration change behaviour: no prompts,
  * no pager or editor, no hooks, no signing, no auto-gc, no line-ending conversion, C locale.
  */
+const knownVersions = new WeakMap<Host, Map<string, GitVersion>>();
+
 export class Git {
   readonly #sessions = new Set<CatFileSession>();
   readonly host: Host;
@@ -153,17 +155,23 @@ export class Git {
     this.#opts = opts;
   }
 
-  /** Check that git runs and is recent enough, and return a handle for `opts.cwd`. */
+  /** Check that git runs and is recent enough, and return a handle for `opts.cwd`. The version is asked once per host and program (starting a process is the slow part). */
   static async open(host: Host, opts: GitOptions): Promise<Git> {
     const program = opts.program ?? "git";
-    let r: ExecResult;
-    try {
-      r = await host.exec(program, ["version"], { cwd: opts.cwd, env: { LC_ALL: "C" } });
-    } catch (e) {
-      throw new GitError(`cannot run ${program}: ${e instanceof Error ? e.message : String(e)}`);
+    let known = knownVersions.get(host);
+    let version = known?.get(program);
+    if (version === undefined) {
+      let r: ExecResult;
+      try {
+        r = await host.exec(program, ["version"], { cwd: opts.cwd, env: { LC_ALL: "C" } });
+      } catch (e) {
+        throw new GitError(`cannot run ${program}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+      version = r.exitCode === 0 ? parseGitVersion(dec.decode(r.stdout)) : undefined;
+      if (version === undefined) throw new GitError(`cannot determine the git version (exit ${r.exitCode}): ${dec.decode(r.stderr).trim()}`);
+      if (known === undefined) knownVersions.set(host, (known = new Map()));
+      known.set(program, version);
     }
-    const version = r.exitCode === 0 ? parseGitVersion(dec.decode(r.stdout)) : undefined;
-    if (version === undefined) throw new GitError(`cannot determine the git version (exit ${r.exitCode}): ${dec.decode(r.stderr).trim()}`);
     const min = opts.minVersion ?? MIN_GIT_VERSION;
     if (compareVersions(version, min) < 0) {
       throw new GitError(`git ${formatVersion(version)} is too old: ${formatVersion(min)} or newer is required (see docs/git-integration.md, D7)`);

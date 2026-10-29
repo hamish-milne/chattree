@@ -9,8 +9,8 @@
  * end, a prompt nobody answers) is killed with its process tree and reported by name instead of stalling the whole run for hours.
  */
 import { spawn, spawnSync } from "node:child_process";
-import { readdirSync } from "node:fs";
-import { availableParallelism } from "node:os";
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 
 const group = process.argv[2] ?? "quick";
@@ -52,13 +52,16 @@ interface Result {
   timedOut: boolean;
   seconds: number;
   output: string;
+  /** Processes the host started (git, mostly): what the time goes on, on Windows. */
+  spawns: number;
 }
 
 function runFile(file: string): Promise<Result> {
   return new Promise((resolve) => {
     const t0 = Date.now();
     const args = ["--no-warnings", "--test", `--test-timeout=${testTimeoutMs}`, "--test-force-exit", ...(group === "slow" ? ["--test-name-pattern=\\[slow\\]"] : []), file];
-    const child = spawn(process.execPath, args, { env, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" });
+    const spawnLog = join(mkdtempSync(join(tmpdir(), "chattree-spawns-")), "log");
+    const child = spawn(process.execPath, args, { env: { ...env, CHATTREE_SPAWN_LOG: spawnLog }, stdio: ["ignore", "pipe", "pipe"], detached: process.platform !== "win32" });
     let output = "";
     child.stdout.on("data", (d: Buffer) => void (output += d.toString()));
     child.stderr.on("data", (d: Buffer) => void (output += d.toString()));
@@ -69,11 +72,21 @@ function runFile(file: string): Promise<Result> {
     }, fileLimitMs);
     child.on("close", (code) => {
       clearTimeout(timer);
-      resolve({ file, ok: code === 0 && !timedOut, timedOut, seconds: (Date.now() - t0) / 1000, output });
+      let spawns = 0;
+      try {
+        const lines = readFileSync(spawnLog, "utf8").split("\n").filter(Boolean);
+        spawns = lines.length;
+        for (const l of lines) kinds.set(l, (kinds.get(l) ?? 0) + 1);
+      } catch {
+        /* no process was started */
+      }
+      rmSync(join(spawnLog, ".."), { recursive: true, force: true });
+      resolve({ file, ok: code === 0 && !timedOut, timedOut, seconds: (Date.now() - t0) / 1000, output, spawns });
     });
   });
 }
 
+const kinds = new Map<string, number>();
 const queue = [...files];
 const results: Result[] = [];
 async function worker(): Promise<void> {
@@ -90,5 +103,8 @@ await Promise.all(Array.from({ length: jobs }, worker));
 const bad = results.filter((r) => !r.ok);
 const slowest = [...results].sort((a, b) => b.seconds - a.seconds).slice(0, 5);
 console.log(`\n${results.length - bad.length}/${results.length} files passed. Slowest: ${slowest.map((r) => `${r.file} ${r.seconds.toFixed(0)}s`).join(", ")}`);
+const busiest = [...results].sort((a, b) => b.spawns - a.spawns).slice(0, 8);
+console.log(`Processes started: ${results.reduce((n, r) => n + r.spawns, 0)} in total. Most: ${busiest.map((r) => `${r.file} ${r.spawns}`).join(", ")}`);
+console.log(`By command: ${[...kinds].sort((a, b) => b[1] - a[1]).slice(0, 14).map(([k, n]) => `${k.trim()} ${n}`).join(", ")}`);
 if (bad.length > 0) console.log(`Not passing: ${bad.map((r) => r.file).join(", ")}`);
 process.exit(bad.length === 0 ? 0 : 1);

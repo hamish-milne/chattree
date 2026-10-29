@@ -1,4 +1,4 @@
-import { mkdtemp, rm, realpath } from "node:fs/promises";
+import { cp, mkdtemp, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after } from "node:test";
@@ -21,11 +21,22 @@ export async function tempDir(): Promise<string> {
 
 export const identity = { name: "Test User", email: "test@example.com" };
 
+let template: Promise<string> | undefined;
+
+/** A repository with the test identity set, made once per process and copied: starting git three times per test is slow, copying a directory is not. */
+function repoTemplate(): Promise<string> {
+  template ??= (async () => {
+    const git = await Git.init(nodeHost(), join(await tempDir(), "template"), {});
+    await git.setConfig("user.name", identity.name);
+    await git.setConfig("user.email", identity.email);
+    return git.cwd;
+  })();
+  return template;
+}
+
 /** A fresh repository with a fixed identity configured locally. */
 export async function newRepo(): Promise<Git> {
-  const host = nodeHost();
-  const git = await Git.init(host, join(await tempDir(), "repo"), {});
-  await git.setConfig("user.name", identity.name);
-  await git.setConfig("user.email", identity.email);
-  return git;
+  const dir = join(await tempDir(), "repo");
+  await cp(await repoTemplate(), dir, { recursive: true });
+  return Git.open(nodeHost(), { cwd: dir });
 }

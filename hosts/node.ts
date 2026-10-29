@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { constants, statSync } from "node:fs";
+import { appendFileSync, constants, statSync } from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 import { randomBytes } from "node:crypto";
@@ -40,6 +40,14 @@ export function findRealGit(
   return undefined;
 }
 
+/** `CHATTREE_SPAWN_LOG=<file>` appends one line per process started (program and git subcommand): tools/test.ts uses it to count them. */
+function logSpawn(program: string, args: readonly string[]): void {
+  const file = process.env["CHATTREE_SPAWN_LOG"];
+  if (file === undefined) return;
+  const sub = args.find((a, i) => !a.startsWith("-") && args[i - 1] !== "-c") ?? "";
+  appendFileSync(file, `${nodePath.basename(program)} ${sub}\n`);
+}
+
 let realGit: string | undefined | null = null;
 /** `git` on a Windows PATH becomes the real git.exe when one can be found (see findRealGit); every other program is left alone. */
 function resolveProgram(program: string): string {
@@ -50,6 +58,7 @@ function resolveProgram(program: string): string {
 
 function exec(program: string, args: readonly string[], opts: ExecOptions): Promise<ExecResult> {
   program = resolveProgram(program);
+  logSpawn(program, args);
   return new Promise((resolve, reject) => {
     const limit = opts.maxOutput ?? DEFAULT_MAX_OUTPUT;
     const child = spawn(program, [...args], {
@@ -93,6 +102,7 @@ function exec(program: string, args: readonly string[], opts: ExecOptions): Prom
 
 function spawnProcess(program: string, args: readonly string[], opts: Pick<ExecOptions, "cwd" | "env">): Promise<HostProcess> {
   program = resolveProgram(program);
+  logSpawn(program, args);
   return new Promise((resolve, reject) => {
     const child = spawn(program, [...args], {
       cwd: opts.cwd,
