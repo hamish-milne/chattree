@@ -63,6 +63,21 @@ export const harnessConfig = z.object({
     .object({
       /** `auto`: a subagent hands its work back without asking. `review`: you are asked first, and see its report. */
       merge: z.enum(["auto", "review"]).default("auto"),
+      /**
+       * The models the parent may choose for a subagent, as `provider/model` (the provider is a name from `providers`). Without this
+       * the subagent always uses the parent's own model and the tool has no `model` argument. What each is good at, its cost tier
+       * and its reasoning levels come from the provider's `models` catalog; the entry here can narrow the levels or reword the description.
+       */
+      models: z
+        .record(
+          z.string().regex(/^[^\s/@]+\/[^\s@]+$/, "write it as provider/model, without spaces or @"),
+          z.strictObject({
+            description: z.string().min(1).optional(),
+            /** Only these reasoning levels are offered for the model (default: every level the catalog has). */
+            reasoning: z.array(z.string().min(1)).min(1).optional(),
+          }),
+        )
+        .optional(),
     })
     .default({ merge: "auto" }),
   /** Hard limits: a request that would exceed one is not sent. To go past one, change it here. */

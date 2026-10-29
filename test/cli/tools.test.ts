@@ -405,6 +405,39 @@ describe("the subagent tool", () => {
   });
 });
 
+describe("subagent.models in harness.yml", () => {
+  const withModels = async (models: string) => {
+    const { server, dir } = await started([answer("ok")]);
+    await writeFile(join(dir, "harness.yml"), `${await readFile(join(dir, "harness.yml"), "utf8")}subagent:\n  models:\n${models}`);
+    return { server, dir };
+  };
+
+  test("the model is offered to the parent as an argument, with the listed choices in the request", async () => {
+    const { server, dir } = await withModels('    "local/small-model": { description: "for greps" }\n');
+    try {
+      const io = testIo(dir, { stdin: "hi\n" });
+      assert.equal(await main(["chat", "--plain", "-y"], io), 0, io.stderr);
+      const body = server.seen[0]?.body ?? "";
+      assert.match(body, /local\/small-model/);
+      assert.match(body, /for greps/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("a model of a provider that is not configured is reported to the user, not the model", async () => {
+    const { server, dir } = await withModels('    "nowhere/m": {}\n');
+    try {
+      const io = testIo(dir, { stdin: "hi\n" });
+      await main(["chat", "--plain", "-y"], io);
+      assert.match(io.stderr, /no provider nowhere/);
+      assert.equal(server.seen.length, 0, "nothing was sent");
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("/runs", () => {
   test("the user can stop a child, tell it something and let it carry on; the parent's call waits and then completes", async () => {
     const { server, dir } = await started([

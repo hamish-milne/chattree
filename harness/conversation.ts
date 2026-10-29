@@ -34,7 +34,7 @@ import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineC
 import { DEFAULT_MAX_ATTACHMENT_BYTES, attachmentKind, decodeText, mimeCharset, normalizeMime } from "./attachments.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import type { ModelInfo } from "../providers/registry.ts";
-import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type SetupChange } from "./setup.ts";
+import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type ModelSetup, type SetupChange } from "./setup.ts";
 import { createUlid } from "./ulid.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
 import { StreamAccumulator } from "./partial.ts";
@@ -1612,10 +1612,10 @@ export class Conversation {
    * Give `target` (a branch that starts without an agent setup, such as a new thread or a subagent) this thread's setup: model and
    * settings, instructions, tools, skills, MCP servers, the price pin and the renderer.
    */
-  async copySetupTo(target: Conversation, reason: "fork" | "subagent"): Promise<void> {
+  async copySetupTo(target: Conversation, reason: "fork" | "subagent", opts: { model?: ModelSetup } = {}): Promise<void> {
     const source = await this.setup();
     if (source.model === undefined) return;
-    const { provider, id, settings } = source.model;
+    const { provider, id, settings } = opts.model ?? source.model;
     await target.setupChange({
       model: { provider, id, ...(settings === undefined ? {} : { settings }) },
       ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),

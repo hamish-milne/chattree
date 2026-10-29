@@ -10,6 +10,7 @@ import { LimitExceeded } from "../../harness/limits.ts";
 import { JobRegistry, jobTools } from "../../harness/jobs.ts";
 import { forkTool, mergeTool } from "../../harness/fork-tools.ts";
 import { subagentBranch, subagentTool } from "../../harness/subagent.ts";
+import { resolveSubagentModels } from "../../harness/subagent-models.ts";
 import { ThreadRuns } from "../../harness/runs.ts";
 import { runLoop, syncTools, toolDrift, ToolsNotSupported, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
 import { leafTools } from "../../harness/starter/index.ts";
@@ -45,10 +46,14 @@ const adapters = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
     config: z.strictObject({ $tag: z.literal("fake") }),
-    settings: z.strictObject({}),
+    settings: z.strictObject({ max_output_tokens: z.number().optional(), effort: z.string().optional() }),
     jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
     secrets: () => [],
-    models: () => (convention === undefined ? {} : { m1: { tool_convention: convention } }),
+    models: () => ({
+      m1: { ...(convention === undefined ? {} : { tool_convention: convention }), description: "the everyday model", cost_tier: "medium" as const, reasoning: { low: { effort: "low" }, high: { effort: "high" } }, default_reasoning: "low" },
+      m2: { max_output_tokens: 1000, description: "a small, cheap model", cost_tier: "low" as const, context_window: 200_000, reasoning: { low: { effort: "low" }, high: { effort: "high" } } },
+      m3: { description: "no known output cap" },
+    }),
     create: () => ({
       $tag: "fake",
       async *stream(req) {
@@ -56,7 +61,8 @@ const adapters = new AdapterRegistry().register(
         const next = queue.shift();
         if (next === undefined) throw new Error("the test queued no reply");
         if (req.signal.aborted) throw new ProviderError({ kind: "aborted", message: "aborted" });
-        return typeof next === "function" ? await next(req.signal) : next;
+        const out = typeof next === "function" ? await next(req.signal) : next;
+        return { ...out, observed: { ...out.observed, model: req.setup.model?.id ?? "m1" } }; // the model that was asked for is the one that answers
       },
       retrieve: () => Promise.resolve(undefined),
     }),
@@ -367,5 +373,119 @@ describe("the fork and merge tools", () => {
     await drive(convo, tools);
     const r = (await entries(convo)).find((e) => e.$tag === "tool_result");
     assert.ok(r?.$tag === "tool_result" && r.is_error);
+  });
+});
+
+describe("choosing the subagent's model", () => {
+  const choices = async (convo: Conversation, listed: Record<string, { description?: string; reasoning?: string[] }> = { "f/m1": {}, "f/m2": {}, "f/m3": {} }) => {
+    const r = resolveSubagentModels(listed, new Set(["f"]), (p, id) => convo.modelInfo(p, id));
+    assert.deepEqual(r.problems, []);
+    return r.models;
+  };
+  const withModels = async (listed?: Record<string, { description?: string; reasoning?: string[] }>) => {
+    const { convo } = await fresh(new ToolRegistry());
+    const runs = new ThreadRuns();
+    const tool = subagentTool({ convo, childRegistry: new ToolRegistry([writer("made-by-child.txt", "hi\n")]), runs, loopOptions: () => allow, models: await choices(convo, listed) });
+    const tools = new ToolRegistry([tool]);
+    await syncTools(convo, tools);
+    return { convo, tool, tools };
+  };
+
+  test("without a list the tool has no model argument and its description is the plain one", async () => {
+    const { tools } = await withSubagent();
+    const def = tools.get("subagent")?.definition;
+    assert.ok(def !== undefined);
+    assert.deepEqual(Object.keys((def.input_schema as { properties: object }).properties), ["brief", "name", "background"]);
+    assert.doesNotMatch(def.description, /Models:/);
+  });
+
+  test("with a list the description and schema offer the models, their tiers and levels", async () => {
+    const { tool } = await withModels();
+    const props = (tool.definition.input_schema as { properties: Record<string, { enum?: string[] }> }).properties;
+    assert.deepEqual(props["model"]?.enum, ["f/m1", "f/m2", "f/m3"]);
+    assert.deepEqual(props["reasoning"]?.enum, ["low", "high"]);
+    assert.match(tool.definition.description, /- f\/m2 \[cost: low; context: 200k; reasoning: low, high\]: a small, cheap model/);
+    assert.match(tool.definition.description, /- f\/m1 \[cost: medium; reasoning: low \(default\), high\]: the everyday model/);
+  });
+
+  test("the list can narrow the levels and reword the description; the definition changes with it", async () => {
+    const wide = (await withModels()).tool.definition;
+    const narrow = (await withModels({ "f/m2": { description: "use for greps", reasoning: ["low"] } })).tool.definition;
+    assert.notDeepEqual(wide, narrow);
+    assert.match(narrow.description, /reasoning: low\]: use for greps/);
+  });
+
+  test("the child runs on the model and level the call chose, with the output cap of that model", async () => {
+    const { convo, tools } = await withModels();
+    queue = [calls(call("s1", "subagent", { brief: "x", name: "n", model: "f/m2", reasoning: "high" })), calls(call("c1", "merge", { summary: "ok" })), answer("parent done")];
+    await drive(convo, tools);
+    const res = (await entries(convo)).find((e) => e.$tag === "subagent_result");
+    assert.ok(res?.$tag === "subagent_result");
+    const child = await convo.openBranch(res.branch);
+    assert.deepEqual((await child.setup()).model, { provider: "f", id: "m2", settings: { max_output_tokens: 1000, effort: "high" } });
+    assert.deepEqual((await convo.setup()).model?.id, "m1", "the parent keeps its own");
+  });
+
+  test("a model without a level uses its default; a level alone changes only the level of the parent's model", async () => {
+    const { convo, tools } = await withModels();
+    queue = [calls(call("s1", "subagent", { brief: "x", name: "a", reasoning: "high" })), calls(call("c1", "merge", { summary: "ok" })), answer("parent done")];
+    await drive(convo, tools);
+    const res = (await entries(convo)).find((e) => e.$tag === "subagent_result");
+    assert.ok(res?.$tag === "subagent_result");
+    assert.deepEqual((await (await convo.openBranch(res.branch)).setup()).model, { provider: "f", id: "m1", settings: { effort: "high" } });
+  });
+
+  test("an unknown level and a model with no known output cap are errors that make no branch", async () => {
+    const { convo, tools } = await withModels();
+    queue = [
+      calls(call("s1", "subagent", { brief: "x", model: "f/m2", reasoning: "max" })),
+      calls(call("s2", "subagent", { brief: "x", model: "f/m3" })),
+      answer("parent done"),
+    ];
+    await drive(convo, tools);
+    const all = await entries(convo);
+    const text = (id: string) => {
+      const r = all.find((e) => e.$tag === "tool_result" && e.call_id === id);
+      return r?.$tag === "tool_result" && typeof r.content === "string" ? r.content : "";
+    };
+    // `max` is not in the schema's enum, so the registry refuses it before the tool sees it
+    assert.match(text("s1"), /max|reasoning/);
+    assert.match(text("s2"), /output cap for f\/m3 is not known/);
+    assert.deepEqual((await convo.listBranches()).filter((b) => b.name.startsWith("sub/")), []);
+  });
+
+  test("approval keys: inherit, provider/model@level, and globs that let a cheap model through without a dear one", async () => {
+    const { tool, convo } = await withModels();
+    const ctx = { workspace: convo.dir, host };
+    assert.deepEqual(await tool.allowKeys?.({ brief: "x" }, ctx), ["inherit"]);
+    assert.deepEqual(await tool.allowKeys?.({ brief: "x", model: "f/m2", reasoning: "high" }, ctx), ["f/m2@high"]);
+    assert.deepEqual(await tool.allowKeys?.({ brief: "x", model: "f/m2" }, ctx), ["f/m2@default"], "a model with no default level");
+    assert.deepEqual(await tool.covers?.(["f/m2@*"], { brief: "x", model: "f/m2", reasoning: "low" }, ctx), ["f/m2@*"]);
+    assert.deepEqual(await tool.covers?.(["f/m*@low"], { brief: "x", model: "f/m2", reasoning: "low" }, ctx), ["f/m*@low"]);
+    assert.equal(await tool.covers?.(["f/m*@low"], { brief: "x", model: "f/m2", reasoning: "high" }, ctx), undefined, "another level");
+    assert.equal(await tool.covers?.(["f/m2@*"], { brief: "x", model: "f/m1", reasoning: "low" }, ctx), undefined, "another model");
+    assert.equal(await tool.covers?.(["f/m2@*"], { brief: "x" }, ctx), undefined, "inherit is its own key, never a glob match");
+    assert.deepEqual(await tool.covers?.(["inherit"], { brief: "x" }, ctx), ["inherit"]);
+    assert.equal(tool.validateKey?.("f/m2@high"), undefined);
+    assert.equal(tool.validateKey?.("inherit"), undefined);
+    assert.match(tool.validateKey?.("cheap") ?? "", /provider\/model@level/);
+  });
+
+  test("a child inherits what the parent has spent: the turn and conversation figures it is limited by start from the parent's", async () => {
+    const { convo, tools } = await withModels();
+    // the parent's turn so far: this request (the one that makes the call); the child then makes one request of its own
+    queue = [calls(call("s1", "subagent", { brief: "x", name: "n" })), calls(call("c1", "merge", { summary: "ok" })), answer("parent done")];
+    await drive(convo, tools);
+    const res = (await entries(convo)).find((e) => e.$tag === "subagent_result");
+    assert.ok(res?.$tag === "subagent_result");
+    const child = await (await convo.openBranch(res.branch)).ledger();
+    assert.equal(child.turn.requests, 2, "the parent's request in this turn plus the child's own");
+    assert.equal(child.conversation.requests, 2);
+  });
+
+  test("without a list the only key is all, as before", async () => {
+    const { tools, convo } = await withSubagent();
+    const tool = tools.get("subagent") as Tool;
+    assert.deepEqual(await tool.allowKeys?.({ brief: "x" }, { workspace: convo.dir, host }), ["all"]);
   });
 });

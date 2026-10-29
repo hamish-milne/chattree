@@ -23,9 +23,20 @@ export const TOOL_CONVENTIONS = ["full", "flat"] as const;
 export type ToolConvention = (typeof TOOL_CONVENTIONS)[number];
 
 /** What is known about a model. Unknown fields are unknown; the harness only warns on what it can tell. */
+export const COST_TIERS = ["low", "medium", "high"] as const;
+export type CostTier = (typeof COST_TIERS)[number];
+
 export interface ModelInfo {
   context_window?: number | undefined;
   max_output_tokens?: number | undefined;
+  /** One or two sentences for whoever (or whatever) chooses between models: what it is good at. */
+  description?: string | undefined;
+  /** How much it costs to use relative to the other models of the catalog. Coarse on purpose: prices change, this is pinned in tool definitions. */
+  cost_tier?: CostTier | undefined;
+  /** Named reasoning levels, each the model settings that produce it (the names mean the same for every provider; the settings are the adapter's). */
+  reasoning?: Record<string, Record<string, unknown>> | undefined;
+  /** The level used when none is asked for and the model is not the one already in use. Must be a key of `reasoning`. */
+  default_reasoning?: string | undefined;
   /** Default `full`. Measured by the `tools-nesting` live check, or set in `harness.yml`. */
   tool_convention?: ToolConvention | undefined;
 }
@@ -72,6 +83,20 @@ export class AdapterRegistry {
 /** The name of an environment variable. A key pasted here by mistake is refused, never stored. */
 export const envName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "must be the NAME of an environment variable (letters, digits and _), not the key itself");
 
+/** What `providers.<name>.models.<id>` may say about a model. */
+const modelInfoConfig = z
+  .strictObject({
+    context_window: z.number().int().positive().optional(),
+    max_output_tokens: z.number().int().positive().optional(),
+    tool_convention: z.enum(TOOL_CONVENTIONS).optional(),
+    description: z.string().min(1).optional(),
+    cost_tier: z.enum(COST_TIERS).optional(),
+    /** Level name (`low`, `high`, `off`, ...) to the settings that produce it, written as the provider's own `settings`. */
+    reasoning: z.record(z.string().regex(/^[a-z][a-z0-9_-]*$/, "lowercase letters, digits, _ and - only"), z.record(z.string(), z.unknown())).optional(),
+    default_reasoning: z.string().optional(),
+  })
+  .refine((m) => m.default_reasoning === undefined || (m.reasoning !== undefined && m.default_reasoning in m.reasoning), "default_reasoning must be one of the reasoning levels");
+
 export const commonProviderFields = {
   /** At most this many requests at once for the provider. */
   max_concurrent: z.number().int().positive().optional(),
@@ -81,7 +106,7 @@ export const commonProviderFields = {
   /** Price overrides, or `free: true` for a local server. Without either, a model with no bundled price has an unknown price. */
   pricing: pricingConfig.optional(),
   /** What you know about models the adapter does not (context window, maximum output, how tools must be written: `tool_convention` `full` or `flat`). */
-  models: z.record(z.string(), z.strictObject({ context_window: z.number().int().positive().optional(), max_output_tokens: z.number().int().positive().optional(), tool_convention: z.enum(TOOL_CONVENTIONS).optional() })).optional(),
+  models: z.record(z.string(), modelInfoConfig).optional(),
 };
 
 export interface CommonProviderConfig {
@@ -102,7 +127,12 @@ export function httpOptionsFor(c: CommonProviderConfig): HttpOptions {
 
 /** For an adapter definition: the bundled table (if any) with this provider's overrides. */
 export const pricesFor = (bundled: PriceTable | undefined, c: CommonProviderConfig): PriceTable => effectiveTable(bundled, c.pricing);
-export const modelsFor = (bundled: Record<string, ModelInfo> | undefined, c: CommonProviderConfig): Record<string, ModelInfo> => ({ ...bundled, ...c.models });
+/** The bundled catalog with the config's entries on top, field by field: saying only `context_window` for a known model keeps the rest of what is known. */
+export const modelsFor = (bundled: Record<string, ModelInfo> | undefined, c: CommonProviderConfig): Record<string, ModelInfo> => {
+  const out: Record<string, ModelInfo> = { ...bundled };
+  for (const [id, info] of Object.entries(c.models ?? {})) out[id] = { ...out[id], ...info };
+  return out;
+};
 
 // ---- validating and building ---------------------------------------------------------------------------------------
 

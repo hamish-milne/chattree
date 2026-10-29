@@ -1,4 +1,5 @@
 import type { PriceTable } from "./pricing.ts";
+import type { ModelInfo } from "./registry.ts";
 
 /**
  * Bundled price tables. These were read from the providers' pricing pages on 2026-10-25 through a summarising tool,
@@ -92,9 +93,31 @@ export const OPENAI_PRICES: PriceTable = {
   },
 };
 
-/** What is known about each model's size (from the same pages); anything else comes from `models` in the provider config. */
-export const ANTHROPIC_MODELS: Record<string, { context_window: number }> = {
-  "claude-fable-5-1": { context_window: 1_000_000 },
-  "claude-opus-5-5": { context_window: 1_000_000 },
-  "claude-sonnet-5-5": { context_window: 1_000_000 },
+/**
+ * What is known about each model: size from the pricing pages, and for choosing between them a short description, a coarse cost tier
+ * and the reasoning levels (as of 2026-10-25, written by hand: check the effort names a model accepts, they depend on the model).
+ * Anything else comes from `models` in the provider config, which is merged on top field by field.
+ */
+const ANTHROPIC_LEVELS = {
+  off: { thinking: { type: "disabled" } },
+  low: { thinking: { type: "adaptive" }, effort: "low" },
+  medium: { thinking: { type: "adaptive" }, effort: "medium" },
+  high: { thinking: { type: "adaptive" }, effort: "high" },
+};
+export const ANTHROPIC_MODELS: Record<string, ModelInfo> = {
+  "claude-fable-5-1": { context_window: 1_000_000, cost_tier: "high", description: "The most capable model: hard, open-ended or long-running work that needs the best judgment.", reasoning: ANTHROPIC_LEVELS, default_reasoning: "high" },
+  "claude-opus-5-5": { context_window: 1_000_000, cost_tier: "high", description: "Very capable all-rounder for demanding coding and analysis.", reasoning: ANTHROPIC_LEVELS, default_reasoning: "high" },
+  "claude-sonnet-5-5": { context_window: 1_000_000, cost_tier: "medium", description: "Smart and efficient: a good default for most tasks.", reasoning: ANTHROPIC_LEVELS, default_reasoning: "medium" },
+  "claude-haiku-5-5": { cost_tier: "low", description: "Fast and cheap: simple, well-specified or high-volume tasks such as searching, summarising and mechanical edits.", reasoning: ANTHROPIC_LEVELS, default_reasoning: "low" },
+};
+
+const OPENAI_LEVELS = {
+  off: { reasoning: false },
+  low: { reasoning: true, effort: "low" },
+  medium: { reasoning: true, effort: "medium" },
+  high: { reasoning: true, effort: "high" },
+};
+export const OPENAI_MODELS: Record<string, ModelInfo> = {
+  "gpt-6-astra": { cost_tier: "high", description: "OpenAI's most capable model: demanding reasoning and coding.", reasoning: OPENAI_LEVELS, default_reasoning: "high" },
+  "gpt-6.1-sol": { cost_tier: "medium", description: "Capable and efficient: a good default for most tasks.", reasoning: OPENAI_LEVELS, default_reasoning: "medium" },
 };

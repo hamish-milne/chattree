@@ -3,6 +3,10 @@ import { ALL } from "./approvals.ts";
 import { syncTools, type Approval, type ApprovalRequest, type LoopEvent, type LoopOptions } from "./loop.ts";
 import type { Run, ThreadRuns } from "./runs.ts";
 import { ToolRegistry, type StartedJob, type Tool, type ToolOutput } from "./tools.ts";
+import { toolConventionProblems } from "./loop.ts";
+import { globRegex } from "./starter/run-keys.ts";
+import { approvalKey, childModel, describeModels, modelProperties, type ChildModel, type SubagentModel } from "./subagent-models.ts";
+import type { ModelSetup } from "./setup.ts";
 
 /**
  * The `subagent` tool (docs/tools.md, section 4.2). It hands a self-contained task to a fresh-context child on its own branch and
@@ -26,6 +30,10 @@ export interface SubagentDeps {
   merge?: "auto" | "review";
   /** Every event of the child's loop, for a host that shows what the child does. */
   onEvent?(name: string, event: LoopEvent): void;
+  /** The models the parent may choose for a child (`subagent.models`, resolved). None: the child uses the parent's model and the tool has no `model` argument. */
+  models?: readonly SubagentModel[];
+  /** The adapter's own check of a model settings object for a provider: the problems, or none. Without it settings are not checked here. */
+  validateSettings?(provider: string, settings: unknown): Promise<string[]>;
 }
 
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,30}$/;
@@ -71,19 +79,25 @@ type Driven = { ok: true; summary: string; child: Conversation; run: Run } | { o
 export function subagentTool(deps: SubagentDeps): Tool {
   const review = deps.merge === "review";
 
-  const drive = async (brief: string, label: string | undefined, callId: string, signal: AbortSignal): Promise<Driven> => {
+  /** The child starts with the parent's setup, except for the model when the call chose one (and then its provider's prices are pinned). */
+  const setupChild = async (child: Conversation, model: ModelSetup | undefined): Promise<void> => {
+    await deps.convo.copySetupTo(child, "subagent", model === undefined ? {} : { model });
+    if (model !== undefined && model.provider !== (await deps.convo.setup()).model?.provider) await child.pinPricing(model.provider);
+  };
+
+  const drive = async (brief: string, label: string | undefined, callId: string, signal: AbortSignal, model: ModelSetup | undefined): Promise<Driven> => {
     const name = subagentBranch(label, callId);
     const branches = await deps.convo.listBranches();
     let child: Conversation;
     if (branches.some((b) => b.name === name)) {
       child = await deps.convo.openBranch(name);
       // A crash between making the branch and giving it its setup leaves it without a model.
-      if ((await child.setup()).model === undefined) await deps.convo.copySetupTo(child, "subagent");
+      if ((await child.setup()).model === undefined) await setupChild(child, model);
     } else {
       const spawned = await deps.convo.spawnSubagent({ brief: `${brief}\n\n${HAND_BACK}`, callId, name });
       if (spawned.conversation === undefined) return { ok: false, content: "the subagent's workspace could not be created" };
       child = spawned.conversation;
-      await deps.convo.copySetupTo(child, "subagent");
+      await setupChild(child, model);
     }
     const report: { summary?: string } = {};
     const registry = new ToolRegistry([...deps.childRegistry.names().map((n) => deps.childRegistry.get(n) as Tool), reportTool(report)]);
@@ -147,13 +161,22 @@ export function subagentTool(deps: SubagentDeps): Tool {
     return `Subagent ${d.child.branch} finished. ${outcome.report.changed.length + outcome.report.added.length} file(s) merged${dropped.length > 0 ? `; kept your version of ${dropped.join(", ")}` : ""}.\n${d.summary}`;
   };
 
+  const models = deps.models ?? [];
+
+  /** What the call asks for, and the child's model setting that follows from it, checked against the parent and the adapter. */
+  const choose = async (args: Record<string, unknown>): Promise<ChildModel> => {
+    const parent = (await deps.convo.setup()).model;
+    const info = parent === undefined ? undefined : deps.convo.modelInfo(parent.provider, parent.id);
+    return childModel({ model: args["model"] as string | undefined, reasoning: args["reasoning"] as string | undefined }, models, parent, info);
+  };
+
   return {
     resumable: true,
     background: true,
     definition: {
       name: "subagent",
       description:
-        "Hand a self-contained task to a subagent: a fresh assistant that has the file tools but none of this conversation, works on its own copy of the workspace, and reports back. Its file changes are merged into yours when it finishes (where both changed the same file, yours is kept). Put everything it needs in `brief`: it knows nothing else. Good for work that is large, or independent of what you are doing, or that would fill this conversation with detail you do not need. The call returns the subagent's report and the files that changed. With `background: true` it returns at once and you are told when the subagent is done.",
+        "Hand a self-contained task to a subagent: a fresh assistant that has the file tools but none of this conversation, works on its own copy of the workspace, and reports back. Its file changes are merged into yours when it finishes (where both changed the same file, yours is kept). Put everything it needs in `brief`: it knows nothing else. Good for work that is large, or independent of what you are doing, or that would fill this conversation with detail you do not need. The call returns the subagent's report and the files that changed. With `background: true` it returns at once and you are told when the subagent is done." + describeModels(models),
       input_schema: {
         type: "object",
         additionalProperties: false,
@@ -161,24 +184,49 @@ export function subagentTool(deps: SubagentDeps): Tool {
         properties: {
           brief: { type: "string", description: "The task, complete in itself: the goal, the files and constraints that matter, and what to report back." },
           name: { type: "string", description: "A short label for the subagent's branch (letters, digits, - and _). Optional." },
+          ...modelProperties(models),
           background: { type: "boolean", description: "Return at once and carry on while the subagent works; you are told when it is done. Default false." },
         },
       },
     },
-    allowKeys: () => [ALL],
+    // Approvals: with no choice of model there is one question (all). With one, the key says which model at which level, `inherit` for the
+    // parent's own, and a stored key may be a glob (`anthropic/claude-haiku-*@*`) so a cheap model can be allowed without a dear one.
+    allowKeys: async (args) => {
+      if (models.length === 0) return [ALL];
+      const c = await choose(args);
+      return c.ok ? [approvalKey(c)] : null;
+    },
+    covers: async (keys, args) => {
+      if (models.length === 0) return undefined;
+      const c = await choose(args);
+      if (!c.ok) return undefined;
+      const want = approvalKey(c);
+      const hit = keys.find((k) => k === want || (want !== "inherit" && k !== "inherit" && globRegex(k).test(want)));
+      return hit === undefined ? undefined : [hit];
+    },
+    validateKey: (key) => (key === "inherit" || /^[^\s@]+\/[^\s@]*@[^\s@]+$/.test(key) ? undefined : "write it as provider/model@level (globs allowed, for example anthropic/claude-haiku-*@*), or inherit"),
     execute: async (args, ctx): Promise<ToolOutput | StartedJob> => {
       const brief = args["brief"] as string;
       const label = args["name"] as string | undefined;
       if (label !== undefined && !SAFE_NAME.test(label)) return { content: "name must be letters, digits, - and _ (at most 31 characters)", is_error: true };
+      const choice = await choose(args);
+      if (!choice.ok) return { content: choice.message, is_error: true };
+      // Everything that can be refused is refused before the branch is made, so a bad choice leaves nothing behind.
+      if (choice.model !== undefined) {
+        const issues = (await deps.validateSettings?.(choice.model.provider, choice.model.settings)) ?? [];
+        if (issues.length > 0) return { content: `the settings for ${choice.key} are not valid: ${issues.join("; ")}`, is_error: true };
+        const unsupported = toolConventionProblems(deps.convo, deps.childRegistry, choice.model);
+        if (unsupported.tools.length > 0) return { content: `${choice.key} cannot be given the subagent's tools (its tool convention is ${unsupported.convention}: ${unsupported.tools.map((t) => `${t.name}: ${t.why.join(", ")}`).join("; ")})`, is_error: true };
+      }
       if (args["background"] !== true) {
-        const d = await drive(brief, label, ctx.callId, ctx.signal);
+        const d = await drive(brief, label, ctx.callId, ctx.signal, choice.model);
         if (!d.ok) return { content: d.content, is_error: true };
         return { content: await merged(d, ctx.callId), recorded: true };
       }
       // A background subagent is not tied to the turn that started it: its own abort controller, stopped by the job's stop.
       const ac = new AbortController();
       let driven: Driven | undefined;
-      const done = drive(brief, label, ctx.callId, ac.signal).then((d): ToolOutput => {
+      const done = drive(brief, label, ctx.callId, ac.signal, choice.model).then((d): ToolOutput => {
         driven = d;
         return d.ok ? { content: d.summary } : { content: d.content, is_error: true };
       });

@@ -7,8 +7,18 @@ const clip = (s: string, n: number): string => {
 
 const str = (v: unknown): string | undefined => (typeof v === "string" ? v : undefined);
 
+/** ` [provider/model, reasoning high]` for a subagent that was given a model of its own, else nothing. */
+function subagentWho(args: Record<string, unknown>): string {
+  const model = str(args["model"]);
+  const reasoning = str(args["reasoning"]);
+  if (model === undefined && reasoning === undefined) return "";
+  return ` [${[model ?? "your model", ...(reasoning === undefined ? [] : [`reasoning ${reasoning}`])].join(", ")}]`;
+}
+
 /** One line for a call: `read src/a.ts`, `run pnpm test`, `script: set -e`, `edit src/a.ts`. */
 export function summarizeCall(name: string, args: Record<string, unknown>): string {
+  const brief = str(args["brief"]);
+  if (name === "subagent" && brief !== undefined) return `subagent${subagentWho(args)}${args["background"] === true ? " (background)" : ""}: ${clip(brief, 90)}`;
   const command = str(args["command"]);
   if (name === "run" && command !== undefined) return `run${args["background"] === true ? " (background)" : ""} ${clip(command, 100)}`;
   const script = str(args["script"]);
@@ -23,6 +33,8 @@ export function summarizeCall(name: string, args: Record<string, unknown>): stri
 
 /** What the user is shown before deciding: exactly what will run, in full for a script. */
 export function describeCall(name: string, args: Record<string, unknown>): string {
+  const brief = str(args["brief"]);
+  if (name === "subagent" && brief !== undefined) return `subagent${subagentWho(args)}${args["background"] === true ? " (in the background)" : ""}:\n${brief.split("\n").map((l) => `  ${l}`).join("\n")}`;
   const script = str(args["script"]);
   if (name === "script" && script !== undefined) return `script${args["background"] === true ? " (in the background)" : ""}:\n${script.split("\n").map((l) => `  ${l}`).join("\n")}`;
   const command = str(args["command"]);

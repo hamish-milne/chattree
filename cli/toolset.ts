@@ -5,6 +5,8 @@ import { leafTools } from "../harness/starter/index.ts";
 import { forkTool, mergeTool, type ForkDeps } from "../harness/fork-tools.ts";
 import { ThreadRuns } from "../harness/runs.ts";
 import { subagentTool } from "../harness/subagent.ts";
+import { resolveSubagentModels } from "../harness/subagent-models.ts";
+import { defaultRegistry } from "../providers/index.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
 import { findBusybox } from "../hosts/node.ts";
@@ -77,7 +79,18 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const leaf = leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env });
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
   const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
-  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, runs, merge: config?.subagent.merge ?? "auto", loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name), ...(hooks.onChildEvent === undefined ? {} : { onEvent: hooks.onChildEvent }) })];
+  // The models the parent may choose for a subagent. A list that names a provider harness.yml does not have is the user's to fix.
+  const chosen = resolveSubagentModels(config?.subagent.models, new Set(Object.keys(config?.providers ?? {})), (p, id) => convo.modelInfo(p, id));
+  if (chosen.problems.length > 0) throw new CliError(chosen.problems.join("\n"), "fix subagent.models in harness.yml, or remove it to give subagents the parent's model");
+  const adapters = defaultRegistry();
+  const validateSettings = async (provider: string, settings: unknown): Promise<string[]> => {
+    const tag = (config?.providers[provider] as { $tag?: string } | undefined)?.$tag;
+    const def = tag === undefined ? undefined : adapters.get(tag);
+    if (def === undefined) return [`no adapter for provider ${provider}`];
+    const r = await def.settings["~standard"].validate(settings);
+    return r.issues === undefined ? [] : r.issues.map((i) => `${(i.path ?? []).map((q) => (typeof q === "object" ? q.key : q)).join(".") || "settings"}: ${i.message}`);
+  };
+  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, runs, models: chosen.models, validateSettings, merge: config?.subagent.merge ?? "auto", loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name), ...(hooks.onChildEvent === undefined ? {} : { onEvent: hooks.onChildEvent }) })];
   const auto = hooks.childLoop === undefined ? undefined : { runs, childRegistry, loopOptions: (_c: Conversation, name: string) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name) };
   const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(auto === undefined ? {} : { auto }), ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
