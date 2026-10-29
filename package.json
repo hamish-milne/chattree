@@ -13,7 +13,7 @@
     "./config": "./src/config.ts"
   },
   "scripts": {
-    "test": "node --no-warnings --test \"test/**/*.test.ts\"",
+    "test": "node --no-warnings tools/test.ts",
     "test:slow": "node --no-warnings tools/test.ts slow",
     "test:all": "node --no-warnings tools/test.ts all",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",

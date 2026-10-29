@@ -9,6 +9,7 @@ import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { answer, chunk, host, initArgs, testIo, usageChunk } from "./support.ts";
+import { WAIT_MS } from "../support/wait.ts";
 
 const ESC = String.fromCharCode(27);
 const strip = (s: string): string => s.replace(new RegExp(`${ESC}\\[[0-9;?]*[A-Za-z]`, "g"), "").replace(/\r/g, "");
@@ -23,7 +24,7 @@ const callTools = (...calls: { id: string; name: string; args: object }[]): Repl
   ],
 });
 
-async function waitFor(pred: () => boolean | Promise<boolean>, what: string, ms = 8000): Promise<void> {
+async function waitFor(pred: () => boolean | Promise<boolean>, what: string, ms = WAIT_MS): Promise<void> {
   const end = Date.now() + ms;
   while (!(await pred())) {
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);

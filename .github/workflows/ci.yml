@@ -28,6 +28,7 @@ jobs:
   # The quick group (pnpm test) on both platforms: the Windows paths (busybox, cmd.exe, path handling) only run for real there.
   test:
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:

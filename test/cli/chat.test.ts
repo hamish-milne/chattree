@@ -10,12 +10,13 @@ import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { answer, chunk, host, initArgs, testIo } from "./support.ts";
+import { WAIT_MS } from "../support/wait.ts";
 
 const ESC = String.fromCharCode(27);
 const strip = (s: string): string => s.replace(new RegExp(`${ESC}\\[[0-9;?]*[A-Za-z]`, "g"), "").replace(/\r/g, "");
 const PASTE = (s: string): string => `${ESC}[200~${s}${ESC}[201~`;
 
-async function waitFor(pred: () => boolean | Promise<boolean>, what: string, ms = 5000): Promise<void> {
+async function waitFor(pred: () => boolean | Promise<boolean>, what: string, ms = WAIT_MS): Promise<void> {
   const end = Date.now() + ms;
   while (!(await pred())) {
     if (Date.now() > end) throw new Error(`timed out waiting for ${what}`);
@@ -168,7 +169,7 @@ describe("the interactive session", () => {
       t.type("one\n\n");
       await waitFor(() => server.seen.length === 1, "the first request");
       t.type("two\n\n");
-      await waitFor(() => t.screen().includes("second answer"), "the second reply", 8000);
+      await waitFor(() => t.screen().includes("second answer"), "the second reply");
       t.type("/quit\n");
       await t.done;
       assert.deepEqual((await entries(dir)).filter((e) => e.$tag === "user").map(userText), ["one", "two"]);
@@ -253,7 +254,7 @@ describe("the interactive session", () => {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
       const other = await Conversation.open(host, dir);
       await other.append({ $tag: "user", content: [{ $tag: "text", text: "typed in another terminal" }] });
-      await waitFor(() => t.screen().includes("typed in another terminal"), "the foreign entry", 8000);
+      await waitFor(() => t.screen().includes("typed in another terminal"), "the foreign entry");
       assert.match(t.screen(), /from another session/);
       t.type("/quit\n");
       await t.done;
