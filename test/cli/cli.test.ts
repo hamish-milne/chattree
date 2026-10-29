@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, sep } from "node:path";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
 import { Conversation } from "../../harness/conversation.ts";
@@ -79,7 +79,7 @@ describe("init", () => {
       const nested = join(repo, "sub");
       const force = testIo(repo);
       assert.equal(await main([...initArgs(server, nested), "--force"], force), 0, force.stderr);
-      assert.equal(await git(nested, "rev-parse", "--show-toplevel"), nested);
+      assert.equal((await git(nested, "rev-parse", "--show-toplevel")).replace(/\//g, sep), nested);
       const both = testIo(repo);
       assert.equal(await main([...initArgs(server, join(repo, "x")), "--force", "--adopt"], both), 1);
     } finally {
