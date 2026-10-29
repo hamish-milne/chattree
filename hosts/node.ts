@@ -411,9 +411,9 @@ export const BUSYBOX_DIR = nodePath.join(nodePath.dirname(fileURLToPath(import.m
  * The busybox.exe that stands in for cat, ls, grep and the rest of the everyday utilities on Windows: the path in
  * `CHATTREE_BUSYBOX`, else the one `tools/fetch-busybox.ts` installed. Undefined elsewhere, and when there is none.
  */
-export async function findBusybox(env: Readonly<Record<string, string | undefined>> = process.env): Promise<string | undefined> {
+export async function findBusybox(env: Readonly<Record<string, string | undefined>> = process.env, dir: string = BUSYBOX_DIR): Promise<string | undefined> {
   if (process.platform !== "win32") return undefined;
-  for (const candidate of [env["CHATTREE_BUSYBOX"], nodePath.join(BUSYBOX_DIR, "busybox.exe")]) {
+  for (const candidate of [env["CHATTREE_BUSYBOX"], nodePath.join(dir, "busybox.exe")]) {
     if (candidate !== undefined && candidate !== "" && (await nodeFs.stat(candidate))?.isFile === true) return candidate;
   }
   return undefined;

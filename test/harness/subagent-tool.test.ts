@@ -172,10 +172,13 @@ describe("the subagent tool", () => {
 
   test("stopping the turn stops the child: not merged, the call gets an error naming its branch", async () => {
     const { convo, runs, tools } = await withSubagent();
-    queue = [calls(call("s1", "subagent", { brief: "x" })), hangUntilAborted, answer("after")];
+    let reached!: () => void;
+    const childAsking = new Promise<void>((r) => (reached = r));
+    queue = [calls(call("s1", "subagent", { brief: "x" })), (signal: AbortSignal) => (reached(), hangUntilAborted(signal)), answer("after")];
     const ac = new AbortController();
     const run = drive(convo, tools, { signal: ac.signal });
-    setTimeout(() => ac.abort(), 300);
+    await childAsking; // the child's request is in flight, however slow the machine is
+    ac.abort();
     await run;
     const all = await entries(convo);
     assert.ok(!all.some((e) => e.$tag === "subagent_result"));

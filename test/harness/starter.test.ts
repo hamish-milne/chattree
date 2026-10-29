@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { chmod, mkdir, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { nodeHost } from "../../hosts/node.ts";
+import { findBusybox, nodeHost } from "../../hosts/node.ts";
 import { MemoryBlobStore } from "../../src/index.ts";
 import { PathRefused, applyChanges, versionOf, type Change, expandEnv, expandGlob, GlobError, leafTools, resolveInWorkspace } from "../../harness/starter/index.ts";
 import { expandBraces } from "../../harness/starter/glob.ts";
@@ -23,7 +23,8 @@ async function workspace(files: Record<string, string> = {}) {
     await writeFile(join(dir, name), content);
   }
   const blobs = new MemoryBlobStore();
-  const registry = new ToolRegistry(leafTools({ env: { allow: ["CT_ALLOWED"], values: { CT_ALLOWED: "yes", CT_OTHER: "no" } } }));
+  const bb = await findBusybox(); // Windows only: the utilities and sh come from the busybox that CI (or tools/fetch-busybox.ts) installed
+  const registry = new ToolRegistry(leafTools({ env: { allow: ["CT_ALLOWED"], values: { CT_ALLOWED: "yes", CT_OTHER: "no" } }, ...(bb === undefined ? {} : { busybox: bb }) }));
   const ctx = (signal = new AbortController().signal): ToolContext => ({ signal, callId: "c1", workspace: dir, host, blobs });
   const call = async (name: string, args: unknown, signal?: AbortSignal): Promise<ToolOutput> => {
     const checked = registry.check({ name, args });
@@ -141,7 +142,7 @@ describe("write", () => {
     assert.match((await call("write", { path: "old.txt", content: "x" })).content, /^replaced old.txt \(1 bytes, was 5, version [0-9a-f]{8}\)$/);
     assert.match((await call("write", { path: "run.sh", content: "#!/bin/sh\necho\n" })).content, /^replaced run.sh \(15 bytes, was 10, version [0-9a-f]{8}\)$/);
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "new/deep/a.txt"))), "héllo");
-    assert.equal((await stat(join(dir, "run.sh"))).mode & 0o777, 0o755);
+    if (process.platform !== "win32") assert.equal((await stat(join(dir, "run.sh"))).mode & 0o777, 0o755); // Windows has no executable bit
   });
 
   test("a file that ended with a newline still does after a whole-file write, and the result says so", async () => {

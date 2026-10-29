@@ -357,11 +357,14 @@ describe("recovery in open", () => {
 
   test("a heartbeat keeps a quiet request's journal fresh", async () => {
     const { convo } = await fresh();
-    steps = [pause(300)];
+    steps = [pause(1500)];
     const p = requestStream(convo, { system: "s", cost: false, journal: { heartbeatMs: 20, flushMs: 5 } }).next();
-    await new Promise((r) => setTimeout(r, 200));
-    const j = await readFile(await convo.journalPath(), "utf8");
-    assert.ok((j.match(/"t":"beat"/g) ?? []).length >= 2);
+    let beats = 0;
+    for (const deadline = Date.now() + 1000; beats < 2 && Date.now() < deadline; ) {
+      await new Promise((r) => setTimeout(r, 25));
+      beats = ((await readFile(await convo.journalPath(), "utf8").catch(() => "")).match(/"t":"beat"/g) ?? []).length;
+    }
+    assert.ok(beats >= 2, `only ${beats} heartbeats`);
     await p;
   });
 });

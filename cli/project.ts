@@ -25,7 +25,7 @@ export interface Project {
 export async function findProject(io: Io, start: string): Promise<Project> {
   const probe = await Git.open(io.host, { cwd: start }).catch(() => undefined);
   const top = probe === undefined ? undefined : await probe.run(["rev-parse", "--show-toplevel"], { ok: [128], readOnly: true }).catch(() => undefined);
-  const root = top === undefined || top.exitCode !== 0 ? undefined : new TextDecoder().decode(top.stdout).trim();
+  const root = top === undefined || top.exitCode !== 0 ? undefined : probe?.hostPath(new TextDecoder().decode(top.stdout).trim());
   if (probe === undefined || root === undefined || root === "") throw new CliError(`${start} is not inside a git repository, so there is no chattree project here`, "run `chattree init` to start one, or pass -C <dir>");
   const git = probe.withCwd(root);
   if ((await io.host.fs.stat(io.host.path.join(root, CONFIG_FILE))) === undefined) {

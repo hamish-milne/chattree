@@ -100,7 +100,7 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   await io.host.fs.mkdir(dir);
   const probe = await Git.open(io.host, { cwd: dir });
   const top = await probe.run(["rev-parse", "--show-toplevel"], { ok: [128], readOnly: true });
-  const inRepo = top.exitCode === 0 ? new TextDecoder().decode(top.stdout).trim() : undefined;
+  const inRepo = top.exitCode === 0 ? probe.hostPath(new TextDecoder().decode(top.stdout).trim()) : undefined;
   if (o.adopt === true && o.force === true) throw new CliError("--adopt and --force are different things; choose one");
   if (inRepo !== undefined && o.adopt !== true && o.force !== true) {
     throw new CliError(

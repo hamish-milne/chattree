@@ -234,13 +234,14 @@ describe("files and status", () => {
     await commitFile(git, "gone", "1\n");
     await writeFile(join(git.cwd, "tracked"), "changed\n");
     await writeFile(join(git.cwd, "new file with spaces"), "x");
-    await writeFile(join(git.cwd, "café \"q\".txt"), "x");
+    const quoted = process.platform === "win32" ? "café 'q'.txt" : "café \"q\".txt"; // Windows has no " in file names
+    await writeFile(join(git.cwd, quoted), "x");
     await mkdir(join(git.cwd, "dir"));
     await writeFile(join(git.cwd, "dir", "inner"), "x");
     await git.run(["rm", "--quiet", "gone"]);
     const status = (await git.status()).sort((a, b) => a.path.localeCompare(b.path));
     assert.deepEqual(status, [
-      { code: "??", path: "café \"q\".txt" },
+      { code: "??", path: quoted },
       { code: "??", path: "dir/inner" },
       { code: "D.", path: "gone" },
       { code: "??", path: "new file with spaces" },
@@ -449,12 +450,12 @@ describe("tree edits", () => {
 
   test("paths that look like globs are taken literally", async () => {
     const git = await newRepo();
-    await writeAll(git, { "a*": "star\n", ab: "ab\n" });
+    await writeAll(git, { "a[bc]": "class\n", ab: "ab\n" }); // * is not allowed in Windows file names; [ is a glob character too
     await git.addAll();
     const c1 = await git.commit({ message: "x" });
-    const t = await git.rewriteTree(await git.treeOf(c1), [{ path: "a*", remove: true }]);
+    const t = await git.rewriteTree(await git.treeOf(c1), [{ path: "a[bc]", remove: true }]);
     const c2 = await git.commitTree(t, [c1], { message: "y" });
-    assert.equal(await git.readFileAt(c2, "a*"), undefined);
+    assert.equal(await git.readFileAt(c2, "a[bc]"), undefined);
     assert.equal(dec.decode(await git.readFileAt(c2, "ab")), "ab\n");
   });
 });

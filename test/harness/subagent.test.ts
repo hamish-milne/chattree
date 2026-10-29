@@ -58,7 +58,7 @@ describe("spawnSubagent", () => {
     assert.match(branch, /^sub\/[0-9A-Z]{26}$/);
     assert.equal(from, head, "no pending changes, so no snapshot commit");
     assert.ok(conversation !== undefined);
-    assert.equal(conversation.dir, `${dir}.branches/${encodeURIComponent(branch)}`);
+    assert.equal(conversation.dir, join(`${dir}.branches`, encodeURIComponent(branch)));
 
     const entries = await conversation.readEntries();
     const marker = entries.at(-1);

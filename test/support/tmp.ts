@@ -9,7 +9,7 @@ const dirs: string[] = [];
 
 // A background process (git maintenance, a closing session) can still be writing when the run ends: retry instead of failing the hook.
 after(async () => {
-  await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })));
+  await Promise.all(dirs.map((d) => rm(d, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined))); // best effort: a temp directory left behind must not fail the run
 });
 
 /** A fresh temporary directory, removed when the test run ends. */

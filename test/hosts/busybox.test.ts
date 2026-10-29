@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { resolveBusybox } from "../../cli/toolset.ts";
 import { CliError } from "../../cli/io.ts";
 import { BUSYBOX_RELEASE, BusyboxError, ensureBusybox, sha256Of, type BusyboxDeps } from "../../hosts/busybox.ts";
-import { nodeHost } from "../../hosts/node.ts";
+import { findBusybox, nodeHost } from "../../hosts/node.ts";
 import { tempDir } from "../support/tmp.ts";
 import { testIo } from "../cli/support.ts";
 
@@ -43,7 +43,7 @@ describe("fetching busybox", () => {
     const dir = await tempDir();
     const said: string[] = [];
     const d = deps();
-    const path = await ensureBusybox({ deps: d.deps, release, dir, say: (m) => said.push(m) });
+    const path = await ensureBusybox({ env: {}, deps: d.deps, release, dir, say: (m) => said.push(m) });
     assert.equal(path, join(dir, "busybox.exe"));
     await access(path);
     assert.deepEqual(d.downloads, [release.url]);
@@ -52,16 +52,16 @@ describe("fetching busybox", () => {
 
   test("a download with another hash is refused and nothing is installed", async () => {
     const dir = await tempDir();
-    await assert.rejects(ensureBusybox({ deps: deps({ bytes: new TextEncoder().encode("tampered") }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /not the expected file/.test(e.message) && /tools\.run\.busybox/.test(e.hint));
+    await assert.rejects(ensureBusybox({ env: {}, deps: deps({ bytes: new TextEncoder().encode("tampered") }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /not the expected file/.test(e.message) && /tools\.run\.busybox/.test(e.hint));
     await assert.rejects(access(join(dir, "busybox.exe")));
   });
 
   test("a failed download, an exe that is not busybox and a missing pin are BusyboxErrors with a hint", async () => {
     const dir = await tempDir();
-    await assert.rejects(ensureBusybox({ deps: deps({ fail: true }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /could not fetch.*503/.test(e.message));
-    await assert.rejects(ensureBusybox({ deps: deps({ applets: undefined }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /does not look like busybox/.test(e.message));
+    await assert.rejects(ensureBusybox({ env: {}, deps: deps({ fail: true }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /could not fetch.*503/.test(e.message));
+    await assert.rejects(ensureBusybox({ env: {}, deps: deps({ applets: undefined }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /does not look like busybox/.test(e.message));
     const d = deps();
-    await assert.rejects(ensureBusybox({ deps: d.deps, release: { url: release.url, sha256: "" }, dir }), (e: unknown) => e instanceof BusyboxError && /no pinned busybox/.test(e.message));
+    await assert.rejects(ensureBusybox({ env: {}, deps: d.deps, release: { url: release.url, sha256: "" }, dir }), (e: unknown) => e instanceof BusyboxError && /no pinned busybox/.test(e.message));
     assert.deepEqual(d.downloads, [], "nothing is downloaded without a pin");
   });
 });
@@ -73,7 +73,8 @@ describe("tools.run.busybox", () => {
   };
 
   test("only Windows needs it", async () => {
-    const io = testIo(await tempDir());
+    const base = testIo(await tempDir());
+    const io = { ...base, host: { ...base.host, platform: "posix" as const } };
     assert.equal(await resolveBusybox(io, "auto", async () => assert.fail("not on posix")), undefined);
   });
 
@@ -94,6 +95,6 @@ describe("tools.run.busybox", () => {
     const file = join(io.cwd, "bb.exe");
     await writeFile(file, "x");
     assert.equal(await resolveBusybox(io, file, async () => assert.fail("no fetch")), file);
-    assert.equal(await resolveBusybox(io, "off", async () => assert.fail("no fetch")), undefined);
+    assert.equal(await resolveBusybox(io, "off", async () => assert.fail("no fetch")), await findBusybox(io.env), "off uses one that is already there and never fetches");
   });
 });

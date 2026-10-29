@@ -22,6 +22,7 @@ describe("/exec", () => {
       const calls: { stage: readonly string[]; cwd: string }[] = [];
       const codes = [0, 0, 3];
       const io = testIo(dir, { stdin: "/exec ls | wc -l\n/exec\n/exec false\n", exec: async (stage, cwd) => (calls.push({ stage, cwd }), codes[calls.length - 1] ?? 0) });
+      io.host = { ...io.host, platform: "posix" as const }; // the Windows shell is the next test
       assert.equal(await main(["chat", "--plain", "-y"], io), 0, io.stderr);
       assert.deepEqual(calls.map((c) => c.stage), [["sh", "-c", "ls | wc -l"], ["sh", "-c", "exec sh"], ["sh", "-c", "false"]]);
       assert.ok(calls.every((c) => c.cwd === dir), "in the thread's worktree");

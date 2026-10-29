@@ -269,7 +269,8 @@ describe("init on Windows", () => {
       assert.equal(await main(initArgs(server, win), { ...w, host: { ...w.host, platform: "windows" as const } }), 0, w.stderr);
       assert.match(await readFile(join(win, "harness.yml"), "utf8"), /^ {4}batch: true$/m);
       const posix = join(base, "posix");
-      assert.equal(await main(initArgs(server, posix), testIo(posix)), 0);
+      const p = testIo(posix);
+      assert.equal(await main(initArgs(server, posix), { ...p, host: { ...p.host, platform: "posix" as const } }), 0);
       assert.doesNotMatch(await readFile(join(posix, "harness.yml"), "utf8"), /batch:/);
       const cfg = await (await Conversation.open(host, win)).readConfig();
       assert.equal(cfg?.ok === true && cfg.value.tools["run"]?.batch, true);
@@ -509,14 +510,15 @@ describe("stopping at a question", () => {
 describe("background jobs in a session", () => {
   test("a job the model starts is reported when it ends, committed, and read by job_output", async () => {
     const js = `setTimeout(() => console.log("job output here"), 300)`;
+    const node = process.execPath.replaceAll("\\", "/");
     const { server, dir } = await started([
-      callTools({ id: "c1", name: "run", args: { command: `${process.execPath} -e '${js}'`, background: true } }),
+      callTools({ id: "c1", name: "run", args: { command: `${node} -e '${js}'`, background: true } }),
       answer("started it"),
       callTools({ id: "c2", name: "job_output", args: { job: "j1" } }),
       answer("it printed the line"),
     ]);
     const yml = await readFile(join(dir, "harness.yml"), "utf8");
-    await writeFile(join(dir, "harness.yml"), yml.replace("  run:\n", `  run:\n    allow: { "${process.execPath.replaceAll("\\", "/")} **": 2999-01-01 }\n`));
+    await writeFile(join(dir, "harness.yml"), yml.replace("  run:\n", `  run:\n    allow: { "${node} **": 2999-01-01 }\n`));
     const t = terminal(dir);
     try {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");

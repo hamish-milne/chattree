@@ -309,7 +309,7 @@ export class Engine {
     }
     let args: string[] = [];
     try {
-      args = cmd.name === "say" ? [] : tokenize(rest);
+      args = cmd.name === "say" ? [] : tokenize(rest, { escapes: this.io.host.platform !== "windows" });
     } catch (e) {
       yield { type: "error", message: e instanceof Error ? e.message : String(e) };
       return;

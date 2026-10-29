@@ -136,7 +136,7 @@ describe("fork", () => {
     assert.equal(from, forkAt.commit);
     assert.ok(conversation !== undefined);
     assert.equal(conversation.branch, branch);
-    assert.equal(conversation.dir, `${dir}.branches/${encodeURIComponent(branch)}`);
+    assert.equal(conversation.dir, join(`${dir}.branches`, encodeURIComponent(branch)));
     assert.equal(await conversation.git.currentBranch(), branch);
 
     const entries = await conversation.readEntries();

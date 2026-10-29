@@ -48,8 +48,12 @@ export class Registry {
   }
 }
 
-/** Split a command line the way a shell would: whitespace separates, quotes and backslashes group and escape. */
-export function tokenize(line: string): string[] {
+/**
+ * Split a command line the way a shell would: whitespace separates, quotes and backslashes group and escape. With
+ * `escapes: false` (Windows, where a backslash separates path parts) quotes still group but a backslash is just a character.
+ */
+export function tokenize(line: string, opts: { escapes?: boolean } = {}): string[] {
+  const escapes = opts.escapes !== false;
   const out: string[] = [];
   let cur = "";
   let has = false;
@@ -58,12 +62,12 @@ export function tokenize(line: string): string[] {
     const c = line[i] as string;
     if (quote !== undefined) {
       if (c === quote) quote = undefined;
-      else if (c === "\\" && quote === '"' && i + 1 < line.length) cur += line[++i];
+      else if (escapes && c === "\\" && quote === '"' && i + 1 < line.length) cur += line[++i];
       else cur += c;
     } else if (c === "'" || c === '"') {
       quote = c;
       has = true;
-    } else if (c === "\\" && i + 1 < line.length) {
+    } else if (escapes && c === "\\" && i + 1 < line.length) {
       cur += line[++i];
       has = true;
     } else if (/\s/.test(c)) {

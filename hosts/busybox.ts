@@ -96,7 +96,7 @@ export interface EnsureOptions {
 
 /** The busybox.exe to use: one that is already there, else the pinned release, fetched. Throws `BusyboxError` when there is none to be had. */
 export async function ensureBusybox(o: EnsureOptions = {}): Promise<string> {
-  const have = await findBusybox(o.env ?? process.env);
+  const have = await findBusybox(o.env ?? process.env, o.dir);
   if (have !== undefined) return have;
   const release = o.release ?? BUSYBOX_RELEASE;
   const deps = o.deps ?? nodeBusyboxDeps;

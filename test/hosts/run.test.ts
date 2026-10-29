@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { chmod, stat, symlink, writeFile } from "node:fs/promises";
+import { join, resolve as resolvePath, sep } from "node:path";
 import { describe, test } from "node:test";
 import { nodeHost } from "../../hosts/node.ts";
 import type { RunSpec } from "../../src/index.ts";
@@ -78,7 +79,7 @@ describe("run", () => {
     assert.equal(dec.decode(r.output), "eof\n");
   });
 
-  test("a timeout kills the whole process group, not just the child", async () => {
+  test("a timeout kills the whole process group, not just the child", { skip: process.platform === "win32" && "needs a POSIX sh and process groups" }, async () => {
     const cwd = await tempDir();
     const pidFile = `${cwd}/pid`;
     const r = await run({ cwd, timeoutMs: 400, stages: [["sh", "-c", `sleep 60 & echo $! > ${pidFile}; wait`]] });
@@ -137,18 +138,18 @@ describe("path and file helpers for the tools", () => {
     const dir = await tempDir();
     await writeFile(`${dir}/real.txt`, "x");
     await symlink(`${dir}/real.txt`, `${dir}/link.txt`);
-    assert.equal(await host.fs.realpath(`${dir}/link.txt`), `${dir}/real.txt`);
+    assert.equal(await host.fs.realpath(`${dir}/link.txt`), join(dir, "real.txt"));
     assert.equal(await host.fs.realpath(`${dir}/missing`), undefined);
   });
 
   test("path ops resolve, relativise and tell absolute from relative", () => {
-    assert.equal(host.path.resolve("/a/b", "../c", "d"), "/a/c/d");
-    assert.equal(host.path.relative("/a/b", "/a/c"), "../c");
+    assert.equal(host.path.resolve("/a/b", "../c", "d"), resolvePath("/a/c/d"));
+    assert.equal(host.path.relative("/a/b", "/a/c"), `..${sep}c`);
     assert.equal(host.path.isAbsolute("/a"), true);
     assert.equal(host.path.isAbsolute("a"), false);
   });
 
-  test("writeAtomic keeps the executable bit when asked to", async () => {
+  test("writeAtomic keeps the executable bit when asked to", { skip: process.platform === "win32" && "Windows has no executable bit" }, async () => {
     const dir = await tempDir();
     const file = `${dir}/script.sh`;
     await writeFile(file, "#!/bin/sh\n");

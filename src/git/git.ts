@@ -268,13 +268,18 @@ export class Git {
   }
 
   /** Absolute path of this worktree's git directory. */
-  gitDir(): Promise<string> {
-    return this.text(["rev-parse", "--absolute-git-dir"], { readOnly: true });
+  async gitDir(): Promise<string> {
+    return this.hostPath(await this.text(["rev-parse", "--absolute-git-dir"], { readOnly: true }));
   }
 
   /** Absolute path of the git directory shared by all worktrees. */
-  commonDir(): Promise<string> {
-    return this.text(["rev-parse", "--path-format=absolute", "--git-common-dir"], { readOnly: true });
+  async commonDir(): Promise<string> {
+    return this.hostPath(await this.text(["rev-parse", "--path-format=absolute", "--git-common-dir"], { readOnly: true }));
+  }
+
+  /** git prints paths with `/` even on Windows; hand a drive-letter or UNC path back with backslashes, the way the host spells it. */
+  hostPath(p: string): string {
+    return /^(?:[A-Za-z]:\/|\/\/)/.test(p) ? p.replace(/\//g, "\\") : p;
   }
 
   /** Is `ancestor` reachable from `descendant` (or equal to it)? */
@@ -717,7 +722,7 @@ export class Git {
         if (cur !== undefined) out.push(cur);
         cur = undefined;
       } else if (field.startsWith("worktree ")) {
-        cur = { path: field.slice(9), head: undefined, branch: undefined, bare: false, detached: false, locked: false, prunable: false };
+        cur = { path: this.hostPath(field.slice(9)), head: undefined, branch: undefined, bare: false, detached: false, locked: false, prunable: false };
       } else if (cur !== undefined) {
         if (field.startsWith("HEAD ")) cur.head = field.slice(5);
         else if (field.startsWith("branch ")) cur.branch = field.slice(7);

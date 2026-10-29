@@ -26,6 +26,9 @@ describe("command lines", () => {
   test("tokenize groups quotes and escapes like a shell", () => {
     assert.deepEqual(tokenize(`a "b c" d\\ e 'f g'`), ["a", "b c", "d e", "f g"]);
   });
+  test("with escapes off (Windows) a backslash is part of the path", () => {
+    assert.deepEqual(tokenize(`/attach C:\\Users\\me\\a.txt "D:\\my docs\\b.txt"`, { escapes: false }), ["/attach", "C:\\Users\\me\\a.txt", "D:\\my docs\\b.txt"]);
+  });
 });
 
 describe("mime detection", () => {

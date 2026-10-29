@@ -43,6 +43,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The run and script tools use busybox on Windows; the tests that run real shell commands need it installed (it is checked against a pinned hash).
+      - if: runner.os == 'Windows'
+        run: node tools/fetch-busybox.ts
       - run: pnpm test
 
   # Exhaustive crash injection, random operations and live-check runs (see test/support/slow.ts).
