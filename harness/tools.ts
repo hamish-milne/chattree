@@ -33,6 +33,8 @@ export interface ToolOutput {
   is_error?: boolean;
   /** The tool already committed the entry that answers this call (a merge's `subagent_result`): the loop records no `tool_result`. `content` is what the host shows. */
   recorded?: boolean;
+  /** The tool ends the conversation's loop: the calls after it in the same response do not run and no further request is made (a subagent's report). */
+  finish?: boolean;
 }
 
 /** A background-capable tool that was started with `background: true`: it returns at once and finishes later. */
@@ -43,11 +45,22 @@ export interface StartedJob {
     /** Settles when the job is over; never rejects (a failure is an `is_error` output). */
     done: Promise<ToolOutput>;
     stop(): void;
+    /**
+     * Run when the job has ended successfully, at the moment its event would be committed (a point where the conversation is between
+     * requests, so it may change the branch). `recorded: true` says the tool committed an entry that reports the job itself (a subagent's
+     * merge), so no `job_event` is written. A throw becomes a failed job.
+     */
+    settle?(out: ToolOutput): Promise<{ recorded: boolean } | void>;
   };
 }
 
 export interface Tool {
   definition: ToolDefinition;
+  /**
+   * True when a call of this tool that nothing answered (the process died while it ran) may be executed again when the loop next starts,
+   * instead of being answered "did not run". The tool must find what its first execution did from the call id and carry on.
+   */
+  resumable?: boolean;
   /** True when the tool can be started with `background: true` (its schema then has that argument). */
   background?: boolean;
   /**

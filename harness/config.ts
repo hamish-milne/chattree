@@ -58,6 +58,13 @@ export const harnessConfig = z.object({
       resume: z.boolean().default(false),
     })
     .default({ resume: false }),
+  /** Subagents (docs/tools.md, 4.2). */
+  subagent: z
+    .object({
+      /** `auto`: a subagent hands its work back without asking. `review`: you are asked first, and see its report. */
+      merge: z.enum(["auto", "review"]).default("auto"),
+    })
+    .default({ merge: "auto" }),
   /** Hard limits: a request that would exceed one is not sent. To go past one, change it here. */
   limits: z
     .object({

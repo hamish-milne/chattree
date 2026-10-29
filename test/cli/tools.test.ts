@@ -380,7 +380,7 @@ describe("the subagent tool", () => {
     const { server, dir } = await started([
       callTools({ id: "s1", name: "subagent", args: { brief: "write note.txt", name: "note" } }),
       callTools({ id: "c1", name: "write", args: { path: "note.txt", content: "from the child\n" } }),
-      answer("child finished"),
+      callTools({ id: "c2", name: "merge", args: { summary: "child finished" } }),
       answer("all done"),
     ]);
     const t = terminal(dir);
@@ -392,7 +392,7 @@ describe("the subagent tool", () => {
       await waitFor(() => t.screen().includes("all done"), "the reply");
       t.type("/quit\n");
       await t.done;
-      assert.match(t.screen(), /↳ sub\/note: write note\.txt/);
+      assert.match(t.screen(), /↳ sub\/note-[0-9a-z]{6}: write note\.txt/);
       assert.equal(await readFile(join(dir, "note.txt"), "utf8"), "from the child\n");
       const all = await entries(dir);
       assert.ok(all.some((e) => e.$tag === "subagent_result" && e.call_id === "s1"));

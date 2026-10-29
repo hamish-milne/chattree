@@ -3,6 +3,7 @@ import { JobRegistry, jobTools } from "../harness/jobs.ts";
 import type { Approval, ApprovalRequest, LoopEvent } from "../harness/loop.ts";
 import { leafTools } from "../harness/starter/index.ts";
 import { forkTool, mergeTool, type ForkDeps } from "../harness/fork-tools.ts";
+import { ThreadRuns } from "../harness/runs.ts";
 import { subagentTool } from "../harness/subagent.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
@@ -15,6 +16,8 @@ import { describeCall } from "./tool-lines.ts";
 export interface ToolSet {
   registry: ToolRegistry;
   jobs: JobRegistry;
+  /** The loops running for this thread's tools (subagents). */
+  runs: ThreadRuns;
 }
 
 export interface ToolSetHooks {
@@ -70,14 +73,15 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   // Only tools listed under `tools` in harness.yml are offered; leaving one out turns it off.
   const listed = (name: string): boolean => config?.tools[name] !== undefined;
   const busybox = listed("run") || listed("script") ? await resolveBusybox(io, config?.tools["run"]?.busybox) : undefined;
+  const runs = new ThreadRuns();
   const leaf = leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env });
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
   const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
-  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name), ...(hooks.onChildEvent === undefined ? {} : { onEvent: hooks.onChildEvent }) })];
+  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, runs, merge: config?.subagent.merge ?? "auto", loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name), ...(hooks.onChildEvent === undefined ? {} : { onEvent: hooks.onChildEvent }) })];
   const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
   const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));
-  return { registry, jobs };
+  return { registry, jobs, runs };
 }
 
 /** The user's answer to "may this call run?", as a loop approval. */

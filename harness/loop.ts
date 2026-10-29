@@ -86,10 +86,10 @@ export type LoopEvent =
 export type LoopResult = {
   /**
    * `completed`: the model answered without asking for a tool (`last.completed.stop_reason` says how it ended).
-   * `interrupted` / `cancelled`: the request was cut off or stopped (see `last`).
+   * `finished`: a tool ended the loop on purpose (its output said `finish`). `interrupted` / `cancelled`: the request was cut off or stopped (see `last`).
    * `stopped`: the user aborted while tools were running. `deadline`: the turn's time limit passed between or during calls.
    */
-  status: "completed" | "interrupted" | "cancelled" | "stopped" | "deadline";
+  status: "completed" | "interrupted" | "cancelled" | "stopped" | "deadline" | "finished";
   /** Requests made by this run. */
   requests: number;
   last?: TurnResult;
@@ -158,6 +158,7 @@ const DID_NOT_RUN = {
   stopped: "The tool did not run: the user stopped the turn first.",
   deadline: "The tool did not run: the turn's time limit passed first.",
   stale: "The tool did not run: the conversation was interrupted before it started.",
+  finished: "The tool did not run: the conversation ended with an earlier call.",
 } as const;
 
 /** Calls of the last assistant entry that nothing answered, unless a user message has come since (the context builder covers that case). */
@@ -230,11 +231,93 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
 
   if (opts.jobs !== undefined) for (const id of await opts.jobs.recover()) yield { type: "job.event", job: id, status: "lost", summary: `job ${id} was lost` };
 
-  // Calls an earlier loop left unanswered are not run now; the model hears that they did not run.
+  /** One call of a response (or a call a crashed loop left, for a tool that can resume): checks, approvals, execution, the result. True when the call ended the loop. */
+  const callOne = async function* (call: CallBlock): AsyncGenerator<LoopEvent, boolean, void> {
+    const t0 = now();
+    yield { type: "tool.start", callId: call.call_id, name: call.name, args: (call.args ?? {}) as Record<string, unknown> };
+    const checked = registry.check(call);
+    if ("error" in checked) {
+      yield* record(call, { content: checked.error, is_error: true }, t0);
+      return false;
+    }
+    const decline = async function* (reason: string | undefined, via: "asked" | "headless"): AsyncGenerator<LoopEvent, void, void> {
+      yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via, ...(reason === undefined ? {} : { reason }) };
+      yield* record(call, { content: `The user declined to run this call${reason === undefined || reason === "" ? "." : `: ${reason}`}`, is_error: true }, t0);
+    };
+    let proceed = true;
+    if (opts.grants !== undefined) {
+      const hit = await permitted(checked.tool, checked.args, await opts.grants.allow(call.name), now(), approvalCtx);
+      if (hit.permitted) yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "allowlist", keys: hit.keys };
+      else if (opts.approve === undefined) {
+        proceed = false;
+        yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via: "headless" };
+        yield* record(call, { content: "This call needs the user's approval and none is available here, so it did not run.", is_error: true }, t0);
+      } else {
+        const keys = (await checked.tool.allowKeys?.(checked.args, approvalCtx)) ?? null;
+        const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys });
+        if (!decision.allow) {
+          proceed = false;
+          yield* decline(decision.reason, "asked");
+        } else {
+          const ev: Extract<LoopEvent, { type: "tool.approval" }> = { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "asked" };
+          if (decision.grant !== undefined && keys !== null && keys.length > 0) {
+            const bad = keys.map((k) => keyProblem(checked.tool, k)).find((p) => p !== undefined);
+            const until = untilAfter(now(), decision.grant.seconds);
+            try {
+              if (bad !== undefined) throw new Error(bad);
+              await opts.grants.grant(call.name, keys, until, { commit: decision.grant.commit ?? !Number.isFinite(decision.grant.seconds) });
+              ev.granted = { keys, until };
+            } catch (e) {
+              ev.grantError = e instanceof Error ? e.message : String(e); // the user said yes: this call still runs, once
+            }
+          }
+          yield ev;
+        }
+      }
+    } else if (opts.approve !== undefined) {
+      const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys: null });
+      yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: decision.allow, ...(decision.allow || decision.reason === undefined ? {} : { reason: decision.reason }) };
+      if (!decision.allow) {
+        proceed = false;
+        yield* record(call, { content: `The user declined to run this call${decision.reason === undefined || decision.reason === "" ? "." : `: ${decision.reason}`}`, is_error: true }, t0);
+      }
+    }
+    if (!proceed) return false;
+    const signals = [opts.signal, deadline === undefined ? undefined : AbortSignal.timeout(Math.max(1, deadline - now()))].filter((s): s is AbortSignal => s !== undefined);
+    const signal = signals.length === 0 ? new AbortController().signal : AbortSignal.any(signals);
+    let out: ToolOutput;
+    try {
+      const res = await checked.tool.execute(checked.args, { signal, callId: call.call_id, workspace: convo.dir, host: convo.host, blobs: convo.store });
+      if (!isStarted(res)) out = res;
+      else if (opts.jobs === undefined) {
+        res.started.stop();
+        out = { content: "background jobs are not available here", is_error: true };
+      } else {
+        const id = await opts.jobs.start(call.call_id, res.started);
+        out = { content: `started job ${id}: ${res.started.summary}. It keeps running; you will be told when it ends (jobs lists jobs, job_stop stops one).` };
+      }
+    } catch (e) {
+      out = { content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true };
+    }
+    yield* record(call, out, t0);
+    return out.finish === true;
+  };
+
+  // Calls an earlier loop left unanswered are not run again, except those of a tool that can resume (a subagent finds its branch by the
+  // call id and carries on); the model hears that the others did not run.
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-  const names = new Map<string, string>();
-  for (const e of entries) if (e.$tag === "assistant") for (const b of e.blocks) if (b.$tag === "tool_call") names.set(b.call_id, b.name);
-  for (const id of unanswered(entries)) yield* record({ call_id: id, name: names.get(id) ?? "" }, { content: DID_NOT_RUN.stale, is_error: true }, now(), "stale");
+  const blocks = new Map<string, CallBlock>();
+  for (const e of entries) {
+    if (e.$tag !== "assistant") continue;
+    for (const b of e.blocks) if (b.$tag === "tool_call") blocks.set(b.call_id, { type: "tool_call", call_id: b.call_id, name: b.name, args: b.args, ...(b.args_raw === undefined ? {} : { args_raw: b.args_raw }) } as CallBlock);
+  }
+  let resumedFinish = false;
+  for (const id of unanswered(entries)) {
+    const call = blocks.get(id);
+    if (call !== undefined && registry.get(call.name)?.resumable === true && stopReason() === undefined) resumedFinish = (yield* callOne(call)) || resumedFinish;
+    else yield* record({ call_id: id, name: call?.name ?? "" }, { content: DID_NOT_RUN.stale, is_error: true }, now(), "stale");
+  }
+  if (resumedFinish) return { status: "finished", requests: 0 };
 
   const turnOpts: TurnOptions = { ...opts, deadline: deadline as number };
   if (deadline === undefined) delete (turnOpts as { deadline?: number }).deadline;
@@ -258,80 +341,20 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
     const calls = result.completed.blocks.filter((b): b is CallBlock => b.type === "tool_call");
     if (result.completed.stop_reason !== "tool_use" || calls.length === 0) return { status: "completed", requests, last: result };
 
+    let finished = false;
     for (const [i, call] of calls.entries()) {
+      if (finished) {
+        yield* record({ call_id: call.call_id, name: call.name }, { content: DID_NOT_RUN.finished, is_error: true }, now(), "finished");
+        continue;
+      }
       const why = stopReason();
       if (why !== undefined) {
         for (const rest of calls.slice(i)) yield* record({ call_id: rest.call_id, name: rest.name }, { content: DID_NOT_RUN[why], is_error: true }, now(), why);
         return { status: why, requests, last: result };
       }
-      const t0 = now();
-      yield { type: "tool.start", callId: call.call_id, name: call.name, args: (call.args ?? {}) as Record<string, unknown> };
-      const checked = registry.check(call);
-      if ("error" in checked) {
-        yield* record(call, { content: checked.error, is_error: true }, t0);
-        continue;
-      }
-      const decline = async function* (reason: string | undefined, via: "asked" | "headless"): AsyncGenerator<LoopEvent, void, void> {
-        yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via, ...(reason === undefined ? {} : { reason }) };
-        yield* record(call, { content: `The user declined to run this call${reason === undefined || reason === "" ? "." : `: ${reason}`}`, is_error: true }, t0);
-      };
-      let proceed = true;
-      if (opts.grants !== undefined) {
-        const hit = await permitted(checked.tool, checked.args, await opts.grants.allow(call.name), now(), approvalCtx);
-        if (hit.permitted) yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "allowlist", keys: hit.keys };
-        else if (opts.approve === undefined) {
-          proceed = false;
-          yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via: "headless" };
-          yield* record(call, { content: "This call needs the user's approval and none is available here, so it did not run.", is_error: true }, t0);
-        } else {
-          const keys = (await checked.tool.allowKeys?.(checked.args, approvalCtx)) ?? null;
-          const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys });
-          if (!decision.allow) {
-            proceed = false;
-            yield* decline(decision.reason, "asked");
-          } else {
-            const ev: Extract<LoopEvent, { type: "tool.approval" }> = { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "asked" };
-            if (decision.grant !== undefined && keys !== null && keys.length > 0) {
-              const bad = keys.map((k) => keyProblem(checked.tool, k)).find((p) => p !== undefined);
-              const until = untilAfter(now(), decision.grant.seconds);
-              try {
-                if (bad !== undefined) throw new Error(bad);
-                await opts.grants.grant(call.name, keys, until, { commit: decision.grant.commit ?? !Number.isFinite(decision.grant.seconds) });
-                ev.granted = { keys, until };
-              } catch (e) {
-                ev.grantError = e instanceof Error ? e.message : String(e); // the user said yes: this call still runs, once
-              }
-            }
-            yield ev;
-          }
-        }
-      } else if (opts.approve !== undefined) {
-        const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys: null });
-        yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: decision.allow, ...(decision.allow || decision.reason === undefined ? {} : { reason: decision.reason }) };
-        if (!decision.allow) {
-          proceed = false;
-          yield* record(call, { content: `The user declined to run this call${decision.reason === undefined || decision.reason === "" ? "." : `: ${decision.reason}`}`, is_error: true }, t0);
-        }
-      }
-      if (!proceed) continue;
-      const signals = [opts.signal, deadline === undefined ? undefined : AbortSignal.timeout(Math.max(1, deadline - now()))].filter((s): s is AbortSignal => s !== undefined);
-      const signal = signals.length === 0 ? new AbortController().signal : AbortSignal.any(signals);
-      let out: ToolOutput;
-      try {
-        const res = await checked.tool.execute(checked.args, { signal, callId: call.call_id, workspace: convo.dir, host: convo.host, blobs: convo.store });
-        if (!isStarted(res)) out = res;
-        else if (opts.jobs === undefined) {
-          res.started.stop();
-          out = { content: "background jobs are not available here", is_error: true };
-        } else {
-          const id = await opts.jobs.start(call.call_id, res.started);
-          out = { content: `started job ${id}: ${res.started.summary}. It keeps running; you will be told when it ends (jobs lists jobs, job_stop stops one).` };
-        }
-      } catch (e) {
-        out = { content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true };
-      }
-      yield* record(call, out, t0);
+      finished = (yield* callOne(call)) || finished;
     }
+    if (finished) return { status: "finished", requests, last: result };
     const after = stopReason();
     if (after !== undefined) return { status: after, requests, last: result };
   }

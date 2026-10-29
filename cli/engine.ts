@@ -228,7 +228,11 @@ export class Engine {
 
   /** Stop the background jobs of this session and record how they ended (the process is leaving). */
   async stopJobs(): Promise<void> {
-    for (const p of this.#sets) await (await p).jobs.shutdown();
+    for (const p of this.#sets) {
+      const set = await p;
+      set.runs.closeAll();
+      await set.jobs.shutdown();
+    }
   }
 
   /** Asks the user about a tool call, or undefined when nobody can be asked (the call is then declined unless a grant covers it). */

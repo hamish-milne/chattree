@@ -119,7 +119,7 @@ describe("JSON Schema", () => {
   const schema = configJsonSchema(registry) as { properties: Record<string, { additionalProperties?: { oneOf: { title: string; properties: Record<string, unknown>; required: string[] }[] } }> };
 
   test("core keys, and one variant per adapter discriminated by a $tag const", () => {
-    assert.deepEqual(Object.keys(schema.properties).sort(), ["attachments", "background", "compaction", "limits", "maintenance", "providers", "tools"]);
+    assert.deepEqual(Object.keys(schema.properties).sort(), ["attachments", "background", "compaction", "limits", "maintenance", "providers", "subagent", "tools"]);
     const variants = schema.properties["providers"]?.additionalProperties?.oneOf ?? [];
     assert.deepEqual(variants.map((v) => v.title), ["anthropic", "openai", "openai-compatible"]);
     for (const v of variants) {

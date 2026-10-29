@@ -48,7 +48,7 @@ const jobNumber = (id: string): number => Number(id.slice(1));
 export class JobRegistry {
   readonly #convo: Conversation;
   readonly #opts: JobsOptions;
-  readonly #jobs = new Map<string, JobInfo & { stop: () => void; stopped: boolean }>();
+  readonly #jobs = new Map<string, JobInfo & { stop: () => void; stopped: boolean; settle?: NonNullable<StartedJob["started"]["settle"]> }>();
   readonly #uncommitted: string[] = [];
   #next = 1;
   #loops = 0;
@@ -77,7 +77,7 @@ export class JobRegistry {
   async start(call_id: string, started: StartedJob["started"]): Promise<string> {
     await this.#syncNumber();
     const id = `j${this.#next++}`;
-    const job = { id, call_id, label: started.summary, status: "running" as JobStatus, startedAt: this.#convo.now(), stop: () => started.stop(), stopped: false };
+    const job = { id, call_id, label: started.summary, status: "running" as JobStatus, startedAt: this.#convo.now(), stop: () => started.stop(), stopped: false, ...(started.settle === undefined ? {} : { settle: started.settle }) };
     this.#jobs.set(id, job);
     void started.done.then(
       (out) => this.#ended(job, out),
@@ -112,7 +112,7 @@ export class JobRegistry {
   }
 
   list(): JobInfo[] {
-    return [...this.#jobs.values()].map(({ stop: _s, stopped: _t, ...info }) => info);
+    return [...this.#jobs.values()].map(({ stop: _s, stopped: _t, settle: _x, ...info }) => info);
   }
 
   get(id: string): JobInfo | undefined {
@@ -167,7 +167,20 @@ export class JobRegistry {
       const done: { job: string; status: JobStatus; summary: string }[] = [];
       while (this.#uncommitted.length > 0) {
         const id = this.#uncommitted[0] as string;
-        const job = this.#jobs.get(id) as JobInfo;
+        const job = this.#jobs.get(id) as JobInfo & { settle?: NonNullable<StartedJob["started"]["settle"]> };
+        if (job.settle !== undefined && job.status === "completed") {
+          try {
+            const r = await job.settle({ content: job.output ?? "" });
+            if (r?.recorded === true) {
+              this.#uncommitted.shift();
+              done.push({ job: id, status: job.status, summary: `${job.label} completed` });
+              continue;
+            }
+          } catch (e) {
+            job.status = "failed";
+            job.output = `${job.output ?? ""}\n[what should have followed the job failed: ${e instanceof Error ? e.message : String(e)}]`.trim();
+          }
+        }
         const secs = Math.max(0, Math.round(((job.endedAt ?? job.startedAt) - job.startedAt) / 1000));
         const summary = `${job.label} ${job.status} after ${secs}s`;
         await this.#convo.append({ $tag: "job_event", job: id, call_id: job.call_id, status: job.status as "completed", summary, ...(job.output === undefined ? {} : { output: job.output }) });
@@ -194,14 +207,18 @@ export class JobRegistry {
     const entries = await this.#entries();
     const started = new Map<string, string>();
     const ended = new Set<string>();
+    const reported = new Set<string>();
     for (const e of entries) {
       if (e.$tag === "job_event") ended.add(e.job);
+      else if (e.$tag === "subagent_result") reported.add(e.call_id);
+      else if (e.$tag === "fork_merge" && e.call_id !== undefined) reported.add(e.call_id);
       else if (e.$tag === "tool_result" && typeof e.content === "string") {
         const m = JOB_STARTED.exec(e.content);
         if (m !== null) started.set(m[1] as string, e.call_id);
       }
     }
-    const lost = [...started].filter(([id]) => !ended.has(id) && !this.#jobs.has(id));
+    // A job a merge reported (a background subagent) has ended even though it has no job_event.
+    const lost = [...started].filter(([id, call]) => !ended.has(id) && !reported.has(call) && !this.#jobs.has(id));
     for (const [id, call_id] of lost) {
       await this.#convo.append({ $tag: "job_event", job: id, call_id, status: "lost", summary: `job ${id} was running when the process that started it ended; it did not finish and its output is gone` });
     }
