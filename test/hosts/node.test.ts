@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { nodeHost } from "../../hosts/node.ts";
+import { findRealGit, nodeHost } from "../../hosts/node.ts";
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
@@ -131,5 +131,22 @@ describe("fs", () => {
     assert.equal(await fs.remove(b), true);
     assert.equal(await fs.remove(b), false);
     assert.equal(await fs.stat(path.join(b, "inside")), undefined, "a path below a missing entry is simply absent");
+  });
+});
+
+describe("finding the real git on Windows", () => {
+  const files = (...present: string[]) => ({ isFile: (p: string) => present.includes(p), works: (p: string) => present.includes(p) });
+  const real = "C:\\Git\\mingw64\\bin\\git.exe";
+
+  test("the launcher in cmd\\ (or bin\\) leads to mingw64\\bin\\git.exe next to it", () => {
+    assert.equal(findRealGit("C:\\Windows;C:\\Git\\cmd;C:\\x", files("C:\\Git\\cmd\\git.exe", real)), real);
+    assert.equal(findRealGit("C:\\Git\\bin\\", files("C:\\Git\\bin\\git.exe", real)), real);
+  });
+
+  test("anything else falls back to undefined, so plain git is used", () => {
+    assert.equal(findRealGit(undefined, files()), undefined);
+    assert.equal(findRealGit("C:\\Git\\cmd", files("C:\\Git\\cmd\\git.exe")), undefined, "no real exe");
+    assert.equal(findRealGit("C:\\Tools", files("C:\\Tools\\git.exe", real)), undefined, "not a launcher directory");
+    assert.equal(findRealGit("C:\\Git\\cmd", { isFile: () => true, works: () => false }), undefined, "it does not run");
   });
 });

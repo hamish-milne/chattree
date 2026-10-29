@@ -1,5 +1,5 @@
-import { spawn } from "node:child_process";
-import { constants } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { constants, statSync } from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 import { randomBytes } from "node:crypto";
@@ -20,7 +20,36 @@ function concat(chunks: Uint8Array[], total: number): Uint8Array {
   return out;
 }
 
+/**
+ * Git for Windows puts a launcher called git.exe on PATH (in `cmd\`, or `bin\`) which starts the real mingw64\bin\git.exe: two
+ * process starts for every git call, and starting processes is what is slow on Windows. This finds the real one next to the
+ * launcher. It returns undefined, and the caller keeps using plain `git`, unless PATH has such a launcher and the real exe is there and
+ * answers `version`.
+ */
+export function findRealGit(
+  pathVar: string | undefined,
+  deps: { isFile(p: string): boolean; works(p: string): boolean } = { isFile: (p) => statSync(p, { throwIfNoEntry: false })?.isFile() === true, works: (p) => spawnSync(p, ["version"], { windowsHide: true }).status === 0 },
+): string | undefined {
+  const w = nodePath.win32;
+  for (const dir of (pathVar ?? "").split(";")) {
+    if (dir === "" || !["cmd", "bin"].includes(w.basename(dir.replace(/[\\/]+$/, "")).toLowerCase())) continue;
+    if (!deps.isFile(w.join(dir, "git.exe"))) continue;
+    const real = w.join(dir, "..", "mingw64", "bin", "git.exe");
+    if (deps.isFile(real) && deps.works(real)) return real;
+  }
+  return undefined;
+}
+
+let realGit: string | undefined | null = null;
+/** `git` on a Windows PATH becomes the real git.exe when one can be found (see findRealGit); every other program is left alone. */
+function resolveProgram(program: string): string {
+  if (program !== "git" || process.platform !== "win32") return program;
+  if (realGit === null) realGit = findRealGit(process.env["PATH"] ?? process.env["Path"]);
+  return realGit ?? program;
+}
+
 function exec(program: string, args: readonly string[], opts: ExecOptions): Promise<ExecResult> {
+  program = resolveProgram(program);
   return new Promise((resolve, reject) => {
     const limit = opts.maxOutput ?? DEFAULT_MAX_OUTPUT;
     const child = spawn(program, [...args], {
@@ -63,6 +92,7 @@ function exec(program: string, args: readonly string[], opts: ExecOptions): Prom
 }
 
 function spawnProcess(program: string, args: readonly string[], opts: Pick<ExecOptions, "cwd" | "env">): Promise<HostProcess> {
+  program = resolveProgram(program);
   return new Promise((resolve, reject) => {
     const child = spawn(program, [...args], {
       cwd: opts.cwd,

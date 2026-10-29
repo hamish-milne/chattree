@@ -46,7 +46,14 @@ jobs:
       # The run and script tools use busybox on Windows; the tests that run real shell commands need it installed (it is checked against a pinned hash).
       - if: runner.os == 'Windows'
         run: node tools/fetch-busybox.ts
+      # The runner's D: drive is much faster than C: for the many small files and processes the tests create.
+      - if: runner.os == 'Windows'
+        run: New-Item -ItemType Directory -Force D:\tmp
       - run: pnpm test
+        env:
+          TEMP: ${{ runner.os == 'Windows' && 'D:\tmp' || runner.temp }}
+          TMP: ${{ runner.os == 'Windows' && 'D:\tmp' || runner.temp }}
+          TMPDIR: ${{ runner.temp }}
 
   # Exhaustive crash injection, random operations and live-check runs (see test/support/slow.ts).
   slow:
