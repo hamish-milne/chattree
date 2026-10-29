@@ -634,32 +634,44 @@ export class Git {
     return { tree, clean: r.exitCode === 0, conflictedPaths, messages };
   }
 
-  /** A new tree: `tree` with the edits applied. Uses a temporary index file, so nothing real is touched. */
+  /**
+   * A new tree: `tree` with the edits applied. Uses a temporary index file, so nothing real is touched. The edits are worked out
+   * on a copy of the index held here and written back with one `update-index --index-info`, instead of a few git processes per edit.
+   */
   async rewriteTree(tree: string, edits: readonly TreeEdit[]): Promise<string> {
     assertSafeArg("tree", tree);
     return this.#withTempIndex(tree, async (env) => {
       const literal = { ...env, GIT_LITERAL_PATHSPECS: "1" };
-      const removeUnder = async (path: string): Promise<void> => {
-        const listed = dec.decode((await this.run(["ls-files", "-z", "--", path], { env: literal })).stdout).split("\u0000").filter((x) => x !== "");
-        for (const p of listed) await this.run(["update-index", "--force-remove", "--", p], { env: literal });
+      const initial = new Map<string, string>(); // path -> "mode sha"
+      for (const rec of dec.decode((await this.run(["ls-files", "-s", "-z"], { env: literal })).stdout).split("\u0000")) {
+        if (rec === "") continue;
+        const tab = rec.indexOf("\t");
+        const [mode, sha] = rec.slice(0, tab).split(" ");
+        initial.set(rec.slice(tab + 1), `${mode} ${sha}`);
+      }
+      const now = new Map(initial);
+      const removeUnder = (path: string): void => {
+        const dir = `${path.replace(/\/+$/, "")}/`;
+        for (const p of [...now.keys()]) if (p === path || p.startsWith(dir)) now.delete(p);
       };
       for (const e of edits) {
         assertSafeArg("path", e.path);
-        if ("data" in e) {
-          await removeUnder(e.path);
-          await this.run(["update-index", "--add", "--cacheinfo", `${e.mode ?? "100644"},${await this.hashObject(e.data)},${e.path}`], { env });
-        } else if ("remove" in e) {
-          await removeUnder(e.path);
-        } else {
-          await removeUnder(e.path);
+        removeUnder(e.path);
+        if ("data" in e) now.set(e.path, `${e.mode ?? "100644"} ${await this.hashObject(e.data)}`);
+        else if ("from" in e) {
           const there = dec.decode((await this.run(["ls-tree", "-r", "-z", e.from, "--", e.path], { env: literal })).stdout).split("\u0000").filter((x) => x !== "");
           for (const rec of there) {
             const tab = rec.indexOf("\t");
             const [mode, , sha] = rec.slice(0, tab).split(" ");
-            await this.run(["update-index", "--add", "--cacheinfo", `${mode},${sha},${rec.slice(tab + 1)}`], { env });
+            now.set(rec.slice(tab + 1), `${mode} ${sha}`);
           }
         }
       }
+      const zero = "0".repeat(tree.length);
+      const lines: string[] = [];
+      for (const p of initial.keys()) if (!now.has(p)) lines.push(`0 ${zero}\t${p}`); // removals first: a file may become a directory
+      for (const [p, v] of now) if (initial.get(p) !== v) lines.push(`${v}\t${p}`);
+      if (lines.length > 0) await this.run(["update-index", "-z", "--index-info"], { env, stdin: enc.encode(lines.map((l) => `${l}\u0000`).join("")) });
       return this.text(["write-tree"], { env });
     });
   }
