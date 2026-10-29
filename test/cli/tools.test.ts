@@ -392,6 +392,7 @@ describe("the subagent tool", () => {
       await waitFor(() => t.screen().includes("all done"), "the reply");
       t.type("/quit\n");
       await t.done;
+      assert.match(t.screen(), /↳ sub\/note: write note\.txt/);
       assert.equal(await readFile(join(dir, "note.txt"), "utf8"), "from the child\n");
       const all = await entries(dir);
       assert.ok(all.some((e) => e.$tag === "subagent_result" && e.call_id === "s1"));

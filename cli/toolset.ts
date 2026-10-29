@@ -1,6 +1,6 @@
 import type { Conversation } from "../harness/conversation.ts";
 import { JobRegistry, jobTools } from "../harness/jobs.ts";
-import type { Approval, ApprovalRequest } from "../harness/loop.ts";
+import type { Approval, ApprovalRequest, LoopEvent } from "../harness/loop.ts";
 import { leafTools } from "../harness/starter/index.ts";
 import { forkTool, mergeTool, type ForkDeps } from "../harness/fork-tools.ts";
 import { subagentTool } from "../harness/subagent.ts";
@@ -25,6 +25,8 @@ export interface ToolSetHooks {
   /** A request of this session is running. */
   busy(): boolean;
   /** How a subagent's loop is run: the system prompt, and approvals that name the subagent when they ask the user. */
+  /** What a subagent's loop does, for showing the user. */
+  onChildEvent?(name: string, event: LoopEvent): void;
   /** A fork of this thread, made where the project keeps worktrees. */
   createFork?: ForkDeps["createFork"];
   /** The first message the model gave a fork it made. */
@@ -71,7 +73,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const leaf = leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env });
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
   const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
-  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name) })];
+  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name), ...(hooks.onChildEvent === undefined ? {} : { onEvent: hooks.onChildEvent }) })];
   const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
   const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));

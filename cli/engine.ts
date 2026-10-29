@@ -6,6 +6,7 @@ import { plainStyle, type Output, type Style, type Thinking, type ToolView } fro
 import { parseCommand, Registry, tokenize } from "./registry.ts";
 import { defaultCommands } from "./commands/index.ts";
 import type { Session, SessionStore } from "./session.ts";
+import { summarizeCall } from "./tool-lines.ts";
 import { createFork } from "./commands/threads.ts";
 import { buildToolSet, makeApprover, type ToolSet } from "./toolset.ts";
 import type { Approval, ApprovalRequest } from "../harness/loop.ts";
@@ -124,6 +125,8 @@ export class Engine {
   rows(): number | undefined {
     return this.io.tty?.output.rows;
   }
+  /** Where a line about what a subagent is doing goes (the terminal layer shows it above the prompt); undefined drops it. */
+  childLine: ((text: string) => void) | undefined;
   /** What the last command printed beyond one screen: `/more` shows the next page of it. */
   more = "";
   /** Called when `notices` gained something while idle. */
@@ -170,6 +173,10 @@ export class Engine {
           this.state.drafts = [...this.state.drafts.filter((d) => d.name !== name), { name, text: message }];
           this.notices.push(`the model started ${branch} and left a first message for it as draft ${name}; /thread ${branch}, then /send ${name}`);
           this.onNotice?.();
+        },
+        onChildEvent: (name, e) => {
+          if (e.type === "tool.start") this.childLine?.(`  ↳ ${name}: ${summarizeCall(e.name, e.args).split("\n")[0]}\n`);
+          else if (e.type === "tool.result" && e.is_error) this.childLine?.(`  ↳ ${name}: failed: ${e.content.split("\n")[0]?.slice(0, 120)}\n`);
         },
         childLoop: (name) => {
           const ask = this.ask;

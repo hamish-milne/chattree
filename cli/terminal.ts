@@ -103,6 +103,7 @@ export class Terminal {
     this.#engine.ask = (q, fallback, choices) => (choices === undefined ? this.#ask(q, fallback) : this.#select(q, choices, fallback));
     this.#engine.onNotice = () => this.#flushNotices();
     this.#engine.prefill = (text) => this.#rl.write(text);
+    this.#engine.childLine = (text) => this.#emit(this.#style.dim(text));
     this.#engine.onResume = () => {
       this.#chain = this.#chain.then(() => this.#dispatchResume());
     };
@@ -462,6 +463,7 @@ export class Terminal {
     this.#engine.ask = undefined;
     this.#engine.onNotice = undefined;
     this.#engine.prefill = undefined;
+    this.#engine.childLine = undefined;
     this.#engine.onResume = undefined;
     this.#tty.output.write(`${BRACKETED_PASTE_OFF}`);
     this.#done();
