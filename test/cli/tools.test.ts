@@ -523,7 +523,13 @@ describe("background jobs in a session", () => {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
       t.type("start it\n\n");
       await waitFor(() => t.screen().includes("started it"), "the first reply");
-      await waitFor(() => /background job j1 (completed|failed)/.test(t.screen()), "the job notice");
+      try {
+        await waitFor(() => /background job j1 (completed|failed)/.test(t.screen()), "the job notice");
+      } catch (e) {
+        const all = await entries(dir);
+        const seen = all.map((x) => (x.$tag === "tool_result" ? `tool_result ${text(x.content)}` : x.$tag === "job_event" ? `job_event ${x.status} ${x.summary}` : x.$tag)).join("\n");
+        throw new Error(`${e instanceof Error ? e.message : String(e)}\n--- screen\n${t.screen()}\n--- entries\n${seen}`);
+      }
       assert.match(t.screen(), /background job j1 completed/);
       assert.ok((await entries(dir)).some((e) => e.$tag === "job_event" && e.job === "j1" && e.status === "completed"));
       t.type("what did it print?\n\n");

@@ -69,6 +69,11 @@ export class JobRegistry {
     if (!this.#busy() && this.#uncommitted.length > 0) void this.flush().catch(() => undefined);
   }
 
+  /** Commit the events of jobs that ended while a turn was still finishing, now that it is over. */
+  flushIfIdle(): void {
+    if (!this.#busy() && this.#uncommitted.length > 0) void this.flush().catch(() => undefined);
+  }
+
   #busy(): boolean {
     return this.#opts.busy?.() ?? this.#loops > 0;
   }

@@ -118,6 +118,8 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   } finally {
     engine.running = false;
     engine.abort = undefined;
+    // A job that ended while the turn was finishing was held back (the thread was busy); nothing else would deliver it until the next turn.
+    void engine.toolset()?.then((set) => set.jobs.flushIfIdle()).catch(() => undefined);
   }
 }
 
