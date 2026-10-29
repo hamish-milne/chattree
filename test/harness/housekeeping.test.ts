@@ -181,8 +181,9 @@ describe("processes", () => {
     };
     const { convo } = await fresh({}, counting);
     await convo.append(user("x"));
+    const before = spawned; // the handle may keep a reader of its own for quick lookups; it ends with the rest
     const sessions = [await convo.git.catFile(), await convo.git.catFile(), await convo.git.catFile()];
-    assert.equal(spawned, 3);
+    assert.equal(spawned - before, 3);
     assert.ok((await sessions[0]!.read("HEAD:chat.yml")) !== undefined);
     await convo.close();
     await Promise.all(exits); // every process has ended

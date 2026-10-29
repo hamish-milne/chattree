@@ -143,6 +143,9 @@ const knownVersions = new WeakMap<Host, Map<string, GitVersion>>();
 
 export class Git {
   readonly #sessions = new Set<CatFileSession>();
+  #shared: Promise<ObjectReader> | undefined;
+  #sharedBusy = 0;
+  #sharedIdle: ReturnType<typeof setTimeout> | undefined;
   readonly host: Host;
   readonly cwd: string;
   readonly version: GitVersion;
@@ -260,6 +263,9 @@ export class Git {
   /** The commit a revision names, or undefined if it does not exist. */
   async revParse(rev: string): Promise<string | undefined> {
     assertSafeArg("revision", rev);
+    assertObjectName(rev);
+    const fast = await this.#objects((o) => o.info(`${rev}^{commit}`));
+    if (fast !== undefined) return fast.value?.oid;
     const r = await this.run(["rev-parse", "--verify", "--quiet", `${rev}^{commit}`], { ok: [1], readOnly: true });
     return r.exitCode === 1 ? undefined : dec.decode(r.stdout).trim();
   }
@@ -311,6 +317,11 @@ export class Git {
   async readFileAt(rev: string, path: string): Promise<Uint8Array | undefined> {
     assertSafeArg("revision", rev);
     if (path === "" || path.includes("\u0000")) throw new GitError(`invalid path: ${JSON.stringify(path)}`);
+    const fast = await this.#objects(async (o) => {
+      const info = await o.info(`${rev}:${path}`);
+      return info === undefined ? undefined : info.type === "blob" ? await o.read(info.oid) : null; // null: not a file, let git explain
+    });
+    if (fast !== undefined && fast.value !== null) return fast.value;
     const found = await this.run(["rev-parse", "--verify", "--quiet", `${rev}:${path}`], { ok: [1], readOnly: true });
     if (found.exitCode === 1) return undefined;
     const sha = dec.decode(found.stdout).trim();
@@ -468,8 +479,41 @@ export class Git {
     return session;
   }
 
+  /**
+   * Answer a question about objects from a `cat-file` process that stays running between questions, and closes itself after a
+   * second of silence (so nobody has to close it). Starting git is the slow part, most of all on Windows, and the same few
+   * questions (what commit is HEAD, what is in the transcript at this commit) are asked again and again. Undefined means "not
+   * available": the host cannot keep a process, or it failed, and the caller asks the ordinary way.
+   */
+  async #objects<T>(ask: (reader: ObjectReader) => Promise<T>): Promise<{ value: T } | undefined> {
+    if (this.host.spawn === undefined) return undefined;
+    clearTimeout(this.#sharedIdle);
+    this.#sharedBusy++;
+    try {
+      this.#shared ??= this.catFile();
+      return { value: await ask(await this.#shared) };
+    } catch (e) {
+      if (!(e instanceof GitError)) throw e;
+      const dead = this.#shared;
+      this.#shared = undefined;
+      void dead?.then((r) => r.close()).catch(() => undefined);
+      return undefined;
+    } finally {
+      if (--this.#sharedBusy === 0) {
+        // Not unref'd: while the process runs it keeps the program alive anyway, and a timer that may not fire would leave it running.
+        this.#sharedIdle = setTimeout(() => {
+          const r = this.#shared;
+          this.#shared = undefined;
+          void r?.then((x) => x.close()).catch(() => undefined);
+        }, 1000);
+      }
+    }
+  }
+
   /** Close every `catFile` session still open on this handle. Safe to call at any time. */
   async closeSessions(): Promise<void> {
+    clearTimeout(this.#sharedIdle);
+    this.#shared = undefined;
     await Promise.all([...this.#sessions].map((s) => s.close().catch(() => undefined)));
   }
 
@@ -538,6 +582,8 @@ export class Git {
   /** The tree a revision points at. */
   async treeOf(rev: string): Promise<string> {
     assertSafeArg("revision", rev);
+    const fast = await this.#objects((o) => o.info(`${rev}^{tree}`));
+    if (fast?.value !== undefined) return fast.value.oid;
     return this.text(["rev-parse", "--verify", `${rev}^{tree}`], { readOnly: true });
   }
 
