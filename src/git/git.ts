@@ -143,6 +143,7 @@ const knownVersions = new WeakMap<Host, Map<string, GitVersion>>();
 
 export class Git {
   readonly #sessions = new Set<CatFileSession>();
+  readonly #known = new Map<string, Promise<string>>();
   #shared: Promise<ObjectReader> | undefined;
   #sharedBusy = 0;
   #sharedIdle: ReturnType<typeof setTimeout> | undefined;
@@ -282,13 +283,24 @@ export class Git {
   }
 
   /** Absolute path of this worktree's git directory. */
-  async gitDir(): Promise<string> {
-    return this.hostPath(await this.text(["rev-parse", "--absolute-git-dir"], { readOnly: true }));
+  gitDir(): Promise<string> {
+    return this.#memo("gitDir", async () => this.hostPath(await this.text(["rev-parse", "--absolute-git-dir"], { readOnly: true })));
   }
 
   /** Absolute path of the git directory shared by all worktrees. */
-  async commonDir(): Promise<string> {
-    return this.hostPath(await this.text(["rev-parse", "--path-format=absolute", "--git-common-dir"], { readOnly: true }));
+  commonDir(): Promise<string> {
+    return this.#memo("commonDir", async () => this.hostPath(await this.text(["rev-parse", "--path-format=absolute", "--git-common-dir"], { readOnly: true })));
+  }
+
+  /** Where the repository lives does not change under a handle, so it is asked once (a failure is not remembered). */
+  #memo(key: string, ask: () => Promise<string>): Promise<string> {
+    let p = this.#known.get(key);
+    if (p === undefined) {
+      p = ask();
+      this.#known.set(key, p);
+      p.catch(() => this.#known.delete(key));
+    }
+    return p;
   }
 
   /** git prints paths with `/` even on Windows; hand a drive-letter or UNC path back with backslashes, the way the host spells it. */
