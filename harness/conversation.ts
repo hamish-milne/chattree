@@ -291,6 +291,8 @@ export interface MergeForkOptions {
   summary: string;
   /** Remove the fork's worktree once it is merged (its branch and history stay). Default false. */
   removeWorktree?: boolean;
+  /** The `merge` tool call this merge answers (the entry then stands in for the call's result). */
+  callId?: string;
 }
 
 export interface BlobGcOptions {
@@ -1680,6 +1682,7 @@ export class Conversation {
   async mergeFork(fork: Conversation | string, opts: MergeForkOptions): Promise<MergeOutcome> {
     return this.#mergeBranch(fork, opts.removeWorktree === true, (m) => ({
       $tag: "fork_merge",
+      ...(opts.callId === undefined ? {} : { call_id: opts.callId }),
       branch: m.branch,
       tip: m.tip,
       summary: opts.summary,

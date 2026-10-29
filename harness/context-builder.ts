@@ -144,9 +144,12 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
         raw.push({ role: "result", result: { call_id: e.call_id, is_error: false, content: render.subagentResult(summary, e.files), truncated: false, fallback: render.subagentResultUnattached(summary, e.files) } });
         break;
       }
-      case "fork_merge":
-        userText(render.forkMerge(await text(e.summary), e.files));
+      case "fork_merge": {
+        const summary = await text(e.summary);
+        if (e.call_id === undefined) userText(render.forkMerge(summary, e.files));
+        else raw.push({ role: "result", result: { call_id: e.call_id, is_error: false, content: render.subagentResult(summary, e.files), truncated: false, fallback: render.forkMerge(summary, e.files) } });
         break;
+      }
       case "job_event":
         userText(render.jobEvent(e.job, e.status, await text(e.summary), e.output === undefined ? undefined : await text(e.output)));
         break;

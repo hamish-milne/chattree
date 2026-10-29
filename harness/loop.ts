@@ -168,7 +168,10 @@ function unanswered(entries: readonly ChatEntry[]): string[] {
     if (e.$tag === "user" || e.$tag === "interrupted" || e.$tag === "compaction") return [];
     if (e.$tag !== "assistant") continue;
     const answered = new Set<string>();
-    for (const later of entries.slice(i + 1)) if (later.$tag === "tool_result" || later.$tag === "subagent_result") answered.add(later.call_id);
+    for (const later of entries.slice(i + 1)) {
+      if (later.$tag === "tool_result" || later.$tag === "subagent_result") answered.add(later.call_id);
+      else if (later.$tag === "fork_merge" && later.call_id !== undefined) answered.add(later.call_id);
+    }
     return e.blocks.flatMap((b) => (b.$tag === "tool_call" && !answered.has(b.call_id) ? [b.call_id] : []));
   }
   return [];

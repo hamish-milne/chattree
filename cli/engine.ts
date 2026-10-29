@@ -6,6 +6,7 @@ import { plainStyle, type Output, type Style, type Thinking, type ToolView } fro
 import { parseCommand, Registry, tokenize } from "./registry.ts";
 import { defaultCommands } from "./commands/index.ts";
 import type { Session, SessionStore } from "./session.ts";
+import { createFork } from "./commands/threads.ts";
 import { buildToolSet, makeApprover, type ToolSet } from "./toolset.ts";
 import type { Approval, ApprovalRequest } from "../harness/loop.ts";
 
@@ -163,6 +164,13 @@ export class Engine {
           this.onNotice?.();
         },
         onResume: () => this.onResume?.(),
+        createFork: (name) => createFork(this.io, this.project, convo, name),
+        onForkDraft: (branch, message) => {
+          const name = `fork-${branch.replace(/[^A-Za-z0-9_-]+/g, "-")}`;
+          this.state.drafts = [...this.state.drafts.filter((d) => d.name !== name), { name, text: message }];
+          this.notices.push(`the model started ${branch} and left a first message for it as draft ${name}; /thread ${branch}, then /send ${name}`);
+          this.onNotice?.();
+        },
         childLoop: (name) => {
           const ask = this.ask;
           return { system: this.system, ...(ask === undefined ? {} : { approve: makeApprover(ask, name) }), owner: { pid: process.pid, ...(this.sessionId === undefined ? {} : { session: this.sessionId }) } };

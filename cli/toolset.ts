@@ -2,6 +2,7 @@ import type { Conversation } from "../harness/conversation.ts";
 import { JobRegistry, jobTools } from "../harness/jobs.ts";
 import type { Approval, ApprovalRequest } from "../harness/loop.ts";
 import { leafTools } from "../harness/starter/index.ts";
+import { forkTool, mergeTool, type ForkDeps } from "../harness/fork-tools.ts";
 import { subagentTool } from "../harness/subagent.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
@@ -24,6 +25,10 @@ export interface ToolSetHooks {
   /** A request of this session is running. */
   busy(): boolean;
   /** How a subagent's loop is run: the system prompt, and approvals that name the subagent when they ask the user. */
+  /** A fork of this thread, made where the project keeps worktrees. */
+  createFork?: ForkDeps["createFork"];
+  /** The first message the model gave a fork it made. */
+  onForkDraft?: ForkDeps["onDraft"];
   childLoop?(name: string): { system: string; approve?: (request: ApprovalRequest) => Promise<Approval>; owner?: { pid?: number; session?: string } };
 }
 
@@ -67,7 +72,8 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
   const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
   const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name) })];
-  const all = [...leaf, ...jobTools(jobs), ...meta];
+  const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
+  const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
   const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));
   return { registry, jobs };
 }

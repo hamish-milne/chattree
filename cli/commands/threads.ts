@@ -4,7 +4,8 @@ import { ConversationError } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { formatTranscript } from "../output.ts";
 import { askModel } from "../oneshot.ts";
-import { openThread, threadDir } from "../project.ts";
+import type { Io } from "../io.ts";
+import { openThread, threadDir, type Project } from "../project.ts";
 import { recentEntries } from "../recent.ts";
 import { resolveEntry } from "../refs.ts";
 import type { Command } from "../registry.ts";
@@ -33,6 +34,27 @@ export async function nextForkName(convo: Conversation, skip = 1): Promise<strin
     if (!used.has(`fork/${n}`)) found++;
   }
   return `fork/${n}`;
+}
+
+/**
+ * A fork of `convo` with its worktree where the project keeps them. Unnamed forks are fork/1, fork/2 ...: short enough to type; a second
+ * process taking the number first is retried with the next.
+ */
+export async function createFork(io: Io, project: Project, convo: Conversation, name?: string, at?: string): Promise<{ branch: string; conversation: Conversation }> {
+  let branch = name ?? (await nextForkName(convo));
+  let r: Awaited<ReturnType<Conversation["fork"]>> | undefined;
+  for (let attempt = 0; r === undefined; attempt++) {
+    const dir = await threadDir(io, project, branch);
+    await io.host.fs.mkdir(io.host.path.dirname(dir));
+    try {
+      r = await convo.fork(at, { name: branch, worktree: dir });
+    } catch (e) {
+      if (name !== undefined || attempt >= 5 || !(e instanceof ConversationError) || !/already exists/.test(e.message)) throw e;
+      branch = await nextForkName(convo, attempt + 2);
+    }
+  }
+  if (r.conversation === undefined) throw new ConversationError("the fork has no worktree");
+  return { branch: r.branch, conversation: r.conversation };
 }
 
 const thread: Command = {
@@ -129,20 +151,7 @@ const fork: Command = {
         else name = args[0];
       }
       const from = engine.thread;
-      // Unnamed forks are fork/1, fork/2 ...: short enough to type. A second session taking the number first is retried with the next.
-      let branch = name ?? (await nextForkName(ctx.convo));
-      let r: Awaited<ReturnType<Conversation["fork"]>> | undefined;
-      for (let attempt = 0; r === undefined; attempt++) {
-        const dir = await threadDir(ctx.io, engine.project, branch);
-        await ctx.io.host.fs.mkdir(ctx.io.host.path.dirname(dir));
-        try {
-          r = await ctx.convo.fork(at, { name: branch, worktree: dir });
-        } catch (e) {
-          if (name !== undefined || attempt >= 5 || !(e instanceof ConversationError) || !/already exists/.test(e.message)) throw e;
-          branch = await nextForkName(ctx.convo, attempt + 2);
-        }
-      }
-      if (r.conversation === undefined) throw new ConversationError("the fork has no worktree");
+      const r = await createFork(ctx.io, engine.project, ctx.convo, name, at);
       yield* moveTo(ctx, r.conversation, r.branch, `forked ${r.branch} from ${from}${at === undefined ? "" : ` at an earlier entry`}; go back with /thread ${from}, and bring it home with /merge ${r.branch}`);
     } catch (e) {
       yield failure(e);

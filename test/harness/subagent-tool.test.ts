@@ -8,6 +8,7 @@ import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
 import { JobRegistry, jobTools } from "../../harness/jobs.ts";
+import { forkTool, mergeTool } from "../../harness/fork-tools.ts";
 import { subagentTool } from "../../harness/subagent.ts";
 import { runLoop, syncTools, toolDrift, ToolsNotSupported, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
 import { leafTools } from "../../harness/starter/index.ts";
@@ -161,5 +162,63 @@ describe("the subagent tool", () => {
     const r = (await entries(convo)).find((e) => e.$tag === "tool_result");
     assert.ok(r?.$tag === "tool_result" && r.is_error);
     assert.equal((await convo.listBranches()).length, 1);
+  });
+});
+
+describe("the fork and merge tools", () => {
+  test("a fork is made at once and told where it is; merge brings it back, answering the call with the fork_merge entry", async () => {
+    const { convo } = await fresh(new ToolRegistry());
+    const drafts: string[] = [];
+    let fork: Conversation | undefined;
+    const tools = new ToolRegistry([
+      forkTool({
+        convo,
+        createFork: async (name) => {
+          const r = await convo.fork(undefined, { name: name ?? "fork/1" });
+          fork = r.conversation;
+          return { branch: r.branch, conversation: r.conversation as Conversation };
+        },
+        onDraft: (b, m) => void drafts.push(`${b}: ${m}`),
+      }),
+      mergeTool({ convo }),
+    ]);
+    await syncTools(convo, tools);
+    queue = [calls(call("f1", "fork", { name: "plan", message: "plan the parser" })), answer("forked")];
+    const first = await drive(convo, tools);
+    assert.equal(first.result.status, "completed");
+    assert.deepEqual(drafts, ["plan: plan the parser"]);
+    assert.ok(fork !== undefined);
+    const inFork = await entries(fork);
+    const told = inFork.find((e) => e.$tag === "tool_result" && e.call_id === "f1");
+    assert.ok(told?.$tag === "tool_result");
+    assert.match(typeof told.content === "string" ? told.content : "", /You are now in the fork plan/);
+
+    // The fork does some work.
+    await host.fs.writeAtomic(join(fork.dir, "plan.md"), new TextEncoder().encode("the plan\n"));
+    await fork.snapshot();
+
+    await convo.append({ $tag: "user", content: [{ $tag: "text", text: "now merge it" }] });
+    queue = [calls(call("m1", "merge", { branch: "plan", summary: "the parser plan is in plan.md" })), answer("merged")];
+    const second = await drive(convo, tools);
+    assert.equal(second.result.status, "completed");
+    const all = await entries(convo);
+    const fm = all.find((e) => e.$tag === "fork_merge");
+    assert.ok(fm?.$tag === "fork_merge");
+    assert.equal(fm.call_id, "m1");
+    assert.equal(await readFile(join(convo.dir, "plan.md"), "utf8"), "the plan\n");
+    assert.ok(!all.some((e) => e.$tag === "tool_result" && e.call_id === "m1"));
+    await assertHistoryInvariants(convo);
+  });
+
+  test("merge refuses a branch that is not there, and an empty summary", async () => {
+    const { convo } = await fresh(new ToolRegistry());
+    const tools = new ToolRegistry([mergeTool({ convo })]);
+    await syncTools(convo, tools);
+    queue = [calls(call("m1", "merge", { branch: "nope", summary: "x" }), call("m2", "merge", { branch: "nope", summary: "  " })), answer("ok")];
+    await drive(convo, tools);
+    const rs = (await entries(convo)).flatMap((e) => (e.$tag === "tool_result" ? [e] : []));
+    assert.equal(rs.length, 2);
+    assert.ok(rs.every((r) => r.is_error));
+    assert.match(typeof rs[0]?.content === "string" ? rs[0].content : "", /no such branch/);
   });
 });

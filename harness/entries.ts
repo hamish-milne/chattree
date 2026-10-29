@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 2, minor: 0 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 1 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -217,6 +217,8 @@ export const subagentResult = z.object({
 export const forkMerge = z.object({
   $tag: z.literal("fork_merge"),
   id: ulid,
+  /** Format 2.1: the `merge` tool call this merge answers, when the model asked for it (otherwise the entry is a user-side notice). */
+  call_id: z.string().optional(),
   branch: z.string(),
   tip: z.string(),
   summary: text,
