@@ -1,5 +1,7 @@
 import type { Conversation } from "./conversation.ts";
-import type { Tool } from "./tools.ts";
+import { syncTools, type LoopOptions } from "./loop.ts";
+import type { ThreadRuns } from "./runs.ts";
+import type { StartedJob, Tool, ToolOutput, ToolRegistry } from "./tools.ts";
 
 /**
  * The `fork` and `merge` tools (docs/tools.md, section 4.2). `fork` is for work to be picked up later with everything the model
@@ -13,6 +15,15 @@ export interface ForkDeps {
   createFork(name?: string): Promise<{ branch: string; conversation: Conversation }>;
   /** `message` was given: the host keeps it as the first message of the fork, for the user to send there. */
   onDraft?(branch: string, message: string): void;
+  /**
+   * With these, `fork` can take `auto_run: true`: `message` is sent in the fork at once and the fork works by itself as a background job
+   * (a run of the manager, with the leaf tools and the approvals of `loopOptions`), whose end is reported to the caller as a job event.
+   */
+  auto?: {
+    runs: ThreadRuns;
+    childRegistry: ToolRegistry;
+    loopOptions(child: Conversation, name: string): Omit<LoopOptions, "registry" | "signal" | "jobs">;
+  };
 }
 
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_/-]{0,60}$/;
@@ -29,13 +40,16 @@ export function forkTool(deps: ForkDeps): Tool {
         properties: {
           name: { type: "string", description: "A short branch name (letters, digits, - _ /). Optional: forks are numbered fork/1, fork/2 ..." },
           message: { type: "string", description: "What the fork should do first, written for the model that will read it there. Optional." },
+          ...(deps.auto === undefined ? {} : { auto_run: { type: "boolean", description: "Send `message` in the fork at once and let it work by itself in the background; you are told when it stops. Needs `message`. Default false: the message waits there for the user to send it." } }),
         },
       },
     },
     allowKeys: () => ["all"],
-    execute: async (args, ctx) => {
+    execute: async (args, ctx): Promise<ToolOutput | StartedJob> => {
       const name = args["name"] as string | undefined;
       const message = args["message"] as string | undefined;
+      const autoRun = args["auto_run"] === true;
+      if (autoRun && (deps.auto === undefined || message === undefined || message.trim() === "")) return { content: "auto_run needs a message to send", is_error: true };
       if (name !== undefined && !SAFE_NAME.test(name)) return { content: "name must be letters, digits, - _ and / (at most 61 characters)", is_error: true };
       const made = await deps.createFork(name);
       // In the fork this call has no answer yet: say there what happened, so the model there knows where it is.
@@ -45,6 +59,22 @@ export function forkTool(deps: ForkDeps): Tool {
         is_error: false,
         content: `You are now in the fork ${made.branch}, a side conversation started from the thread above. Carry on from here; your work is brought back with the merge tool, not before.`,
       });
+      if (autoRun && deps.auto !== undefined && message !== undefined) {
+        const auto = deps.auto;
+        const child = made.conversation;
+        await child.append({ $tag: "user", content: [{ $tag: "text", text: message.trim() }] });
+        await syncTools(child, auto.childRegistry);
+        const run = auto.runs.start(child, { ...auto.loopOptions(child, made.branch), grants: child.grantStore(), registry: auto.childRegistry }, { kind: "fork", label: made.branch });
+        const done = run.cycleEnd().then(async (end): Promise<ToolOutput> => {
+          run.close();
+          if (end === undefined) return { content: `fork ${made.branch} was stopped`, is_error: true };
+          if ("error" in end) return { content: `fork ${made.branch} stopped with an error: ${end.error instanceof Error ? end.error.message : String(end.error)}`, is_error: true };
+          const r = end.result;
+          const last = r.last?.status === "completed" ? r.last.completed.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("").trim() : "";
+          return { content: `${made.branch} ${r.status === "completed" ? "finished its first run" : `stopped (${r.status})`}. ${last}\nMerge it with the merge tool when you want its work here.`.trim(), ...(r.status === "completed" ? {} : { is_error: true }) };
+        });
+        return { started: { summary: `fork ${made.branch} working on its message`, done, stop: () => run.close() } };
+      }
       if (message !== undefined && message.trim() !== "") deps.onDraft?.(made.branch, message.trim());
       return { content: `Forked ${made.branch}. ${message === undefined ? "" : "Your message is waiting there for the user to send. "}The user moves there with /thread ${made.branch}; bring it back with merge.` };
     },

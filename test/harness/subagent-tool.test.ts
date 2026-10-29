@@ -326,4 +326,43 @@ describe("the fork and merge tools", () => {
     assert.ok(rs.every((r) => r.is_error));
     assert.match(typeof rs[0]?.content === "string" ? rs[0].content : "", /no such branch/);
   });
+
+  test("auto_run: the message is sent in the fork, which works as a background job and reports when its first run ends", async () => {
+    const { convo } = await fresh(new ToolRegistry());
+    const runs = new ThreadRuns();
+    const tools = new ToolRegistry([
+      forkTool({
+        convo,
+        createFork: async (name) => {
+          const r = await convo.fork(undefined, { name: name ?? "fork/1" });
+          return { branch: r.branch, conversation: r.conversation as Conversation };
+        },
+        auto: { runs, childRegistry: new ToolRegistry(), loopOptions: () => allow },
+      }),
+    ]);
+    await syncTools(convo, tools);
+    const jobs = new JobRegistry(convo, { busy: () => false });
+    queue = [calls(call("f1", "fork", { name: "side", message: "work on it", auto_run: true })), answer("started the fork"), answer("the fork's findings")];
+    const { result } = await drive(convo, tools, { jobs });
+    assert.equal(result.status, "completed");
+    await until(() => (jobs.list()[0]?.status === "completed" ? true : undefined));
+    await jobs.flush();
+    const ev = (await entries(convo)).find((e) => e.$tag === "job_event");
+    assert.ok(ev?.$tag === "job_event");
+    assert.match(typeof ev.output === "string" ? ev.output : "", /side finished its first run\./);
+    assert.deepEqual(runs.list(), []);
+    const inFork = await entries(await convo.openBranch("side"));
+    assert.ok(inFork.some((e) => e.$tag === "user" && JSON.stringify(e).includes("work on it")));
+    await assertHistoryInvariants(convo);
+  });
+
+  test("auto_run without a message is refused", async () => {
+    const { convo } = await fresh(new ToolRegistry());
+    const tools = new ToolRegistry([forkTool({ convo, createFork: () => Promise.reject(new Error("no")), auto: { runs: new ThreadRuns(), childRegistry: new ToolRegistry(), loopOptions: () => allow } })]);
+    await syncTools(convo, tools);
+    queue = [calls(call("f1", "fork", { auto_run: true })), answer("ok")];
+    await drive(convo, tools);
+    const r = (await entries(convo)).find((e) => e.$tag === "tool_result");
+    assert.ok(r?.$tag === "tool_result" && r.is_error);
+  });
 });

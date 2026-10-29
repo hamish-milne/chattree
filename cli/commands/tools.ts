@@ -135,4 +135,61 @@ const more: Command = {
   },
 };
 
-export const toolCommands: Command[] = [tools, jobs, expand, more];
+const runs: Command = {
+  name: "runs",
+  summary: "subagents and forks working in the background: list, stop, talk to, close",
+  usage: "/runs   |   /runs stop <branch>   |   /runs say <branch> <message>   |   /runs close <branch>",
+  busy: "allowed",
+  async complete(ctx, previous, partial) {
+    const set = await ctx.engine.toolset();
+    if (previous.length === 0) return ["stop", "say", "close"].filter((v) => v.startsWith(partial));
+    if (previous.length === 1) return (set?.runs.list() ?? []).map((r) => r.branch).filter((b) => b.startsWith(partial));
+    return [];
+  },
+  async *run(ctx, args, rest) {
+    const set = await ctx.engine.toolset();
+    if (set === undefined) {
+      yield { type: "notice", message: "this session gives the model no tools" };
+      return;
+    }
+    if (args.length === 0) {
+      const list = set.runs.list();
+      const now = ctx.io.now();
+      yield { type: "text", text: list.length === 0 ? "no runs" : list.map((r) => `${r.branch}  ${r.kind}  ${r.state}  ${r.cycles} run${r.cycles === 1 ? "" : "s"}  ${Math.max(0, Math.round((now - r.startedAt) / 1000))}s`).join("\n") };
+      return;
+    }
+    const [verb, which] = args;
+    const run = which === undefined ? undefined : (set.runs.get(which) ?? set.runs.list().filter((r) => r.branch.startsWith(which)).map((r) => set.runs.get(r.branch)).find((r) => r !== undefined));
+    if (verb !== "stop" && verb !== "say" && verb !== "close") {
+      yield { type: "error", message: `${verb} is not stop, say or close`, hint: "/runs  |  /runs stop <branch>  |  /runs say <branch> <message>  |  /runs close <branch>" };
+      return;
+    }
+    if (run === undefined) {
+      yield { type: "error", message: which === undefined ? "say which run" : `there is no run on ${which}`, hint: "see /runs" };
+      return;
+    }
+    if (verb === "stop") {
+      yield run.state === "running" ? (set.runs.abort(run.branch), { type: "notice" as const, message: `stopping ${run.branch}; /runs say ${run.branch} <message> talks to it, /runs close ${run.branch} ends it` }) : { type: "error" as const, message: `${run.branch} is ${run.state}, not running` };
+      return;
+    }
+    if (verb === "close") {
+      run.close();
+      yield { type: "notice", message: `closed ${run.branch}; whatever was waiting for it is told it was stopped` };
+      return;
+    }
+    const text = rest.replace(/^\s*say\s+\S+\s*/, "").trim();
+    if (text === "") {
+      yield { type: "error", message: "say what to tell it", hint: "/runs say <branch> <message>" };
+      return;
+    }
+    if (run.state !== "idle") {
+      yield { type: "error", message: `${run.branch} is ${run.state}`, ...(run.state === "running" ? { hint: `/runs stop ${run.branch} first` } : {}) };
+      return;
+    }
+    await run.convo.append({ $tag: "user", content: [{ $tag: "text", text }] });
+    run.resume();
+    yield { type: "notice", message: `sent to ${run.branch}, which carries on` };
+  },
+};
+
+export const toolCommands: Command[] = [tools, jobs, expand, more, runs];

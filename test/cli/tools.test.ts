@@ -403,6 +403,40 @@ describe("the subagent tool", () => {
   });
 });
 
+describe("/runs", () => {
+  test("the user can stop a child, tell it something and let it carry on; the parent's call waits and then completes", async () => {
+    const { server, dir } = await started([
+      callTools({ id: "s1", name: "subagent", args: { brief: "slow job", name: "slow" } }),
+      { acts: [chunk({ content: "working " }), { hang: true }] },
+      callTools({ id: "c2", name: "merge", args: { summary: "finished after the nudge from the user" } }),
+      answer("parent is done"),
+    ]);
+    const t = terminal(dir);
+    try {
+      await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
+      t.type("delegate\n\n");
+      await waitFor(() => t.screen().includes("Allow this"), "the approval");
+      t.type("y\n");
+      await waitFor(() => /sub\/slow-[0-9a-z]{6} {2}subagent {2}running/.test((t.type("/runs\n"), t.screen())), "the run listed");
+      const branch = /(sub\/slow-[0-9a-z]{6}) {2}subagent {2}running/.exec(t.screen())?.[1] as string;
+      await waitFor(() => server.seen.length >= 2, "the child's request to be in flight");
+      t.type(`/runs stop ${branch}\n`);
+      await waitFor(() => t.screen().includes("stopping"), "the stop");
+      await waitFor(() => (t.type("/runs\n"), /subagent {2}idle/.test(t.screen())), "the run idle");
+      t.type(`/runs say ${branch} please wrap up\n`);
+      await waitFor(() => t.screen().includes("parent is done"), "the parent reply");
+      t.type("/quit\n");
+      await t.done;
+      const res = (await entries(dir)).find((e) => e.$tag === "subagent_result");
+      assert.ok(res?.$tag === "subagent_result");
+      assert.match(text(res.summary), /finished after the nudge from the user/);
+    } finally {
+      t.end();
+      await server.close();
+    }
+  });
+});
+
 describe("paging", () => {
   test("a command's output taller than the screen shows one page and /more the rest", async () => {
     const { server, dir } = await started([answer("x")]);

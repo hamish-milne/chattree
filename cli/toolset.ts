@@ -78,7 +78,8 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
   const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
   const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, runs, merge: config?.subagent.merge ?? "auto", loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name), ...(hooks.onChildEvent === undefined ? {} : { onEvent: hooks.onChildEvent }) })];
-  const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
+  const auto = hooks.childLoop === undefined ? undefined : { runs, childRegistry, loopOptions: (_c: Conversation, name: string) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name) };
+  const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(auto === undefined ? {} : { auto }), ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
   const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));
   return { registry, jobs, runs };

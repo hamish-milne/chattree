@@ -108,7 +108,7 @@ export function subagentTool(deps: SubagentDeps): Tool {
         if (end === undefined) return { ok: false, content: `The subagent was stopped before it finished, so nothing was merged. Its work so far is on branch ${name}.` };
         if ("error" in end) {
           run.close();
-          return { ok: false, content: `The subagent stopped with an error and nothing was merged: ${end.error instanceof Error ? end.error.message : String(end.error)}. Its work is on branch ${name}.` };
+          return { ok: false, content: `The subagent stopped with an error and nothing was merged: ${end.error instanceof Error ? end.error.message : (end.error instanceof Error ? end.error.stack : String(end.error))}. Its work is on branch ${name}.` };
         }
         const result = end.result as NonNullable<typeof end.result>;
         const status = result.status;
