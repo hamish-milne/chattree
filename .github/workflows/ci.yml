@@ -7,7 +7,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Only a pull request's older run is cancelled. A push to main finishes: cancelling it shows up as a failure on Windows ("Terminate batch job").
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   typecheck:
