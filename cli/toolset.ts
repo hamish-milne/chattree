@@ -2,6 +2,7 @@ import type { Conversation } from "../harness/conversation.ts";
 import { JobRegistry, jobTools } from "../harness/jobs.ts";
 import type { Approval, ApprovalRequest } from "../harness/loop.ts";
 import { leafTools } from "../harness/starter/index.ts";
+import { subagentTool } from "../harness/subagent.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
 import { findBusybox } from "../hosts/node.ts";
@@ -22,6 +23,8 @@ export interface ToolSetHooks {
   onResume(): void;
   /** A request of this session is running. */
   busy(): boolean;
+  /** How a subagent's loop is run: the system prompt, and approvals that name the subagent when they ask the user. */
+  childLoop?(name: string): { system: string; approve?: (request: ApprovalRequest) => Promise<Approval>; owner?: { pid?: number; session?: string } };
 }
 
 /**
@@ -60,7 +63,11 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   // Only tools listed under `tools` in harness.yml are offered; leaving one out turns it off.
   const listed = (name: string): boolean => config?.tools[name] !== undefined;
   const busybox = listed("run") || listed("script") ? await resolveBusybox(io, config?.tools["run"]?.busybox) : undefined;
-  const all = [...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), ...jobTools(jobs)];
+  const leaf = leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env });
+  // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
+  const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
+  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name) })];
+  const all = [...leaf, ...jobTools(jobs), ...meta];
   const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));
   return { registry, jobs };
 }
@@ -77,13 +84,13 @@ export function parseAnswer(answer: string, request: ApprovalRequest): "no" | Ap
 }
 
 /** Ask the user about a call. `ask` is the terminal's question; without one nothing is asked and the call is declined. */
-export function makeApprover(ask: AskFn): (request: ApprovalRequest) => Promise<Approval> {
+export function makeApprover(ask: AskFn, label?: string): (request: ApprovalRequest) => Promise<Approval> {
   return async (request) => {
     const grant = request.keys !== null && request.keys.length > 0;
     const choices: Choice[] = grant
       ? [{ key: "y", label: "yes, once" }, { key: "5", label: "yes, for 5 minutes" }, { key: "h", label: "yes, for 1 hour" }, { key: "f", label: "yes, forever" }, { key: "n", label: "no" }]
       : [{ key: "y", label: "yes, once" }, { key: "n", label: "no" }];
-    const answer = await ask(`\nAllow this?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${(request.keys as string[]).join("; ")})` : ""}`, "n", choices);
+    const answer = await ask(`\nAllow this${label === undefined ? "" : ` (asked by subagent ${label})`}?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${(request.keys as string[]).join("; ")})` : ""}`, "n", choices);
     const parsed = parseAnswer(answer, request);
     if (parsed !== "no") return parsed;
     const reason = (await ask("Why not? (sent to the model; Enter to skip)", "")).trim();

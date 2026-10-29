@@ -1599,23 +1599,30 @@ export class Conversation {
     await this.#assertNewBranch(name);
     const header = (await this.index()).find((r) => r.tag === "header");
     if (header === undefined) throw new ConversationError("the conversation has no header entry");
-    const source = opts.inheritSetup === false ? undefined : await this.setup();
     const marker: NewEntry = { $tag: "branch_start", kind: "fork", from: { branch: this.branch, commit: header.commit }, context: "fresh" };
     const made = await this.#newBranch(name, header.commit, marker, opts.worktree === undefined ? {} : { worktree: opts.worktree });
     const thread = made.conversation as Conversation;
-    if (source?.model !== undefined) {
-      const { provider, id, settings } = source.model;
-      await thread.setupChange({
-        model: { provider, id, ...(settings === undefined ? {} : { settings }) },
-        ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),
-        ...(source.instructions === undefined ? {} : { instructions: source.instructions }),
-        ...(Object.keys(source.skills).length > 0 ? { skills: source.skills } : {}),
-        ...(Object.keys(source.mcp).length > 0 ? { mcp: source.mcp } : {}),
-        ...(source.pricing === undefined ? {} : { pricing: source.pricing }),
-        ...(source.renderer === undefined ? {} : { renderer: source.renderer }),
-      }, { reason: "fork" });
-    }
+    if (opts.inheritSetup !== false) await this.copySetupTo(thread, "fork");
     return thread;
+  }
+
+  /**
+   * Give `target` (a branch that starts without an agent setup, such as a new thread or a subagent) this thread's setup: model and
+   * settings, instructions, tools, skills, MCP servers, the price pin and the renderer.
+   */
+  async copySetupTo(target: Conversation, reason: "fork" | "subagent"): Promise<void> {
+    const source = await this.setup();
+    if (source.model === undefined) return;
+    const { provider, id, settings } = source.model;
+    await target.setupChange({
+      model: { provider, id, ...(settings === undefined ? {} : { settings }) },
+      ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),
+      ...(source.instructions === undefined ? {} : { instructions: source.instructions }),
+      ...(Object.keys(source.skills).length > 0 ? { skills: source.skills } : {}),
+      ...(Object.keys(source.mcp).length > 0 ? { mcp: source.mcp } : {}),
+      ...(source.pricing === undefined ? {} : { pricing: source.pricing }),
+      ...(source.renderer === undefined ? {} : { renderer: source.renderer }),
+    }, { reason });
   }
 
   /**

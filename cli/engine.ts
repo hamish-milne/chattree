@@ -163,6 +163,10 @@ export class Engine {
           this.onNotice?.();
         },
         onResume: () => this.onResume?.(),
+        childLoop: (name) => {
+          const ask = this.ask;
+          return { system: this.system, ...(ask === undefined ? {} : { approve: makeApprover(ask, name) }), owner: { pid: process.pid, ...(this.sessionId === undefined ? {} : { session: this.sessionId }) } };
+        },
       });
       // A set that could not be built (no busybox) is built again next time, once the user has dealt with it.
       p.catch(() => {

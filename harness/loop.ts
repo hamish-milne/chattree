@@ -208,6 +208,10 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
   const stopReason = (): "stopped" | "deadline" | undefined => (opts.signal?.aborted === true ? "stopped" : deadline !== undefined && now() >= deadline ? "deadline" : undefined);
 
   const record = async function* (call: { call_id: string; name: string }, out: ToolOutput, t0: number, skipped?: string): AsyncGenerator<LoopEvent, void, void> {
+    if (out.recorded === true) {
+      yield { type: "tool.result", callId: call.call_id, name: call.name, content: out.content, is_error: out.is_error === true, truncated: false, ms: now() - t0 };
+      return;
+    }
     let full: { $tag: "blob"; sha256: string; bytes: number; mime: string } | undefined;
     const shaped = await shapeResult(out, {
       ...(opts.resultLimit === undefined ? {} : { limit: opts.resultLimit }),

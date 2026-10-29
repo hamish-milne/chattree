@@ -31,6 +31,8 @@ export interface ApprovalContext {
 export interface ToolOutput {
   content: string;
   is_error?: boolean;
+  /** The tool already committed the entry that answers this call (a merge's `subagent_result`): the loop records no `tool_result`. `content` is what the host shows. */
+  recorded?: boolean;
 }
 
 /** A background-capable tool that was started with `background: true`: it returns at once and finishes later. */

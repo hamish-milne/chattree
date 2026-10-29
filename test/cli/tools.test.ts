@@ -375,6 +375,33 @@ describe("putting a draft aside with Ctrl-O", () => {
   });
 });
 
+describe("the subagent tool", () => {
+  test("the user is asked, the child's work is merged and the parent carries on", async () => {
+    const { server, dir } = await started([
+      callTools({ id: "s1", name: "subagent", args: { brief: "write note.txt", name: "note" } }),
+      callTools({ id: "c1", name: "write", args: { path: "note.txt", content: "from the child\n" } }),
+      answer("child finished"),
+      answer("all done"),
+    ]);
+    const t = terminal(dir);
+    try {
+      await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
+      t.type("please delegate\n\n");
+      await waitFor(() => t.screen().includes("Allow this"), "the approval");
+      t.type("y\n");
+      await waitFor(() => t.screen().includes("all done"), "the reply");
+      t.type("/quit\n");
+      await t.done;
+      assert.equal(await readFile(join(dir, "note.txt"), "utf8"), "from the child\n");
+      const all = await entries(dir);
+      assert.ok(all.some((e) => e.$tag === "subagent_result" && e.call_id === "s1"));
+    } finally {
+      t.end();
+      await server.close();
+    }
+  });
+});
+
 describe("paging", () => {
   test("a command's output taller than the screen shows one page and /more the rest", async () => {
     const { server, dir } = await started([answer("x")]);

@@ -76,6 +76,8 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; wi
     "    allow: { all: 2999-01-01 }",
     "  script:",
     "    allow: {}",
+    "  subagent:",
+    "    allow: {}",
     "  run:",
     "    safe: [cat, grep, head, tail, wc, ls, diff, git status, git diff, git log]",
     ...(o.windows === true ? ["    # Windows: lets run start .cmd programs such as npm and pnpm through cmd.exe, which re-reads their arguments; arguments with its", "    # special characters are refused. Programs inside the workspace (node_modules\\.bin) also need a glob in `local`.", "    batch: true"] : []),
