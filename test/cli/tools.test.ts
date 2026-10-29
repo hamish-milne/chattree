@@ -509,14 +509,13 @@ describe("stopping at a question", () => {
 
 describe("background jobs in a session", () => {
   test("a job the model starts is reported when it ends, committed, and read by job_output", async () => {
-    const js = `setTimeout(() => console.log("job output here"), 300)`;
     const node = process.execPath.replaceAll("\\", "/");
     const { server, dir } = await started([
-      callTools({ id: "c1", name: "run", args: { command: `${node} -e '${js}'`, background: true } }),
+      callTools({ id: "c1", name: "run", args: { command: `${node} job.js`, background: true } }),
       answer("started it"),
       callTools({ id: "c2", name: "job_output", args: { job: "j1" } }),
       answer("it printed the line"),
-    ]);
+    ], { "job.js": `setTimeout(() => console.log("job output here"), 300)\n` }); // a script file: no quoting to get wrong on Windows
     const yml = await readFile(join(dir, "harness.yml"), "utf8");
     await writeFile(join(dir, "harness.yml"), yml.replace("  run:\n", `  run:\n    allow: { "${node} **": 2999-01-01 }\n`));
     const t = terminal(dir);
@@ -524,7 +523,8 @@ describe("background jobs in a session", () => {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
       t.type("start it\n\n");
       await waitFor(() => t.screen().includes("started it"), "the first reply");
-      await waitFor(() => t.screen().includes("background job j1 completed"), "the job notice");
+      await waitFor(() => /background job j1 (completed|failed)/.test(t.screen()), "the job notice");
+      assert.match(t.screen(), /background job j1 completed/);
       assert.ok((await entries(dir)).some((e) => e.$tag === "job_event" && e.job === "j1" && e.status === "completed"));
       t.type("what did it print?\n\n");
       await waitFor(() => t.screen().includes("it printed the line"), "the second reply");

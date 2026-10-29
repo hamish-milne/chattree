@@ -143,7 +143,7 @@ const knownVersions = new WeakMap<Host, Map<string, GitVersion>>();
 
 export class Git {
   readonly #sessions = new Set<CatFileSession>();
-  readonly #known = new Map<string, Promise<string>>();
+  #known: Promise<{ git: string; common: string }> | undefined;
   #shared: Promise<ObjectReader> | undefined;
   #sharedBusy = 0;
   #sharedIdle: ReturnType<typeof setTimeout> | undefined;
@@ -284,23 +284,26 @@ export class Git {
 
   /** Absolute path of this worktree's git directory. */
   gitDir(): Promise<string> {
-    return this.#memo("gitDir", async () => this.hostPath(await this.text(["rev-parse", "--absolute-git-dir"], { readOnly: true })));
+    return this.#dirs().then((d) => d.git);
   }
 
   /** Absolute path of the git directory shared by all worktrees. */
   commonDir(): Promise<string> {
-    return this.#memo("commonDir", async () => this.hostPath(await this.text(["rev-parse", "--path-format=absolute", "--git-common-dir"], { readOnly: true })));
+    return this.#dirs().then((d) => d.common);
   }
 
-  /** Where the repository lives does not change under a handle, so it is asked once (a failure is not remembered). */
-  #memo(key: string, ask: () => Promise<string>): Promise<string> {
-    let p = this.#known.get(key);
-    if (p === undefined) {
-      p = ask();
-      this.#known.set(key, p);
-      p.catch(() => this.#known.delete(key));
+  /** Where the repository lives does not change under a handle, so both directories are asked for once, in one command (a failure is not remembered). */
+  #dirs(): Promise<{ git: string; common: string }> {
+    if (this.#known === undefined) {
+      const p = this.text(["rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir"], { readOnly: true }).then((out) => {
+        const [git, common] = out.split("\n");
+        if (git === undefined || common === undefined) throw new GitError(`unexpected output from git rev-parse: ${JSON.stringify(out)}`);
+        return { git: this.hostPath(git), common: this.hostPath(common) };
+      });
+      this.#known = p;
+      p.catch(() => (this.#known = undefined));
     }
-    return p;
+    return this.#known;
   }
 
   /** git prints paths with `/` even on Windows; hand a drive-letter or UNC path back with backslashes, the way the host spells it. */
@@ -481,10 +484,14 @@ export class Git {
    * done.
    */
   async catFile(): Promise<ObjectReader> {
+    return this.#catFile(this.cwd, {});
+  }
+
+  async #catFile(cwd: string, env: Record<string, string>): Promise<ObjectReader> {
     if (this.host.spawn === undefined) return fallbackReader(this);
     const proc = await this.host.spawn(this.#opts.program ?? "git", [...this.#base(), "cat-file", "--batch-command"], {
-      cwd: this.cwd,
-      env: { LC_ALL: "C", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0" },
+      cwd,
+      env: { LC_ALL: "C", GIT_TERMINAL_PROMPT: "0", GIT_OPTIONAL_LOCKS: "0", ...env },
     });
     const session: CatFileSession = new CatFileSession(proc, { onClosed: () => void this.#sessions.delete(session) });
     this.#sessions.add(session);
@@ -502,7 +509,9 @@ export class Git {
     clearTimeout(this.#sharedIdle);
     this.#sharedBusy++;
     try {
-      this.#shared ??= this.catFile();
+      // It runs in the repository's shared git directory, not the worktree: Windows will not delete a directory a process is running in,
+      // and a worktree can be removed while the reader is still idle. GIT_DIR makes it answer for this worktree (its HEAD) all the same.
+      this.#shared ??= Promise.all([this.commonDir(), this.gitDir()]).then(([common, dir]) => this.#catFile(common, { GIT_DIR: dir }));
       return { value: await ask(await this.#shared) };
     } catch (e) {
       if (!(e instanceof GitError)) throw e;
