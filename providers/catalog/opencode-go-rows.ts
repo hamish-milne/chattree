@@ -1,0 +1,39 @@
+import type { GoRow } from "../opencode-go.ts";
+
+/**
+ * OpenCode Go's model list as of 2026-10-30, from https://opencode.ai/inference/go/v1/models. This snapshot was read through a
+ * summarising tool (as the bundled price tables are), not copied from the JSON: refresh it with `npm run catalog -- opencode-go`.
+ * Prices are the numbers the list gives, taken as USD per million tokens (the list does not state the unit). Not modelled: the 2x
+ * weekday-hours multiplier on the DeepSeek V4 models and the 2x multiplier on gemini-4-argon from 2026-12-01.
+ * `efforts` are the reasoning levels the model takes as `reasoning_effort` (`none` becomes our `off`); models that only toggle reasoning have none.
+ */
+export const OPENCODE_GO_ROWS: readonly GoRow[] = [
+  { id: "deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash", api: "chat-completions", context: 1000000, output: 384000, price: { input: 0.15, output: 0.6, cache_read: 0.003 }, efforts: ["low", "high", "max"], images: true, open_weights: true },
+  { id: "deepseek-v4-pro", name: "DeepSeek V4 Pro", api: "chat-completions", context: 1000000, output: 384000, price: { input: 0.66, output: 1.98, cache_read: 0.022 }, efforts: ["high", "max"], images: false, open_weights: true },
+  { id: "glm-5.2", name: "GLM-5.2", api: "chat-completions", context: 1000000, output: 131072, price: { input: 1.4, output: 4.4, cache_read: 0.26 }, efforts: ["high", "max"], images: false, open_weights: true },
+  { id: "glm-5.3", name: "GLM-5.3", api: "chat-completions", context: 1000000, output: 131072, price: { input: 1.4, output: 4.4, cache_read: 0.26 }, efforts: ["low", "high", "max"], images: false, open_weights: true },
+  { id: "grok-4.7", name: "Grok 4.7", api: "responses", context: 500000, output: 500000, price: { input: 2, output: 6, cache_read: 0.5 }, long: { above_tokens: 200000, input: 4, output: 12, cache_read: 1 }, efforts: ["low", "medium", "high", "xhigh"], images: true, open_weights: false },
+  { id: "muse-spark-1.2-contributor", name: "Muse Spark 1.2 Contributor", api: "responses", context: 1048576, output: 131072, price: { input: 0.1, output: 0.2, cache_read: 0.002 }, efforts: ["minimal", "low", "medium", "high", "xhigh"], images: true, open_weights: false },
+  { id: "muse-spark-1.3-contributor", name: "Muse Spark 1.3 Contributor", api: "responses", context: 1048576, output: 131072, price: { input: 0.1, output: 0.2, cache_read: 0.002 }, efforts: ["minimal", "low", "medium", "high", "xhigh"], images: true, open_weights: false },
+  { id: "glm-5.3-flash", name: "GLM-5.3-Flash", api: "chat-completions", context: 1000000, output: 131072, price: { input: 0.15, output: 0.5, cache_read: 0.03 }, efforts: ["low", "high", "max"], images: true, open_weights: true },
+  { id: "gpt-5.6-luna", name: "GPT-5.6 Luna", api: "responses", context: 1050000, output: 128000, input_limit: 922000, price: { input: 0.2, output: 1.2, cache_read: 0.02, cache_write: 0.25 }, long: { above_tokens: 272000, input: 0.4, output: 1.8, cache_read: 0.04, cache_write: 0.5 }, efforts: ["none", "low", "medium", "high", "xhigh", "max"], images: true, open_weights: false },
+  { id: "gpt-6-luna", name: "GPT-6 Luna", api: "responses", context: 1050000, output: 128000, input_limit: 922000, price: { input: 0.1, output: 0.5, cache_read: 0.01, cache_write: 0.125 }, long: { above_tokens: 272000, input: 0.2, output: 0.75, cache_read: 0.02, cache_write: 0.25 }, efforts: ["none", "low", "medium", "high", "xhigh", "max"], images: true, open_weights: false },
+  { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", api: "messages", context: 1000000, output: 128000, price: { input: 0.1, output: 0.5, cache_read: 0.01, cache_write: 0.125 }, long: { above_tokens: 100000, input: 0.5, output: 2.5, cache_read: 0.05, cache_write: 0.625 }, efforts: ["low", "medium", "high", "xhigh", "max"], images: true, open_weights: false },
+  { id: "hy3", name: "Hy3", api: "chat-completions", context: 256000, output: 128000, input_limit: 192000, price: { input: 0.14, output: 0.58, cache_read: 0.035 }, efforts: ["none", "low", "high"], images: false, open_weights: true },
+  { id: "hy4-preview", name: "Hy4 preview", api: "chat-completions", context: 1024000, output: 64000, price: { input: 0.834, output: 2.501, cache_read: 0.042 }, efforts: ["none", "high"], images: false, open_weights: true },
+  { id: "kimi-k2.7-code", name: "Kimi K2.7 Code", api: "chat-completions", context: 262144, output: 262144, price: { input: 0.95, output: 4, cache_read: 0.19 }, efforts: [], images: true, open_weights: true },
+  { id: "kimi-k3", name: "Kimi K3", api: "chat-completions", context: 1048576, output: 131072, price: { input: 3, output: 15, cache_read: 0.3, cache_write: 3 }, efforts: ["max"], images: true, open_weights: true },
+  { id: "mimo-v2.6-flash", name: "MiMo-V2.6-Flash", api: "chat-completions", context: 1048576, output: 131072, price: { input: 0.14, output: 0.28, cache_read: 0.0028 }, efforts: [], images: true, open_weights: true },
+  { id: "mimo-v2.6-pro", name: "MiMo-V2.6-Pro", api: "chat-completions", context: 1048576, output: 131072, price: { input: 0.435, output: 0.87, cache_read: 0.003625 }, efforts: [], images: true, open_weights: true },
+  { id: "minimax-m3", name: "MiniMax-M3", api: "messages", context: 1000000, output: 131072, price: { input: 0.3, output: 1.2, cache_read: 0.06 }, long: { above_tokens: 512000, input: 0.6, output: 2.4, cache_read: 0.12 }, efforts: [], images: true, open_weights: true },
+  { id: "minimax-m3.1-flash", name: "MiniMax M3.1 Flash", api: "chat-completions", context: 1000000, output: 512000, price: { input: 0.15, output: 0.6, cache_read: 0.015 }, efforts: ["low", "medium", "high", "xhigh", "max"], images: true, open_weights: false },
+  { id: "longcat-2.0", name: "LongCat-2.0", api: "chat-completions", context: 1000000, output: 131072, price: { input: 0.3, output: 1.2, cache_read: 0.006 }, efforts: [], images: false, open_weights: true },
+  { id: "step-5-preview", name: "Step 5 Preview", api: "chat-completions", context: 1000000, output: 65536, price: { input: 1, output: 2.7, cache_read: 0.1 }, efforts: ["low", "medium", "high"], images: true, open_weights: true },
+  { id: "beam-free", name: "Beam Free", api: "chat-completions", context: 1048576, output: 131072, price: { input: 0, output: 0, cache_read: 0 }, efforts: ["low", "medium", "high", "xhigh", "max"], images: false, open_weights: true },
+  { id: "qwen3.8-max", name: "Qwen3.8 Max", api: "messages", context: 1000000, output: 131072, price: { input: 2, output: 6, cache_read: 0.25, cache_write: 2.5 }, efforts: ["low", "medium", "xhigh"], images: true, open_weights: false },
+  { id: "qwen3.8-flash", name: "Qwen3.8 Flash", api: "messages", context: 1000000, output: 131072, price: { input: 0.15, output: 0.47, cache_read: 0.016, cache_write: 0.2 }, efforts: ["low", "medium", "xhigh"], images: true, open_weights: false },
+  { id: "qwen3.7-plus", name: "Qwen3.7 Plus", api: "messages", context: 1000000, output: 65536, price: { input: 0.4, output: 1.6, cache_read: 0.04, cache_write: 0.5 }, long: { above_tokens: 256000, input: 1.2, output: 4.8, cache_read: 0.12, cache_write: 1.5 }, efforts: [], images: true, open_weights: false },
+  { id: "kimi-k3.1-pro", name: "Kimi K3.1 Pro", api: "chat-completions", context: 1048576, output: 131072, price: { input: 2, output: 10, cache_read: 0.2, cache_write: 2 }, efforts: ["low", "high", "max"], images: true, open_weights: false },
+  { id: "iceman-contributor-free", name: "Iceman Contributor Free", api: "chat-completions", context: 262144, output: 131072, price: { input: 0, output: 0, cache_read: 0 }, efforts: [], images: false, open_weights: false },
+  { id: "gemini-4-argon", name: "Gemini 4 Argon", api: "generate-content", context: 1048576, output: 65536, price: { input: 2, output: 10, cache_read: 0.1 }, efforts: ["low", "medium", "high"], images: true, open_weights: false },
+];

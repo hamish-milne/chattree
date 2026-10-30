@@ -13,6 +13,7 @@
     "bench",
     "hosts",
     "cli",
-    "tools"
+    "tools",
+    "scripts"
   ]
 }

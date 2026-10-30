@@ -18,6 +18,7 @@
     "test:all": "node --no-warnings tools/test.ts all",
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "bench": "node --no-warnings bench/bench.ts",
+    "catalog": "node --no-warnings scripts/catalog.ts",
     "chattree": "node --no-warnings cli/chattree.ts"
   },
   "devDependencies": {

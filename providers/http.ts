@@ -75,7 +75,7 @@ export function requestHeaders(built: Record<string, string>, opts: { headers?: 
     if (v === null) out.delete(k.toLowerCase());
     else out.set(k.toLowerCase(), v);
   }
-  if (opts.sessionHeader !== undefined && session !== undefined && !(opts.headers?.[opts.sessionHeader] === null)) out.set(opts.sessionHeader.toLowerCase(), session);
+  if (opts.sessionHeader !== undefined && session !== undefined && !Object.entries(opts.headers ?? {}).some(([k, v]) => v === null && k.toLowerCase() === opts.sessionHeader?.toLowerCase())) out.set(opts.sessionHeader.toLowerCase(), session);
   return Object.fromEntries(out);
 }
 

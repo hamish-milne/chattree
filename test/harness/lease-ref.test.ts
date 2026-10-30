@@ -55,7 +55,9 @@ describe("run leases kept as refs on a shared remote", () => {
     const lost = results.find((r) => r.status === "rejected");
     assert.ok(lost?.status === "rejected" && lost.reason instanceof ThreadBusy);
     const winner = results.find((r) => r.status === "fulfilled");
-    assert.ok(winner?.status === "fulfilled" && winner.value === "stale", "the winner is told it found a stale lease");
+    // Of two clones taking a stale lease over, the one whose create lands after the other has removed it (and before the other's create) finds
+  // nothing there and is told "free": the answer is informational (what the thread's state is comes from reading the lease), so either is right.
+    assert.ok(winner?.status === "fulfilled" && (winner.value === "stale" || winner.value === "free"), "the winner is told what it found");
   });
 
   test("the old holder finds its lease gone and does not overwrite the new one", async () => {

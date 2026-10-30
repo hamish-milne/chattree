@@ -636,3 +636,30 @@ describe("worktrees", () => {
     assert.ok((await git.worktrees()).some((w) => w.path === p));
   });
 });
+
+describe("staging while another handle writes files", () => {
+  test("a temp file renamed away between git's listing and its read does not fail the add", async () => {
+    const git = await newRepo();
+    const host = nodeHost();
+    const dir = join(git.cwd, "blobs", "ab");
+    await mkdir(dir, { recursive: true });
+    let writing = true;
+    const writer = (async () => {
+      for (let i = 0; writing; i++) await host.fs.writeAtomic(join(dir, `f${i % 40}`), enc.encode(`${i}`.repeat(50)));
+    })();
+    try {
+      for (let i = 0; i < 60; i++) await git.addAll();
+    } finally {
+      writing = false;
+      await writer;
+    }
+  });
+
+  test("only a vanished temp file is retried", async () => {
+    const { isVanishedTempFile } = await import("../../src/git/git.ts");
+    const err = (stderr: string) => new GitError("git add failed", { args: [], exitCode: 128, stderr });
+    assert.equal(isVanishedTempFile(err("fatal: unable to stat 'blobs/4a/10046c.tmp-838af81d7ec1': No such file or directory")), true);
+    assert.equal(isVanishedTempFile(err("fatal: unable to stat 'chat.yml': No such file or directory")), false);
+    assert.equal(isVanishedTempFile(new Error("boom")), false);
+  });
+});

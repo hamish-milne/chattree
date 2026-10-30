@@ -84,7 +84,7 @@ describe("registry and providers", () => {
   test("every provider is checked against its adapter; all problems at once", async () => {
     const { issues } = await validateProviders({ a: { $tag: "nope" }, b: { $tag: "anthropic", api_key_env: "sk-ant-abc", extra: 1 } as never, c: { $tag: "openai", max_concurrent: 0 } as never }, registry);
     const by = Object.fromEntries(issues.map((i) => [i.path, i.message]));
-    assert.match(by["providers.a.$tag"] ?? "", /no adapter for "nope" \(known: anthropic, openai, openai-compatible\)/);
+    assert.match(by["providers.a.$tag"] ?? "", /no adapter for "nope" \(known: anthropic, gemini, openai, openai-compatible, opencode-go\)/);
     assert.match(by["providers.b.api_key_env"] ?? "", /NAME of an environment variable/);
     assert.ok(Object.keys(by).some((k) => k.startsWith("providers.b") && /nrecognized|extra/.test(by[k] ?? "")), JSON.stringify(by));
     assert.ok("providers.c.max_concurrent" in by);
@@ -128,13 +128,13 @@ describe("JSON Schema", () => {
   test("core keys, and one variant per adapter discriminated by a $tag const", () => {
     assert.deepEqual(Object.keys(schema.properties).sort(), ["attachments", "background", "compaction", "leases", "limits", "maintenance", "providers", "subagent", "tools"]);
     const variants = schema.properties["providers"]?.additionalProperties?.oneOf ?? [];
-    assert.deepEqual(variants.map((v) => v.title), ["anthropic", "openai", "openai-compatible"]);
+    assert.deepEqual(variants.map((v) => v.title), ["anthropic", "gemini", "openai", "openai-compatible", "opencode-go"]);
     for (const v of variants) {
       assert.equal((v.properties["$tag"] as { const: string }).const, v.title);
       assert.ok(v.required.includes("$tag"));
     }
     assert.ok("api_key_env" in (variants[0]?.properties ?? {}));
-    assert.ok("store" in (variants[1]?.properties ?? {}));
+    assert.ok("store" in (variants[2]?.properties ?? {}));
   });
 
   test("settings schemas per adapter", () => {

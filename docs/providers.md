@@ -205,6 +205,7 @@ limits: { max_request_usd: 1.00, max_turn_usd: 5.00, max_conversation_usd: 50.00
   has one) and `create` writes the `# yaml-language-server: $schema=` line. As far as I know the YAML language
   server cannot learn **custom tags** from a schema (that needs its `yaml.customTags` setting), so tags remain
   optional sugar; a helper that adds them to VS Code settings comes later.
+- **Headers and services.** Every provider takes `headers` (a `null` removes one; requests carry `User-Agent: chattree/<version>` by default) and `session_header` (the name of a header for the thread's id). `opencode-go` and `gemini` are `openai-compatible` with a bundled catalog; Qwen, Kimi Code and MiniMax are configuration only. See `docs/services.md`, which also says what each service's terms ask and where we are not responsible for them.
 - **Models are not in the file.** Which models exist comes from the provider (P9); which one an agent uses is
   state in the transcript (P8). Any model the provider lists may be chosen: that is a host and user decision.
 - **The `config_changed` entry goes away** (with its hash chain, `configStatus`, and the verifier's chain check).

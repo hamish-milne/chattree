@@ -361,9 +361,20 @@ export class Git {
     return (await this.status()).length === 0;
   }
 
-  /** Stage every change in the worktree, including deletions (respecting .gitignore). */
+  /**
+   * Stage every change in the worktree, including deletions (respecting .gitignore). A file another handle is writing (a blob lands as
+   * `<name>.tmp-<hex>` and is renamed into place) can be gone between git listing it and reading it: that is retried, a few times.
+   */
   async addAll(): Promise<void> {
-    await this.run(["add", "--all"]);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.run(["add", "--all"]);
+        return;
+      } catch (e) {
+        if (attempt >= 5 || !isVanishedTempFile(e)) throw e;
+        await new Promise((r) => setTimeout(r, 20 * attempt));
+      }
+    }
   }
 
   /** Write bytes to the object database and return the blob's hash. Does not touch the worktree or index. */
@@ -853,4 +864,10 @@ function fallbackReader(git: Git): ObjectReader {
     read: async (spec) => (await git.readObjects([spec]))[0],
     close: async () => undefined,
   };
+}
+
+/** `git add` failed because a temporary file (`*.tmp-<hex>`, see `writeAtomic`) was renamed away while git looked at it. */
+export function isVanishedTempFile(e: unknown): boolean {
+  const stderr = e instanceof GitError && typeof (e as { stderr?: unknown }).stderr === "string" ? (e as { stderr: string }).stderr : e instanceof Error ? e.message : "";
+  return /unable to stat '[^']*\.tmp-[0-9a-f]+': No such file or directory/.test(stderr);
 }
