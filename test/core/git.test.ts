@@ -660,6 +660,10 @@ describe("staging while another handle writes files", () => {
     const err = (stderr: string) => new GitError("git add failed", { args: [], exitCode: 128, stderr });
     assert.equal(isVanishedTempFile(err("fatal: unable to stat 'blobs/4a/10046c.tmp-838af81d7ec1': No such file or directory")), true);
     assert.equal(isVanishedTempFile(err("fatal: unable to stat 'chat.yml': No such file or directory")), false);
+    // Windows words it differently
+    assert.equal(isVanishedTempFile(err('error: open("blobs/ab/f24.tmp-d4ac90ea26ec"): No such file or directory\nerror: unable to index file \'blobs/ab/f24.tmp-d4ac90ea26ec\'\nfatal: adding files failed')), true);
+    assert.equal(isVanishedTempFile(err("error: open(\"blobs/ab/f1.tmp-d4ac90ea26ec\"): Permission denied")), true);
+    assert.equal(isVanishedTempFile(err("error: open(\"chat.yml\"): Permission denied")), false, "not a temp file");
     assert.equal(isVanishedTempFile(new Error("boom")), false);
   });
 });

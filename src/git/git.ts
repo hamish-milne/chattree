@@ -866,8 +866,13 @@ function fallbackReader(git: Git): ObjectReader {
   };
 }
 
-/** `git add` failed because a temporary file (`*.tmp-<hex>`, see `writeAtomic`) was renamed away while git looked at it. */
+/**
+ * `git add` failed because a temporary file (`*.tmp-<hex>`, see `writeAtomic`) was renamed away while git looked at it. The wording
+ * differs by platform ("unable to stat 'x': No such file or directory" on Linux, `open("x"): No such file or directory` and
+ * "unable to index file 'x'" on Windows, where a file being renamed can also be "Permission denied"), so it is recognised by what it
+ * names: a temp file, and a reason that a file went away.
+ */
 export function isVanishedTempFile(e: unknown): boolean {
   const stderr = e instanceof GitError && typeof (e as { stderr?: unknown }).stderr === "string" ? (e as { stderr: string }).stderr : e instanceof Error ? e.message : "";
-  return /unable to stat '[^']*\.tmp-[0-9a-f]+': No such file or directory/.test(stderr);
+  return /\.tmp-[0-9a-f]{12}\b/.test(stderr) && /No such file or directory|Permission denied/.test(stderr);
 }
