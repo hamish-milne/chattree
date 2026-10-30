@@ -65,6 +65,7 @@ export async function exportMarkdown(convo: Conversation, entries: readonly Chat
         if (e.model !== undefined && e.reason !== "provider") out.push(`*Model set to ${e.model.provider}/${e.model.id}.*`);
         break;
       case "header":
+      case "approval":
         break;
     }
   }

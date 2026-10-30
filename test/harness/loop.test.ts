@@ -8,6 +8,8 @@ import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
 import { JobRegistry, jobTools } from "../../harness/jobs.ts";
+import { foldTip } from "../../harness/tip.ts";
+import { verifyHistory } from "../../harness/verify.ts";
 import { runLoop, syncTools, toolDrift, ToolsNotSupported, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
 import { leafTools } from "../../harness/starter/index.ts";
 import { ToolRegistry, type Tool, type ToolOutput } from "../../harness/tools.ts";
@@ -418,6 +420,174 @@ describe("approvals", () => {
     assert.deepEqual(await store.allow("echo"), { all: "2999-01-01" });
     await convo.revokeGrant("echo", undefined);
     assert.deepEqual(await store.allow("echo"), {});
+  });
+});
+
+describe("approvals recorded in the thread", () => {
+  const CFG = "providers:\n  f:\n    $tag: fake\n";
+  const keyed = (name: string, ran: string[]): Tool => ({
+    ...tool(name, (_a, ctx) => (ran.push(ctx.callId), Promise.resolve({ content: "ran" }))),
+    allowKeys: () => ["all"],
+  });
+  const approvals = async (c: Conversation) => (await entries(c)).flatMap((e) => (e.$tag === "approval" ? [e] : []));
+  const harnessYml = (dir: string) => readFile(join(dir, "harness.yml"), "utf8");
+  const tip = async (c: Conversation, registry: ToolRegistry) => foldTip({ entries: await entries(c), registry, allow: (t) => c.grantStore().allow(t), nowMs: c.now(), ctx: { workspace: c.dir, host: c.host } });
+
+  test("an answer the host gave is recorded before the call's result; a call a grant covers records nothing", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, `${CFG}tools:\n  echo:\n    allow:\n      all: 2999-01-01\n`);
+    queue = [calls(call("c1", "echo")), answer("ok")];
+    await drive(convo, registry, { grants: convo.grantStore() });
+    assert.deepEqual(await approvals(convo), []);
+
+    const second = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("ok")];
+    await drive(second.convo, registry, { grants: second.convo.grantStore(), approve: (r) => Promise.resolve(r.callId === "c1" ? { allow: true } : { allow: false, reason: "no thanks" }) });
+    const kinds = (await entries(second.convo)).flatMap((e) => (e.$tag === "approval" ? [`approval:${e.call_id}:${e.allow}`] : e.$tag === "tool_result" ? [`result:${e.call_id}`] : []));
+    assert.deepEqual(kinds, ["approval:c1:true", "result:c1", "approval:c2:false", "result:c2"]);
+    assert.equal((await approvals(second.convo))[1]?.reason, "no thanks");
+    assert.deepEqual(await verifyHistory(second.convo), []);
+    await assertHistoryInvariants(second.convo);
+  });
+
+  test("a grant for the thread lives in the entry only: the next call is covered, harness.yml is untouched, and another thread is not covered", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo, dir } = await fresh(registry, CFG);
+    const initial = await harnessYml(dir);
+    queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("ok")];
+    let asked = 0;
+    const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true, grant: { seconds: 300, scope: "thread" } })) });
+    assert.equal(asked, 1);
+    assert.deepEqual(ran, ["c1", "c2"]);
+    assert.deepEqual(events.flatMap((e) => (e.type === "tool.approval" ? [e.via] : [])), ["asked", "allowlist"]);
+    assert.equal(await harnessYml(dir), initial);
+    const [only] = await approvals(convo);
+    assert.deepEqual(only?.grant?.keys, ["all"]);
+    assert.equal(only?.grant?.tool, "echo");
+    assert.equal((await approvals(convo)).length, 1, "the covered call has no entry of its own");
+
+    // A grant for the project is in harness.yml and the entry carries no grant: one place each.
+    const proj = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo")), answer("ok")];
+    await drive(proj.convo, registry, { grants: proj.convo.grantStore(), approve: () => Promise.resolve({ allow: true, grant: { seconds: 300 } }) });
+    assert.equal((await approvals(proj.convo))[0]?.grant, undefined);
+
+    // Another thread (here another conversation) does not have it.
+    const other = await fresh(registry, CFG);
+    assert.equal((await tip(other.convo, registry)).kind, "ready");
+    queue = [calls(call("c9", "echo")), answer("ok")];
+    let askedOther = 0;
+    await drive(other.convo, registry, { grants: other.convo.grantStore(), approve: () => (askedOther++, Promise.resolve({ allow: true })) });
+    assert.equal(askedOther, 1);
+  });
+
+  test("a thread grant reaches a branch forked after it", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo")), answer("ok")];
+    await drive(convo, registry, { grants: convo.grantStore(), approve: () => Promise.resolve({ allow: true, grant: { seconds: 300, scope: "thread" } }) });
+    const { conversation: forked } = await convo.fork(undefined, { name: "side" });
+    assert.ok(forked !== undefined);
+    const child = forked;
+    await child.append({ $tag: "user", content: [{ $tag: "text", text: "again" }] });
+    queue = [calls(call("c2", "echo")), answer("ok")];
+    let asked = 0;
+    await drive(child, registry, { grants: child.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true })) });
+    assert.equal(asked, 0);
+    assert.deepEqual(ran, ["c1", "c2"]);
+  });
+
+  test("waitForApproval: the loop stops at a call nobody has decided, and the tip says what is asked", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("done")];
+    const { result, events } = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    assert.equal(result.status, "needs_approval");
+    assert.deepEqual(result.waiting, { callId: "c1", name: "echo", args: {}, keys: ["all"] });
+    assert.deepEqual(ran, []);
+    assert.equal(requests, 1, "no request after the stop");
+    assert.deepEqual(await results(convo), []);
+    assert.deepEqual(events.flatMap((e) => (e.type === "tool.result" ? [e.callId] : [])), []);
+    const state = await tip(convo, registry);
+    assert.equal(state.kind, "needs_approval");
+    if (state.kind === "needs_approval") {
+      assert.equal(state.question.callId, "c1");
+      assert.deepEqual(state.calls.map((c) => [c.callId, c.status]), [["c1", "ask"], ["c2", "ask"]]);
+    }
+  });
+
+  test("an answer appended by another handle is picked up: the loop runs the approved call, declines the other, and carries on", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo, dir } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("done")];
+    await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+
+    const other = await Conversation.open(host, dir, { providers: { registry: adapters, secrets: envSource({}) } });
+    await other.append({ $tag: "approval", call_id: "c1", allow: true });
+    await other.append({ $tag: "approval", call_id: "c2", allow: false, reason: "not that" });
+    assert.equal((await tip(other, registry)).kind, "run");
+
+    const { result, events } = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    assert.equal(result.status, "completed");
+    assert.deepEqual(ran, ["c1"]);
+    assert.deepEqual(events.flatMap((e) => (e.type === "tool.approval" ? [[e.callId, e.allowed, e.via]] : [])), [["c1", true, "recorded"], ["c2", false, "recorded"]]);
+    const rs = await results(convo);
+    assert.deepEqual(rs.map((r) => [r.call_id, r.is_error]), [["c1", false], ["c2", true]]);
+    assert.match(str(rs[1]?.content), /declined.*not that/);
+    assert.equal((await tip(convo, registry)).kind, "awaiting_user");
+    assert.deepEqual(await verifyHistory(convo), []);
+  });
+
+  test("a waiting loop that finds a later call still undecided stops again, and nothing already answered runs twice", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("done")];
+    await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    await convo.append({ $tag: "approval", call_id: "c1", allow: true });
+    const { result } = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    assert.equal(result.status, "needs_approval");
+    assert.equal(result.waiting?.callId, "c2");
+    assert.deepEqual(ran, ["c1"]);
+    await convo.append({ $tag: "approval", call_id: "c2", allow: true });
+    const again = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    assert.equal(again.result.status, "completed");
+    assert.deepEqual(ran, ["c1", "c2"]);
+  });
+
+  test("without waitForApproval an approved call that has no result is not run (it may have started); a declined one is answered", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("done")];
+    await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    await convo.append({ $tag: "approval", call_id: "c1", allow: true });
+    await convo.append({ $tag: "approval", call_id: "c2", allow: false });
+    queue = [answer("after")];
+    await drive(convo, registry, { grants: convo.grantStore() });
+    assert.deepEqual(ran, []);
+    const rs = await results(convo);
+    assert.match(str(rs[0]?.content), /did not run/);
+    assert.match(str(rs[1]?.content), /declined/);
+  });
+
+  test("the tip is ready after a user message and awaiting_user after an answer; a call that cannot run is answered, not asked", async () => {
+    const registry = reg(keyed("echo", []));
+    const { convo } = await fresh(registry, CFG);
+    assert.equal((await tip(convo, registry)).kind, "ready");
+    queue = [calls(call("c1", "nosuch")), answer("done")];
+    const first = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    assert.equal(first.result.status, "completed");
+    assert.equal((await tip(convo, registry)).kind, "awaiting_user");
+    await convo.append({ $tag: "user", content: [{ $tag: "text", text: "now echo" }] });
+    queue = [calls(call("c2", "echo"))];
+    const second = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    assert.equal(second.result.status, "needs_approval");
   });
 });
 

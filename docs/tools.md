@@ -234,6 +234,15 @@ tools:
 - **Time and background work.** Expiry is checked when a call starts; a background job that began under a grant keeps running after it lapses.
 - **Children.** A child conversation inherits a copy of its parent's `allow` maps at spawn; a grant made in a child stays in the child. Prompts always go to the user's terminal, labelled with the child's name.
 
+### 5.2 Decisions in the thread, and the tip's state
+
+An answer to an approval question is an `approval` entry (format 2.2): `{ call_id, allow, reason?, grant? }`, committed before the call's result. It is what lets one place ask and another answer. A call that a live grant covers has no entry, because that is decided by the grants and the clock; an entry exists only for a decision a person (or a host acting for one) made.
+
+- **Where a grant lives.** A grant is kept in one place. `scope: "project"` (the default) is the `allow` map in `harness.yml`, as in 5.1, for every thread. `scope: "thread"` is the `grant` field of the entry: it covers matching calls later in this thread and in branches forked from it afterwards, and no other thread. A child's thread grant does not reach its parent; a parent's reaches children forked after it. The loop reads both when it checks a call, taking the later expiry for a key held twice.
+- **The tip's state** (`foldTip`, `harness/tip.ts`) is worked out from the history, the config and the clock, the same way the model's context is, so every process that looks gets the same answer: `awaiting_user` (nothing owed), `ready` (a request to the model is owed), `run` (calls without a result that need nobody's decision: covered, approved, declined or invalid) and `needs_approval` (at least one call waits; `question` is the first). Appending an `approval` entry is the whole of answering.
+- **Waiting.** With `waitForApproval` and no `approve`, the loop stops with `needs_approval` instead of declining, leaving the call and any after it without a result. Run again, it carries on with them: a call with a decision runs or is declined, one a grant covers runs, one still undecided stops it again. A host that has `approve` still asks in place; that is the fast path, and it writes the same entry.
+- **Known gap, closed by step 2 of the plan.** The history cannot say whether a call without a result was started. Without `waitForApproval` the loop keeps its old rule: such a call is answered "did not run", except a declined call (nothing ran) and a resumable tool's. With it, the caller says that earlier loops ended by waiting, so the calls were never started. A run lease will let the history say so itself.
+
 ## 6. CLI experience
 
 - **Tool activity.** Each call is a start line with a one-line summary (`read src/cli/turn.ts`, `run pnpm test`) and a result line with outcome, size and time plus a short preview. `/expand [n]` shows the full output using the entry refs `/log` understands. Errors and declined calls are styled as errors; the plain renderer prints the same without colour.

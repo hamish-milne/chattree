@@ -104,6 +104,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     switch (e.$tag) {
       case "header":
       case "agent_setup":
+      case "approval": // a decision about a call: the model sees the call's result, which says what happened
         break;
       case "branch_start":
         if (e.context === "fresh" && e.brief !== undefined) userText(render.subagentBrief(await text(e.brief)));

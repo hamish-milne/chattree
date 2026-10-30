@@ -71,7 +71,7 @@ const retry: Command = {
   busy: "blocked",
   async *run(ctx) {
     const entries = (await ctx.convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-    const last = [...entries].reverse().find((e) => e.$tag !== "agent_setup");
+    const last = [...entries].reverse().find((e) => e.$tag !== "agent_setup" && e.$tag !== "approval");
     // Where the model is owed a reply: a user message, a tool result (or a job's event after one), or an assistant turn that
     // ended on tool calls nothing has answered (the loop answers those "did not run" and asks again; it never re-runs a call).
     const owed = last?.$tag === "user" || last?.$tag === "tool_result" || last?.$tag === "job_event" || (last?.$tag === "assistant" && last.blocks.some((b) => b.$tag === "tool_call"));

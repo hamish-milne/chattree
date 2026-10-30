@@ -95,6 +95,8 @@ function samples(): Record<string, Record<string, unknown>> {
       files: { changed: ["src/tokenize.ts"], added: [], discarded: ["notes.md"] },
       merge: { policy: "trunk", base: "9fceb02", conflicts: [{ path: "notes.md", kind: "content" }] },
     },
+    approval: { $tag: "approval", id: nextId(), call_id: "toolu_01A", allow: false, reason: "not that one" },
+    "approval with a thread grant": { $tag: "approval", id: nextId(), call_id: "toolu_01B", allow: true, grant: { tool: "run", keys: ["grep **"], until: "2026-10-30T12:00:00.000Z" } },
     interrupted: {
       $tag: "interrupted",
       id: nextId(),

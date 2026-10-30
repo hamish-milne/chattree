@@ -381,6 +381,8 @@ export function describeEntry(e: ChatEntry): string {
       return `fork_merge: ${oneLine(e.branch, 40)}`;
     case "job_event":
       return `job_event: ${oneLine(e.job, 20)} ${e.status}`;
+    case "approval":
+      return `approval: ${oneLine(e.call_id, 40)} ${e.allow ? "allowed" : "declined"}`;
     case "interrupted":
       return `interrupted: ${e.by}`;
   }

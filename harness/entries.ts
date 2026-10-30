@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 2, minor: 1 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 2 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -246,6 +246,26 @@ export const jobEvent = z.object({
   output: text.optional(),
 });
 
+/**
+ * The answer to "may this call run?" (format 2.2), for a call that no stored grant covered. It is what lets the question be asked in one
+ * place and answered in another: a thread whose last call has no result and no `approval` is waiting for one, and whoever appends it
+ * (the terminal that was asked, another session, a headless host) is seen by every reader of the thread. A call a live grant already
+ * covers needs no entry: that is decided by the grants and the clock, not by anything recorded.
+ *
+ * `grant` is a grant held by the thread: it covers matching calls later in this thread and in every branch forked from it afterwards,
+ * and nowhere else. A grant for the whole project is a change to `harness.yml` instead, and the entry then says nothing of it, so
+ * each grant is kept in one place only.
+ */
+export const approval = z.object({
+  $tag: z.literal("approval"),
+  id: ulid,
+  call_id: z.string(),
+  allow: z.boolean(),
+  /** Why the call was declined (shown to the model). */
+  reason: z.string().optional(),
+  grant: z.object({ tool: z.string().min(1), keys: z.array(z.string().min(1)).min(1), until: z.string() }).optional(),
+});
+
 export const interrupted = z.object({
   $tag: z.literal("interrupted"),
   id: ulid,
@@ -268,6 +288,7 @@ export type ChatEntry =
   | z.infer<typeof subagentResult>
   | z.infer<typeof forkMerge>
   | z.infer<typeof jobEvent>
+  | z.infer<typeof approval>
   | z.infer<typeof interrupted>;
 
 export const entryTypes = [
@@ -281,6 +302,7 @@ export const entryTypes = [
   defineEntry("subagent_result", subagentResult),
   defineEntry("fork_merge", forkMerge),
   defineEntry("job_event", jobEvent),
+  defineEntry("approval", approval),
   defineEntry("interrupted", interrupted),
 ];
 

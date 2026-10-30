@@ -1,0 +1,175 @@
+import type { ChatEntry } from "./entries.ts";
+import { permitted, untilMs, type AllowMap } from "./approvals.ts";
+import type { ApprovalContext, ToolRegistry } from "./tools.ts";
+
+/**
+ * What a thread's tip needs (docs/tools.md, 5.4): worked out by reading its history, the way the model's context is, so it is the same
+ * answer in every process that looks. Nothing here is stored. A session that is not running the thread can show "this thread asks
+ * whether to run `run: rm -r build`", and appending an `approval` entry is the whole of answering it.
+ *
+ * Two things the history cannot say, and which this module therefore leaves to the caller: whether a loop is running on the thread
+ * right now (a lease, step 2 of the plan), and what the user would answer.
+ */
+
+type Call = { call_id: string; name: string; args: Record<string, unknown>; args_raw?: string };
+
+/** Calls of the last assistant entry that nothing answered, unless a user message has come since (the context builder covers that case). */
+export function unanswered(entries: readonly ChatEntry[]): string[] {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = entries[i] as ChatEntry;
+    if (e.$tag === "branch_start" && e.context === "fresh") return [];
+    if (e.$tag === "user" || e.$tag === "interrupted" || e.$tag === "compaction") return [];
+    if (e.$tag !== "assistant") continue;
+    const answered = new Set<string>();
+    for (const later of entries.slice(i + 1)) {
+      if (later.$tag === "tool_result" || later.$tag === "subagent_result") answered.add(later.call_id);
+      else if (later.$tag === "fork_merge" && later.call_id !== undefined) answered.add(later.call_id);
+    }
+    return e.blocks.flatMap((b) => (b.$tag === "tool_call" && !answered.has(b.call_id) ? [b.call_id] : []));
+  }
+  return [];
+}
+
+/** Every tool call in the history, by id (the arguments as the entries hold them: a long string may still be a blob reference). */
+export function callsIn(entries: readonly ChatEntry[]): Map<string, Call> {
+  const calls = new Map<string, Call>();
+  for (const e of entries) {
+    if (e.$tag !== "assistant") continue;
+    for (const b of e.blocks) if (b.$tag === "tool_call") calls.set(b.call_id, { call_id: b.call_id, name: b.name, args: b.args, ...(typeof b.args_raw === "string" ? { args_raw: b.args_raw } : {}) });
+  }
+  return calls;
+}
+
+export type Decision = { allow: true } | { allow: false; reason?: string };
+
+/** The decisions recorded in the history, by call id (the last one for a call wins). */
+export function decisionsIn(entries: readonly ChatEntry[]): Map<string, Decision> {
+  const out = new Map<string, Decision>();
+  for (const e of entries) {
+    if (e.$tag === "approval") out.set(e.call_id, e.allow ? { allow: true } : { allow: false, ...(e.reason === undefined ? {} : { reason: e.reason }) });
+  }
+  return out;
+}
+
+/**
+ * The grants the history holds, per tool: key to expiry, the later expiry where a key was granted twice. Expired ones are kept (the
+ * reader judges them against its clock, as it does for `harness.yml`). Only an allowed decision can carry a grant.
+ */
+export function threadGrantsIn(entries: readonly ChatEntry[]): Map<string, AllowMap> {
+  const out = new Map<string, Record<string, string>>();
+  for (const e of entries) {
+    if (e.$tag !== "approval" || !e.allow || e.grant === undefined) continue;
+    const map = out.get(e.grant.tool) ?? {};
+    for (const key of e.grant.keys) {
+      const old = map[key];
+      const oldT = old === undefined ? undefined : untilMs(old);
+      const newT = untilMs(e.grant.until);
+      if (newT !== undefined && (oldT === undefined || newT > oldT)) map[key] = e.grant.until;
+    }
+    out.set(e.grant.tool, map);
+  }
+  return out;
+}
+
+/** Two grant maps as one: each key lasts as long as the longer of its two expiries. */
+export function mergeAllow(a: AllowMap | undefined, b: AllowMap | undefined): AllowMap | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  const out: Record<string, string> = { ...a };
+  for (const [k, until] of Object.entries(b)) {
+    const old = out[k];
+    const oldT = old === undefined ? undefined : untilMs(old);
+    const newT = untilMs(until);
+    if (newT !== undefined && (oldT === undefined || newT > oldT)) out[k] = until;
+  }
+  return out;
+}
+
+/** What one call that has no result needs next. */
+export interface CallNeed {
+  callId: string;
+  name: string;
+  args: Record<string, unknown>;
+  /**
+   * `covered`: a live grant covers it, so it can run. `approved` / `declined`: an `approval` entry decided it. `invalid`: the call cannot
+   * be run as given (unknown tool, bad arguments), and the loop answers it with the error. `ask`: someone has to decide.
+   */
+  status: "covered" | "approved" | "declined" | "invalid" | "ask";
+  /** For `ask`: what a grant would add to the tool's `allow` map, or null when the call can only be allowed once. */
+  keys?: string[] | null;
+  /** For `invalid`: the message the model is given. For `declined`: the reason, if one was given. */
+  message?: string;
+}
+
+export type TipState =
+  /** Nothing is owed: the model has answered (or was interrupted), and the next move is the user's. */
+  | { kind: "awaiting_user" }
+  /** A request to the model is owed (a user message, a tool result, a job's event). Nobody's decision is needed. */
+  | { kind: "ready" }
+  /** Calls have no result and none of them waits for a decision: the loop runs, declines or rejects them in order. */
+  | { kind: "run"; calls: CallNeed[] }
+  /** At least one call waits for a decision. `question` is the first; `calls` is every call without a result, in order. */
+  | { kind: "needs_approval"; calls: CallNeed[]; question: CallNeed };
+
+export interface TipInput {
+  entries: readonly ChatEntry[];
+  registry: ToolRegistry;
+  /** The tool's `allow` map in harness.yml as it is now (`GrantStore.allow`). */
+  allow: (tool: string) => Promise<AllowMap | undefined>;
+  nowMs: number;
+  ctx: ApprovalContext;
+}
+
+/** How each call without a result stands: the same classification the loop uses before it asks anyone. */
+export async function classifyCalls(input: TipInput, callIds: readonly string[]): Promise<CallNeed[]> {
+  const { entries, registry } = input;
+  const calls = callsIn(entries);
+  const decisions = decisionsIn(entries);
+  const held = threadGrantsIn(entries);
+  const out: CallNeed[] = [];
+  for (const id of callIds) {
+    const call = calls.get(id);
+    if (call === undefined) continue;
+    const base = { callId: id, name: call.name, args: call.args };
+    const checked = registry.check(call);
+    if ("error" in checked) {
+      out.push({ ...base, status: "invalid", message: checked.error });
+      continue;
+    }
+    const decision = decisions.get(id);
+    if (decision !== undefined) {
+      out.push({ ...base, args: checked.args, status: decision.allow ? "approved" : "declined", ...(decision.allow || decision.reason === undefined ? {} : { message: decision.reason }) });
+      continue;
+    }
+    const allow = mergeAllow(await input.allow(call.name), held.get(call.name));
+    const hit = await permitted(checked.tool, checked.args, allow, input.nowMs, input.ctx);
+    if (hit.permitted) out.push({ ...base, args: checked.args, status: "covered", keys: hit.keys });
+    else out.push({ ...base, args: checked.args, status: "ask", keys: (await checked.tool.allowKeys?.(checked.args, input.ctx)) ?? null });
+  }
+  return out;
+}
+
+/** The state of the tip. See `TipState`. */
+export async function foldTip(input: TipInput): Promise<TipState> {
+  const { entries } = input;
+  const open = unanswered(entries);
+  if (open.length > 0) {
+    const calls = await classifyCalls(input, open);
+    const question = calls.find((c) => c.status === "ask");
+    return question === undefined ? { kind: "run", calls } : { kind: "needs_approval", calls, question };
+  }
+  const last = [...entries].reverse().find((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval");
+  switch (last?.$tag) {
+    case "user":
+    case "tool_result":
+    case "job_event":
+    case "subagent_result":
+      return { kind: "ready" };
+    case "fork_merge":
+      return last.call_id === undefined ? { kind: "awaiting_user" } : { kind: "ready" };
+    case "branch_start":
+      return last.context === "fresh" && last.brief !== undefined ? { kind: "ready" } : { kind: "awaiting_user" };
+    default:
+      return { kind: "awaiting_user" };
+  }
+}
