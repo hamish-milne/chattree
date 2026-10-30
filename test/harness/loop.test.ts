@@ -8,7 +8,7 @@ import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
 import { JobRegistry, jobTools } from "../../harness/jobs.ts";
-import { foldTip } from "../../harness/tip.ts";
+import { foldTip, unanswered } from "../../harness/tip.ts";
 import { LeaseStore, ThreadBusy } from "../../harness/lease.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import { runLoop, syncTools, toolDrift, ToolsNotSupported, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
@@ -148,6 +148,60 @@ describe("the tool loop", () => {
     assert.deepEqual((await results(convo)).map((r) => [r.call_id, str(r.content), r.is_error]), [["c1", "echo c1", false], ["c2", "echo c2", false]]);
     assert.deepEqual(events.filter((e) => e.type.startsWith("tool.")).map((e) => e.type), ["tool.start", "tool.result", "tool.start", "tool.result"]);
     await assertHistoryInvariants(convo);
+  });
+
+  const foldNow = async (c: Conversation, registry: ToolRegistry) => foldTip({ entries: await entries(c), registry, allow: (t) => c.grantStore().allow(t), nowMs: c.now(), ctx: { workspace: c.dir, host: c.host } });
+
+  test("a message queued while a request streams is answered by the same loop, and the answer records what it was built from", async () => {
+    const registry = reg(echo);
+    const { convo } = await fresh(registry);
+    let sent = false;
+    queue = [
+      async () => {
+        sent = true;
+        await convo.append({ $tag: "user", queued: true, content: [{ $tag: "text", text: "and one more thing" }] });
+        return answer("first answer");
+      },
+      answer("second answer"),
+    ];
+    const { result } = await drive(convo, registry);
+    assert.ok(sent);
+    assert.equal(result.status, "completed");
+    assert.equal(result.requests, 2, "the queued message gets its own request");
+    const es = await entries(convo);
+    assert.deepEqual(es.slice(-4).map((e) => e.$tag), ["user", "user", "assistant", "assistant"]);
+    const [first, second] = es.filter((e) => e.$tag === "assistant");
+    assert.ok(first?.$tag === "assistant" && second?.$tag === "assistant");
+    const q = es.filter((e) => e.$tag === "user")[1];
+    assert.ok(q?.$tag === "user" && first.context_tip !== undefined && first.context_tip < q.id, "the first answer was built before the message");
+    assert.ok(second.context_tip !== undefined && second.context_tip >= q.id, "the second saw it");
+    assert.equal((await foldNow(convo, registry)).kind, "awaiting_user");
+    await assertHistoryInvariants(convo);
+  });
+
+  test("a queued message does not hide the calls that are still waiting for results", () => {
+    const id = (n: number) => `01ARZ3NDEKTSV4RRFFQ69G${String(n).padStart(4, "0")}`;
+    const a: ChatEntry = { $tag: "assistant", id: id(1), provider: "f", model: "m1", stop_reason: "tool_use", blocks: [{ $tag: "tool_call", call_id: "c1", name: "echo", args: {} }] };
+    const q: ChatEntry = { $tag: "user", id: id(2), queued: true, content: [{ $tag: "text", text: "hey" }] };
+    const plain: ChatEntry = { ...q, queued: undefined } as ChatEntry;
+    assert.deepEqual(unanswered([a, q]), ["c1"]);
+    assert.deepEqual(unanswered([a, plain]), [], "an ordinary message after the calls leaves them to the context builder");
+  });
+
+  test("a message the last answer was built without is owed a reply when nothing else is running", async () => {
+    const registry = reg(echo);
+    const { convo } = await fresh(registry);
+    queue = [
+      async () => {
+        await convo.append({ $tag: "user", queued: true, content: [{ $tag: "text", text: "late" }] });
+        return answer("first answer");
+      },
+    ];
+    // the loop died (here: stopped) before its second request
+    const ac = new AbortController();
+    const { result } = await drive(convo, registry, { signal: ac.signal, beforeRequest: async () => { if (requests >= 1) ac.abort(); } });
+    assert.equal(result.status, "cancelled");
+    assert.deepEqual(await foldNow(convo, registry), { kind: "ready", cause: "human" });
   });
 
   test("a tool's workspace changes are committed with its result", async () => {

@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 2, minor: 2 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 3 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -62,7 +62,16 @@ export const header = z.object({
   minor: count,
 });
 
-export const user = z.object({ $tag: z.literal("user"), id: ulid, content: z.array(userPart) });
+export const user = z.object({
+  $tag: z.literal("user"),
+  id: ulid,
+  content: z.array(userPart),
+  /**
+   * Sent while the thread was working (format 2.3). It sits wherever it was appended, which may be between a tool call and its result;
+   * the model is shown it after the results that close the turn, in the next request.
+   */
+  queued: z.boolean().optional(),
+});
 
 export const assistant = z.object({
   $tag: z.literal("assistant"),
@@ -71,6 +80,8 @@ export const assistant = z.object({
   model: z.string(),
   blocks: z.array(assistantBlock),
   stop_reason: z.string(),
+  /** The id of the last entry the request that produced this one was built from (format 2.3): a user message with a later id was not seen by it. */
+  context_tip: ulid.optional(),
   /** Whatever token counts the provider reports; field names differ between providers. */
   usage: z.record(z.string(), z.number()).optional(),
   /** Provider round-trip data that has no place in the blocks (response ids, item ids, cache hints). */

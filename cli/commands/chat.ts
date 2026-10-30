@@ -63,13 +63,42 @@ export async function* sendMessage(ctx: Ctx, text: string, sent: () => void): As
   }
 }
 
+/**
+ * A message sent while the model is working: it goes into the transcript at once, marked `queued`, and the model is shown it in its next
+ * request, after the results of the tool calls in progress. Nothing is started: the running turn picks it up (or, if that turn is
+ * already ending, the thread asks for a request when it has ended).
+ */
+async function* queueMessage(ctx: Ctx, text: string, sent: () => void): AsyncGenerator<Output, void> {
+  if (text === "" && ctx.state.attachments.length === 0) {
+    yield { type: "error", message: "there is nothing to send", hint: "type a message, or /attach a file" };
+    return;
+  }
+  try {
+    const files = await materialize(ctx);
+    await ctx.convo.append({ $tag: "user", queued: true, content: [...(text === "" ? [] : [{ $tag: "text" as const, text }]), ...files] });
+  } catch (e) {
+    yield failure(e);
+    return;
+  }
+  ctx.state.attachments = [];
+  sent();
+  yield { type: "notice", message: "queued: the model sees it with its next request" };
+}
+
 const say: Command = {
   name: "say",
-  summary: "send a message (bare text does this)",
+  summary: "send a message (bare text does this); while the model is working it is queued for its next request",
   usage: "/say [text]  (no text sends the draft)",
-  busy: "blocked",
+  busy: "allowed",
   async *run(ctx, _args, rest) {
     const fromDraft = rest.trim() === "";
+    // Another session working on the thread counts too: the message is queued in the transcript for whoever is running it.
+    if ((await ctx.engine.busyReason()) !== undefined) {
+      yield* queueMessage(ctx, fromDraft ? ctx.state.draft.trim() : rest, () => {
+        if (fromDraft) ctx.state.draft = "";
+      });
+      return;
+    }
     yield* sendMessage(ctx, fromDraft ? ctx.state.draft.trim() : rest, () => {
       if (fromDraft) ctx.state.draft = "";
     });

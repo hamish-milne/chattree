@@ -20,6 +20,7 @@ export function unanswered(entries: readonly ChatEntry[]): string[] {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = entries[i] as ChatEntry;
     if (e.$tag === "branch_start" && e.context === "fresh") return [];
+    if (e.$tag === "user" && e.queued === true) continue; // sent while the call was running: not an answer to anything
     if (e.$tag === "user" || e.$tag === "interrupted" || e.$tag === "compaction") return [];
     if (e.$tag !== "assistant") continue;
     const answered = new Set<string>();
@@ -30,6 +31,18 @@ export function unanswered(entries: readonly ChatEntry[]): string[] {
     return e.blocks.flatMap((b) => (b.$tag === "tool_call" && !answered.has(b.call_id) ? [b.call_id] : []));
   }
   return [];
+}
+
+/**
+ * Messages sent while the thread was working that the last answer was built without (ids after its `context_tip`, placed before it): the
+ * model owes the user a reply to them even though the last entry is an assistant's.
+ */
+export function unseenQueued(entries: readonly ChatEntry[]): boolean {
+  const at = entries.findLastIndex((e) => e.$tag === "assistant");
+  const last = entries[at];
+  if (last === undefined || last.$tag !== "assistant" || last.context_tip === undefined) return false;
+  const tip = last.context_tip;
+  return entries.slice(0, at).some((e) => e.$tag === "user" && e.queued === true && e.id > tip);
 }
 
 /** Every tool call in the history, by id (the arguments as the entries hold them: a long string may still be a blob reference). */
@@ -203,6 +216,8 @@ export async function foldTip(input: TipInput): Promise<TipState> {
       return last.call_id === undefined ? { kind: "awaiting_user" } : { kind: "ready", cause: "event" };
     case "branch_start":
       return last.context === "fresh" && last.brief !== undefined ? { kind: "ready", cause: "human" } : { kind: "awaiting_user" };
+    case "assistant":
+      return unseenQueued(entries) ? { kind: "ready", cause: "human" } : { kind: "awaiting_user" };
     default:
       return { kind: "awaiting_user" };
   }

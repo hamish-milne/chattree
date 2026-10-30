@@ -40,6 +40,8 @@ const counts = new WeakMap<Conversation, Map<string, number>>();
 export interface Prepared {
   setup: AgentSetup;
   context: ModelContext;
+  /** The id of the last entry the context was built from (what `context_tip` records). */
+  tip?: string;
   /** Present when cost checks ran. */
   estimate?: Estimate;
   ledger?: Ledger;
@@ -59,6 +61,8 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   await assertDefinitions(setup, opts.source, opts.allowDrift);
   const defs = await loadDefinitions(setup, { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) });
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+  const lastWithId = entries.findLast((e) => "id" in e && typeof e.id === "string" && e.$tag !== "approval");
+  const tip = lastWithId !== undefined && "id" in lastWithId ? (lastWithId.id as string) : undefined;
   const dec = new TextDecoder();
   const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);
   const context = await buildContext(entries, {
@@ -78,7 +82,7 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
       return dec.decode(bytes);
     },
   });
-  if (opts.cost === false || convo.providers.size === 0) return { setup, context, warnings: [] };
+  if (opts.cost === false || convo.providers.size === 0) return { setup, context, ...(tip === undefined ? {} : { tip }), warnings: [] };
 
   // Prices: the agent's pin must be the provider's current table, or the host must have said it accepts the difference.
   const model = setup.model;
@@ -123,5 +127,5 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const { violations } = checked;
   const warnings = countFailed === undefined ? checked.warnings : [...checked.warnings, countFailed];
   if (violations.length > 0) throw new LimitExceeded(violations);
-  return { setup, context, estimate, ledger, warnings };
+  return { setup, context, ...(tip === undefined ? {} : { tip }), estimate, ledger, warnings };
 }

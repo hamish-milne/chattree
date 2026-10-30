@@ -129,6 +129,32 @@ describe("pairing", () => {
   });
 });
 
+describe("queued messages", () => {
+  const queued = (text: string): ChatEntry => ({ ...(user(text) as Extract<ChatEntry, { $tag: "user" }>), queued: true });
+  const texts = (c: ModelContext): string[] => c.turns.map((t) => (t.role === "user" ? `user:${t.parts.map((p) => (p.type === "text" ? p.text : "?")).join("")}` : t.role));
+
+  test("one sent between a call and its result is shown after the result, for either provider shape", async () => {
+    const c = ok(await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), queued("also this"), result("c1", "done"), say("ok")]));
+    assert.deepEqual(texts(c), ["user:go", "assistant", "tool_results", "user:also this", "assistant"]);
+  });
+
+  test("one sent while the last answer streamed is shown after that answer, when the answer's context_tip says it was not seen", async () => {
+    const first = user("q1");
+    const q = queued("q2");
+    const tip = (first as { id: string }).id;
+    const c = ok(await build([first, q, say("a1", { context_tip: tip })]));
+    assert.deepEqual(texts(c), ["user:q1", "assistant", "user:q2"]);
+    // one the answer did see stays where it was sent (and merges with the user turn it follows)
+    const seen = ok(await build([first, q, say("a1", { context_tip: (q as { id: string }).id })]));
+    assert.deepEqual(texts(seen), ["user:q1q2", "assistant"]);
+  });
+
+  test("calls that never got a result are closed before it, and it keeps its place after them", async () => {
+    const c = ok(await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), queued("wait"), user("never mind")]));
+    assert.deepEqual(texts(c), ["user:go", "assistant", "tool_results", "user:waitnever mind"]);
+  });
+});
+
 describe("blobs and hints", () => {
   const ref = { $tag: "blob" as const, sha256: "ab".repeat(32), bytes: 5 };
   const entries: ChatEntry[] = [user("go"), say([call("a")], { stop_reason: "tool_use" }), { $tag: "tool_result", id: id(), call_id: "a", is_error: false, content: ref, truncated: true }, say([{ $tag: "reasoning", provider: "anthropic", visible: ref }, { $tag: "text", text: ref }])];

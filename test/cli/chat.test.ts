@@ -173,6 +173,8 @@ describe("the interactive session", () => {
       t.type("/quit\n");
       await t.done;
       assert.deepEqual((await entries(dir)).filter((e) => e.$tag === "user").map(userText), ["one", "two"]);
+      // "two" was sent while the first request ran: it is queued, and the model saw it with its next request
+      assert.deepEqual((await entries(dir)).filter((e) => e.$tag === "user").map((e) => e.$tag === "user" && e.queued === true), [false, true]);
       assert.ok(t.screen().indexOf("first answer") < t.screen().indexOf("second answer"));
     } finally {
       await server.close();

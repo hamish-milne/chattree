@@ -340,7 +340,8 @@ export class Terminal {
   async #dispatch(line: string): Promise<void> {
     const cmd = parseCommand(line);
     const known = this.#engine.registry.find(cmd?.name ?? "say");
-    const blocking = known?.busy === "blocked";
+    // A message sent while nothing runs starts a request (the spinner, input gated); while one runs it is only queued.
+    const blocking = known?.busy === "blocked" || (known?.name === "say" && !this.#engine.running);
     if (blocking) this.#startSpinner();
     const paged = cmd !== undefined && cmd.name !== "exec";
     const render = new PlainRenderer({ out: (t) => (paged ? this.#page(t) : this.#emit(t)), err: (t) => this.#emit(t), clear: () => this.#tty.output.write("\x1b[2J\x1b[H") }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);

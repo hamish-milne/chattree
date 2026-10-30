@@ -96,7 +96,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     return { type: "tool_call", call_id: b.call_id, name: b.name, args: (await inlineBlobs(b.args, text)) as Record<string, unknown>, ...(b.args_raw === undefined ? {} : { args_raw: await text(b.args_raw) }), ...ext };
   };
 
-  type Raw = Turn | { role: "result"; result: Pending };
+  type Raw = (Extract<Turn, { role: "user" }> & { queued?: string }) | (Extract<Turn, { role: "assistant" }> & { tip?: string }) | Extract<Turn, { role: "tool_results" }> | { role: "result"; result: Pending };
   const raw: Raw[] = [];
   const userText = (s: string): void => void raw.push({ role: "user", parts: [{ type: "text", text: s }] });
 
@@ -125,13 +125,13 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
           if (kind === "text") parts.push({ type: "text", text: render.textAttachment(p.name, decodeText(bytes, p.charset)) });
           else parts.push({ type: "attachment", kind, name: p.name, mime: normalizeMime(mime) as string, sha256: ref.sha256, bytes });
         }
-        raw.push({ role: "user", parts });
+        raw.push({ role: "user", parts, ...(e.queued === true ? { queued: e.id } : {}) });
         break;
       }
       case "assistant": {
         const blocks: Block[] = [];
         for (const b of e.blocks) if (keepReasoning(e.provider, e.model, b)) blocks.push(await block(b));
-        if (blocks.length > 0) raw.push({ role: "assistant", provider: e.provider, model: e.model, blocks, ...(isObject(e.ext) ? { ext: e.ext } : {}) });
+        if (blocks.length > 0) raw.push({ role: "assistant", provider: e.provider, model: e.model, blocks, ...(isObject(e.ext) ? { ext: e.ext } : {}), ...(e.context_tip === undefined ? {} : { tip: e.context_tip }) });
         break;
       }
       case "tool_result":
@@ -179,6 +179,16 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     open = new Map();
   };
   let pendingResults: Pending[] = [];
+  // Messages sent while the thread was working wait for the results that close the open turn, and are shown right after them.
+  let queued: { id: string; turn: Turn }[] = [];
+  /** Show the queued messages now, except those the request behind `unseenAfter` (the assistant entry that comes next) was built before: they follow its turn. */
+  const flushQueued = (unseenAfter?: string): void => {
+    const now = queued.filter((q) => unseenAfter === undefined || q.id <= unseenAfter);
+    if (now.length === 0) return;
+    closeOpen();
+    turns.push(...now.map((q) => q.turn));
+    queued = queued.filter((q) => !now.includes(q));
+  };
   const flushResults = (): void => {
     if (pendingResults.length === 0) return;
     const results: Omit<Pending, "fallback">[] = [];
@@ -201,18 +211,25 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       pendingResults.push(r.result);
       continue;
     }
+    if (r.role === "user" && r.queued !== undefined) {
+      queued.push({ id: r.queued, turn: { role: "user", parts: r.parts } });
+      continue;
+    }
     flushResults();
+    flushQueued(r.role === "assistant" ? r.tip : undefined);
     if (r.role === "assistant") {
       closeOpen();
-      turns.push(r);
+      const { tip: _tip, ...turn } = r;
+      turns.push(turn);
       open = new Map(r.blocks.flatMap((b) => (b.type === "tool_call" ? ([[b.call_id, true]] as const) : [])));
     } else {
       closeOpen();
-      turns.push(r);
+      turns.push(r as Turn);
     }
   }
   flushResults();
   closeOpen();
+  flushQueued();
 
   // Merge consecutive user turns.
   const merged: Turn[] = [];

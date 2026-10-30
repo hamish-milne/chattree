@@ -10,7 +10,7 @@ import { servedModelId, type ModelSetup } from "./setup.ts";
 import { flatProblems } from "./tool-schema.ts";
 import type { JobRegistry, JobStatus } from "./jobs.ts";
 import { keyProblem, permitted, untilAfter, type AllowMap } from "./approvals.ts";
-import { callsIn, decisionsIn, mergeAllow, threadGrantsIn, unanswered } from "./tip.ts";
+import { callsIn, decisionsIn, mergeAllow, threadGrantsIn, unanswered, unseenQueued } from "./tip.ts";
 import { type LeaseBefore, type LeaseOwner } from "./lease.ts";
 
 /**
@@ -474,7 +474,14 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     yield { type: "request.end", n: requests, result };
     if (result.status !== "completed") return { status: result.status, requests, last: result };
     const calls = result.completed.blocks.filter((b): b is CallBlock => b.type === "tool_call");
-    if (result.completed.stop_reason !== "tool_use" || calls.length === 0) return { status: "completed", requests, last: result };
+    if (result.completed.stop_reason !== "tool_use" || calls.length === 0) {
+      // A message sent while this request was streaming was not in it: answer it before the turn ends.
+      const now = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+      if (!unseenQueued(now)) return { status: "completed", requests, last: result };
+      const why = stopReason();
+      if (why !== undefined) return { status: why, requests, last: result };
+      continue;
+    }
 
     let finished = false;
     for (const [i, call] of calls.entries()) {
