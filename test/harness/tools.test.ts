@@ -102,7 +102,7 @@ describe("the registry", () => {
 
   test("a started job is told apart from an output", () => {
     assert.equal(isStarted({ content: "x" }), false);
-    assert.equal(isStarted({ started: { summary: "job", done: Promise.resolve({ content: "" }), stop() {} } }), true);
+    assert.equal(isStarted({ started: { lease: { seconds: 5 }, summary: "job", done: Promise.resolve({ content: "" }), stop() {} } }), true);
   });
 });
 

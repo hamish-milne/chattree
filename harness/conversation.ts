@@ -21,6 +21,7 @@ import {
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { addGrants, revokeGrants } from "./approvals.ts";
+import { sharedLeaseStore, type LeaseEnv, type LeaseOwner, type LeaseState, type LeaseStore } from "./lease.ts";
 import type { GrantStore } from "./loop.ts";
 import { SCHEMA_COMMENT, SCHEMA_PATH, configJsonSchema } from "./config-schema.ts";
 import { redactionPatterns, type SecretSource } from "./secrets.ts";
@@ -74,6 +75,13 @@ export interface ConversationOptions {
   /** Large-value threshold and secret patterns for the write pipeline. The blob store is always the repository's `blobs/`. */
   pipeline?: Omit<PipelineConfig, "store">;
   lock?: LockOptions;
+  /**
+   * Tells whether the process that holds a run lease is gone (the same machine and no such pid): such a lease is taken over at once
+   * instead of when its deadline passes. Without it only the deadline says.
+   */
+  isOwnerDead?: (owner: LeaseOwner) => boolean;
+  /** The lease store to use instead of the process's shared one: for tests that stand in for several processes. */
+  leases?: LeaseStore;
   /** Clock for ids, commit dates and locks (tests). */
   now?: () => number;
   /** Fix commit dates from `now`. Default: git's own clock. */
@@ -600,6 +608,23 @@ export class Conversation {
   /** The clock the conversation was opened with. */
   get now(): () => number {
     return this.#opts.now ?? Date.now;
+  }
+
+  /** Who may run which thread (`lease.ts`): the store this process shares for the repository, unless the options gave one. */
+  async leaseStore(): Promise<LeaseStore> {
+    if (this.#opts.leases !== undefined) return this.#opts.leases;
+    const common = await this.git.commonDir();
+    return sharedLeaseStore(this.host.fs, common, (b) => this.host.path.join(common, "chattree", "leases", `${encodeURIComponent(b)}.lease`));
+  }
+
+  /** The clock and owner probe the lease calls need. */
+  get leaseEnv(): LeaseEnv {
+    return { now: this.now, ...(this.#opts.isOwnerDead === undefined ? {} : { isDead: this.#opts.isOwnerDead }) };
+  }
+
+  /** Whether a loop is running this thread (or a job of it), is gone, or nothing is. Default: this thread. */
+  async leaseState(branch: string = this.branch): Promise<LeaseState> {
+    return (await this.leaseStore()).inspect(branch, this.leaseEnv);
   }
 
   /** See `ConversationOptions.journalStaleMs`. */

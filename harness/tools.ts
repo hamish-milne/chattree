@@ -20,6 +20,11 @@ export interface ToolContext {
   host: Host;
   /** The conversation's blobs, for tools that read stored output (`blob:<sha256>`). */
   blobs?: BlobStore;
+  /**
+   * For a tool whose `timeout` is `"thread"`: say which thread's work this call is waiting for. The call keeps the thread's run lease for
+   * as long as that thread's lease is live, and no longer (docs/tools.md, 5.3).
+   */
+  lease?: { follow(branch: string): Promise<void> };
 }
 
 /** What a tool may look at to decide about approvals: the workspace and the host that can inspect it. */
@@ -40,6 +45,12 @@ export interface ToolOutput {
 /** A background-capable tool that was started with `background: true`: it returns at once and finishes later. */
 export interface StartedJob {
   started: {
+    /**
+     * How long the job may run, which is how long it holds the thread's run lease (the tool stops it then): a number of seconds, or
+     * `{ follows }`, a thread whose own lease says whether the work is still going (a subagent's branch). Required: a job with no bound
+     * could not be told from a dead one.
+     */
+    lease: { seconds: number } | { follows: string };
     /** One line for the call's result (`started job j1`) and for notifications. */
     summary: string;
     /** Settles when the job is over; never rejects (a failure is an `is_error` output). */
@@ -63,6 +74,12 @@ export interface Tool {
   resumable?: boolean;
   /** True when the tool can be started with `background: true` (its schema then has that argument). */
   background?: boolean;
+  /**
+   * How long a call with these arguments may take, in seconds: the loop stops it then, and holds the thread's run lease that long
+   * (docs/tools.md, 5.3). Default: `limits.max_tool_seconds`. `"thread"`: the call waits for another thread's work and says which with
+   * `ctx.lease.follow`; the loop sets no limit of its own.
+   */
+  timeout?(args: Record<string, unknown>): number | "thread";
   /**
    * Repair slips specific to this tool's shape that have one possible meaning, before the schema-guided repair and the
    * validation (for example arguments one level too flat). Pure; must leave anything it does not understand alone.

@@ -9,6 +9,7 @@ import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
 import { JobRegistry, jobTools } from "../../harness/jobs.ts";
 import { foldTip } from "../../harness/tip.ts";
+import { LeaseStore, ThreadBusy } from "../../harness/lease.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import { runLoop, syncTools, toolDrift, ToolsNotSupported, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
 import { leafTools } from "../../harness/starter/index.ts";
@@ -591,6 +592,147 @@ describe("approvals recorded in the thread", () => {
   });
 });
 
+describe("the run lease", () => {
+  const CFG = "providers:\n  f:\n    $tag: fake\n";
+  const keyed = (name: string, ran: string[]): Tool => ({
+    ...tool(name, (_a, ctx) => (ran.push(ctx.callId), Promise.resolve({ content: "ran" }))),
+    allowKeys: () => ["all"],
+  });
+  const ALLOWED = `${CFG}tools:\n  echo:\n    allow:\n      all: 2999-01-01\n`;
+  /** Another process: its own store over the same repository. */
+  async function otherProcess(convo: Conversation) {
+    const common = await convo.git.commonDir();
+    const store = new LeaseStore(host.fs, (b) => join(common, "chattree", "leases", `${encodeURIComponent(b)}.lease`));
+    const handle = await Conversation.open(host, convo.dir, { providers: { registry: adapters, secrets: envSource({}) }, leases: store });
+    return { store, handle };
+  }
+  const tip = async (c: Conversation, registry: ToolRegistry) => foldTip({ entries: await entries(c), registry, allow: (t) => c.grantStore().allow(t), nowMs: c.now(), ctx: { workspace: c.dir, host: c.host }, lease: await c.leaseState() });
+
+  test("the thread is live while a call runs, held by the loop, and free when the loop ends", async () => {
+    const seen: unknown[] = [];
+    let convoRef: Conversation | undefined;
+    const probe = tool("echo", async () => (seen.push(await convoRef!.leaseState()), { content: "ok" }));
+    const registry = reg({ ...probe, allowKeys: () => ["all"] });
+    const { convo } = await fresh(registry, ALLOWED);
+    convoRef = convo;
+    assert.deepEqual(await convo.leaseState(), { state: "free" });
+    queue = [calls(call("c1", "echo")), answer("done")];
+    await drive(convo, registry, { grants: convo.grantStore(), owner: { pid: 7, session: "s1" } });
+    const s = seen[0] as { state: string; holding: string[]; owner: { session: string } };
+    assert.equal(s.state, "live");
+    assert.deepEqual(s.holding, ["loop"]);
+    assert.equal(s.owner.session, "s1");
+    assert.deepEqual(await convo.leaseState(), { state: "free" });
+  });
+
+  test("a loop that cannot get the lease is refused before it asks the model anything, and a waiting thread reads as running", async () => {
+    const registry = reg(keyed("echo", []));
+    const { convo } = await fresh(registry, ALLOWED);
+    const { store, handle } = await otherProcess(convo);
+    await store.hold(convo.branch, { pid: 99, session: "elsewhere" }, handle.leaseEnv, "loop", convo.now() + 60_000);
+    queue = [answer("never")];
+    await assert.rejects(drive(convo, registry, { grants: convo.grantStore() }), (e: unknown) => e instanceof ThreadBusy && /session elsewhere/.test(e.message));
+    assert.equal(requests, 0);
+    const state = await tip(convo, registry);
+    assert.equal(state.kind, "running");
+    await store.drop(convo.branch, "loop");
+    assert.equal((await tip(convo, registry)).kind, "ready");
+  });
+
+  test("a tool that outlives its timeout is stopped and answered with an error; the lease follows the timeout", async () => {
+    let held: unknown;
+    let convoRef: Conversation | undefined;
+    const hang: Tool = {
+      ...tool("echo", (_a, ctx) => new Promise((_, reject) => ctx.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))),
+      timeout: () => 1,
+      allowKeys: () => ["all"],
+    };
+    const registry = reg(hang);
+    const { convo } = await fresh(registry, ALLOWED);
+    convoRef = convo;
+    queue = [calls(call("c1", "echo")), answer("done")];
+    const t0 = Date.now();
+    const gen = runLoop(convo, { system: "s", cost: false, registry, grants: convo.grantStore(), toolGraceMs: 50 });
+    for (;;) {
+      const n = await gen.next();
+      if (n.done) break;
+      if (n.value.type === "tool.start") held = await convoRef.leaseState();
+    }
+    assert.ok(Date.now() - t0 < 4000);
+    const [r] = await results(convo);
+    assert.equal(r!.is_error, true);
+    assert.match(str(r!.content), /did not finish within 1 seconds/);
+    const l = held as { state: string; until: number };
+    assert.equal(l.state, "live");
+    assert.deepEqual(await convo.leaseState(), { state: "free" });
+  });
+
+  test("a lease the host that died left behind: the call that was waiting is not run, it is answered as not run", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo")), answer("done")];
+    await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    await convo.append({ $tag: "approval", call_id: "c1", allow: true });
+
+    // Another process held the thread and its clock has run out: the history does not say whether c1 started.
+    const { store, handle } = await otherProcess(convo);
+    await store.hold(convo.branch, { pid: 99 }, { now: () => convo.now() - 3_600_000 }, "loop", convo.now() - 3_500_000);
+    assert.equal((await convo.leaseState()).state, "stale");
+    const state = await tip(convo, registry);
+    assert.equal(state.kind, "run");
+    if (state.kind === "run") assert.deepEqual(state.calls.map((c) => [c.callId, c.status]), [["c1", "lost"]]);
+    void handle;
+
+    queue = [answer("after")];
+    const { result } = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    assert.equal(result.status, "completed");
+    assert.deepEqual(ran, []);
+    const [r] = await results(convo);
+    assert.match(str(r!.content), /did not run/);
+    assert.deepEqual(await convo.leaseState(), { state: "free" });
+  });
+
+  test("a background job keeps the thread live after the loop has finished, and frees it when it ends", async () => {
+    const g = (() => {
+      let resolve!: (o: ToolOutput) => void;
+      return { promise: new Promise<ToolOutput>((r) => (resolve = r)), resolve };
+    })();
+    const slow: Tool = { ...tool("slow", () => Promise.resolve({ started: { lease: { seconds: 60 }, summary: "slow thing", done: g.promise, stop: () => g.resolve({ content: "cut short", is_error: true }) } }) as never), background: true };
+    const registry = reg(slow);
+    const { convo } = await fresh(registry);
+    const jobs = new JobRegistry(convo);
+    queue = [calls(call("c1", "slow")), answer("started")];
+    await drive(convo, registry, { jobs });
+    const live = await convo.leaseState();
+    assert.equal(live.state, "live");
+    if (live.state === "live") assert.deepEqual(live.holding, ["job:j1"]);
+    assert.equal((await tip(convo, registry)).kind, "running");
+    g.resolve({ content: "done" });
+    for (let i = 0; i < 200 && (await convo.leaseState()).state !== "free"; i++) await new Promise((r) => setTimeout(r, 15));
+    assert.deepEqual(await convo.leaseState(), { state: "free" });
+  });
+
+  test("a job that follows a thread is live while that thread is, so a subagent's work holds its parent", async () => {
+    const registry = reg(echo);
+    const { convo } = await fresh(registry);
+    const jobs = new JobRegistry(convo);
+    const g = (() => {
+      let resolve!: (o: ToolOutput) => void;
+      return { promise: new Promise<ToolOutput>((r) => (resolve = r)), resolve };
+    })();
+    await jobs.start("c1", { lease: { follows: "sub/x" }, summary: "child", done: g.promise, stop: () => undefined });
+    const store = await convo.leaseStore();
+    await store.hold("sub/x", { pid: 3 }, convo.leaseEnv, "loop", convo.now() + 3_600_000);
+    const first = await convo.leaseState();
+    assert.equal(first.state, "live");
+    await store.drop("sub/x", "loop");
+    g.resolve({ content: "" });
+    for (let i = 0; i < 200 && (await convo.leaseState()).state !== "free"; i++) await new Promise((r) => setTimeout(r, 15));
+    assert.deepEqual(await convo.leaseState(), { state: "free" });
+  });
+});
+
 describe("background jobs", () => {
   const gate = () => {
     let resolve!: (o: ToolOutput) => void;
@@ -598,7 +740,7 @@ describe("background jobs", () => {
     return { promise, resolve };
   };
   const slow = (g: ReturnType<typeof gate>, stopped: { n: number } = { n: 0 }): Tool => ({
-    ...tool("slow", () => Promise.resolve({ started: { summary: "slow thing", done: g.promise, stop: () => (stopped.n++, g.resolve({ content: "cut short", is_error: true })) } }) as never),
+    ...tool("slow", () => Promise.resolve({ started: { lease: { seconds: 60 }, summary: "slow thing", done: g.promise, stop: () => (stopped.n++, g.resolve({ content: "cut short", is_error: true })) } }) as never),
     background: true,
   });
   const tags = async (c: Conversation) => (await entries(c)).map((e) => e.$tag === "tool_result" ? `result:${e.call_id}` : e.$tag === "job_event" ? `job:${e.job}:${e.status}` : e.$tag);
@@ -682,7 +824,7 @@ describe("background jobs", () => {
     const ctx = { signal: new AbortController().signal, callId: "x", workspace: convo.dir, host };
     const out = (args: Record<string, unknown>) => t["job_output"]!.execute(args, ctx).then((r) => r as ToolOutput);
     assert.match((await out({ job: "j9" })).content, /There is no job j9/);
-    await jobs.start("c1", { summary: "thing", done: g.promise, stop: () => undefined });
+    await jobs.start("c1", { lease: { seconds: 60 }, summary: "thing", done: g.promise, stop: () => undefined });
     assert.match((await out({ job: "j1" })).content, /running: there is no output yet/);
     g.resolve({ content: "0123456789" });
     await settle();
@@ -706,7 +848,7 @@ describe("background jobs", () => {
     assert.equal(lost[0]!.job, "j1");
     assert.equal(lost[0]!.call_id, "c1");
     const g = gate();
-    assert.equal(await jobs.start("c9", { summary: "next", done: g.promise, stop: () => undefined }), "j3");
+    assert.equal(await jobs.start("c9", { lease: { seconds: 60 }, summary: "next", done: g.promise, stop: () => undefined }), "j3");
     g.resolve({ content: "" });
     await settle();
   });

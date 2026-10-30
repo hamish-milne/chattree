@@ -1,14 +1,16 @@
 import type { ChatEntry } from "./entries.ts";
 import { permitted, untilMs, type AllowMap } from "./approvals.ts";
 import type { ApprovalContext, ToolRegistry } from "./tools.ts";
+import type { LeaseOwner, LeaseState } from "./lease.ts";
 
 /**
  * What a thread's tip needs (docs/tools.md, 5.4): worked out by reading its history, the way the model's context is, so it is the same
  * answer in every process that looks. Nothing here is stored. A session that is not running the thread can show "this thread asks
  * whether to run `run: rm -r build`", and appending an `approval` entry is the whole of answering it.
  *
- * Two things the history cannot say, and which this module therefore leaves to the caller: whether a loop is running on the thread
- * right now (a lease, step 2 of the plan), and what the user would answer.
+ * Two things the history cannot say, which the caller supplies: whether a loop is running on the thread right now and whether the last one
+ * died (the run lease, `lease.ts`), and what the user would answer. With no lease given the thread is taken to be idle and its last loop
+ * to have ended cleanly.
  */
 
 type Call = { call_id: string; name: string; args: Record<string, unknown>; args_raw?: string };
@@ -92,9 +94,10 @@ export interface CallNeed {
   args: Record<string, unknown>;
   /**
    * `covered`: a live grant covers it, so it can run. `approved` / `declined`: an `approval` entry decided it. `invalid`: the call cannot
-   * be run as given (unknown tool, bad arguments), and the loop answers it with the error. `ask`: someone has to decide.
+   * be run as given (unknown tool, bad arguments), and the loop answers it with the error. `ask`: someone has to decide. `lost`: the host
+   * that was running the thread died, so the call may have started; it is answered "did not run" and is neither asked nor run again.
    */
-  status: "covered" | "approved" | "declined" | "invalid" | "ask";
+  status: "covered" | "approved" | "declined" | "invalid" | "ask" | "lost";
   /** For `ask`: what a grant would add to the tool's `allow` map, or null when the call can only be allowed once. */
   keys?: string[] | null;
   /** For `invalid`: the message the model is given. For `declined`: the reason, if one was given. */
@@ -102,6 +105,8 @@ export interface CallNeed {
 }
 
 export type TipState =
+  /** A loop (or a background job) is running on the thread now, in the foreground or in another process. Nothing else is decided here. */
+  | { kind: "running"; owner: LeaseOwner; holding: string[] }
   /** Nothing is owed: the model has answered (or was interrupted), and the next move is the user's. */
   | { kind: "awaiting_user" }
   /** A request to the model is owed (a user message, a tool result, a job's event). Nobody's decision is needed. */
@@ -118,6 +123,8 @@ export interface TipInput {
   allow: (tool: string) => Promise<AllowMap | undefined>;
   nowMs: number;
   ctx: ApprovalContext;
+  /** The thread's run lease (`Conversation.leaseState`). */
+  lease?: LeaseState;
 }
 
 /** How each call without a result stands: the same classification the loop uses before it asks anyone. */
@@ -127,6 +134,7 @@ export async function classifyCalls(input: TipInput, callIds: readonly string[])
   const decisions = decisionsIn(entries);
   const held = threadGrantsIn(entries);
   const out: CallNeed[] = [];
+  const interrupted = input.lease?.state === "stale";
   for (const id of callIds) {
     const call = calls.get(id);
     if (call === undefined) continue;
@@ -137,8 +145,16 @@ export async function classifyCalls(input: TipInput, callIds: readonly string[])
       continue;
     }
     const decision = decisions.get(id);
+    if (decision?.allow === false) {
+      out.push({ ...base, args: checked.args, status: "declined", ...(decision.reason === undefined ? {} : { message: decision.reason }) });
+      continue;
+    }
+    if (interrupted && checked.tool.resumable !== true) {
+      out.push({ ...base, args: checked.args, status: "lost" });
+      continue;
+    }
     if (decision !== undefined) {
-      out.push({ ...base, args: checked.args, status: decision.allow ? "approved" : "declined", ...(decision.allow || decision.reason === undefined ? {} : { message: decision.reason }) });
+      out.push({ ...base, args: checked.args, status: "approved" });
       continue;
     }
     const allow = mergeAllow(await input.allow(call.name), held.get(call.name));
@@ -152,6 +168,7 @@ export async function classifyCalls(input: TipInput, callIds: readonly string[])
 /** The state of the tip. See `TipState`. */
 export async function foldTip(input: TipInput): Promise<TipState> {
   const { entries } = input;
+  if (input.lease?.state === "live") return { kind: "running", owner: input.lease.owner, holding: input.lease.holding };
   const open = unanswered(entries);
   if (open.length > 0) {
     const calls = await classifyCalls(input, open);

@@ -73,7 +73,7 @@ export function forkTool(deps: ForkDeps): Tool {
           const last = r.last?.status === "completed" ? r.last.completed.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("").trim() : "";
           return { content: `${made.branch} ${r.status === "completed" ? "finished its first run" : `stopped (${r.status})`}. ${last}\nMerge it with the merge tool when you want its work here.`.trim(), ...(r.status === "completed" ? {} : { is_error: true }) };
         });
-        return { started: { summary: `fork ${made.branch} working on its message`, done, stop: () => run.close() } };
+        return { started: { lease: { follows: made.branch }, summary: `fork ${made.branch} working on its message`, done, stop: () => run.close() } };
       }
       if (message !== undefined && message.trim() !== "") deps.onDraft?.(made.branch, message.trim());
       return { content: `Forked ${made.branch}. ${message === undefined ? "" : "Your message is waiting there for the user to send. "}The user moves there with /thread ${made.branch}; bring it back with merge.` };

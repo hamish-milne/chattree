@@ -1,4 +1,5 @@
 import type { Conversation } from "../harness/conversation.ts";
+import { localOwner } from "./owner.ts";
 import type { ChangeKind } from "../harness/entries.ts";
 import { CliError, type Io } from "./io.ts";
 import type { OpenedThread, Project } from "./project.ts";
@@ -162,6 +163,7 @@ export class Engine {
     if (p === undefined) {
       p = buildToolSet(this.io, convo, {
         busy: () => this.running,
+        ...(this.sessionId === undefined ? {} : { session: this.sessionId }),
         onCommitted: (events) => {
           for (const e of events) this.notices.push(`background job ${e.job} ${e.status}: ${e.summary}; your next message will report the result`);
           this.onNotice?.();
@@ -180,7 +182,7 @@ export class Engine {
         },
         childLoop: (name) => {
           const ask = this.ask;
-          return { system: this.system, ...(ask === undefined ? {} : { approve: makeApprover(ask, name) }), owner: { pid: process.pid, ...(this.sessionId === undefined ? {} : { session: this.sessionId }) } };
+          return { system: this.system, ...(ask === undefined ? {} : { approve: makeApprover(ask, name) }), owner: localOwner(this.sessionId) };
         },
       });
       // A set that could not be built (no busybox) is built again next time, once the user has dealt with it.

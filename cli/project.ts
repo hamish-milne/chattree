@@ -1,4 +1,5 @@
 import { Conversation, ConversationError, type ConversationOptions } from "../harness/conversation.ts";
+import { ownerIsDead } from "./owner.ts";
 import { CONFIG_FILE } from "../harness/conversation.ts";
 import { envSource } from "../harness/secrets.ts";
 import { defaultRegistry } from "../providers/index.ts";
@@ -46,6 +47,7 @@ export async function conversationOptions(io: Io, git: Git, opts: { providers?: 
   const email = await git.getConfig("user.email").catch(() => undefined);
   return {
     now: io.now,
+    isOwnerDead: ownerIsDead,
     ...(opts.providers === false ? {} : { providers: { registry: defaultRegistry(), secrets: envSource(io.env) } }),
     ...(name !== undefined && email !== undefined ? { user: { name, email } } : {}),
   };

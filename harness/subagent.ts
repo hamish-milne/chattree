@@ -173,6 +173,8 @@ export function subagentTool(deps: SubagentDeps): Tool {
   return {
     resumable: true,
     background: true,
+    // The call lasts as long as the child's work does: it follows the child's lease instead of having a time of its own.
+    timeout: () => "thread",
     definition: {
       name: "subagent",
       description:
@@ -219,6 +221,7 @@ export function subagentTool(deps: SubagentDeps): Tool {
         if (unsupported.tools.length > 0) return { content: `${choice.key} cannot be given the subagent's tools (its tool convention is ${unsupported.convention}: ${unsupported.tools.map((t) => `${t.name}: ${t.why.join(", ")}`).join("; ")})`, is_error: true };
       }
       if (args["background"] !== true) {
+        await ctx.lease?.follow(subagentBranch(label, ctx.callId));
         const d = await drive(brief, label, ctx.callId, ctx.signal, choice.model);
         if (!d.ok) return { content: d.content, is_error: true };
         return { content: await merged(d, ctx.callId), recorded: true };
@@ -232,6 +235,7 @@ export function subagentTool(deps: SubagentDeps): Tool {
       });
       return {
         started: {
+          lease: { follows: subagentBranch(label, ctx.callId) },
           summary: `subagent ${subagentBranch(label, ctx.callId)}`,
           done,
           stop: () => ac.abort(),

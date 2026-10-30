@@ -1,7 +1,9 @@
 import { ChangeNotAllowed } from "../harness/setup.ts";
+import { localOwner } from "./owner.ts";
 import type { ChangeKind } from "../harness/entries.ts";
 import { LimitExceeded } from "../harness/limits.ts";
 import { JournalBusy } from "../harness/journal.ts";
+import { ThreadBusy } from "../harness/lease.ts";
 import { requestStream } from "../harness/turn.ts";
 import { runLoop, syncTools, ToolsNotSupported, ToolsOutOfSync, type LoopEvent } from "../harness/loop.ts";
 import { summarizeCall } from "./tool-lines.ts";
@@ -62,7 +64,7 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
       const gen = requestStream(convo, {
         system: engine.system,
         signal: ac.signal,
-        owner: { pid: process.pid, ...(engine.sessionId === undefined ? {} : { session: engine.sessionId }) },
+        owner: localOwner(engine.sessionId),
         standing: [...engine.standing, ...drift],
         allowDrift: drift,
         onPrepared: (p) => {
@@ -139,7 +141,7 @@ async function* toolLoop(
     grants: convo.grantStore(),
     ...(approve === undefined ? {} : { approve }),
     signal: o.signal,
-    owner: { pid: process.pid, ...(engine.sessionId === undefined ? {} : { session: engine.sessionId }) },
+    owner: localOwner(engine.sessionId),
     standing: o.standing,
     allowDrift: o.drift,
     onPrepared: (p) => {
@@ -217,6 +219,7 @@ function mapEvent(e: StreamEvent): Output | undefined {
 export function failure(e: unknown): Output {
   if (e instanceof ChangeNotAllowed) return { type: "error", message: e.message };
   if (e instanceof LimitExceeded) return { type: "error", message: e.message };
+  if (e instanceof ThreadBusy) return { type: "error", message: e.message, hint: "wait for it to finish, or stop it there; a lease left by a process that died is taken over by itself" };
   if (e instanceof JournalBusy) return { type: "error", message: e.message, hint: "/abort stops the request that is running" };
   if (e instanceof ProviderError) return { type: "error", message: `the provider failed (${e.kind}${e.status === undefined ? "" : ` ${e.status}`}): ${e.message}`, hint: "nothing was added to the transcript for this attempt; /retry asks again" };
   if (e instanceof CliError) return { type: "error", message: e.message, ...(e.hint === undefined ? {} : { hint: e.hint }) };

@@ -90,6 +90,10 @@ export const harnessConfig = z.object({
       max_requests_per_turn: z.number().int().positive().optional(),
       /** Wall-clock seconds for one turn. Enforced by the turn runner. */
       max_turn_seconds: z.number().positive().optional(),
+      /** Seconds one tool call may take unless the tool says otherwise (default 600): the loop stops it then, and the thread's run lease is held that long. */
+      max_tool_seconds: z.number().positive().optional(),
+      /** Seconds one model request may take (default 600, the provider layer's own total limit): how long the run lease is held for it. */
+      max_request_seconds: z.number().positive().optional(),
       /** Raise a warning when spend reaches this fraction of a limit. */
       warn_at: z.number().gt(0).lt(1).optional(),
       /** What to do when a request's price is unknown (no table entry): `warn` (default) or `block`. */

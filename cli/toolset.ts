@@ -1,4 +1,5 @@
 import type { Conversation } from "../harness/conversation.ts";
+import { localOwner } from "./owner.ts";
 import { JobRegistry, jobTools } from "../harness/jobs.ts";
 import type { Approval, ApprovalRequest, LoopEvent } from "../harness/loop.ts";
 import { leafTools } from "../harness/starter/index.ts";
@@ -29,6 +30,8 @@ export interface ToolSetHooks {
   onResume(): void;
   /** A request of this session is running. */
   busy(): boolean;
+  /** This session's id, named as the holder of the run lease a background job takes. */
+  session?: string;
   /** How a subagent's loop is run: the system prompt, and approvals that name the subagent when they ask the user. */
   /** What a subagent's loop does, for showing the user. */
   onChildEvent?(name: string, event: LoopEvent): void;
@@ -70,7 +73,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const cfg = await convo.readConfig();
   const config = cfg?.ok === true ? cfg.value : undefined;
   const env = config?.tools.env ?? [];
-  const jobs = new JobRegistry(convo, { resume: config?.background.resume === true, onCommitted: hooks.onCommitted, onResume: hooks.onResume, busy: hooks.busy });
+  const jobs = new JobRegistry(convo, { owner: localOwner(hooks.session), resume: config?.background.resume === true, onCommitted: hooks.onCommitted, onResume: hooks.onResume, busy: hooks.busy });
   const safe = config?.tools["run"]?.safe ?? [];
   // Only tools listed under `tools` in harness.yml are offered; leaving one out turns it off.
   const listed = (name: string): boolean => config?.tools[name] !== undefined;

@@ -11,6 +11,7 @@ import { flatProblems } from "./tool-schema.ts";
 import type { JobRegistry, JobStatus } from "./jobs.ts";
 import { keyProblem, permitted, untilAfter, type AllowMap } from "./approvals.ts";
 import { callsIn, decisionsIn, mergeAllow, threadGrantsIn, unanswered } from "./tip.ts";
+import { type LeaseBefore, type LeaseOwner } from "./lease.ts";
 
 /**
  * The tool loop (docs/tools.md, section 3): ask the model, run what it asked for, write the results, ask again, until
@@ -78,10 +79,12 @@ export interface LoopOptions extends TurnOptions {
   /**
    * With no `approve`, a call no grant covers is not declined: the loop stops with `needs_approval`, leaving the call (and any after it)
    * without a result, and whoever answers appends an `approval` entry and runs the loop again, which carries on with those calls. The
-   * caller says by this that calls without a result were never started (an earlier loop on the thread ended by waiting, or none ran);
-   * the lease of the plan's step 2 will let the history say so itself.
+   * run lease says whether those calls could have started: a lease left behind (the host died) means they may have, and they are answered
+   * "did not run"; none means the last loop ended cleanly, by waiting, and they never started.
    */
   waitForApproval?: boolean;
+  /** Milliseconds past a tool's own timeout before the loop stops the call itself. Default 5000. */
+  toolGraceMs?: number;
 }
 
 export type LoopEvent =
@@ -199,14 +202,68 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
   const unsupported = toolConventionProblems(convo, registry, (await convo.setup()).model);
   if (unsupported.tools.length > 0) throw new ToolsNotSupported(unsupported.convention, unsupported.tools);
 
+  // The thread's run lease (lease.ts): taken for the loop, held while it works, released when it ends (background jobs keep it).
+  const lease = await RunLease.take(convo, opts.owner ?? {});
+  try {
+    return yield* steps(convo, opts, lease);
+  } finally {
+    await lease.end();
+  }
+}
+
+/** The loop's hold on the thread's run lease: what it is held for and until when. */
+class RunLease {
+  /** The lease as the loop found it: `stale` means the host that held it died, so a call without a result may have started. */
+  readonly before: LeaseBefore;
+  readonly #convo: Conversation;
+  readonly #owner: LeaseOwner;
+  private constructor(convo: Conversation, owner: LeaseOwner, before: LeaseBefore) {
+    this.#convo = convo;
+    this.#owner = owner;
+    this.before = before;
+  }
+  static async take(convo: Conversation, owner: LeaseOwner): Promise<RunLease> {
+    const store = await convo.leaseStore();
+    const before = await store.hold(convo.branch, owner, convo.leaseEnv, "loop", convo.now() + LEASE_HEADROOM_MS);
+    return new RunLease(convo, owner, before);
+  }
+  /** The loop will be busy for `ms` more (a request, a tool call), then needs the lease for the usual headroom. */
+  async busyFor(ms: number): Promise<void> {
+    const store = await this.#convo.leaseStore();
+    await store.hold(this.#convo.branch, this.#owner, this.#convo.leaseEnv, "loop", this.#convo.now() + ms + LEASE_HEADROOM_MS);
+  }
+  async follow(key: string, branch: string): Promise<void> {
+    await (await this.#convo.leaseStore()).follow(this.#convo.branch, this.#owner, this.#convo.leaseEnv, key, branch);
+  }
+  async drop(key: string): Promise<void> {
+    await (await this.#convo.leaseStore()).drop(this.#convo.branch, key);
+  }
+  async end(): Promise<void> {
+    await this.drop("loop").catch(() => undefined);
+  }
+}
+
+/** How long past a deadline the lease stays held, so a host that is slow to finish is not taken for dead. */
+const LEASE_HEADROOM_MS = 30_000;
+/** Time a tool gets, past its own timeout, to report that timeout itself before the loop stops it. */
+const TOOL_GRACE_MS = 5_000;
+const DEFAULT_TOOL_SECONDS = 600;
+const DEFAULT_REQUEST_SECONDS = 600;
+
+async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): AsyncGenerator<LoopEvent, LoopResult, void> {
+  const { registry } = opts;
   const now = convo.now;
   const approvalCtx = { workspace: convo.dir, host: convo.host };
   let deadline = opts.deadline;
+  const config = await convo.readConfig();
+  const limits = config?.ok === true ? config.value.limits : undefined;
   if (deadline === undefined) {
-    const config = await convo.readConfig();
-    const secs = config?.ok === true ? config.value.limits.max_turn_seconds : undefined;
+    const secs = limits?.max_turn_seconds;
     if (secs !== undefined) deadline = now() + secs * 1000;
   }
+  const toolSeconds = limits?.max_tool_seconds ?? DEFAULT_TOOL_SECONDS;
+  const graceMs = opts.toolGraceMs ?? TOOL_GRACE_MS;
+  const requestSeconds = limits?.max_request_seconds ?? DEFAULT_REQUEST_SECONDS;
   const stopReason = (): "stopped" | "deadline" | undefined => (opts.signal?.aborted === true ? "stopped" : deadline !== undefined && now() >= deadline ? "deadline" : undefined);
 
   const record = async function* (call: { call_id: string; name: string }, out: ToolOutput, t0: number, skipped?: string): AsyncGenerator<LoopEvent, void, void> {
@@ -234,6 +291,17 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
   const decisions = decisionsIn(entries);
   const held = threadGrantsIn(entries);
   let waiting: NonNullable<LoopResult["waiting"]> | undefined;
+
+  /** A person may take as long as they like to answer in place, so the lease is renewed while they are being asked. */
+  const whileAsking = async <T>(ask: () => Promise<T>): Promise<T> => {
+    await lease.busyFor(0);
+    const beat = setInterval(() => void lease.busyFor(0).catch(() => undefined), LEASE_HEADROOM_MS / 3);
+    try {
+      return await ask();
+    } finally {
+      clearInterval(beat);
+    }
+  };
 
   /** One call of a response (or a call a crashed loop left, for a tool that can resume): checks, approvals, execution, the result. True when the call ended the loop. */
   const callOne = async function* (call: CallBlock): AsyncGenerator<LoopEvent, "next" | "finish" | "wait", void> {
@@ -280,7 +348,7 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
         yield* record(call, { content: "This call needs the user's approval and none is available here, so it did not run.", is_error: true }, t0);
       } else {
         const keys = (await checked.tool.allowKeys?.(checked.args, approvalCtx)) ?? null;
-        const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys });
+        const decision = await whileAsking(() => (opts.approve as NonNullable<typeof opts.approve>)({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys }));
         if (!decision.allow) {
           proceed = false;
           await recordDecision(decision);
@@ -305,7 +373,7 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
         }
       }
     } else if (opts.approve !== undefined) {
-      const decision = await opts.approve({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys: null });
+      const decision = await whileAsking(() => (opts.approve as NonNullable<typeof opts.approve>)({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys: null }));
       await recordDecision(decision);
       yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: decision.allow, ...(decision.allow || decision.reason === undefined ? {} : { reason: decision.reason }) };
       if (!decision.allow) {
@@ -314,12 +382,24 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
       }
     }
     if (!proceed) return "next";
-    const signals = [opts.signal, deadline === undefined ? undefined : AbortSignal.timeout(Math.max(1, deadline - now()))].filter((s): s is AbortSignal => s !== undefined);
-    const signal = signals.length === 0 ? new AbortController().signal : AbortSignal.any(signals);
+    // The call's time is bounded (the tool says how long it may take, else `limits.max_tool_seconds`), and the lease is held that long: a
+    // loop that is not heard from after that is dead. A tool that waits for another thread follows that thread's lease instead.
+    const allowed = checked.tool.timeout?.(checked.args) ?? toolSeconds;
+    const own = new AbortController();
+    const signals = [opts.signal, own.signal, deadline === undefined ? undefined : AbortSignal.timeout(Math.max(1, deadline - now()))].filter((s): s is AbortSignal => s !== undefined);
+    const signal = AbortSignal.any(signals);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = allowed === "thread" ? undefined : new Promise<"timeout">((resolve) => (timer = setTimeout(() => (resolve("timeout"), own.abort()), allowed * 1000 + graceMs)));
+    await lease.busyFor(allowed === "thread" ? 0 : allowed * 1000 + graceMs);
+    const followKey = `call:${call.call_id}`;
     let out: ToolOutput;
     try {
-      const res = await checked.tool.execute(checked.args, { signal, callId: call.call_id, workspace: convo.dir, host: convo.host, blobs: convo.store });
-      if (!isStarted(res)) out = res;
+      const running = checked.tool.execute(checked.args, { signal, callId: call.call_id, workspace: convo.dir, host: convo.host, blobs: convo.store, lease: { follow: (branch) => lease.follow(followKey, branch) } });
+      const res = timedOut === undefined ? await running : await Promise.race([running, timedOut]);
+      if (res === "timeout") {
+        running.catch(() => undefined); // it was told to stop; whatever it does now is not the loop's concern
+        out = { content: `The tool did not finish within ${allowed as number} seconds and was stopped.`, is_error: true };
+      } else if (!isStarted(res)) out = res;
       else if (opts.jobs === undefined) {
         res.started.stop();
         out = { content: "background jobs are not available here", is_error: true };
@@ -329,6 +409,10 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
       }
     } catch (e) {
       out = { content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      await lease.drop(followKey).catch(() => undefined);
+      await lease.busyFor(0).catch(() => undefined);
     }
     yield* record(call, out, t0);
     return out.finish === true ? "finish" : "next";
@@ -347,7 +431,7 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
       yield* record({ call_id: id, name: call?.name ?? "" }, { content: DID_NOT_RUN.finished, is_error: true }, now(), "finished");
       continue;
     }
-    const carryOn = call !== undefined && stopReason() === undefined && (opts.waitForApproval === true || registry.get(call.name)?.resumable === true || decisions.get(id)?.allow === false);
+    const carryOn = call !== undefined && stopReason() === undefined && ((opts.waitForApproval === true && lease.before !== "stale") || registry.get(call.name)?.resumable === true || decisions.get(id)?.allow === false);
     if (!carryOn) {
       yield* record({ call_id: id, name: call?.name ?? "" }, { content: DID_NOT_RUN.stale, is_error: true }, now(), "stale");
       continue;
@@ -364,6 +448,7 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
   for (;;) {
     if (opts.jobs !== undefined) for (const j of await opts.jobs.flush()) yield { type: "job.event", ...j };
     requests++;
+    await lease.busyFor(requestSeconds * 1000);
     yield { type: "request.start", n: requests };
     const gen = requestStream(convo, turnOpts);
     let result: TurnResult;

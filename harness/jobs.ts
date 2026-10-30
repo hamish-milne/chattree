@@ -2,6 +2,7 @@ import type { Conversation } from "./conversation.ts";
 import type { ChatEntry } from "./entries.ts";
 import type { StartedJob, Tool, ToolOutput } from "./tools.ts";
 import { ALL } from "./approvals.ts";
+import type { LeaseOwner } from "./lease.ts";
 
 /**
  * Background jobs (docs/tools.md, section 3.5). A tool called with `background: true` returns a `StartedJob` at once; the
@@ -36,12 +37,17 @@ export interface JobsOptions {
   onCommitted?: (events: { job: string; status: JobStatus; summary: string }[]) => void;
   /** With `resume`: called after those events, so the host can start a request to let the model react. */
   onResume?: () => void;
+  /** Who to name as the holder of the thread's run lease when a job has to take it (a job normally finds the loop's own). */
+  owner?: LeaseOwner;
   /** True while the host is in the middle of a request the registry must not interleave with. Default: a loop is running. */
   busy?: () => boolean;
 }
 
 /** `started job j3` as the loop writes it into the result of the starting call; recovery finds jobs by it. */
 export const JOB_STARTED = /^started job (j\d+)\b/;
+
+/** Past a job's own time limit the lease stays held a little, as for a tool call. */
+const JOB_HEADROOM_MS = 35_000;
 
 const jobNumber = (id: string): number => Number(id.slice(1));
 
@@ -84,6 +90,14 @@ export class JobRegistry {
     const id = `j${this.#next++}`;
     const job = { id, call_id, label: started.summary, status: "running" as JobStatus, startedAt: this.#convo.now(), stop: () => started.stop(), stopped: false, ...(started.settle === undefined ? {} : { settle: started.settle }) };
     this.#jobs.set(id, job);
+    // The job holds the thread's run lease until it ends or its time is up, so the thread is known to be busy after the loop has stopped.
+    try {
+      await this.#holdLease(id, started.lease);
+    } catch (e) {
+      this.#jobs.delete(id);
+      started.stop();
+      throw e;
+    }
     void started.done.then(
       (out) => this.#ended(job, out),
       (e: unknown) => this.#ended(job, { content: `The job failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true }),
@@ -103,7 +117,16 @@ export class JobRegistry {
     }
   }
 
+  async #holdLease(id: string, lease: StartedJob["started"]["lease"]): Promise<void> {
+    const convo = this.#convo;
+    const store = await convo.leaseStore();
+    const owner = this.#opts.owner ?? {};
+    if ("seconds" in lease) await store.hold(convo.branch, owner, convo.leaseEnv, `job:${id}`, convo.now() + lease.seconds * 1000 + JOB_HEADROOM_MS);
+    else await store.follow(convo.branch, owner, convo.leaseEnv, `job:${id}`, lease.follows);
+  }
+
   #ended(job: JobInfo & { stopped: boolean }, out: ToolOutput): void {
+    void this.#convo.leaseStore().then((store) => store.drop(this.#convo.branch, `job:${job.id}`)).catch(() => undefined);
     job.status = job.stopped ? "stopped" : out.is_error === true ? "failed" : "completed";
     job.endedAt = this.#convo.now();
     job.output = out.content;

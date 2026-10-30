@@ -102,12 +102,14 @@ const timeoutProp = { type: "integer", minimum: 1, maximum: MAX_TIMEOUT, descrip
 const backgroundProp = { type: "boolean", description: "Start it as a background job and return at once, for something long (a build, a server, a test run). You are told when it ends; the jobs, job_output and job_stop tools manage it. Default false." };
 
 /** Let a tool be started as a background job (`background: true`): the same execution, not tied to the turn, with a long default timeout. */
-function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => string): Tool {
+function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => string, defaultSeconds: number | undefined): Tool {
   const inner = tool.execute;
   const schema = tool.definition.input_schema as { properties: Record<string, unknown> };
   return {
     ...tool,
     background: true,
+    // Started in the background the call returns at once; otherwise it is as long as the command's own timeout.
+    timeout: (args) => (args["background"] === true ? 60 : Math.min((args["timeout_seconds"] as number | undefined) ?? defaultSeconds ?? 120, MAX_TIMEOUT)),
     definition: { ...tool.definition, input_schema: { ...schema, properties: { ...schema.properties, background: backgroundProp } } as never },
     async execute(args, ctx) {
       if (args["background"] !== true) return inner(args, ctx);
@@ -117,7 +119,8 @@ function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => st
         (r): ToolOutput => (isStarted(r) ? { content: "nested background job", is_error: true } : r),
         (e: unknown): ToolOutput => ({ content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true }),
       );
-      return { started: { summary: label(args), done, stop: () => stop.abort() } };
+      const seconds = Math.min((args["timeout_seconds"] as number | undefined) ?? 3600, MAX_TIMEOUT);
+      return { started: { lease: { seconds }, summary: label(args), done, stop: () => stop.abort() } };
     },
   };
 }
@@ -128,11 +131,11 @@ const oneLine = (s: string, max = 80): string => {
 };
 
 export function runTool(opts: RunToolOptions = {}): Tool {
-  return backgroundable(plainRunTool(opts), (a) => `run: ${oneLine(a["command"] as string)}`);
+  return backgroundable(plainRunTool(opts), (a) => `run: ${oneLine(a["command"] as string)}`, opts.timeoutSeconds);
 }
 
 export function scriptTool(opts: RunToolOptions = {}): Tool {
-  return backgroundable(plainScriptTool(opts), (a) => `script: ${oneLine((a["script"] as string).split("\n")[0] ?? "")}`);
+  return backgroundable(plainScriptTool(opts), (a) => `script: ${oneLine((a["script"] as string).split("\n")[0] ?? "")}`, opts.timeoutSeconds);
 }
 
 function plainRunTool(opts: RunToolOptions): Tool {

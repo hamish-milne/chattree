@@ -153,6 +153,27 @@ describe("the subagent tool", () => {
     await assertHistoryInvariants(convo);
   });
 
+  test("while the child works its thread is live and the parent's lease follows it; both are free afterwards", async () => {
+    const { convo, tools } = await withSubagent();
+    const name = subagentBranch("w", "s1");
+    const during: { parent?: unknown; child?: unknown } = {};
+    queue = [
+      calls(call("s1", "subagent", { brief: "make the file", name: "w" })),
+      async () => ((during.parent = await convo.leaseState()), (during.child = await convo.leaseState(name)), calls(call("c2", "merge", { summary: "done" }))),
+      answer("parent is done"),
+    ];
+    const { result } = await drive(convo, tools);
+    assert.equal(result.status, "completed");
+    const parent = during.parent as { state: string; holding: string[] };
+    const child = during.child as { state: string; holding: string[] };
+    assert.equal(parent.state, "live");
+    assert.ok(parent.holding.includes(`thread ${name}`), parent.holding.join(", "));
+    assert.equal(child.state, "live");
+    assert.deepEqual(child.holding, ["loop"]);
+    assert.deepEqual(await convo.leaseState(), { state: "free" });
+    assert.deepEqual(await convo.leaseState(name), { state: "free" });
+  });
+
   test("a child that answers with text is nudged once; after the nudge it hands back", async () => {
     const { convo, tools } = await withSubagent();
     queue = [calls(call("s1", "subagent", { brief: "x", name: "n" })), answer("I am done"), calls(call("c2", "merge", { summary: "done after a nudge" })), answer("parent done")];
