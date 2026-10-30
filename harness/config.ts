@@ -58,6 +58,11 @@ export const harnessConfig = z.object({
       resume: z.boolean().default(false),
     })
     .default({ resume: false }),
+  /**
+   * Who is running a thread (docs/tools.md, 5.3). By default a file in this repository's git directory, which is enough for every
+   * session on this machine. With `remote`, a ref on that remote instead, so clones that share it but not a git directory agree too.
+   */
+  leases: z.object({ remote: z.string().min(1) }).optional(),
   /** Subagents (docs/tools.md, 4.2). */
   subagent: z
     .object({

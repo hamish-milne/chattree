@@ -16,7 +16,7 @@ import type { Fs } from "../src/host.ts";
  * a result was never started (it was waiting for a decision).
  *
  * The id is one per `LeaseStore`, which a process shares across every handle on the same repository, so a loop and the background jobs it
- * started share one lease. It could later be kept as a ref to make it atomic across clones; the interface would not change.
+ * started share one lease. Where it is kept is a `LeaseBackend`: a file here, or a ref on a shared remote to make it atomic across clones (`lease-ref.ts`).
  */
 
 export interface LeaseOwner {
@@ -81,20 +81,71 @@ function parse(bytes: Uint8Array): LeaseFile | undefined {
   return undefined;
 }
 
-type Mine = { owner: LeaseOwner; since: number; holds: Record<string, number>; follows: Record<string, string> };
+/**
+ * Where a lease is kept. The store's rules (holds, follows, deadlines, takeover) do not depend on it; what they need is create-if-absent
+ * and compare-and-swap, which a file in the git directory gives within one machine and a ref on a shared remote gives across clones
+ * (`lease-ref.ts`). `rev` is an opaque version of what was read: an update or removal that names it applies only if that is still what is there.
+ */
+export interface LeaseBackend {
+  read(branch: string): Promise<{ bytes: Uint8Array; rev: string } | undefined>;
+  /** Make the lease if there is none. False if there is one. */
+  create(branch: string, bytes: Uint8Array): Promise<{ rev: string } | undefined>;
+  /** Replace the lease if it is still at `rev`. The new rev, or undefined if it has changed (it was taken over). */
+  update(branch: string, bytes: Uint8Array, rev: string): Promise<{ rev: string } | undefined>;
+  /** Remove the lease if it is still at `rev`. False if it has changed (someone else took it over first). */
+  remove(branch: string, rev: string): Promise<boolean>;
+}
+
+/** Leases as files, one per thread, under the repository's git directory (one machine). */
+export function fileLeaseBackend(fs: Fs, file: (branch: string) => string): LeaseBackend {
+  const revOf = (bytes: Uint8Array): string => dec.decode(bytes);
+  return {
+    async read(branch) {
+      try {
+        const bytes = await fs.read(file(branch));
+        return { bytes, rev: revOf(bytes) };
+      } catch {
+        // A file that is there but cannot be read is a lease nobody can vouch for: stale.
+        return (await fs.stat(file(branch))) === undefined ? undefined : { bytes: new Uint8Array(), rev: "" };
+      }
+    },
+    async create(branch, bytes) {
+      return (await fs.createExclusive(file(branch), bytes)) ? { rev: revOf(bytes) } : undefined;
+    },
+    async update(branch, bytes, rev) {
+      const now = await this.read(branch);
+      if (now === undefined || now.rev !== rev) return undefined;
+      await fs.writeAtomic(file(branch), bytes);
+      return { rev: revOf(bytes) };
+    },
+    async remove(branch) {
+      // Taking a stale lease over: moved aside first, so that of two processes only one succeeds.
+      const aside = `${file(branch)}.stale-${crypto.randomUUID().slice(0, 8)}`;
+      try {
+        await fs.rename(file(branch), aside);
+        await fs.remove(aside);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+}
+
+type Mine = { owner: LeaseOwner; since: number; holds: Record<string, number>; follows: Record<string, string>; rev: string };
 
 export class LeaseStore {
-  /** One per process and repository, for the life of the process: the lease file says whose it is by this. */
+  /** One per process and repository, for the life of the process: the lease says whose it is by this. */
   readonly id = crypto.randomUUID();
-  readonly #fs: Fs;
-  readonly #file: (branch: string) => string;
+  readonly #backend: LeaseBackend;
   readonly #mine = new Map<string, Mine>();
   readonly #chain = new Map<string, Promise<unknown>>();
 
-  /** `file` is where a thread's lease lives (a path under the repository's shared git directory). */
-  constructor(fs: Fs, file: (branch: string) => string) {
-    this.#fs = fs;
-    this.#file = file;
+  /** A backend, or (the usual case) `fs` and `file`: where a thread's lease file lives, under the repository's shared git directory. */
+  constructor(backend: LeaseBackend);
+  constructor(fs: Fs, file: (branch: string) => string);
+  constructor(a: LeaseBackend | Fs, file?: (branch: string) => string) {
+    this.#backend = file === undefined ? (a as LeaseBackend) : fileLeaseBackend(a as Fs, file);
   }
 
   /** Run `fn` after the earlier operations on the same thread, so this process never interleaves its own writes. */
@@ -104,34 +155,36 @@ export class LeaseStore {
     return run;
   }
 
-  async #read(branch: string): Promise<LeaseFile | "unreadable" | undefined> {
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.#fs.read(this.#file(branch));
-    } catch {
-      return (await this.#fs.stat(this.#file(branch))) === undefined ? undefined : "unreadable";
-    }
-    return parse(bytes) ?? "unreadable";
+  async #read(branch: string): Promise<{ file: LeaseFile | "unreadable"; rev: string } | undefined> {
+    const r = await this.#backend.read(branch);
+    if (r === undefined) return undefined;
+    return { file: parse(r.bytes) ?? "unreadable", rev: r.rev };
   }
 
   /** The state of a thread's lease. A followed thread that is live keeps this one live. */
   async inspect(branch: string, env: LeaseEnv, seen: Set<string> = new Set([branch])): Promise<LeaseState> {
-    const f = await this.#read(branch);
-    if (f === undefined) return { state: "free" };
-    if (f === "unreadable") return { state: "stale", owner: {}, until: 0 };
+    return (await this.#look(branch, env, seen)).state;
+  }
+
+  async #look(branch: string, env: LeaseEnv, seen: Set<string>): Promise<{ state: LeaseState; rev?: string; mine?: boolean }> {
+    const r = await this.#read(branch);
+    if (r === undefined) return { state: { state: "free" } };
+    const f = r.file;
+    if (f === "unreadable") return { state: { state: "stale", owner: {}, until: 0 }, rev: r.rev };
     const now = env.now();
     const until = Math.max(0, ...Object.values(f.holds));
-    const dead = f.id !== this.id && env.isDead?.(f.owner) === true;
+    const mine = f.id === this.id;
+    const dead = !mine && env.isDead?.(f.owner) === true;
     if (!dead) {
-      if (until > now) return { state: "live", owner: f.owner, until, holding: [...Object.keys(f.holds).filter((k) => (f.holds[k] as number) > now), ...Object.values(f.follows).map((b) => `thread ${b}`)] };
+      if (until > now) return { state: { state: "live", owner: f.owner, until, holding: [...Object.keys(f.holds).filter((k) => (f.holds[k] as number) > now), ...Object.values(f.follows).map((b) => `thread ${b}`)] }, rev: r.rev, mine };
       for (const followed of Object.values(f.follows)) {
         if (seen.has(followed)) continue;
         seen.add(followed);
         const s = await this.inspect(followed, env, seen);
-        if (s.state === "live") return { state: "live", owner: f.owner, until: s.until, holding: [`thread ${followed}`] };
+        if (s.state === "live") return { state: { state: "live", owner: f.owner, until: s.until, holding: [`thread ${followed}`] }, rev: r.rev, mine };
       }
     }
-    return { state: "stale", owner: f.owner, until };
+    return { state: { state: "stale", owner: f.owner, until }, rev: r.rev, mine };
   }
 
   /** Hold the thread's lease for `key` until `until`, taking the lease if nobody holds it. Throws `ThreadBusy` if a live holder in another process has it. */
@@ -154,56 +207,51 @@ export class LeaseStore {
     return this.#serial(branch, async () => {
       const have = this.#mine.get(branch);
       if (have !== undefined) {
-        const disk = await this.#read(branch);
-        if (disk !== undefined && disk !== "unreadable" && disk.id === this.id) {
-          change(have);
-          await this.#write(branch, have);
+        const next: Mine = { ...have, holds: { ...have.holds }, follows: { ...have.follows } };
+        change(next);
+        const done = await this.#backend.update(branch, this.#bytes(next), have.rev);
+        if (done !== undefined) {
+          this.#mine.set(branch, { ...next, rev: done.rev });
           return "ours";
         }
-        this.#mine.delete(branch); // the file was lost or taken over: start again, as for a lease we never had
+        this.#mine.delete(branch); // the lease was lost or taken over: start again, as for one we never had
       }
       let before: LeaseBefore = "free";
       for (;;) {
-        const m: Mine = { owner, since: env.now(), holds: {}, follows: {} };
+        const m: Mine = { owner, since: env.now(), holds: {}, follows: {}, rev: "" };
         change(m);
-        if (await this.#fs.createExclusive(this.#file(branch), enc.encode(JSON.stringify(this.#json(m))))) {
-          this.#mine.set(branch, m);
+        const made = await this.#backend.create(branch, this.#bytes(m));
+        if (made !== undefined) {
+          this.#mine.set(branch, { ...m, rev: made.rev });
           return before;
         }
-        const state = await this.inspect(branch, env);
-        if (state.state === "live") {
-          const disk = await this.#read(branch);
-          if (disk === undefined || disk === "unreadable" || disk.id !== this.id) throw new ThreadBusy(branch, state);
-        }
+        const look = await this.#look(branch, env, new Set([branch]));
+        const state = look.state;
+        if (state.state === "live" && look.mine !== true) throw new ThreadBusy(branch, state);
         if (state.state !== "free") {
           if (state.state === "stale") before = "stale";
-          const aside = `${this.#file(branch)}.stale-${crypto.randomUUID().slice(0, 8)}`;
-          try {
-            await this.#fs.rename(this.#file(branch), aside);
-            await this.#fs.remove(aside);
-          } catch {
-            /* someone else took it over first */
-          }
+          if (look.rev !== undefined) await this.#backend.remove(branch, look.rev).catch(() => false); // someone else may take it over first: the loop starts again
         }
       }
     });
   }
 
-  /** Let go of what `key` held. The lease is released (the file removed) when nothing holds it. */
+  /** Let go of what `key` held. The lease is released (removed) when nothing holds it. */
   drop(branch: string, key: string): Promise<void> {
     return this.#serial(branch, async () => {
-      const m = this.#mine.get(branch);
-      if (m === undefined) return;
-      delete m.holds[key];
-      delete m.follows[key];
-      if (Object.keys(m.holds).length === 0 && Object.keys(m.follows).length === 0) {
+      const have = this.#mine.get(branch);
+      if (have === undefined) return;
+      const next: Mine = { ...have, holds: { ...have.holds }, follows: { ...have.follows } };
+      delete next.holds[key];
+      delete next.follows[key];
+      if (Object.keys(next.holds).length === 0 && Object.keys(next.follows).length === 0) {
         this.#mine.delete(branch);
-        const disk = await this.#read(branch);
-        if (disk !== undefined && disk !== "unreadable" && disk.id === this.id) await this.#fs.remove(this.#file(branch));
+        await this.#backend.remove(branch, have.rev).catch(() => false);
         return;
       }
-      const disk = await this.#read(branch);
-      if (disk !== undefined && disk !== "unreadable" && disk.id === this.id) await this.#write(branch, m);
+      const done = await this.#backend.update(branch, this.#bytes(next), have.rev);
+      if (done === undefined) this.#mine.delete(branch);
+      else this.#mine.set(branch, { ...next, rev: done.rev });
     });
   }
 
@@ -219,28 +267,24 @@ export class LeaseStore {
         const m = this.#mine.get(branch);
         if (m === undefined) return;
         this.#mine.delete(branch);
-        const disk = await this.#read(branch);
-        if (disk !== undefined && disk !== "unreadable" && disk.id === this.id) await this.#fs.remove(this.#file(branch));
+        await this.#backend.remove(branch, m.rev).catch(() => false);
       });
     }
   }
 
-  #json(m: Mine): LeaseFile {
-    return { v: 1, id: this.id, owner: m.owner, since: m.since, holds: { ...m.holds }, follows: { ...m.follows } };
-  }
-
-  async #write(branch: string, m: Mine): Promise<void> {
-    await this.#fs.writeAtomic(this.#file(branch), enc.encode(JSON.stringify(this.#json(m))));
+  #bytes(m: Mine): Uint8Array {
+    const f: LeaseFile = { v: 1, id: this.id, owner: m.owner, since: m.since, holds: { ...m.holds }, follows: { ...m.follows } };
+    return enc.encode(JSON.stringify(f));
   }
 }
 
 const shared = new WeakMap<Fs, Map<string, LeaseStore>>();
 
-/** The store a process uses for one repository's leases: every handle on the repository gets the same one, so a loop and its jobs share a lease. */
-export function sharedLeaseStore(fs: Fs, dir: string, file: (branch: string) => string): LeaseStore {
-  let byDir = shared.get(fs);
-  if (byDir === undefined) shared.set(fs, (byDir = new Map()));
-  let store = byDir.get(dir);
-  if (store === undefined) byDir.set(dir, (store = new LeaseStore(fs, file)));
+/** The store a process uses for one repository's leases (`key` names the repository and where leases are kept): every handle on it gets the same one, so a loop and its jobs share a lease. */
+export function sharedLeaseStore(fs: Fs, key: string, make: () => LeaseStore): LeaseStore {
+  let byKey = shared.get(fs);
+  if (byKey === undefined) shared.set(fs, (byKey = new Map()));
+  let store = byKey.get(key);
+  if (store === undefined) byKey.set(key, (store = make()));
   return store;
 }

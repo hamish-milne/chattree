@@ -21,7 +21,8 @@ import {
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { addGrants, revokeGrants } from "./approvals.ts";
-import { sharedLeaseStore, type LeaseEnv, type LeaseOwner, type LeaseState, type LeaseStore } from "./lease.ts";
+import { LeaseStore, sharedLeaseStore, type LeaseEnv, type LeaseOwner, type LeaseState } from "./lease.ts";
+import { refLeaseBackend } from "./lease-ref.ts";
 import type { GrantStore } from "./loop.ts";
 import { SCHEMA_COMMENT, SCHEMA_PATH, configJsonSchema } from "./config-schema.ts";
 import { redactionPatterns, type SecretSource } from "./secrets.ts";
@@ -611,10 +612,20 @@ export class Conversation {
   }
 
   /** Who may run which thread (`lease.ts`): the store this process shares for the repository, unless the options gave one. */
-  async leaseStore(): Promise<LeaseStore> {
+  leaseStore(): Promise<LeaseStore> {
+    // Decided once per handle: `leases.remote` is read when the first lease is looked at.
+    return (this.#leases ??= this.#makeLeaseStore());
+  }
+  #leases: Promise<LeaseStore> | undefined;
+
+  async #makeLeaseStore(): Promise<LeaseStore> {
     if (this.#opts.leases !== undefined) return this.#opts.leases;
     const common = await this.git.commonDir();
-    return sharedLeaseStore(this.host.fs, common, (b) => this.host.path.join(common, "chattree", "leases", `${encodeURIComponent(b)}.lease`));
+    const cfg = await this.readConfig();
+    const remote = cfg?.ok === true ? cfg.value.leases?.remote : undefined;
+    // With `leases.remote` the lease is a ref on that remote, so clones that do not share this git directory agree on who runs a thread.
+    if (remote !== undefined) return sharedLeaseStore(this.host.fs, `${common}\0ref:${remote}`, () => new LeaseStore(refLeaseBackend(this.git, { remote, now: this.now })));
+    return sharedLeaseStore(this.host.fs, common, () => new LeaseStore(this.host.fs, (b) => this.host.path.join(common, "chattree", "leases", `${encodeURIComponent(b)}.lease`)));
   }
 
   /** The clock and owner probe the lease calls need. */
