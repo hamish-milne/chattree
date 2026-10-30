@@ -254,16 +254,19 @@ export class Terminal {
     if (notes.length > 0) this.print(`${notes.map((n) => this.#style.dim(`[${n}]`)).join("\n")}\n`);
   }
 
-  /** Questions are waiting (from this thread or another) and nothing is running here: ask them, labelled, one at a time. What was half-typed stays. */
+  /**
+   * Questions of this thread (or of a thread it waits for) are waiting and nothing is running here: ask them, one at a time. Typing is
+   * never interrupted: with something half-typed they wait until the line is sent. Questions of other threads only show in the status
+   * line, and `/questions` asks them.
+   */
   #drain(): void {
-    if (this.#closing || this.#engine.running || this.#engine.questions().length === 0) return;
+    if (this.#closing || this.#engine.running || this.#engine.ownQuestions().length === 0) return;
+    if (this.#rl.line !== "" || this.#prompt.draft !== "") return;
     this.#chain = this.#chain.then(async () => {
       if (this.#closing || this.#engine.running) return;
-      const typed = this.#rl.line;
       await this.#engine.drainQuestions();
       this.#flushNotices();
       this.#showPrompt();
-      if (typed !== "") this.#rl.write(typed);
     });
   }
 
@@ -360,6 +363,8 @@ export class Terminal {
       await this.#end(false);
       return;
     }
+    // The command is done: now is the time for questions that came up meanwhile.
+    if (!this.#closing) await this.#engine.drainQuestions();
     this.#flushNotices();
     if (!this.#closing) this.print(`${this.#style.dim(await this.#engine.statusLine())}\n`);
     this.#showPrompt();

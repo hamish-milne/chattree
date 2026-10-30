@@ -13,6 +13,7 @@ import { buildToolSet, makeApprover, type ToolSet } from "./toolset.ts";
 import { syncTools, toolDrift, type Approval, type LoopEvent } from "../harness/loop.ts";
 import { Pump, type Question } from "../harness/pump.ts";
 import type { RunOptions } from "../harness/runs.ts";
+import { formatAge } from "./age.ts";
 import { deliverSubagents, subagentChildRegistry, subagentGrants, subagentNudge } from "../harness/subagent.ts";
 import type { ChatEntry } from "../harness/entries.ts";
 import { deliverForks } from "../harness/fork-tools.ts";
@@ -309,18 +310,23 @@ export class Engine {
     return this.#pump?.questions() ?? [];
   }
 
+  /** The questions that belong to what the user is looking at: this thread's own, and those of the threads it waits for (a subagent it started). The rest are only counted. */
+  ownQuestions(): Question[] {
+    return this.questions().filter((q) => q.branch === this.thread || q.ancestors.includes(this.thread));
+  }
+
   /**
    * Ask the user the questions that are waiting, one at a time, each labelled with its thread when it is not this one, and record each
    * answer (which is what lets that thread's loop go on). Returns when none are left or nobody can be asked.
    */
-  async drainQuestions(): Promise<void> {
+  async drainQuestions(opts: { all?: boolean } = {}): Promise<void> {
     const pump = this.#pump;
     if (pump === undefined || this.#asking) return;
     this.#asking = true;
     try {
       for (let guard = 0; guard < 100; guard++) {
         const ask = this.ask;
-        const q = pump.questions()[0];
+        const q = (opts.all === true ? pump.questions() : this.ownQuestions())[0];
         if (q === undefined || this.quit) return;
         const label = q.branch === this.thread ? undefined : q.branch;
         // With nobody to ask (a pipe) the call is declined, as it always was, and the model is told why.
@@ -352,7 +358,7 @@ export class Engine {
     for (let round = 0; round < 50; round++) {
       await pump.tick();
       await pump.settle();
-      await this.drainQuestions();
+      await this.drainQuestions({ all: true });
       await pump.tick();
       await pump.settle();
       if (!this.#wanted) return;
@@ -401,6 +407,14 @@ export class Engine {
     let running = 0;
     for (const p of this.#sets) running += (await p.catch(() => undefined))?.jobs.list().filter((j) => j.status === "running").length ?? 0;
     if (running > 0) parts.push(`${running} job${running === 1 ? "" : "s"} running`);
+    const sum = this.#pump?.summary();
+    if (sum !== undefined) {
+      const others = this.questions().filter((q) => q.branch !== this.thread && !q.ancestors.includes(this.thread));
+      if (sum.running > 0) parts.push(`${sum.running} running`);
+      if (sum.blocked > 0) parts.push(`${sum.blocked} blocked`);
+      if (others.length > 0) parts.push(`${others.length} asking (${others.map((q) => `${q.branch}${q.since === undefined ? "" : ` ${formatAge(Date.now() - q.since)}`}`).join(", ")}; /questions)`);
+      if (sum.held > 0) parts.push(`${sum.held} held`);
+    }
     if (this.state.attachments.length > 0) parts.push(`${this.state.attachments.length} file${this.state.attachments.length === 1 ? "" : "s"} staged`);
     if (this.state.drafts.length > 0) parts.push(`${this.state.drafts.length} draft${this.state.drafts.length === 1 ? "" : "s"}`);
     return parts.join(" · ");

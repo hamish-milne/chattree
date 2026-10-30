@@ -52,6 +52,16 @@ export interface Question {
   keys: string[] | null;
   /** When the call was made (ms since the epoch), from the id of the entry that holds it: how long it has been waiting. A question may wait as long as it likes. */
   since?: number;
+  /** The threads this one is working for, nearest first (a subagent's parent, then its parent): a screen asks the questions of the thread it shows, and of the threads that block it. */
+  ancestors: string[];
+}
+
+/** How many threads are in each state, for a status line. */
+export interface PumpSummary {
+  running: number;
+  blocked: number;
+  asking: number;
+  held: number;
 }
 
 export type AnswerResult = { status: "recorded"; granted?: { keys: string[]; until: string }; grantError?: string } | { status: "already_decided" | "gone" };
@@ -62,6 +72,8 @@ export class Pump {
   readonly #open = new Map<string, Conversation>();
   readonly #held = new Map<string, string>();
   readonly #questions = new Map<string, Question>();
+  readonly #kinds = new Map<string, TipState["kind"]>();
+  readonly #parents = new Map<string, string | null>();
   #chain: Promise<unknown> = Promise.resolve();
   #closed = false;
   #timer: ReturnType<typeof setInterval> | undefined;
@@ -81,6 +93,34 @@ export class Pump {
   /** The questions waiting, oldest thread first. */
   questions(): Question[] {
     return [...this.#questions.values()];
+  }
+
+  /** Counts of threads by state (those the pump has looked at): running, blocked on others, asking the user, and held. */
+  summary(): PumpSummary {
+    const out: PumpSummary = { running: 0, blocked: 0, asking: 0, held: 0 };
+    for (const [branch, kind] of this.#kinds) {
+      if (this.#held.has(branch)) out.held++;
+      else if (kind === "needs_approval") out.asking++;
+      else if (kind === "blocked") out.blocked++;
+      else if (kind === "running" || this.runs.get(branch)?.state === "running") out.running++;
+    }
+    return out;
+  }
+
+  /** The thread a branch was started from, if it is a fork or subagent (the first entry says; it never changes). */
+  async #parentOf(branch: string): Promise<string | undefined> {
+    const known = this.#parents.get(branch);
+    if (known !== undefined) return known ?? undefined;
+    const entries = await (await this.#convo(branch)).readEntries();
+    const start = entries.flatMap((e) => (e.ok && e.value.$tag === "branch_start" ? [e.value] : []))[0];
+    this.#parents.set(branch, start?.from.branch ?? null);
+    return start?.from.branch;
+  }
+
+  async #ancestors(branch: string): Promise<string[]> {
+    const out: string[] = [];
+    for (let at: string | undefined = await this.#parentOf(branch); at !== undefined && !out.includes(at) && out.length < 20; at = await this.#parentOf(at)) out.push(at);
+    return out;
   }
 
   /** Threads that were left alone after their loop was stopped or failed, with why. */
@@ -134,28 +174,36 @@ export class Pump {
     }
     if (only === undefined) {
       for (const b of [...this.#questions.keys()]) if (!names.includes(b)) this.#questions.delete(b);
+      for (const b of [...this.#kinds.keys()]) if (!names.includes(b)) this.#kinds.delete(b);
       this.#hooks.onQuestions?.(this.questions());
     }
   }
 
   async #look(branch: string): Promise<void> {
     const run = this.runs.get(branch);
-    if (run?.state === "running") return;
+    if (run?.state === "running") {
+      this.#kinds.set(branch, "running");
+      return;
+    }
     const convo = await this.#convo(branch);
     const options = await this.#hooks.loop(convo);
     if (options === undefined) {
       this.#setQuestion(branch, undefined);
+      this.#kinds.delete(branch);
       return;
     }
     await this.#hooks.deliver?.(convo);
     const tip = await this.#fold(convo, options);
+    this.#kinds.set(branch, tip.kind);
     let since: number | undefined;
+    let ancestors: string[] = [];
     if (tip.kind === "needs_approval") {
+      ancestors = await this.#ancestors(branch);
       const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
       const holder = entries.findLast((e) => e.$tag === "assistant" && e.blocks.some((b) => b.$tag === "tool_call" && b.call_id === tip.question.callId));
       if (holder !== undefined && "id" in holder && typeof holder.id === "string") since = ulidTime(holder.id);
     }
-    this.#setQuestion(branch, tip.kind === "needs_approval" ? tip.question : undefined, branch, since);
+    this.#setQuestion(branch, tip.kind === "needs_approval" ? tip.question : undefined, branch, since, ancestors);
     if (this.#held.has(branch)) return;
     const wants = await this.#wants(convo, tip);
     if (wants === undefined) return;
@@ -209,12 +257,12 @@ export class Pump {
     return last !== undefined && "id" in last && typeof last.id === "string" ? last.id : undefined;
   }
 
-  #setQuestion(branch: string, need: CallNeed | undefined, from?: string, since?: number): void {
+  #setQuestion(branch: string, need: CallNeed | undefined, from?: string, since?: number, ancestors: string[] = []): void {
     if (need === undefined || from === undefined) {
       this.#questions.delete(branch);
       return;
     }
-    this.#questions.set(branch, { branch, callId: need.callId, name: need.name, args: need.args, keys: need.keys ?? null, ...(since === undefined ? {} : { since }) });
+    this.#questions.set(branch, { branch, callId: need.callId, name: need.name, args: need.args, keys: need.keys ?? null, ancestors, ...(since === undefined ? {} : { since }) });
   }
 
   #start(branch: string, convo: Conversation, options: RunOptions): void {

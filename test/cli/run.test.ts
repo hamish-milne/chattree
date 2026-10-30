@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
 import { runRunner } from "../../cli/run.ts";
+import { Engine } from "../../cli/engine.ts";
+import { findProject, openThread } from "../../cli/project.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
@@ -89,6 +91,30 @@ describe("chattree run", { timeout: 60_000 }, () => {
       stop.abort();
       assert.equal(await done, 0);
       assert.deepEqual(await replies(dir), ["seen"]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("a screen on the thread owns its question (asked after the command); /questions says when none wait", async () => {
+    const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo hi > out.txt" } })]);
+    try {
+      await say(dir, "go");
+      assert.equal(await main(["run", "--once"], testIo(dir)), 3);
+      const io = testIo(dir);
+      const project = await findProject(io, dir);
+      const opened = await openThread(io, project, undefined, { providers: "optional" });
+      const engine = new Engine({ io, project, opened, tools: true, confirm: async () => false });
+      await engine.pump()?.tick();
+      assert.deepEqual(engine.ownQuestions().map((q) => [q.branch, q.callId]), [["main", "c1"]]);
+      assert.doesNotMatch(await engine.statusLine(), /asking/, "this thread's question is asked, not counted");
+      await (await open(dir)).append({ $tag: "approval", call_id: "c1", allow: false, reason: "no" });
+      await engine.pump()?.tick();
+      assert.deepEqual(engine.ownQuestions(), []);
+      const out: string[] = [];
+      for await (const o of engine.submit("/questions")) out.push(JSON.stringify(o));
+      assert.match(out.join(""), /no questions are waiting/);
+      await engine.stopJobs();
     } finally {
       await server.close();
     }

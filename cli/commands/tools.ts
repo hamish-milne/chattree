@@ -135,6 +135,21 @@ const more: Command = {
   },
 };
 
+const questions: Command = {
+  name: "questions",
+  summary: "ask the questions waiting on every thread (the status line counts those on other threads)",
+  usage: "/questions",
+  busy: "blocked",
+  async *run(ctx) {
+    const waiting = ctx.engine.questions();
+    if (waiting.length === 0) {
+      yield { type: "notice", message: "no questions are waiting" };
+      return;
+    }
+    await ctx.engine.drainQuestions({ all: true });
+  },
+};
+
 const runs: Command = {
   name: "runs",
   summary: "subagents and forks working in the background: list, stop, talk to, close",
@@ -199,4 +214,4 @@ const runs: Command = {
   },
 };
 
-export const toolCommands: Command[] = [tools, jobs, expand, more, runs];
+export const toolCommands: Command[] = [tools, jobs, expand, more, runs, questions];

@@ -277,6 +277,20 @@ describe("the subagent tool", () => {
     assert.match(typeof res.summary === "string" ? res.summary : "", /second try/);
   });
 
+  test("a question knows the threads it blocks, and the pump counts threads by state", async () => {
+    const grants: GrantStore = { allow: (tool) => Promise.resolve(tool === "merge" ? undefined : { [ALL]: FOREVER }), grant: () => Promise.resolve() };
+    const { convo, tools, pump } = await withSubagent({ merge: "review" }, undefined, { grants });
+    queue = [calls(call("s1", "subagent", { brief: "x", name: "r" })), calls(call("c1", "merge", { summary: "done" })), answer("parent done")];
+    await drive(convo, tools, { grants });
+    await pump.settle();
+    const q = pump.questions();
+    assert.equal(q.length, 1);
+    assert.deepEqual(q[0]?.ancestors, [convo.branch]);
+    assert.deepEqual(pump.summary(), { running: 0, blocked: 1, asking: 1, held: 0 });
+    pump.hold(q[0]?.branch as string, "stopped");
+    assert.equal(pump.summary().held, 1);
+  });
+
   test("a call the process died in the middle of finds its branch and carries on", async () => {
     const { convo, tools, pump } = await withSubagent();
     // The state a crash leaves: the assistant asked for a subagent, the child branch exists with its brief, the call has no answer.
