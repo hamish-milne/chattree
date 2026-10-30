@@ -3,7 +3,9 @@ import { describe, test } from "node:test";
 import { emptySetup } from "../../harness/setup.ts";
 import type { ModelContext } from "../../harness/context-builder.ts";
 import { collectStream, conformanceProblems, type StreamRun } from "../../providers/conformance.ts";
-import { Limiter, classifyStatus, parseRetryAfter, type HttpOptions } from "../../providers/http.ts";
+import { Limiter, classifyStatus, parseRetryAfter, requestHeaders, type HttpOptions } from "../../providers/http.ts";
+import { USER_AGENT, VERSION } from "../../providers/identity.ts";
+import { readFile } from "node:fs/promises";
 import { ProviderError, type ProviderAdapter } from "../../providers/types.ts";
 import { replayFetch } from "../../providers/fixtures.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
@@ -323,6 +325,38 @@ describe("hooks and secrets", () => {
     });
   });
 });
+
+describe("request headers", () => {
+  test("the version we announce is the package's", async () => {
+    const pkg = JSON.parse(await readFile(new URL("../../package.json", import.meta.url), "utf8")) as { version: string };
+    assert.equal(VERSION, pkg.version);
+  });
+
+  test("a User-Agent by default; the provider's map overrides, null removes (any case); the session goes where the config says", () => {
+    assert.deepEqual(requestHeaders({ "content-type": "application/json" }, {}), { "user-agent": USER_AGENT, "content-type": "application/json" });
+    assert.equal(requestHeaders({}, { headers: { "User-Agent": "mine/1" } })["user-agent"], "mine/1");
+    assert.deepEqual(requestHeaders({ a: "1" }, { headers: { "USER-AGENT": null, A: null } }), {});
+    assert.equal(requestHeaders({}, { sessionHeader: "x-opencode-session" }, "abc")["x-opencode-session"], "abc");
+    assert.equal(requestHeaders({}, { sessionHeader: "x-opencode-session" })["x-opencode-session"], undefined, "no session, no header");
+    assert.equal(requestHeaders({}, { sessionHeader: "x-s", headers: { "x-s": null } }, "abc")["x-s"], undefined, "null turns it off");
+  });
+
+  test("they reach the server, credentials are added last, and a request carries the session", async () => {
+    await withServer([ok, ok], async (server) => {
+      const o = fast({ headers: { "x-extra": "yes", authorization: "Bearer not-this" }, sessionHeader: "x-session" });
+      checked(await collect(toyAdapter(server.url, o), { session: "thread-1" }));
+      checked(await collect(toyAdapter(server.url, { ...o, headers: { "user-agent": null } }), {}));
+      const [a, b] = server.seen;
+      assert.equal(a?.headers["user-agent"], USER_AGENT);
+      assert.equal(a?.headers["x-extra"], "yes");
+      assert.equal(a?.headers["x-session"], "thread-1");
+      assert.equal(a?.headers["authorization"], `Bearer ${SECRET}`);
+      assert.notEqual(b?.headers["user-agent"], USER_AGENT, "null removed ours (the runtime's own User-Agent is what is left)");
+      assert.equal(b?.headers["x-session"], undefined);
+    });
+  });
+});
+const collect = (adapter: ProviderAdapter, extra: { session?: string }): Promise<StreamRun> => collectStream(adapter.stream({ ...req(), ...extra }));
 
 describe("the conformance checks themselves", () => {
   const base = { blocks: [], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 }, observed: {} };

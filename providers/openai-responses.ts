@@ -6,7 +6,7 @@ import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
 import { OPENAI_MODELS, OPENAI_PRICES } from "./pricing-data.ts";
-import { classifyStatus, httpStream, jsonRequest, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
+import { classifyStatus, httpStream, jsonRequest, requestHeaders, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
 import { ProviderError, type Completed, type ErrorKind, type ModelStream, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
 
@@ -519,7 +519,7 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
     const scrub = (t: string): string => (http.secrets ?? []).reduce((acc, k) => (k === "" ? acc : acc.split(k).join("[redacted]")), t);
     let res: Response;
     try {
-      res = await (opts.http?.fetch ?? fetch)(spec.url, { method: "GET", headers: { ...(await auth(spec)) }, signal });
+      res = await (opts.http?.fetch ?? fetch)(spec.url, { method: "GET", headers: { ...requestHeaders(spec.headers, opts.http ?? {}), ...(await auth(spec)) }, signal });
     } catch (e) {
       throw new ProviderError({ kind: r.signal.aborted ? "aborted" : "network", message: scrub(`retrieving ${r.responseId}: ${e instanceof Error ? e.message : String(e)}`), retryable: !r.signal.aborted, cause: e });
     }

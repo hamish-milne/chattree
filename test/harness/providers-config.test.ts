@@ -74,6 +74,13 @@ describe("secrets", () => {
 });
 
 describe("registry and providers", () => {
+  test("headers: strings and nulls are accepted for any provider, a bad name is not", async () => {
+    const ok = await validateProviders({ a: { $tag: "anthropic", headers: { "user-agent": null, "x-team": "t" }, session_header: "x-session" } as never }, registry);
+    assert.deepEqual(ok.issues, []);
+    const bad = await validateProviders({ a: { $tag: "openai-compatible", base_url: "http://x/v1", headers: { "bad name": "v" } } as never, b: { $tag: "openai-compatible", base_url: "http://x/v1", headers: { x: 1 } } as never }, registry);
+    assert.equal(bad.issues.length, 2);
+  });
+
   test("every provider is checked against its adapter; all problems at once", async () => {
     const { issues } = await validateProviders({ a: { $tag: "nope" }, b: { $tag: "anthropic", api_key_env: "sk-ant-abc", extra: 1 } as never, c: { $tag: "openai", max_concurrent: 0 } as never }, registry);
     const by = Object.fromEntries(issues.map((i) => [i.path, i.message]));

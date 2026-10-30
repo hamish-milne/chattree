@@ -97,12 +97,18 @@ const modelInfoConfig = z
   })
   .refine((m) => m.default_reasoning === undefined || (m.reasoning !== undefined && m.default_reasoning in m.reasoning), "default_reasoning must be one of the reasoning levels");
 
+const headerName = z.string().regex(/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/, "not a valid header name");
+
 export const commonProviderFields = {
   /** At most this many requests at once for the provider. */
   max_concurrent: z.number().int().positive().optional(),
   timeouts: z.strictObject({ idle_ms: z.number().int().positive().optional(), total_ms: z.number().int().positive().optional() }).optional(),
   /** Attempts per request, retries included (only before any content has arrived). */
   max_attempts: z.number().int().positive().optional(),
+  /** Extra request headers. A `null` removes one; for our default `User-Agent` (`chattree/<version>`) the runtime's own is then sent: some providers' terms require a true client identity, so that is the user's call. */
+  headers: z.record(headerName, z.union([z.string(), z.null()])).optional(),
+  /** The name of a header to send the conversation's stable id in (OpenCode Go wants `x-opencode-session`). */
+  session_header: headerName.optional(),
   /** Price overrides, or `free: true` for a local server. Without either, a model with no bundled price has an unknown price. */
   pricing: pricingConfig.optional(),
   /** What you know about models the adapter does not (context window, maximum output, how tools must be written: `tool_convention` `full` or `flat`). */
@@ -115,6 +121,8 @@ export interface CommonProviderConfig {
   max_concurrent?: number | undefined;
   timeouts?: { idle_ms?: number | undefined; total_ms?: number | undefined } | undefined;
   max_attempts?: number | undefined;
+  headers?: Record<string, string | null> | undefined;
+  session_header?: string | undefined;
 }
 
 export function httpOptionsFor(c: CommonProviderConfig): HttpOptions {
@@ -122,6 +130,8 @@ export function httpOptionsFor(c: CommonProviderConfig): HttpOptions {
     ...(c.max_concurrent === undefined ? {} : { limiter: new Limiter(c.max_concurrent) }),
     ...(c.timeouts === undefined ? {} : { timeouts: { ...(c.timeouts.idle_ms === undefined ? {} : { idleMs: c.timeouts.idle_ms }), ...(c.timeouts.total_ms === undefined ? {} : { totalMs: c.timeouts.total_ms }) } }),
     ...(c.max_attempts === undefined ? {} : { retry: { maxAttempts: c.max_attempts } }),
+    ...(c.headers === undefined ? {} : { headers: c.headers }),
+    ...(c.session_header === undefined ? {} : { sessionHeader: c.session_header }),
   };
 }
 

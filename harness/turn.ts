@@ -113,7 +113,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
   }, opts.abortPollMs ?? 250);
 
   const acc = new StreamAccumulator();
-  const gen = adapter.stream({ context, setup, signal: controller.signal });
+  const gen = adapter.stream({ context, setup, signal: controller.signal, session: (await sha256Hex(enc.encode(`${convo.dir}\n${convo.branch}`))).slice(0, 32) });
   let completed: Completed | undefined;
   let failure: unknown;
   let finished = false;

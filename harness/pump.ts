@@ -357,6 +357,8 @@ export class Pump {
         // Events carry the news now; the timer only sweeps.
         if (this.#timer !== undefined) clearInterval(this.#timer);
         this.#timer = setInterval(() => void poll(), Math.max(pollMs, sweepMs));
+        // Anything that happened before the watchers were in place has no event: look once now.
+        void poll();
       } catch {
         /* polling carries on */
       }

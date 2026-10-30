@@ -128,6 +128,8 @@ export interface StreamRequest {
   setup: AgentSetup;
   /** Aborting it ends the stream with a `ProviderError` of kind `aborted`. */
   signal: AbortSignal;
+  /** A stable id for the conversation (the thread), for providers that route or cache by it. Sent only where the provider config names a header for it. */
+  session?: string;
 }
 
 /** The part of an adapter the turn runner needs. Catalog, pricing, estimates and schemas arrive with later steps. */

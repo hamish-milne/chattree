@@ -1,5 +1,6 @@
 import type { Block } from "../harness/context-builder.ts";
 import { parseSse, type SseEvent } from "./sse.ts";
+import { USER_AGENT } from "./identity.ts";
 import { ProviderError, type Completed, type ErrorKind, type ModelStream, type StreamEvent, type StreamRequest } from "./types.ts";
 
 /**
@@ -62,7 +63,27 @@ export interface HttpHooks {
   onRetry?(view: { attempt: number; waitMs: number; error: ProviderError }): void;
 }
 
+/**
+ * The headers a request goes out with, lowest priority first: our `User-Agent`, what the adapter built, the provider's `headers` map (a
+ * `null` value removes that header, which can break a provider's terms: docs/providers.md), the session header (`session_header`, with the
+ * conversation's id when there is one). Credentials are added after this and always win. Names are compared case-insensitively.
+ */
+export function requestHeaders(built: Record<string, string>, opts: { headers?: Record<string, string | null> | undefined; sessionHeader?: string | undefined }, session?: string): Record<string, string> {
+  const out = new Map<string, string>([["user-agent", USER_AGENT]]);
+  for (const [k, v] of Object.entries(built)) out.set(k.toLowerCase(), v);
+  for (const [k, v] of Object.entries(opts.headers ?? {})) {
+    if (v === null) out.delete(k.toLowerCase());
+    else out.set(k.toLowerCase(), v);
+  }
+  if (opts.sessionHeader !== undefined && session !== undefined && !(opts.headers?.[opts.sessionHeader] === null)) out.set(opts.sessionHeader.toLowerCase(), session);
+  return Object.fromEntries(out);
+}
+
 export interface HttpOptions {
+  /** Extra headers for every request; `null` removes one. For the default `User-Agent` that leaves the runtime's own (`node`), which is sent when none is set. */
+  headers?: Record<string, string | null>;
+  /** The name of a header that carries `StreamRequest.session`, a stable id for the conversation (OpenCode Go's `x-opencode-session`, for caching). */
+  sessionHeader?: string;
   /** Default: the global `fetch`. */
   fetch?: typeof fetch;
   /** Headers that carry the credentials; added after `request`, never shown to hooks. */
@@ -228,7 +249,7 @@ export async function* httpStream<S>(mapper: HttpMapper<S>, req: StreamRequest, 
           const bare = /^(?:Bearer|Basic|Token)\s+(.+)$/i.exec(v)?.[1]; // the key alone, as an error body might echo it
           if (bare !== undefined) secrets.add(bare);
         }
-        const headers = { ...spec.headers, ...authHeaders };
+        const headers = { ...requestHeaders(spec.headers, opts, req.session), ...authHeaders };
         const body = spec.body === undefined ? undefined : typeof spec.body === "string" ? spec.body : JSON.stringify(spec.body);
         const method = spec.method ?? "POST";
         safely(() => hooks.onRequest?.({ url: spec.url, method, headers: viewHeaders(headers), body: scrub(body ?? ""), attempt }));
@@ -389,7 +410,7 @@ export async function jsonRequest(
 ): Promise<unknown> {
   const secrets = new Set((opts.secrets ?? []).filter((s) => s.length > 0));
   const authHeaders = (await opts.auth?.(spec)) ?? {};
-  const headers = { ...spec.headers, ...authHeaders };
+  const headers = { ...requestHeaders(spec.headers, opts), ...authHeaders };
   for (const v of Object.values(authHeaders)) {
     if (v.length === 0) continue;
     secrets.add(v);
