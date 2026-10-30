@@ -23,6 +23,7 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   const ac = new AbortController();
   engine.abort = ac;
   engine.running = true;
+  if (engine.takeStopNext()) ac.abort();
   try {
     let drift: ChangeKind[] = [];
     let tools: Awaited<NonNullable<ReturnType<typeof engine.toolset>>> | undefined;
@@ -120,6 +121,7 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   } finally {
     engine.running = false;
     engine.abort = undefined;
+    engine.turnEnded();
     // A job that ended while the turn was finishing was held back (the thread was busy); nothing else would deliver it until the next turn.
     void engine.toolset()?.then((set) => set.jobs.flushIfIdle()).catch(() => undefined);
   }
@@ -133,13 +135,14 @@ async function* toolLoop(
 ): AsyncGenerator<Output, void> {
   const { engine, convo } = ctx;
   await syncTools(convo, tools.registry);
-  const approve = engine.approver();
+  engine.pump(); // questions and subagents are the pump's, which looks at every thread when this turn ends
   const loop = runLoop(convo, {
     system: engine.system,
     registry: tools.registry,
     jobs: tools.jobs,
     grants: convo.grantStore(),
-    ...(approve === undefined ? {} : { approve }),
+    // A call no grant covers is not asked here: the loop stops and the question waits with the others, wherever it came from.
+    waitForApproval: true,
     signal: o.signal,
     owner: localOwner(engine.sessionId),
     standing: o.standing,
@@ -157,6 +160,8 @@ async function* toolLoop(
       const r = n.value;
       if (r.status === "stopped") yield { type: "notice", message: "stopped; the calls that had not run were answered as not run" };
       else if (r.status === "deadline") yield { type: "notice", message: "the turn's time limit passed; the calls that had not run were answered as not run" };
+      else if (r.status === "needs_approval") yield { type: "notice", message: "waiting for your answer" };
+      else if (r.status === "blocked") yield { type: "notice", message: `waiting for ${r.blocked?.on ?? "another thread"}; this thread carries on when it is done` };
       return;
     }
     const e = n.value;

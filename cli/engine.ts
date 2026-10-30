@@ -10,7 +10,12 @@ import type { Session, SessionStore } from "./session.ts";
 import { summarizeCall } from "./tool-lines.ts";
 import { createFork } from "./commands/threads.ts";
 import { buildToolSet, makeApprover, type ToolSet } from "./toolset.ts";
-import type { Approval, ApprovalRequest } from "../harness/loop.ts";
+import type { Approval, LoopEvent } from "../harness/loop.ts";
+import { Pump, type Question } from "../harness/pump.ts";
+import type { RunOptions } from "../harness/runs.ts";
+import { deliverSubagents, subagentAuto, subagentChildRegistry, subagentGrants, subagentNudge } from "../harness/subagent.ts";
+import type { ChatEntry } from "../harness/entries.ts";
+import { openThread } from "./project.ts";
 
 /** A file staged for the next prompt. Only the path and what was decided about it are kept; the blob is made when the prompt is sent. */
 export interface StagedAttachment {
@@ -134,7 +139,16 @@ export class Engine {
   onNotice: (() => void) | undefined;
   /** Called when a background job ended while idle and `background.resume` is on: the host should run `resume()`. */
   onResume: (() => void) | undefined;
+  /** Called when the questions waiting for the user changed (the terminal asks them when it is idle). */
+  onQuestion: (() => void) | undefined;
   readonly #toolsets = new WeakMap<Conversation, Promise<ToolSet>>();
+  /** The user pressed Ctrl-C at the question being asked: the answer is no, and nothing carries on afterwards (the terminal sets it). */
+  escaped = false;
+  #stopNext = false;
+  #unfollow: (() => void) | undefined;
+  #pump: Pump | undefined;
+  #asking = false;
+  #wanted = false;
   readonly #sets: Promise<ToolSet>[] = [];
 
   constructor(o: EngineOptions) {
@@ -176,10 +190,6 @@ export class Engine {
           this.notices.push(`the model started ${branch} and left a first message for it as draft ${name}; /thread ${branch}, then /send ${name}`);
           this.onNotice?.();
         },
-        onChildEvent: (name, e) => {
-          if (e.type === "tool.start") this.childLine?.(`  ↳ ${name}: ${summarizeCall(e.name, e.args).split("\n")[0]}\n`);
-          else if (e.type === "tool.result" && e.is_error) this.childLine?.(`  ↳ ${name}: failed: ${e.content.split("\n")[0]?.slice(0, 120)}\n`);
-        },
         childLoop: (name) => {
           const ask = this.ask;
           return { system: this.system, ...(ask === undefined ? {} : { approve: makeApprover(ask, name) }), owner: localOwner(this.sessionId) };
@@ -195,6 +205,129 @@ export class Engine {
       this.#sets.push(p);
     }
     return p;
+  }
+
+  /** The pump for this project (docs/tools.md, 5.4): subagents' loops run in it, and the questions of every thread it looks at wait in it. */
+  pump(): Pump | undefined {
+    if (!this.tools) return undefined;
+    if (this.#pump === undefined) {
+      this.#pump = new Pump({
+        open: (branch) => (branch === this.thread ? Promise.resolve(this.convo) : openThread(this.io, this.project, branch).then((o) => o.convo)),
+        threads: async () => {
+          const merged = await this.convo.mergedBranches();
+          return (await this.convo.listBranches()).filter((b) => !b.archived && !merged.has(b.name)).map((b) => b.name);
+        },
+        loop: (convo) => this.#loopFor(convo),
+        auto: subagentAuto,
+        idle: subagentNudge,
+        deliver: (convo) => deliverSubagents(convo),
+        leave: (convo) => convo.branch === this.thread,
+        onWanted: (branch) => {
+          if (branch !== this.thread || this.running || this.#wanted) return;
+          this.#wanted = true;
+          this.onResume?.();
+        },
+        onEvent: (branch, e) => this.#childEvent(branch, e),
+        onQuestions: () => this.onQuestion?.(),
+      });
+    }
+    return this.#pump;
+  }
+
+  /** What the pump needs to look at a thread and run it: the current thread's own tools, or a subagent's. Other threads are left alone. */
+  async #loopFor(convo: Conversation): Promise<RunOptions | undefined> {
+    const entries: ChatEntry[] = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+    const start = entries.findLast((e) => e.$tag === "branch_start" && e.context === "fresh");
+    const sub = start?.$tag === "branch_start" && start.kind === "subagent";
+    if (convo.branch !== this.thread && !sub) return undefined;
+    const set = await this.toolset();
+    if (set === undefined) return undefined;
+    const owner = localOwner(this.sessionId);
+    if (!sub) return { system: this.system, registry: set.registry, grants: convo.grantStore(), owner };
+    return { system: this.system, registry: subagentChildRegistry(set.childRegistry), grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };
+  }
+
+  #childEvent(name: string, e: LoopEvent): void {
+    if (e.type === "tool.start") this.childLine?.(`  ↳ ${name}: ${summarizeCall(e.name, e.args).split("\n")[0]}\n`);
+    else if (e.type === "tool.result" && e.is_error) this.childLine?.(`  ↳ ${name}: failed: ${e.content.split("\n")[0]?.slice(0, 120)}\n`);
+  }
+
+  /** Show what a run the pump has on this thread is doing, from its start so far. False when nothing is running there. */
+  followRun(branch: string): boolean {
+    this.#unfollow?.();
+    this.#unfollow = undefined;
+    const run = this.#pump?.runs.get(branch);
+    if (run?.state !== "running") return false;
+    this.#unfollow = run.subscribe((e) => this.#childEvent(branch, e), { replay: true });
+    return true;
+  }
+
+  /** The questions waiting, from every thread the pump looks at. */
+  questions(): Question[] {
+    return this.#pump?.questions() ?? [];
+  }
+
+  /**
+   * Ask the user the questions that are waiting, one at a time, each labelled with its thread when it is not this one, and record each
+   * answer (which is what lets that thread's loop go on). Returns when none are left or nobody can be asked.
+   */
+  async drainQuestions(): Promise<void> {
+    const pump = this.#pump;
+    if (pump === undefined || this.#asking) return;
+    this.#asking = true;
+    try {
+      for (let guard = 0; guard < 100; guard++) {
+        const ask = this.ask;
+        const q = pump.questions()[0];
+        if (q === undefined || this.quit) return;
+        const label = q.branch === this.thread ? undefined : q.branch;
+        // With nobody to ask (a pipe) the call is declined, as it always was, and the model is told why.
+        const decision: Approval = ask === undefined ? { allow: false, reason: "no one was available to approve this call, so it did not run" } : await makeApprover(ask, label)({ name: q.name, args: q.args, keys: q.keys });
+        const stopped = this.escaped;
+        this.escaped = false;
+        // Stopping at a question ends the turn it belongs to: the call is declined, and the thread does not go on to ask the model.
+        if (stopped) {
+          if (q.branch === this.thread) this.#stopNext = true;
+          else pump.hold(q.branch, "stopped at a question");
+        }
+        const r = await pump.answer(q.branch, q.callId, decision);
+        if (r.status === "recorded" && r.grantError !== undefined) this.notices.push(`the call was allowed once, but the grant was not saved: ${r.grantError}`);
+        else if (r.status !== "recorded") this.notices.push(`${q.branch}: that question was already answered elsewhere`);
+      }
+    } finally {
+      this.#asking = false;
+      this.onNotice?.();
+    }
+  }
+
+  /**
+   * For a host with no terminal (a pipe): run subagents until they are done, decline the questions nobody can be asked, and carry on with
+   * this thread when it can, handing the output of those turns to `render`.
+   */
+  async settleWithoutTerminal(render: (o: Output) => Promise<void>): Promise<void> {
+    const pump = this.pump();
+    if (pump === undefined) return;
+    for (let round = 0; round < 50; round++) {
+      await pump.tick();
+      await pump.settle();
+      await this.drainQuestions();
+      await pump.tick();
+      await pump.settle();
+      if (!this.#wanted) return;
+      for await (const o of this.resume()) await render(o);
+    }
+  }
+
+  /** True once after the user stopped at a question: the next turn answers what is owed and goes no further. */
+  takeStopNext(): boolean {
+    const v = this.#stopNext;
+    this.#stopNext = false;
+    return v;
+  }
+
+  /** The turn ended: other threads may need looking at (a child to run, a question to ask). */
+  turnEnded(): void {
+    void this.#pump?.tick().catch(() => undefined);
   }
 
   /** Pin the session's tools to the agent (once, and again if they change) before a message is sent, so a first message is not split from its reply by a setup entry. */
@@ -235,16 +368,12 @@ export class Engine {
       set.runs.closeAll();
       await set.jobs.shutdown();
     }
-  }
-
-  /** Asks the user about a tool call, or undefined when nobody can be asked (the call is then declined unless a grant covers it). */
-  approver(): ((request: ApprovalRequest) => Promise<Approval>) | undefined {
-    const ask = this.ask;
-    return ask === undefined ? undefined : makeApprover(ask);
+    await this.#pump?.close();
   }
 
   /** Send a request without a new user message, so the model can react to what happened (a job's event). */
   async *resume(): AsyncGenerator<Output, void> {
+    this.#wanted = false;
     if (this.running) return;
     const { runTurn } = await import("./turn.ts");
     yield* runTurn(this.ctx);
@@ -272,10 +401,18 @@ export class Engine {
 
   /** Point the session at another thread. Draft, staged files and preferences stay. */
   rebind(opened: OpenedThread): void {
+    const left = this.thread;
+    this.#unfollow?.();
+    this.#unfollow = undefined;
     this.convo = opened.convo;
     this.thread = opened.thread;
     this.degraded = opened.degraded;
     this.session?.point(opened.thread);
+    // The pump kept handles for these threads; the one we left was ours, the one we arrived at is now ours.
+    if (this.#pump !== undefined) {
+      void this.#pump.forget(left, { keep: true });
+      void this.#pump.forget(opened.thread, { except: opened.convo }).then(() => this.#pump?.tick().catch(() => undefined));
+    }
     this.onRebind?.();
   }
 

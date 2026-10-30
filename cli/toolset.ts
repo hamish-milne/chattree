@@ -19,8 +19,12 @@ import { describeCall } from "./tool-lines.ts";
 export interface ToolSet {
   registry: ToolRegistry;
   jobs: JobRegistry;
-  /** The loops running for this thread's tools (subagents). */
+  /** The loops running for this thread's tools (a fork that works by itself). Subagents' loops are the pump's. */
   runs: ThreadRuns;
+  /** What a subagent works with, before its own `merge` tool is added (`subagentChildRegistry`). */
+  childRegistry: ToolRegistry;
+  /** Whether the user reads a subagent's report before it is merged (`subagent.merge`). */
+  merge: "auto" | "review";
 }
 
 export interface ToolSetHooks {
@@ -93,16 +97,16 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
     const r = await def.settings["~standard"].validate(settings);
     return r.issues === undefined ? [] : r.issues.map((i) => `${(i.path ?? []).map((q) => (typeof q === "object" ? q.key : q)).join(".") || "settings"}: ${i.message}`);
   };
-  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, runs, models: chosen.models, validateSettings, merge: config?.subagent.merge ?? "auto", loopOptions: (_child, name) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name), ...(hooks.onChildEvent === undefined ? {} : { onEvent: hooks.onChildEvent }) })];
+  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, models: chosen.models, validateSettings, merge: config?.subagent.merge ?? "auto" })];
   const auto = hooks.childLoop === undefined ? undefined : { runs, childRegistry, loopOptions: (_c: Conversation, name: string) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name) };
   const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(auto === undefined ? {} : { auto }), ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
   const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));
-  return { registry, jobs, runs };
+  return { registry, jobs, runs, childRegistry, merge: config?.subagent.merge ?? "auto" };
 }
 
 /** The user's answer to "may this call run?", as a loop approval. */
-export function parseAnswer(answer: string, request: ApprovalRequest): "no" | Approval {
+export function parseAnswer(answer: string, request: Pick<ApprovalRequest, "keys">): "no" | Approval {
   const c = answer.trim().toLowerCase()[0] ?? "n";
   if (c === "y") return { allow: true };
   const grant = request.keys !== null && request.keys.length > 0;
@@ -113,13 +117,13 @@ export function parseAnswer(answer: string, request: ApprovalRequest): "no" | Ap
 }
 
 /** Ask the user about a call. `ask` is the terminal's question; without one nothing is asked and the call is declined. */
-export function makeApprover(ask: AskFn, label?: string): (request: ApprovalRequest) => Promise<Approval> {
+export function makeApprover(ask: AskFn, label?: string): (request: Pick<ApprovalRequest, "name" | "args" | "keys">) => Promise<Approval> {
   return async (request) => {
     const grant = request.keys !== null && request.keys.length > 0;
     const choices: Choice[] = grant
       ? [{ key: "y", label: "yes, once" }, { key: "5", label: "yes, for 5 minutes" }, { key: "h", label: "yes, for 1 hour" }, { key: "f", label: "yes, forever" }, { key: "n", label: "no" }]
       : [{ key: "y", label: "yes, once" }, { key: "n", label: "no" }];
-    const answer = await ask(`\nAllow this${label === undefined ? "" : ` (asked by subagent ${label})`}?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${(request.keys as string[]).join("; ")})` : ""}`, "n", choices);
+    const answer = await ask(`\nAllow this${label === undefined ? "" : ` (asked by ${label})`}?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${(request.keys as string[]).join("; ")})` : ""}`, "n", choices);
     const parsed = parseAnswer(answer, request);
     if (parsed !== "no") return parsed;
     const reason = (await ask("Why not? (sent to the model; Enter to skip)", "")).trim();

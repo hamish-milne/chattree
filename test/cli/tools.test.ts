@@ -96,7 +96,7 @@ describe("tools in a plain chat", () => {
       await main(["chat", "--plain"], io);
       const [r] = await toolResults(dir);
       assert.equal(r!.is_error, true);
-      assert.match(text(r!.content), /needs the user's approval/);
+      assert.match(text(r!.content), /no one was available to approve/);
       await assert.rejects(readFile(join(dir, "out.txt")), /ENOENT/, "it did not run");
       assert.match(io.stderr, /← failed/);
     } finally {

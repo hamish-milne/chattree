@@ -40,6 +40,13 @@ export interface ToolOutput {
   recorded?: boolean;
   /** The tool ends the conversation's loop: the calls after it in the same response do not run and no further request is made (a subagent's report). */
   finish?: boolean;
+  /**
+   * The call cannot be answered yet because it waits for another thread's work (named here). The loop records no result, leaves this call
+   * and the ones after it unanswered, releases the thread's lease and stops with `blocked`; whoever sees the other thread finish runs the
+   * loop again, which calls the tool again (`resumable`), and it then answers. A thread blocked like this is a context switch, not a host
+   * that is working: nothing is held while it waits.
+   */
+  waiting?: string;
 }
 
 /** A background-capable tool that was started with `background: true`: it returns at once and finishes later. */
@@ -80,6 +87,12 @@ export interface Tool {
    * `ctx.lease.follow`; the loop sets no limit of its own.
    */
   timeout?(args: Record<string, unknown>): number | "thread";
+  /**
+   * For a call that has been allowed and waits for another thread (it returned `waiting`): that thread, while it is still working, or
+   * undefined when the call can be run again to finish. It lets a reader of the history tell a call that is blocked from one that is ready
+   * (`tip.ts`). Must not change anything.
+   */
+  waitingOn?(args: Record<string, unknown>, callId: string): Promise<string | undefined>;
   /**
    * Repair slips specific to this tool's shape that have one possible meaning, before the schema-guided repair and the
    * validation (for example arguments one level too flat). Pure; must leave anything it does not understand alone.

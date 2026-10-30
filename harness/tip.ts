@@ -96,8 +96,11 @@ export interface CallNeed {
    * `covered`: a live grant covers it, so it can run. `approved` / `declined`: an `approval` entry decided it. `invalid`: the call cannot
    * be run as given (unknown tool, bad arguments), and the loop answers it with the error. `ask`: someone has to decide. `lost`: the host
    * that was running the thread died, so the call may have started; it is answered "did not run" and is neither asked nor run again.
+   * `blocked`: it was allowed and waits for another thread (`on`), which is still working; nothing is to be done with it yet.
    */
-  status: "covered" | "approved" | "declined" | "invalid" | "ask" | "lost";
+  status: "covered" | "approved" | "declined" | "invalid" | "ask" | "lost" | "blocked";
+  /** For `blocked`: the thread it waits for. */
+  on?: string;
   /** For `ask`: what a grant would add to the tool's `allow` map, or null when the call can only be allowed once. */
   keys?: string[] | null;
   /** For `invalid`: the message the model is given. For `declined`: the reason, if one was given. */
@@ -111,6 +114,8 @@ export type TipState =
   | { kind: "awaiting_user" }
   /** A request to the model is owed (a user message, a tool result, a job's event). Nobody's decision is needed. */
   | { kind: "ready" }
+  /** A call waits for another thread's work (a foreground subagent): this thread is a context switch away, and nothing runs here until that thread finishes. */
+  | { kind: "blocked"; calls: CallNeed[]; on: string[] }
   /** Calls have no result and none of them waits for a decision: the loop runs, declines or rejects them in order. */
   | { kind: "run"; calls: CallNeed[] }
   /** At least one call waits for a decision. `question` is the first; `calls` is every call without a result, in order. */
@@ -154,12 +159,16 @@ export async function classifyCalls(input: TipInput, callIds: readonly string[])
       continue;
     }
     if (decision !== undefined) {
-      out.push({ ...base, args: checked.args, status: "approved" });
+      const on = await checked.tool.waitingOn?.(checked.args, id);
+      out.push({ ...base, args: checked.args, status: on === undefined ? "approved" : "blocked", ...(on === undefined ? {} : { on }) });
       continue;
     }
     const allow = mergeAllow(await input.allow(call.name), held.get(call.name));
     const hit = await permitted(checked.tool, checked.args, allow, input.nowMs, input.ctx);
-    if (hit.permitted) out.push({ ...base, args: checked.args, status: "covered", keys: hit.keys });
+    if (hit.permitted) {
+      const on = await checked.tool.waitingOn?.(checked.args, id);
+      out.push({ ...base, args: checked.args, status: on === undefined ? "covered" : "blocked", keys: hit.keys, ...(on === undefined ? {} : { on }) });
+    }
     else out.push({ ...base, args: checked.args, status: "ask", keys: (await checked.tool.allowKeys?.(checked.args, input.ctx)) ?? null });
   }
   return out;
@@ -173,7 +182,9 @@ export async function foldTip(input: TipInput): Promise<TipState> {
   if (open.length > 0) {
     const calls = await classifyCalls(input, open);
     const question = calls.find((c) => c.status === "ask");
-    return question === undefined ? { kind: "run", calls } : { kind: "needs_approval", calls, question };
+    if (question !== undefined) return { kind: "needs_approval", calls, question };
+    const on = calls.flatMap((c) => (c.status === "blocked" && c.on !== undefined ? [c.on] : []));
+    return on.length > 0 ? { kind: "blocked", calls, on } : { kind: "run", calls };
   }
   const last = [...entries].reverse().find((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval");
   switch (last?.$tag) {

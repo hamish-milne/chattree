@@ -85,6 +85,8 @@ export interface LoopOptions extends TurnOptions {
   waitForApproval?: boolean;
   /** Milliseconds past a tool's own timeout before the loop stops the call itself. Default 5000. */
   toolGraceMs?: number;
+  /** Called before each request, between calls and the model's next look: the host's chance to deliver what happened meanwhile (a background subagent's report). */
+  beforeRequest?: () => Promise<void>;
 }
 
 export type LoopEvent =
@@ -105,12 +107,14 @@ export type LoopResult = {
    * `finished`: a tool ended the loop on purpose (its output said `finish`). `interrupted` / `cancelled`: the request was cut off or stopped (see `last`).
    * `stopped`: the user aborted while tools were running. `deadline`: the turn's time limit passed between or during calls.
    * `needs_approval`: a call waits for a decision (`waitForApproval`); `waiting` is the call.
+   * `blocked`: a call waits for another thread (`ToolOutput.waiting`); `blocked` is the call and the thread.
    */
-  status: "completed" | "interrupted" | "cancelled" | "stopped" | "deadline" | "finished" | "needs_approval";
+  status: "completed" | "interrupted" | "cancelled" | "stopped" | "deadline" | "finished" | "needs_approval" | "blocked";
   /** Requests made by this run. */
   requests: number;
   last?: TurnResult;
   waiting?: { callId: string; name: string; args: Record<string, unknown>; keys: string[] | null };
+  blocked?: { callId: string; name: string; on: string };
 };
 
 export class ToolsOutOfSync extends Error {
@@ -291,6 +295,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   const decisions = decisionsIn(entries);
   const held = threadGrantsIn(entries);
   let waiting: NonNullable<LoopResult["waiting"]> | undefined;
+  let blocked: NonNullable<LoopResult["blocked"]> | undefined;
 
   /** A person may take as long as they like to answer in place, so the lease is renewed while they are being asked. */
   const whileAsking = async <T>(ask: () => Promise<T>): Promise<T> => {
@@ -304,7 +309,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   };
 
   /** One call of a response (or a call a crashed loop left, for a tool that can resume): checks, approvals, execution, the result. True when the call ended the loop. */
-  const callOne = async function* (call: CallBlock): AsyncGenerator<LoopEvent, "next" | "finish" | "wait", void> {
+  const callOne = async function* (call: CallBlock): AsyncGenerator<LoopEvent, "next" | "finish" | "wait" | "blocked", void> {
     const t0 = now();
     yield { type: "tool.start", callId: call.call_id, name: call.name, args: (call.args ?? {}) as Record<string, unknown> };
     const checked = registry.check(call);
@@ -396,6 +401,10 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     try {
       const running = checked.tool.execute(checked.args, { signal, callId: call.call_id, workspace: convo.dir, host: convo.host, blobs: convo.store, lease: { follow: (branch) => lease.follow(followKey, branch) } });
       const res = timedOut === undefined ? await running : await Promise.race([running, timedOut]);
+      if (res !== "timeout" && !isStarted(res) && res.waiting !== undefined) {
+        blocked = { callId: call.call_id, name: call.name, on: res.waiting };
+        return "blocked";
+      }
       if (res === "timeout") {
         running.catch(() => undefined); // it was told to stop; whatever it does now is not the loop's concern
         out = { content: `The tool did not finish within ${allowed as number} seconds and was stopped.`, is_error: true };
@@ -438,6 +447,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     }
     const end = yield* callOne(call);
     if (end === "wait") return { status: "needs_approval", requests: 0, ...(waiting === undefined ? {} : { waiting }) };
+    if (end === "blocked") return { status: "blocked", requests: 0, ...(blocked === undefined ? {} : { blocked }) };
     if (end === "finish") resumedFinish = true;
   }
   if (resumedFinish) return { status: "finished", requests: 0 };
@@ -447,6 +457,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   let requests = 0;
   for (;;) {
     if (opts.jobs !== undefined) for (const j of await opts.jobs.flush()) yield { type: "job.event", ...j };
+    await opts.beforeRequest?.();
     requests++;
     await lease.busyFor(requestSeconds * 1000);
     yield { type: "request.start", n: requests };
@@ -478,6 +489,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       }
       const end = yield* callOne(call);
       if (end === "wait") return { status: "needs_approval", requests, last: result, ...(waiting === undefined ? {} : { waiting }) };
+      if (end === "blocked") return { status: "blocked", requests, last: result, ...(blocked === undefined ? {} : { blocked }) };
       if (end === "finish") finished = true;
     }
     if (finished) return { status: "finished", requests, last: result };

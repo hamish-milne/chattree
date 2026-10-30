@@ -1,35 +1,33 @@
 import type { Conversation } from "./conversation.ts";
-import { ALL } from "./approvals.ts";
-import { syncTools, type Approval, type ApprovalRequest, type LoopEvent, type LoopOptions } from "./loop.ts";
-import type { Run, ThreadRuns } from "./runs.ts";
+import { ALL, FOREVER } from "./approvals.ts";
+import { syncTools, type GrantStore } from "./loop.ts";
 import { ToolRegistry, type StartedJob, type Tool, type ToolOutput } from "./tools.ts";
 import { toolConventionProblems } from "./loop.ts";
 import { globRegex } from "./starter/run-keys.ts";
 import { approvalKey, childModel, describeModels, modelProperties, type ChildModel, type SubagentModel } from "./subagent-models.ts";
 import type { ModelSetup } from "./setup.ts";
+import type { ChatEntry } from "./entries.ts";
+import { inlineBlobs } from "./context-builder.ts";
 
 /**
  * The `subagent` tool (docs/tools.md, section 4.2). It hands a self-contained task to a fresh-context child on its own branch and
- * worktree and runs the child's loop as a run of the run manager. The child ends its work by calling its `merge` tool with a report: that
- * ends its loop without another request, the tool merges the child's branch into the caller's (the trunk wins) and the merge entry answers
- * the call. Because the end is a call and not the end of a turn, the user can stop the child, talk to it and let it carry on, and the call
- * stays open until the child reports (or the run is closed).
+ * worktree. The tool starts nothing: it makes the branch and, for a call that waits (the default), returns `waiting`, which ends the
+ * caller's loop cleanly (a context switch: nothing is held while the child works). Whoever pumps threads (`pump.ts`) runs the child's loop,
+ * asks its questions through the same queue as any thread's, and, when the child has handed back, runs the caller's loop again; the tool
+ * is called again (`resumable`), finds the child done and merges it (the trunk wins), and the merge entry answers the call.
  *
- * Recoverable: the child's branch is named from the call id, so a call that was running when the process died is run again by the loop
- * (`resumable`) and finds its branch: one that is merged already is returned, one that is not is carried on.
+ * The child ends its work by calling its `merge` tool with a report. That ends its loop without another request, and the report is read
+ * back from the child's transcript, so nothing about a child is kept in memory: a host that dies and starts again finds the same state.
+ * With `background: true` the call is answered at once (`started subagent <branch>`); the report arrives later as a `subagent_result`
+ * entry that the pump (or the caller's next request) delivers.
  */
 export interface SubagentDeps {
   /** The thread that makes the calls. */
   convo: Conversation;
-  /** The tools the child works with (its `merge` tool is added). */
+  /** The tools the child works with (its `merge` tool is added: `subagentChildRegistry`). */
   childRegistry: ToolRegistry;
-  runs: ThreadRuns;
-  /** How the child's loop is run: system prompt, approvals (labelled by `name`), owner and so on. The tool sets the rest. */
-  loopOptions(child: Conversation, name: string): Omit<LoopOptions, "registry" | "signal" | "jobs">;
   /** `review`: the user is asked before the child's `merge` runs (the report is in the question). Default `auto`. */
   merge?: "auto" | "review";
-  /** Every event of the child's loop, for a host that shows what the child does. */
-  onEvent?(name: string, event: LoopEvent): void;
   /** The models the parent may choose for a child (`subagent.models`, resolved). None: the child uses the parent's model and the tool has no `model` argument. */
   models?: readonly SubagentModel[];
   /** The adapter's own check of a model settings object for a provider: the problems, or none. Without it settings are not checked here. */
@@ -53,11 +51,8 @@ export const subagentBranch = (label: string | undefined, callId: string): strin
 /** Added to every brief, so the child knows how its work is handed back. */
 export const HAND_BACK = "When your task is done, call the merge tool with a summary of what you did and found. That is how your work is handed back; do not end with a plain reply.";
 
-export const NUDGE =
-  "You stopped without reporting. When your task is done, call the merge tool with a summary of what you did and found: that is how your work is handed back. Replying with text does not end the task.";
-
-/** What a child's `merge` tool takes and what it does: nothing but carry the report, the caller does the merging. */
-function reportTool(report: { summary?: string }): Tool {
+/** What a child's `merge` tool takes and what it does: nothing but end the child's loop; the report is read from the call. */
+function reportTool(): Tool {
   return {
     definition: {
       name: "merge",
@@ -65,28 +60,132 @@ function reportTool(report: { summary?: string }): Tool {
         "Hand your work back. Call this when your task is done (or cannot be done), instead of replying with text: `summary` is what the one who gave you the task will read, so say what you did, what you found and what to do next. Your file changes are merged into theirs.",
       input_schema: { type: "object", additionalProperties: false, required: ["summary"], properties: { summary: { type: "string", description: "Your report: what you did, what you found, anything left." } } },
     },
+    allowKeys: () => null,
     execute: (args) => {
       const summary = (args["summary"] as string).trim();
       if (summary === "") return Promise.resolve({ content: "summary must not be empty: say what you did and found", is_error: true });
-      report.summary = summary;
       return Promise.resolve({ content: "Handed back. Your work is finished.", finish: true });
     },
   };
 }
 
-type Driven = { ok: true; summary: string; child: Conversation; run: Run } | { ok: false; content: string };
+/** The registry a child works with: the leaf tools it was given, and the `merge` tool that hands its work back. */
+export function subagentChildRegistry(base: ToolRegistry): ToolRegistry {
+  return new ToolRegistry([...base.names().map((n) => base.get(n) as Tool), reportTool()]);
+}
+
+/**
+ * The child's grants as its loop sees them: those of `harness.yml`, and, unless the user is to review reports (`merge: review`), a standing
+ * yes for handing back, which needs no question.
+ */
+export function subagentGrants(base: GrantStore, mode: "auto" | "review" | undefined): GrantStore {
+  if (mode === "review") return base;
+  return {
+    allow: async (tool) => (tool === "merge" ? { all: FOREVER, ...((await base.allow(tool)) ?? {}) } : base.allow(tool)),
+    grant: (...a) => base.grant(...a),
+  };
+}
+
+const dec = new TextDecoder();
+
+/** What a child's transcript says about its work: handed back (with the report), given up on, or still going (or waiting for someone). */
+export type ChildState =
+  | { state: "handed_back"; summary: string }
+  | { state: "gave_up"; why: string }
+  /** It stopped with text and nobody has spoken to it: it is told once to hand its work back. */
+  | { state: "needs_nudge" }
+  | { state: "working" };
+
+export const NUDGE =
+  "You stopped without reporting. When your task is done, call the merge tool with a summary of what you did and found: that is how your work is handed back. Replying with text does not end the task.";
+const isNudge = (e: ChatEntry): boolean => e.$tag === "user" && JSON.stringify(e.content).includes(NUDGE.slice(0, 40));
+
+/** Read a child's state from its entries (all of them: the history before its own start is the parent's and is skipped). */
+export async function childState(child: Conversation, entries: readonly ChatEntry[]): Promise<ChildState> {
+  const start = entries.findLastIndex((e) => e.$tag === "branch_start" && e.context === "fresh");
+  const own = entries.slice(start + 1);
+  // Handed back: the last assistant entry called merge and the call has a result that is not an error.
+  for (let i = own.length - 1; i >= 0; i--) {
+    const e = own[i] as ChatEntry;
+    if (e.$tag !== "assistant") continue;
+    const call = e.blocks.find((b) => b.$tag === "tool_call" && b.name === "merge");
+    if (call?.$tag === "tool_call") {
+      const result = own.slice(i + 1).find((x) => x.$tag === "tool_result" && x.call_id === call.call_id);
+      if (result?.$tag === "tool_result" && !result.is_error) {
+        const args = (await inlineBlobs(call.args, async (ref) => dec.decode((await child.store.get(ref.sha256)) ?? new Uint8Array()))) as { summary?: unknown };
+        return { state: "handed_back", summary: typeof args.summary === "string" ? args.summary.trim() : "" };
+      }
+    }
+    break;
+  }
+  const last = [...own].reverse().find((e) => e.$tag !== "agent_setup" && e.$tag !== "approval");
+  const spoke = own.some((e) => e.$tag === "user" && !isNudge(e));
+  if (last?.$tag === "interrupted") return last.by === "user" ? { state: "working" } : { state: "gave_up", why: `it stopped with an error${last.error === undefined ? "" : `: ${last.error}`}` };
+  if (last?.$tag === "assistant" && !last.blocks.some((b) => b.$tag === "tool_call") && !spoke) {
+    return own.some(isNudge) ? { state: "gave_up", why: "it ended without handing its work back" } : { state: "needs_nudge" };
+  }
+  return { state: "working" };
+}
+
+type ChildFound = { found: false } | ({ found: true; child: string } & ChildState);
+
+/** Where a child stands, by its branch name: not made yet, or its state. */
+async function lookChild(convo: Conversation, name: string): Promise<ChildFound> {
+  if ((await convo.git.revParse(`refs/heads/${name}`)) === undefined) return { found: false };
+  const entries = (await convo.readEntriesAt(`refs/heads/${name}`)).flatMap((e) => (e.ok ? [e.value] : []));
+  const probe = await convo.openBranch(name).catch(() => undefined);
+  if (probe === undefined) return { found: true, child: name, state: "working" };
+  try {
+    return { found: true, child: name, ...(await childState(probe, entries)) };
+  } finally {
+    await probe.close().catch(() => undefined);
+  }
+}
+
+/** The call result that tells the caller a background child has started; delivery finds children by it. */
+export const SUBAGENT_STARTED = /^started subagent (\S+)/;
+
+/**
+ * Deliver the reports of background subagents that have finished: for each `started subagent` call of this thread that no merge has
+ * answered yet, a child that handed back is merged (a `subagent_result` entry, shown to the model as a message), and one that gave up is
+ * reported as a failed `job_event`. Returns how many were delivered. Safe to call at any time the thread is between requests.
+ */
+export async function deliverSubagents(convo: Conversation, opts: { review?: boolean } = {}): Promise<number> {
+  const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+  const done = new Set<string>();
+  for (const e of entries) {
+    if (e.$tag === "subagent_result") done.add(e.call_id);
+    else if (e.$tag === "job_event") done.add(e.call_id);
+  }
+  let delivered = 0;
+  for (const e of entries) {
+    if (e.$tag !== "tool_result" || typeof e.content !== "string" || done.has(e.call_id)) continue;
+    const m = SUBAGENT_STARTED.exec(e.content);
+    if (m === null) continue;
+    const name = (m[1] as string).replace(/[:.]$/, "");
+    const st = await lookChild(convo, name);
+    if (!st.found) continue;
+    if (st.state === "handed_back") {
+      await convo.finishSubagent(name, { summary: st.summary, callId: e.call_id });
+      delivered++;
+    } else if (st.state === "gave_up") {
+      await convo.append({ $tag: "job_event", job: name, call_id: e.call_id, status: "failed", summary: `subagent ${name} ${st.why}, so nothing was merged. Its work is on branch ${name}.` });
+      delivered++;
+    }
+  }
+  void opts;
+  return delivered;
+}
 
 export function subagentTool(deps: SubagentDeps): Tool {
-  const review = deps.merge === "review";
-
   /** The child starts with the parent's setup, except for the model when the call chose one (and then its provider's prices are pinned). */
   const setupChild = async (child: Conversation, model: ModelSetup | undefined): Promise<void> => {
     await deps.convo.copySetupTo(child, "subagent", model === undefined ? {} : { model });
     if (model !== undefined && model.provider !== (await deps.convo.setup()).model?.provider) await child.pinPricing(model.provider);
   };
 
-  const drive = async (brief: string, label: string | undefined, callId: string, signal: AbortSignal, model: ModelSetup | undefined): Promise<Driven> => {
-    const name = subagentBranch(label, callId);
+  /** Make the child's branch (or find the one an earlier execution of this call made) and pin its tools; false when the workspace could not be made. */
+  const prepare = async (brief: string, name: string, callId: string, model: ModelSetup | undefined): Promise<boolean> => {
     const branches = await deps.convo.listBranches();
     let child: Conversation;
     if (branches.some((b) => b.name === name)) {
@@ -95,70 +194,16 @@ export function subagentTool(deps: SubagentDeps): Tool {
       if ((await child.setup()).model === undefined) await setupChild(child, model);
     } else {
       const spawned = await deps.convo.spawnSubagent({ brief: `${brief}\n\n${HAND_BACK}`, callId, name });
-      if (spawned.conversation === undefined) return { ok: false, content: "the subagent's workspace could not be created" };
+      if (spawned.conversation === undefined) return false;
       child = spawned.conversation;
       await setupChild(child, model);
     }
-    const report: { summary?: string } = {};
-    const registry = new ToolRegistry([...deps.childRegistry.names().map((n) => deps.childRegistry.get(n) as Tool), reportTool(report)]);
-    await syncTools(child, registry);
-    const base = deps.loopOptions(child, name);
-    const inner = base.approve;
-    // In `auto` mode handing the work back needs no question; everything else asks as the host decides, and without a host it is declined.
-    const approve = (req: ApprovalRequest): Promise<Approval> => (req.name === "merge" && !review ? Promise.resolve({ allow: true }) : inner === undefined ? Promise.resolve({ allow: false }) : inner(req));
-    const opts = { grants: child.grantStore(), ...base, approve, registry };
-    const existing = deps.runs.get(name);
-    const run = existing ?? deps.runs.start(child, opts, { kind: "subagent", label: name });
-    if (deps.onEvent !== undefined) run.subscribe((e) => deps.onEvent?.(name, e), { replay: true });
-    const stop = (): void => run.close();
-    if (signal.aborted) stop();
-    else signal.addEventListener("abort", stop, { once: true });
     try {
-      let nudged = false;
-      let first = true;
-      for (;;) {
-        const end = await run.cycleEnd({ next: !first });
-        first = false;
-        if (end === undefined) return { ok: false, content: `The subagent was stopped before it finished, so nothing was merged. Its work so far is on branch ${name}.` };
-        if ("error" in end) {
-          run.close();
-          return { ok: false, content: `The subagent stopped with an error and nothing was merged: ${end.error instanceof Error ? end.error.message : (end.error instanceof Error ? end.error.stack : String(end.error))}. Its work is on branch ${name}.` };
-        }
-        const result = end.result as NonNullable<typeof end.result>;
-        const status = result.status;
-        if (status === "finished" && report.summary !== undefined) return { ok: true, summary: report.summary, child, run };
-        // Has the user spoken in the child's branch? Only the entries since its own start count (the history before it is the parent's).
-        const own = (await child.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-        const start = own.findLastIndex((e) => e.$tag === "branch_start" && e.context === "fresh");
-        const nudgeText = (e: (typeof own)[number]): boolean => e.$tag === "user" && JSON.stringify(e.content).includes(NUDGE.slice(0, 40));
-        const spoke = own.slice(start + 1).some((e) => e.$tag === "user" && !nudgeText(e));
-        const interrupted = status === "stopped" || status === "cancelled" || (status === "interrupted" && result.last?.status === "interrupted" && result.last.by === "user");
-        if (status === "completed" && !spoke && !interrupted) {
-          if (nudged) {
-            run.close();
-            return { ok: false, content: `The subagent ended without handing its work back, so nothing was merged. Its work is on branch ${name}.` };
-          }
-          nudged = true;
-          await child.append({ $tag: "user", content: [{ $tag: "text", text: NUDGE }] });
-          run.resume();
-          continue;
-        }
-        if (!spoke && !interrupted) {
-          run.close();
-          return { ok: false, content: `The subagent did not finish (${status}), so nothing was merged. Its work so far is on branch ${name}.` };
-        }
-        // The user stopped it or has been talking to it: the call stays open until it hands its work back or the run is closed.
-      }
+      await syncTools(child, subagentChildRegistry(deps.childRegistry));
     } finally {
-      signal.removeEventListener("abort", stop);
+      await child.close().catch(() => undefined);
     }
-  };
-
-  const merged = async (d: Extract<Driven, { ok: true }>, callId: string): Promise<string> => {
-    const outcome = await deps.convo.finishSubagent(d.child, { summary: d.summary, callId });
-    d.run.close();
-    const dropped = outcome.report.discarded;
-    return `Subagent ${d.child.branch} finished. ${outcome.report.changed.length + outcome.report.added.length} file(s) merged${dropped.length > 0 ? `; kept your version of ${dropped.join(", ")}` : ""}.\n${d.summary}`;
+    return true;
   };
 
   const models = deps.models ?? [];
@@ -173,8 +218,8 @@ export function subagentTool(deps: SubagentDeps): Tool {
   return {
     resumable: true,
     background: true,
-    // The call lasts as long as the child's work does: it follows the child's lease instead of having a time of its own.
-    timeout: () => "thread",
+    // The call only makes the branch and either merges a finished child or says it waits: it does not last as long as the child's work.
+    timeout: () => 120,
     definition: {
       name: "subagent",
       description:
@@ -207,6 +252,12 @@ export function subagentTool(deps: SubagentDeps): Tool {
       return hit === undefined ? undefined : [hit];
     },
     validateKey: (key) => (key === "inherit" || /^[^\s@]+\/[^\s@]*@[^\s@]+$/.test(key) ? undefined : "write it as provider/model@level (globs allowed, for example anthropic/claude-haiku-*@*), or inherit"),
+    waitingOn: async (args, callId) => {
+      const name = subagentBranch(args["name"] as string | undefined, callId);
+      if (args["background"] === true) return undefined;
+      const st = await lookChild(deps.convo, name);
+      return st.found && (st.state === "working" || st.state === "needs_nudge") ? name : undefined;
+    },
     execute: async (args, ctx): Promise<ToolOutput | StartedJob> => {
       const brief = args["brief"] as string;
       const label = args["name"] as string | undefined;
@@ -220,33 +271,31 @@ export function subagentTool(deps: SubagentDeps): Tool {
         const unsupported = toolConventionProblems(deps.convo, deps.childRegistry, choice.model);
         if (unsupported.tools.length > 0) return { content: `${choice.key} cannot be given the subagent's tools (its tool convention is ${unsupported.convention}: ${unsupported.tools.map((t) => `${t.name}: ${t.why.join(", ")}`).join("; ")})`, is_error: true };
       }
-      if (args["background"] !== true) {
-        await ctx.lease?.follow(subagentBranch(label, ctx.callId));
-        const d = await drive(brief, label, ctx.callId, ctx.signal, choice.model);
-        if (!d.ok) return { content: d.content, is_error: true };
-        return { content: await merged(d, ctx.callId), recorded: true };
+      const name = subagentBranch(label, ctx.callId);
+      if (!(await prepare(brief, name, ctx.callId, choice.model))) return { content: "the subagent's workspace could not be made", is_error: true };
+      if (args["background"] === true) return { content: `started subagent ${name}. You will be told when it is done.` };
+      const st = await lookChild(deps.convo, name);
+      if (!st.found || st.state === "working" || st.state === "needs_nudge") {
+        // The child is somebody else's turn now: this thread lets go, and runs again when the child has handed back.
+        return { content: "", waiting: name };
       }
-      // A background subagent is not tied to the turn that started it: its own abort controller, stopped by the job's stop.
-      const ac = new AbortController();
-      let driven: Driven | undefined;
-      const done = drive(brief, label, ctx.callId, ac.signal, choice.model).then((d): ToolOutput => {
-        driven = d;
-        return d.ok ? { content: d.summary } : { content: d.content, is_error: true };
-      });
-      return {
-        started: {
-          lease: { follows: subagentBranch(label, ctx.callId) },
-          summary: `subagent ${subagentBranch(label, ctx.callId)}`,
-          done,
-          stop: () => ac.abort(),
-          // At the moment the job's event would be committed, merge and let that entry report the job.
-          settle: async () => {
-            if (driven === undefined || !driven.ok) return;
-            await merged(driven, ctx.callId);
-            return { recorded: true };
-          },
-        },
-      };
+      if (st.state === "gave_up") return { content: `subagent ${name} ${st.why}, so nothing was merged. Its work is on branch ${name}.`, is_error: true };
+      await deps.convo.finishSubagent(name, { summary: st.summary, callId: ctx.callId });
+      return { content: st.summary, recorded: true };
     },
   };
+}
+
+/** For `PumpHooks.idle` on a subagent's thread: the message that tells a child that stopped without reporting to hand its work back (once). */
+export async function subagentNudge(child: Conversation, entries: readonly ChatEntry[]): Promise<string | undefined> {
+  const st = await childState(child, entries);
+  return st.state === "needs_nudge" ? NUDGE : undefined;
+}
+
+/** For `PumpHooks.auto`: a subagent's thread that has work to do on its own, as against one that has handed back, given up, or is waiting for somebody. */
+export async function subagentAuto(child: Conversation, entries: readonly ChatEntry[]): Promise<boolean> {
+  const start = entries.findLastIndex((e) => e.$tag === "branch_start" && e.context === "fresh");
+  const marker = entries[start];
+  if (marker?.$tag !== "branch_start" || marker.kind !== "subagent") return false;
+  return (await childState(child, entries)).state === "working";
 }

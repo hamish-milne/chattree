@@ -131,6 +131,10 @@ async function runPlain(engine: Engine, io: Io): Promise<number> {
       if (o.type === "error" || (o.type === "request_end" && o.status !== "completed")) failed = true;
       await render.render(o);
     }
+    await engine.settleWithoutTerminal(async (o) => {
+      if (o.type === "error" || (o.type === "request_end" && o.status !== "completed")) failed = true;
+      await render.render(o);
+    });
     for (const n of engine.notices.splice(0)) io.err(`[${n}]\n`);
   };
   for (const raw of lines) {

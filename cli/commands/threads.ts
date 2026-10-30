@@ -21,6 +21,7 @@ async function* moveTo(ctx: Ctx, convo: Conversation, thread: string, why: strin
   ctx.engine.rebind({ convo, thread, ...(ctx.engine.degraded === undefined ? {} : { degraded: ctx.engine.degraded }) });
   await old.close().catch(() => undefined);
   yield { type: "notice", message: why };
+  if (ctx.engine.followRun(thread)) yield { type: "notice", message: `a run here is working on ${thread}; what it does is shown above the prompt (/runs stop ${thread} stops it)` };
   const recent = await recentEntries(ctx.engine);
   if (recent.length > 0) yield { type: "text", text: recent.join("\n") };
 }

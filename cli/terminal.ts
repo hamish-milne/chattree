@@ -104,6 +104,7 @@ export class Terminal {
     this.#engine.onNotice = () => this.#flushNotices();
     this.#engine.prefill = (text) => this.#rl.write(text);
     this.#engine.childLine = (text) => this.#emit(this.#style.dim(text));
+    this.#engine.onQuestion = () => this.#drain();
     this.#engine.onResume = () => {
       this.#chain = this.#chain.then(() => this.#dispatchResume());
     };
@@ -153,7 +154,7 @@ export class Terminal {
    */
   async #ask(question: string, fallback?: string): Promise<string> {
     const stop = this.#engine.abort?.signal;
-    if (stop?.aborted === true) return fallback ?? "";
+    if (stop?.aborted === true || this.#engine.escaped) return fallback ?? "";
     const wasMuted = this.#gate.muted;
     this.#stopSpinner();
     this.#gate.muted = false;
@@ -251,6 +252,19 @@ export class Terminal {
   #flushNotices(): void {
     const notes = this.#engine.notices.splice(0);
     if (notes.length > 0) this.print(`${notes.map((n) => this.#style.dim(`[${n}]`)).join("\n")}\n`);
+  }
+
+  /** Questions are waiting (from this thread or another) and nothing is running here: ask them, labelled, one at a time. What was half-typed stays. */
+  #drain(): void {
+    if (this.#closing || this.#engine.running || this.#engine.questions().length === 0) return;
+    this.#chain = this.#chain.then(async () => {
+      if (this.#closing || this.#engine.running) return;
+      const typed = this.#rl.line;
+      await this.#engine.drainQuestions();
+      this.#flushNotices();
+      this.#showPrompt();
+      if (typed !== "") this.#rl.write(typed);
+    });
   }
 
   /** A background job ended while idle and `background.resume` is on: let the model react. */
@@ -395,6 +409,7 @@ export class Terminal {
   #onInterrupt(): void {
     if (this.#selecting !== undefined) {
       // Ctrl-C at a question gives the default answer, and stops the turn the question belongs to.
+      this.#engine.escaped = true;
       this.#selecting({ name: "escape" });
       if (this.#engine.running) void this.#dispatch("/abort");
       return;
@@ -465,6 +480,7 @@ export class Terminal {
     this.#engine.prefill = undefined;
     this.#engine.childLine = undefined;
     this.#engine.onResume = undefined;
+    this.#engine.onQuestion = undefined;
     this.#tty.output.write(`${BRACKETED_PASTE_OFF}`);
     this.#done();
   }

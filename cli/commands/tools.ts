@@ -143,7 +143,7 @@ const runs: Command = {
   async complete(ctx, previous, partial) {
     const set = await ctx.engine.toolset();
     if (previous.length === 0) return ["stop", "say", "close"].filter((v) => v.startsWith(partial));
-    if (previous.length === 1) return (set?.runs.list() ?? []).map((r) => r.branch).filter((b) => b.startsWith(partial));
+    if (previous.length === 1) return [...(set?.runs.list() ?? []), ...(ctx.engine.pump()?.runs.list() ?? [])].map((r) => r.branch).filter((b) => b.startsWith(partial));
     return [];
   },
   async *run(ctx, args, rest) {
@@ -152,14 +152,16 @@ const runs: Command = {
       yield { type: "notice", message: "this session gives the model no tools" };
       return;
     }
+    // A fork that works by itself runs in the tool set; subagents run in the pump.
+    const groups = [set.runs, ...(ctx.engine.pump() === undefined ? [] : [(ctx.engine.pump() as NonNullable<ReturnType<typeof ctx.engine.pump>>).runs])];
     if (args.length === 0) {
-      const list = set.runs.list();
+      const list = groups.flatMap((g) => g.list());
       const now = ctx.io.now();
       yield { type: "text", text: list.length === 0 ? "no runs" : list.map((r) => `${r.branch}  ${r.kind}  ${r.state}  ${r.cycles} run${r.cycles === 1 ? "" : "s"}  ${Math.max(0, Math.round((now - r.startedAt) / 1000))}s`).join("\n") };
       return;
     }
     const [verb, which] = args;
-    const run = which === undefined ? undefined : (set.runs.get(which) ?? set.runs.list().filter((r) => r.branch.startsWith(which)).map((r) => set.runs.get(r.branch)).find((r) => r !== undefined));
+    const run = which === undefined ? undefined : groups.flatMap((g) => [g.get(which) ?? g.list().filter((r) => r.branch.startsWith(which)).map((r) => g.get(r.branch)).find((r) => r !== undefined)]).find((r) => r !== undefined);
     if (verb !== "stop" && verb !== "say" && verb !== "close") {
       yield { type: "error", message: `${verb} is not stop, say or close`, hint: "/runs  |  /runs stop <branch>  |  /runs say <branch> <message>  |  /runs close <branch>" };
       return;
@@ -169,7 +171,7 @@ const runs: Command = {
       return;
     }
     if (verb === "stop") {
-      yield run.state === "running" ? (set.runs.abort(run.branch), { type: "notice" as const, message: `stopping ${run.branch}; /runs say ${run.branch} <message> talks to it, /runs close ${run.branch} ends it` }) : { type: "error" as const, message: `${run.branch} is ${run.state}, not running` };
+      yield run.state === "running" ? (run.abort(), { type: "notice" as const, message: `stopping ${run.branch}; /runs say ${run.branch} <message> talks to it, /runs close ${run.branch} ends it` }) : { type: "error" as const, message: `${run.branch} is ${run.state}, not running` };
       return;
     }
     if (verb === "close") {
@@ -187,7 +189,12 @@ const runs: Command = {
       return;
     }
     await run.convo.append({ $tag: "user", content: [{ $tag: "text", text }] });
-    run.resume();
+    const pump = ctx.engine.pump();
+    if (pump !== undefined && pump.runs.get(run.branch) === run) {
+      // The pump's own run: it is let go of, and looked at again, so that what the run does next (hand back, ask) is seen.
+      pump.release(run.branch);
+      await pump.tick([run.branch]);
+    } else run.resume();
     yield { type: "notice", message: `sent to ${run.branch}, which carries on` };
   },
 };
