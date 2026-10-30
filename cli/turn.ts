@@ -23,6 +23,8 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   const ac = new AbortController();
   engine.abort = ac;
   engine.running = true;
+  engine.cleanTurn = false;
+  engine.pump()?.release(engine.thread);
   if (engine.takeStopNext()) ac.abort();
   try {
     let drift: ChangeKind[] = [];
@@ -158,6 +160,7 @@ async function* toolLoop(
     for (const w of o.warnings.splice(0)) yield { type: "warning", message: w };
     if (n.done) {
       const r = n.value;
+      if (r.status === "completed" || r.status === "finished" || r.status === "needs_approval" || r.status === "blocked") engine.cleanTurn = true;
       if (r.status === "stopped") yield { type: "notice", message: "stopped; the calls that had not run were answered as not run" };
       else if (r.status === "deadline") yield { type: "notice", message: "the turn's time limit passed; the calls that had not run were answered as not run" };
       else if (r.status === "needs_approval") yield { type: "notice", message: "waiting for your answer" };

@@ -10,11 +10,12 @@ import type { Session, SessionStore } from "./session.ts";
 import { summarizeCall } from "./tool-lines.ts";
 import { createFork } from "./commands/threads.ts";
 import { buildToolSet, makeApprover, type ToolSet } from "./toolset.ts";
-import type { Approval, LoopEvent } from "../harness/loop.ts";
+import { syncTools, toolDrift, type Approval, type LoopEvent } from "../harness/loop.ts";
 import { Pump, type Question } from "../harness/pump.ts";
 import type { RunOptions } from "../harness/runs.ts";
-import { deliverSubagents, subagentAuto, subagentChildRegistry, subagentGrants, subagentNudge } from "../harness/subagent.ts";
+import { deliverSubagents, subagentChildRegistry, subagentGrants, subagentNudge } from "../harness/subagent.ts";
 import type { ChatEntry } from "../harness/entries.ts";
+import { deliverForks } from "../harness/fork-tools.ts";
 import { openThread } from "./project.ts";
 
 /** A file staged for the next prompt. Only the path and what was decided about it are kept; the blob is made when the prompt is sent. */
@@ -82,6 +83,8 @@ export interface EngineOptions {
   tools?: boolean;
   /** Asks the user a question (the terminal's own prompt, for approvals). Default: `io.ask`. */
   ask?: AskFn;
+  /** No screen: the pump runs this thread too (`chattree run`), with its background jobs, instead of leaving it to a terminal. */
+  headless?: boolean;
 }
 
 export const DEFAULT_SYSTEM = "You are a helpful assistant. The conversation is stored in a git repository; be concise and say plainly when you are unsure.";
@@ -144,7 +147,14 @@ export class Engine {
   readonly #toolsets = new WeakMap<Conversation, Promise<ToolSet>>();
   /** The user pressed Ctrl-C at the question being asked: the answer is no, and nothing carries on afterwards (the terminal sets it). */
   escaped = false;
+  /** A message is being put in the transcript and its turn is about to start: the pump must not start one too. */
+  sending = false;
   #stopNext = false;
+  /** The turn that just ended went as far as it could (the model answered, it waited for a question or another thread); false when it was stopped, refused or failed. */
+  cleanTurn = false;
+  /** Threads this session has looked at after a turn: a message already waiting on one that has not been looked at is not sent unasked (a refused or abandoned send). */
+  readonly #seen = new Map<string, string | undefined>();
+  readonly #headless: boolean;
   #unfollow: (() => void) | undefined;
   #pump: Pump | undefined;
   #asking = false;
@@ -164,6 +174,7 @@ export class Engine {
     this.registry = new Registry(defaultCommands());
     this.#confirm = o.confirm ?? (async () => false);
     this.tools = o.tools === true;
+    this.#headless = o.headless === true;
     // Without a terminal prompt of our own, choices become a line of text ("[y] yes  [n] no") and the answer is typed.
     const plain = o.io.ask?.bind(o.io);
     this.ask = o.ask ?? (plain === undefined ? undefined : (q, fallback, choices) => plain(choices === undefined ? q : `${q}\n  ${choiceMenu(choices)}\n>`, fallback));
@@ -182,7 +193,7 @@ export class Engine {
           for (const e of events) this.notices.push(`background job ${e.job} ${e.status}: ${e.summary}; your next message will report the result`);
           this.onNotice?.();
         },
-        onResume: () => this.onResume?.(),
+        onResume: () => this.#wantResume(),
         createFork: (name) => createFork(this.io, this.project, convo, name),
         onForkDraft: (branch, message) => {
           const name = `fork-${branch.replace(/[^A-Za-z0-9_-]+/g, "-")}`;
@@ -190,10 +201,7 @@ export class Engine {
           this.notices.push(`the model started ${branch} and left a first message for it as draft ${name}; /thread ${branch}, then /send ${name}`);
           this.onNotice?.();
         },
-        childLoop: (name) => {
-          const ask = this.ask;
-          return { system: this.system, ...(ask === undefined ? {} : { approve: makeApprover(ask, name) }), owner: localOwner(this.sessionId) };
-        },
+        pumped: true,
       });
       // A set that could not be built (no busybox) is built again next time, once the user has dealt with it.
       p.catch(() => {
@@ -218,14 +226,16 @@ export class Engine {
           return (await this.convo.listBranches()).filter((b) => !b.archived && !merged.has(b.name)).map((b) => b.name);
         },
         loop: (convo) => this.#loopFor(convo),
-        auto: subagentAuto,
+        resume: async () => (await this.toolset())?.resume === true,
         idle: subagentNudge,
-        deliver: (convo) => deliverSubagents(convo),
-        leave: (convo) => convo.branch === this.thread,
-        onWanted: (branch) => {
-          if (branch !== this.thread || this.running || this.#wanted) return;
-          this.#wanted = true;
-          this.onResume?.();
+        deliver: async (convo) => (await deliverSubagents(convo)) + (await deliverForks(convo)),
+        leave: (convo) => !this.#headless && convo.branch === this.thread,
+        onWanted: (branch, at) => {
+          if (branch !== this.thread || this.running || this.sending) return;
+          // What was owed when this session opened is the user's to send (`/retry`); only what arrives or is answered afterwards runs by itself.
+          if (!this.#seen.has(branch)) this.#seen.set(branch, at);
+          if (this.#seen.get(branch) === at) return;
+          this.#wantResume();
         },
         onEvent: (branch, e) => this.#childEvent(branch, e),
         onQuestions: () => this.onQuestion?.(),
@@ -239,11 +249,20 @@ export class Engine {
     const entries: ChatEntry[] = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
     const start = entries.findLast((e) => e.$tag === "branch_start" && e.context === "fresh");
     const sub = start?.$tag === "branch_start" && start.kind === "subagent";
-    if (convo.branch !== this.thread && !sub) return undefined;
     const set = await this.toolset();
     if (set === undefined) return undefined;
     const owner = localOwner(this.sessionId);
-    if (!sub) return { system: this.system, registry: set.registry, grants: convo.grantStore(), owner };
+    if (convo.branch !== this.thread && !sub) {
+      // A thread the user is not on: run it only if its pinned tools are exactly the ones this session would give a child (a fork that works by itself).
+      const d = await toolDrift(convo, set.childRegistry);
+      if (d.missing.length + d.changed.length + d.extra.length > 0) return undefined;
+      return { system: this.system, registry: set.childRegistry, grants: convo.grantStore(), owner, standing: this.standing };
+    }
+    if (!sub) {
+      // No screen to pin the tools before a message is sent, so it is done here; a failure shows when the loop runs and is held.
+      if (this.#headless) await syncTools(convo, set.registry).catch(() => undefined);
+      return { system: this.system, registry: set.registry, grants: convo.grantStore(), owner, ...(this.#headless ? { jobs: set.jobs, standing: this.standing } : {}) };
+    }
     return { system: this.system, registry: subagentChildRegistry(set.childRegistry), grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };
   }
 
@@ -260,6 +279,13 @@ export class Engine {
     if (run?.state !== "running") return false;
     this.#unfollow = run.subscribe((e) => this.#childEvent(branch, e), { replay: true });
     return true;
+  }
+
+  /** The thread should run a request now (a job ended, a report arrived, an answer was recorded). Asked once until it has: two sources that notice the same thing start one turn. */
+  #wantResume(): void {
+    if (this.#wanted) return;
+    this.#wanted = true;
+    this.onResume?.();
   }
 
   /** The questions waiting, from every thread the pump looks at. */
@@ -327,6 +353,9 @@ export class Engine {
 
   /** The turn ended: other threads may need looking at (a child to run, a question to ask). */
   turnEnded(): void {
+    this.#seen.set(this.thread, undefined);
+    // A turn that was stopped, refused or failed is not started again by the pump just because the thread is still owed a request.
+    if (!this.cleanTurn) this.#pump?.hold(this.thread, "the last turn did not finish; send a message or /retry");
     void this.#pump?.tick().catch(() => undefined);
   }
 

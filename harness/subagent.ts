@@ -291,11 +291,3 @@ export async function subagentNudge(child: Conversation, entries: readonly ChatE
   const st = await childState(child, entries);
   return st.state === "needs_nudge" ? NUDGE : undefined;
 }
-
-/** For `PumpHooks.auto`: a subagent's thread that has work to do on its own, as against one that has handed back, given up, or is waiting for somebody. */
-export async function subagentAuto(child: Conversation, entries: readonly ChatEntry[]): Promise<boolean> {
-  const start = entries.findLastIndex((e) => e.$tag === "branch_start" && e.context === "fresh");
-  const marker = entries[start];
-  if (marker?.$tag !== "branch_start" || marker.kind !== "subagent") return false;
-  return (await childState(child, entries)).state === "working";
-}

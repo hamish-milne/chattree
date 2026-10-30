@@ -25,6 +25,8 @@ export interface ToolSet {
   childRegistry: ToolRegistry;
   /** Whether the user reads a subagent's report before it is merged (`subagent.merge`). */
   merge: "auto" | "review";
+  /** `background.resume`: a request is sent when something ended while idle. */
+  resume: boolean;
 }
 
 export interface ToolSetHooks {
@@ -43,7 +45,8 @@ export interface ToolSetHooks {
   createFork?: ForkDeps["createFork"];
   /** The first message the model gave a fork it made. */
   onForkDraft?: ForkDeps["onDraft"];
-  childLoop?(name: string): { system: string; approve?: (request: ApprovalRequest) => Promise<Approval>; owner?: { pid?: number; session?: string } };
+  /** Threads are pumped here (`Engine.pump`): the model may start subagents, and forks that run by themselves. */
+  pumped?: boolean;
 }
 
 /**
@@ -97,12 +100,12 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
     const r = await def.settings["~standard"].validate(settings);
     return r.issues === undefined ? [] : r.issues.map((i) => `${(i.path ?? []).map((q) => (typeof q === "object" ? q.key : q)).join(".") || "settings"}: ${i.message}`);
   };
-  const meta = hooks.childLoop === undefined ? [] : [subagentTool({ convo, childRegistry, models: chosen.models, validateSettings, merge: config?.subagent.merge ?? "auto" })];
-  const auto = hooks.childLoop === undefined ? undefined : { runs, childRegistry, loopOptions: (_c: Conversation, name: string) => (hooks.childLoop as NonNullable<ToolSetHooks["childLoop"]>)(name) };
+  const meta = hooks.pumped !== true ? [] : [subagentTool({ convo, childRegistry, models: chosen.models, validateSettings, merge: config?.subagent.merge ?? "auto" })];
+  const auto = hooks.createFork === undefined || hooks.pumped !== true ? undefined : { childRegistry };
   const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(auto === undefined ? {} : { auto }), ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
   const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));
-  return { registry, jobs, runs, childRegistry, merge: config?.subagent.merge ?? "auto" };
+  return { registry, jobs, runs, childRegistry, merge: config?.subagent.merge ?? "auto", resume: config?.background.resume === true };
 }
 
 /** The user's answer to "may this call run?", as a loop approval. */

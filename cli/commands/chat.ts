@@ -37,18 +37,30 @@ export async function* sendMessage(ctx: Ctx, text: string, sent: () => void): As
     const r = await ctx.convo.recoverRequest();
     if (r !== undefined) yield { type: "notice", message: `recovered a request that was cut off (${r.outcome})` };
   }
+  ctx.engine.sending = true;
   try {
     await ctx.engine.prepareTools();
     const files = await materialize(ctx);
     const content = [...(text === "" ? [] : [{ $tag: "text" as const, text }]), ...files];
     await ctx.convo.append({ $tag: "user", content });
   } catch (e) {
+    ctx.engine.sending = false;
     yield failure(e);
     return;
   }
   ctx.state.attachments = [];
   sent();
-  yield* runTurn(ctx);
+  const turn = runTurn(ctx);
+  // The turn marks itself running as soon as it starts; only then is the pump's own look at the thread safe to ignore.
+  try {
+    const first = await turn.next();
+    ctx.engine.sending = false;
+    if (first.done === true) return;
+    yield first.value;
+    yield* turn;
+  } finally {
+    ctx.engine.sending = false;
+  }
 }
 
 const say: Command = {
@@ -89,13 +101,18 @@ const cont: Command = {
   usage: "/continue [instruction]",
   busy: "blocked",
   async *run(ctx, _args, rest) {
+    ctx.engine.sending = true;
     try {
-      await ctx.convo.continueInterrupted(rest.trim() === "" ? {} : { instruction: rest.trim() });
-    } catch (e) {
-      yield failure(e);
-      return;
+      try {
+        await ctx.convo.continueInterrupted(rest.trim() === "" ? {} : { instruction: rest.trim() });
+      } catch (e) {
+        yield failure(e);
+        return;
+      }
+      yield* runTurn(ctx);
+    } finally {
+      ctx.engine.sending = false;
     }
-    yield* runTurn(ctx);
   },
 };
 

@@ -7,6 +7,7 @@ import { PlainRenderer, type Thinking, type ToolView } from "./output.ts";
 import { findProject, openThread } from "./project.ts";
 import { SessionStore } from "./session.ts";
 import { runChat } from "./chat.ts";
+import { runRunner } from "./run.ts";
 import { Registry } from "./registry.ts";
 
 const OPTIONS = {
@@ -29,6 +30,7 @@ const OPTIONS = {
   name: { type: "string" },
   adopt: { type: "boolean" },
   force: { type: "boolean" },
+  once: { type: "boolean" },
 } as const;
 
 const HELP = `chattree: conversations with models, kept in git
@@ -39,6 +41,8 @@ usage: chattree [-C dir] [-t thread] <verb> [arguments]
                      --key-env, --name <first thread>, --adopt for an existing repository, --force for a nested one)
   chat [thread]      the interactive session (--session <id> resumes one, --new-session starts another;
                      --plain reads lines from standard input: for scripts)
+  run                run every thread that can go on without a person (subagents, forks, answered questions), until
+                     stopped (--once: do what can be done now and leave; status 3 means questions are waiting)
   say <text>         send a message and print the reply ("-" reads standard input; --attach <file> may repeat)
 
 Any session command works as a verb too (chattree status, chattree history 20, chattree threads archived,
@@ -87,6 +91,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       return 0;
     }
     const registry = new Registry(defaultCommands());
+    if (verb === "run") return await runRunner(where, start, { thread: values.thread ?? args[0], once: values.once === true });
     if (verb === "chat") {
       if (values.thinking !== undefined && !["on", "off", "brief"].includes(values.thinking)) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
       if (values.tools !== undefined && !["full", "brief", "off"].includes(values.tools)) throw new CliError(`--tools takes full, brief or off, not ${values.tools}`);

@@ -21,8 +21,11 @@ export interface PumpHooks {
   threads(): Promise<string[]>;
   /** How this thread's loop is run, or undefined to leave the thread alone (a screen has it). Must set `registry`; `waitForApproval` is set by the pump. */
   loop(convo: Conversation): Promise<RunOptions | undefined>;
-  /** Whether the pump may start this thread's loop with no decision made by anybody (a `ready` thread: a subagent given its brief). Default: no. */
-  auto?(convo: Conversation, entries: readonly ChatEntry[]): boolean | Promise<boolean>;
+  /**
+   * Whether a thread that is owed a request only because something happened (a job ended, a subagent reported: `background.resume`) is
+   * run. Something a person did (a message, a brief) always is. Default: no.
+   */
+  resume?(convo: Conversation): boolean | Promise<boolean>;
   /** A thread is waiting for its next message with nothing owed: the text of a user message to send it, or undefined (a subagent that stopped without reporting). */
   idle?(convo: Conversation, entries: readonly ChatEntry[]): Promise<string | undefined>;
   /** Called with the thread, before its state is looked at, so work that others left for it can be done (a background subagent's report). */
@@ -30,7 +33,7 @@ export interface PumpHooks {
   /** A thread a screen has (the one the user is on): the pump looks at it, asks its questions and says when it would run it (`onWanted`), but never starts its loop. */
   leave?(convo: Conversation): boolean;
   /** A thread that `leave` kept would have been run now: its owner should run it. */
-  onWanted?(branch: string): void;
+  onWanted?(branch: string, at: string | undefined): void;
   onEvent?(branch: string, event: LoopEvent): void;
   onEnd?(branch: string, end: CycleEnd): void;
   /** The set of questions changed. */
@@ -146,7 +149,7 @@ export class Pump {
     const wants = await this.#wants(convo, tip);
     if (wants === undefined) return;
     if (this.#hooks.leave?.(convo) === true) {
-      this.#hooks.onWanted?.(branch);
+      this.#hooks.onWanted?.(branch, wants.at);
       return;
     }
     if (wants.say !== undefined) await convo.append({ $tag: "user", content: [{ $tag: "text", text: wants.say }] });
@@ -166,9 +169,8 @@ export class Pump {
   }
 
   /** Whether to start the thread's loop now, and with what user message first. */
-  async #wants(convo: Conversation, tip: TipState): Promise<{ say?: string } | undefined> {
-    const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-    const auto = async (): Promise<boolean> => (await this.#hooks.auto?.(convo, entries)) === true;
+  async #wants(convo: Conversation, tip: TipState): Promise<{ say?: string; at?: string } | undefined> {
+    const at = await this.#lastEntryId(convo);
     switch (tip.kind) {
       case "running":
       case "blocked":
@@ -176,15 +178,24 @@ export class Pump {
         return undefined;
       case "run": {
         const decided = tip.calls.some((c) => c.status === "covered" || c.status === "approved" || c.status === "declined" || c.status === "invalid");
-        return decided || (await auto()) ? {} : undefined;
+        return decided ? { ...(at === undefined ? {} : { at }) } : undefined;
       }
       case "ready":
-        return (await auto()) ? {} : undefined;
+        if (tip.cause === "human" || (tip.cause === "event" && (await this.#hooks.resume?.(convo)) === true)) return { ...(at === undefined ? {} : { at }) };
+        return undefined;
       case "awaiting_user": {
+        const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
         const say = await this.#hooks.idle?.(convo, entries);
         return say === undefined ? undefined : { say };
       }
     }
+  }
+
+  /** The id of the last entry that says something about the thread's state (not set-up or approvals): what a screen compares to tell new from old. */
+  async #lastEntryId(convo: Conversation): Promise<string | undefined> {
+    const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+    const last = entries.findLast((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval");
+    return last !== undefined && "id" in last && typeof last.id === "string" ? last.id : undefined;
   }
 
   #setQuestion(branch: string, need: CallNeed | undefined, from?: string): void {

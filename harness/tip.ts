@@ -112,8 +112,12 @@ export type TipState =
   | { kind: "running"; owner: LeaseOwner; holding: string[] }
   /** Nothing is owed: the model has answered (or was interrupted), and the next move is the user's. */
   | { kind: "awaiting_user" }
-  /** A request to the model is owed (a user message, a tool result, a job's event). Nobody's decision is needed. */
-  | { kind: "ready" }
+  /**
+   * A request to the model is owed. Nobody's decision is needed. `cause` says what made it owed: `human` (a user message, or the brief
+   * a thread was started with: somebody asked), `event` (a background job's end, a subagent's or fork's report: nobody asked, so running
+   * on it is the host's policy, `background.resume`) or `result` (a tool result: the loop that was answering it did not finish).
+   */
+  | { kind: "ready"; cause: "human" | "event" | "result" }
   /** A call waits for another thread's work (a foreground subagent): this thread is a context switch away, and nothing runs here until that thread finishes. */
   | { kind: "blocked"; calls: CallNeed[]; on: string[] }
   /** Calls have no result and none of them waits for a decision: the loop runs, declines or rejects them in order. */
@@ -189,14 +193,16 @@ export async function foldTip(input: TipInput): Promise<TipState> {
   const last = [...entries].reverse().find((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval");
   switch (last?.$tag) {
     case "user":
+      return { kind: "ready", cause: "human" };
     case "tool_result":
+      return { kind: "ready", cause: "result" };
     case "job_event":
     case "subagent_result":
-      return { kind: "ready" };
+      return { kind: "ready", cause: "event" };
     case "fork_merge":
-      return last.call_id === undefined ? { kind: "awaiting_user" } : { kind: "ready" };
+      return last.call_id === undefined ? { kind: "awaiting_user" } : { kind: "ready", cause: "event" };
     case "branch_start":
-      return last.context === "fresh" && last.brief !== undefined ? { kind: "ready" } : { kind: "awaiting_user" };
+      return last.context === "fresh" && last.brief !== undefined ? { kind: "ready", cause: "human" } : { kind: "awaiting_user" };
     default:
       return { kind: "awaiting_user" };
   }

@@ -1,6 +1,5 @@
 import type { Conversation } from "./conversation.ts";
-import { syncTools, type LoopOptions } from "./loop.ts";
-import type { ThreadRuns } from "./runs.ts";
+import { syncTools } from "./loop.ts";
 import type { StartedJob, Tool, ToolOutput, ToolRegistry } from "./tools.ts";
 
 /**
@@ -16,14 +15,43 @@ export interface ForkDeps {
   /** `message` was given: the host keeps it as the first message of the fork, for the user to send there. */
   onDraft?(branch: string, message: string): void;
   /**
-   * With these, `fork` can take `auto_run: true`: `message` is sent in the fork at once and the fork works by itself as a background job
-   * (a run of the manager, with the leaf tools and the approvals of `loopOptions`), whose end is reported to the caller as a job event.
+   * With this, `fork` can take `auto_run: true`: `message` is put in the fork as a user message, and whoever pumps threads (`pump.ts`) runs
+   * it like any thread that has been spoken to. The fork's tools are pinned to `childRegistry` (the leaf tools: one level of nesting).
+   * Its end is reported to the caller by `deliverForks`.
    */
-  auto?: {
-    runs: ThreadRuns;
-    childRegistry: ToolRegistry;
-    loopOptions(child: Conversation, name: string): Omit<LoopOptions, "registry" | "signal" | "jobs">;
-  };
+  auto?: { childRegistry: ToolRegistry };
+}
+
+/** The result of an `auto_run` fork call; delivery finds the forks to report on by it. */
+export const FORK_STARTED = "started fork";
+const FORK_STARTED_RE = /^started fork (\S+?)\./;
+
+/**
+ * Report on forks the thread started with `auto_run`: one whose first run has ended (the model answered with text, or the run was cut
+ * off) becomes a `job_event` for the caller, once. Returns how many were reported.
+ */
+export async function deliverForks(convo: Conversation): Promise<number> {
+  const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+  const done = new Set(entries.flatMap((e) => (e.$tag === "job_event" ? [e.call_id] : [])));
+  let delivered = 0;
+  for (const e of entries) {
+    if (e.$tag !== "tool_result" || typeof e.content !== "string" || done.has(e.call_id)) continue;
+    const m = FORK_STARTED_RE.exec(e.content);
+    if (m === null) continue;
+    const name = m[1] as string;
+    if ((await convo.git.revParse(`refs/heads/${name}`)) === undefined) continue;
+    const theirs = (await convo.readEntriesAt(`refs/heads/${name}`)).flatMap((x) => (x.ok ? [x.value] : []));
+    const last = [...theirs].reverse().find((x) => x.$tag !== "agent_setup" && x.$tag !== "approval");
+    if (last?.$tag === "assistant" && !last.blocks.some((b) => b.$tag === "tool_call")) {
+      const text = last.blocks.flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : [])).join("").trim();
+      await convo.append({ $tag: "job_event", job: name, call_id: e.call_id, status: "completed", summary: `${name} finished its first run`, ...(text === "" ? {} : { output: text }) });
+      delivered++;
+    } else if (last?.$tag === "interrupted") {
+      await convo.append({ $tag: "job_event", job: name, call_id: e.call_id, status: "failed", summary: `${name} stopped (${last.by === "user" ? "stopped by the user" : "an error"}); its work is on branch ${name}` });
+      delivered++;
+    }
+  }
+  return delivered;
 }
 
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_/-]{0,60}$/;
@@ -60,20 +88,10 @@ export function forkTool(deps: ForkDeps): Tool {
         content: `You are now in the fork ${made.branch}, a side conversation started from the thread above. Carry on from here; your work is brought back with the merge tool, not before.`,
       });
       if (autoRun && deps.auto !== undefined && message !== undefined) {
-        const auto = deps.auto;
-        const child = made.conversation;
-        await child.append({ $tag: "user", content: [{ $tag: "text", text: message.trim() }] });
-        await syncTools(child, auto.childRegistry);
-        const run = auto.runs.start(child, { ...auto.loopOptions(child, made.branch), grants: child.grantStore(), registry: auto.childRegistry }, { kind: "fork", label: made.branch });
-        const done = run.cycleEnd().then(async (end): Promise<ToolOutput> => {
-          run.close();
-          if (end === undefined) return { content: `fork ${made.branch} was stopped`, is_error: true };
-          if ("error" in end) return { content: `fork ${made.branch} stopped with an error: ${end.error instanceof Error ? end.error.message : String(end.error)}`, is_error: true };
-          const r = end.result;
-          const last = r.last?.status === "completed" ? r.last.completed.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("").trim() : "";
-          return { content: `${made.branch} ${r.status === "completed" ? "finished its first run" : `stopped (${r.status})`}. ${last}\nMerge it with the merge tool when you want its work here.`.trim(), ...(r.status === "completed" ? {} : { is_error: true }) };
-        });
-        return { started: { lease: { follows: made.branch }, summary: `fork ${made.branch} working on its message`, done, stop: () => run.close() } };
+        // Tools first, so the message is not split from the reply by a setup entry; then the message is the request that makes the thread run.
+        await syncTools(made.conversation, deps.auto.childRegistry);
+        await made.conversation.append({ $tag: "user", content: [{ $tag: "text", text: message.trim() }] });
+        return { content: `${FORK_STARTED} ${made.branch}. It is working on your message; you will be told when it stops. Merge it with the merge tool when you want its work here.` };
       }
       if (message !== undefined && message.trim() !== "") deps.onDraft?.(made.branch, message.trim());
       return { content: `Forked ${made.branch}. ${message === undefined ? "" : "Your message is waiting there for the user to send. "}The user moves there with /thread ${made.branch}; bring it back with merge.` };

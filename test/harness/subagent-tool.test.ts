@@ -8,8 +8,8 @@ import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
 import { JobRegistry, jobTools } from "../../harness/jobs.ts";
-import { forkTool, mergeTool } from "../../harness/fork-tools.ts";
-import { deliverSubagents, subagentAuto, subagentBranch, subagentChildRegistry, subagentGrants, subagentNudge, subagentTool } from "../../harness/subagent.ts";
+import { deliverForks, forkTool, mergeTool } from "../../harness/fork-tools.ts";
+import { deliverSubagents, subagentBranch, subagentChildRegistry, subagentGrants, subagentNudge, subagentTool } from "../../harness/subagent.ts";
 import { Pump } from "../../harness/pump.ts";
 import { ALL, FOREVER } from "../../harness/approvals.ts";
 import { resolveSubagentModels } from "../../harness/subagent-models.ts";
@@ -126,7 +126,7 @@ afterEach(async () => {
 });
 
 /** A pump over the project the parent `convo` is in: the parent runs the `tools`, a subagent the child registry made from `base`. */
-function pumpFor(convo: Conversation, tools: ToolRegistry, base: ToolRegistry, o: { merge?: "auto" | "review"; grants?: GrantStore; onEvent?: (branch: string, e: LoopEvent) => void } = {}): Pump {
+function pumpFor(convo: Conversation, tools: ToolRegistry, base: ToolRegistry, o: { merge?: "auto" | "review"; resume?: boolean; grants?: GrantStore; onEvent?: (branch: string, e: LoopEvent) => void } = {}): Pump {
   const grants = o.grants ?? yes;
   const pump = new Pump({
     open: (b) => convo.openBranch(b),
@@ -134,17 +134,17 @@ function pumpFor(convo: Conversation, tools: ToolRegistry, base: ToolRegistry, o
       const merged = await convo.mergedBranches();
       return (await convo.listBranches()).filter((b) => !b.archived && !merged.has(b.name)).map((b) => b.name);
     },
-    loop: (c) => Promise.resolve(c.branch === convo.branch ? { system: "s", cost: false, registry: tools, grants } : { system: "s", cost: false, registry: subagentChildRegistry(base), grants: subagentGrants(grants, o.merge) }),
-    auto: subagentAuto,
+    loop: (c) => Promise.resolve(c.branch === convo.branch ? { system: "s", cost: false, registry: tools, grants } : { system: "s", cost: false, registry: c.branch.startsWith("sub/") ? subagentChildRegistry(base) : base, grants: c.branch.startsWith("sub/") ? subagentGrants(grants, o.merge) : grants }),
     idle: subagentNudge,
-    deliver: (c) => deliverSubagents(c),
+    ...(o.resume === undefined ? {} : { resume: () => o.resume === true }),
+    deliver: async (c) => (await deliverSubagents(c)) + (await deliverForks(c)),
     ...(o.onEvent === undefined ? {} : { onEvent: o.onEvent }),
   });
   pumps.push(pump);
   return pump;
 }
 
-async function withSubagent(over: Partial<Parameters<typeof subagentTool>[0]> = {}, childTools: Tool[] = [writer("made-by-child.txt", "hi\n")], pumpOver: { grants?: GrantStore; onEvent?: (branch: string, e: LoopEvent) => void } = {}) {
+async function withSubagent(over: Partial<Parameters<typeof subagentTool>[0]> = {}, childTools: Tool[] = [writer("made-by-child.txt", "hi\n")], pumpOver: { grants?: GrantStore; resume?: boolean; onEvent?: (branch: string, e: LoopEvent) => void } = {}) {
   const { convo } = await fresh(new ToolRegistry());
   const base = new ToolRegistry(childTools);
   const tools = new ToolRegistry([subagentTool({ convo, childRegistry: base, ...over })]);
@@ -311,6 +311,25 @@ describe("the subagent tool", () => {
     await assertHistoryInvariants(convo);
   });
 
+  test("background.resume: a delivered report makes the parent run again; without it the report waits for the next message", async () => {
+    for (const resume of [true, false]) {
+      const { convo, tools, pump } = await withSubagent({}, undefined, { resume });
+      queue = [calls(call("s1", "subagent", { brief: "x", name: "bg", background: true })), answer("started it"), calls(call("c1", "put")), calls(call("c2", "merge", { summary: "done" })), answer("saw the report")];
+      await runAll(convo, tools, pump);
+      assert.ok((await entries(convo)).some((e) => e.$tag === "subagent_result"), "delivered either way");
+      assert.deepEqual(await assistantTexts(convo), resume ? ["started it", "saw the report"] : ["started it"], `resume ${resume}`);
+    }
+  });
+
+  test("a message in the transcript runs by itself in any pumped thread: a person asked, so no setting is needed", async () => {
+    const { convo, tools } = await setupPlain();
+    const pump = pumpFor(convo, tools, new ToolRegistry());
+    queue = [answer("hello back")];
+    // the thread's last entry is a user message that nobody has answered (`fresh` appended it), as if another process had
+    await pump.settle();
+    assert.deepEqual(await assistantTexts(convo), ["hello back"]);
+  });
+
   test("a bad name is refused before anything is created", async () => {
     const { convo, tools } = await withSubagent({}, []);
     queue = [calls(call("s1", "subagent", { brief: "x", name: "../x" })), answer("ok")];
@@ -320,6 +339,13 @@ describe("the subagent tool", () => {
     assert.equal((await convo.listBranches()).length, 1);
   });
 });
+
+async function setupPlain() {
+  const { convo } = await fresh(new ToolRegistry());
+  const tools = new ToolRegistry();
+  await syncTools(convo, tools);
+  return { convo, tools };
+}
 
 describe("the fork and merge tools", () => {
   test("a fork is made at once and told where it is; merge brings it back, answering the call with the fork_merge entry", async () => {
@@ -378,9 +404,9 @@ describe("the fork and merge tools", () => {
     assert.match(typeof rs[0]?.content === "string" ? rs[0].content : "", /no such branch/);
   });
 
-  test("auto_run: the message is sent in the fork, which works as a background job and reports when its first run ends", async () => {
+  test("auto_run: the message is put in the fork, the pump runs it, and its end is reported to the caller as a job event", async () => {
     const { convo } = await fresh(new ToolRegistry());
-    const runs = new ThreadRuns();
+    const base = new ToolRegistry();
     const tools = new ToolRegistry([
       forkTool({
         convo,
@@ -388,28 +414,28 @@ describe("the fork and merge tools", () => {
           const r = await convo.fork(undefined, { name: name ?? "fork/1" });
           return { branch: r.branch, conversation: r.conversation as Conversation };
         },
-        auto: { runs, childRegistry: new ToolRegistry(), loopOptions: () => allow },
+        auto: { childRegistry: base },
       }),
     ]);
     await syncTools(convo, tools);
-    const jobs = new JobRegistry(convo, { busy: () => false });
+    const pump = pumpFor(convo, tools, base);
     queue = [calls(call("f1", "fork", { name: "side", message: "work on it", auto_run: true })), answer("started the fork"), answer("the fork's findings")];
-    const { result } = await drive(convo, tools, { jobs });
+    const { result } = await runAll(convo, tools, pump);
     assert.equal(result.status, "completed");
-    await until(() => (jobs.list()[0]?.status === "completed" ? true : undefined));
-    await jobs.flush();
-    const ev = (await entries(convo)).find((e) => e.$tag === "job_event");
+    const all = await entries(convo);
+    const ev = all.find((e) => e.$tag === "job_event");
     assert.ok(ev?.$tag === "job_event");
-    assert.match(typeof ev.output === "string" ? ev.output : "", /side finished its first run\./);
-    assert.deepEqual(runs.list(), []);
+    assert.match(typeof ev.summary === "string" ? ev.summary : "", /side finished its first run/);
+    assert.match(typeof ev.output === "string" ? ev.output : "", /the fork's findings/);
     const inFork = await entries(await convo.openBranch("side"));
     assert.ok(inFork.some((e) => e.$tag === "user" && JSON.stringify(e).includes("work on it")));
+    assert.equal(await deliverForks(convo), 0, "reported once");
     await assertHistoryInvariants(convo);
   });
 
   test("auto_run without a message is refused", async () => {
     const { convo } = await fresh(new ToolRegistry());
-    const tools = new ToolRegistry([forkTool({ convo, createFork: () => Promise.reject(new Error("no")), auto: { runs: new ThreadRuns(), childRegistry: new ToolRegistry(), loopOptions: () => allow } })]);
+    const tools = new ToolRegistry([forkTool({ convo, createFork: () => Promise.reject(new Error("no")), auto: { childRegistry: new ToolRegistry() } })]);
     await syncTools(convo, tools);
     queue = [calls(call("f1", "fork", { auto_run: true })), answer("ok")];
     await drive(convo, tools);
