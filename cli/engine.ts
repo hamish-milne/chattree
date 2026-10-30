@@ -238,6 +238,11 @@ export class Engine {
           this.#wantResume();
         },
         onEvent: (branch, e) => this.#childEvent(branch, e),
+        onEnd: (branch, end) => {
+          const status = end.result?.status;
+          const why = end.error !== undefined ? `failed: ${end.error instanceof Error ? end.error.message : String(end.error)}` : status === "stopped" || status === "deadline" || status === "interrupted" || status === "cancelled" ? status : undefined;
+          if (why !== undefined) this.childLine?.(`  ↳ ${branch}: ${why}\n`);
+        },
         onQuestions: () => this.onQuestion?.(),
       });
     }
@@ -260,7 +265,18 @@ export class Engine {
     }
     if (!sub) {
       // No screen to pin the tools before a message is sent, so it is done here; a failure shows when the loop runs and is held.
-      if (this.#headless) await syncTools(convo, set.registry).catch(() => undefined);
+      if (this.#headless) {
+        // Another session may append at the same moment; one more try settles that. What still fails shows when the loop runs and is held.
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            await syncTools(convo, set.registry);
+            break;
+          } catch (e) {
+            if (attempt === 2) this.childLine?.(`  ↳ ${convo.branch}: could not pin the tools: ${e instanceof Error ? e.message : String(e)}\n`);
+            else await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
+          }
+        }
+      }
       return { system: this.system, registry: set.registry, grants: convo.grantStore(), owner, ...(this.#headless ? { jobs: set.jobs, standing: this.standing } : {}) };
     }
     return { system: this.system, registry: subagentChildRegistry(set.childRegistry), grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };

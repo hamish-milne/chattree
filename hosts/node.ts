@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { appendFileSync, constants, statSync } from "node:fs";
+import { appendFileSync, constants, statSync, watch as fsWatch } from "node:fs";
 import * as fsp from "node:fs/promises";
 import * as nodePath from "node:path";
 import { randomBytes } from "node:crypto";
@@ -303,6 +303,15 @@ async function syncDir(dir: string): Promise<void> {
 }
 
 const nodeFs: Fs = {
+  watch(path, onChange, opts) {
+    try {
+      const w = fsWatch(path, { persistent: false, recursive: opts?.recursive === true }, (_event, name) => onChange(name === null ? undefined : String(name)));
+      w.on("error", () => undefined); // the directory went away, or the platform cannot watch it: the caller's polling covers it
+      return () => w.close();
+    } catch {
+      return () => undefined;
+    }
+  },
   async read(path) {
     return new Uint8Array(await fsp.readFile(path));
   },

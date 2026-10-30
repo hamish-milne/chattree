@@ -1,6 +1,7 @@
 import { Engine } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
 import { findProject, openThread } from "./project.ts";
+import { formatAge } from "./age.ts";
 import { describeCall } from "./tool-lines.ts";
 
 export interface RunOptions {
@@ -32,7 +33,7 @@ export async function runRunner(io: Io, start: string, o: RunOptions): Promise<n
     for (const q of engine.questions()) {
       if (told.has(`${q.branch}\0${q.callId}`)) continue;
       told.add(`${q.branch}\0${q.callId}`);
-      io.err(`waiting on ${q.branch}: allow ${describeCall(q.name, q.args).split("\n")[0]}? (chattree chat -t ${q.branch})\n`);
+      io.err(`waiting on ${q.branch}${q.since === undefined ? "" : ` for ${formatAge(io.now() - q.since)}`}: allow ${describeCall(q.name, q.args).split("\n")[0]}? (chattree chat -t ${q.branch})\n`);
     }
   };
   engine.onQuestion = tell;

@@ -579,6 +579,8 @@ describe("the pump", () => {
     await a.tick();
     await b.tick();
     for (const p of [a, b]) assert.deepEqual(p.questions().map((q) => [q.branch, q.callId, q.name]), [[convo.branch, "p1", "put"]]);
+    const since = a.questions()[0]?.since;
+    assert.ok(since !== undefined && Date.now() - since >= 0 && Date.now() - since < 60_000, "how long it has been waiting comes from the call's entry");
     assert.deepEqual(await a.answer(convo.branch, "p1", { allow: true }), { status: "recorded" });
     const second = await b.answer(convo.branch, "p1", { allow: true });
     assert.notEqual(second.status, "recorded", "the first answer wins");

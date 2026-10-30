@@ -71,6 +71,12 @@ export interface Fs {
   readdir(path: string): Promise<string[]>;
   /** The path with every symbolic link resolved, or undefined if it does not exist. */
   realpath(path: string): Promise<string | undefined>;
+  /**
+   * Call `onChange` (with the name of what changed, when the host knows it) whenever something under `path` changes, until the returned
+   * function is called. Optional: a host that cannot watch leaves it out, and callers poll. Notifications may be missed or repeated; they
+   * are a hint to look, never a record.
+   */
+  watch?(path: string, onChange: (name: string | undefined) => void, opts?: { recursive?: boolean }): () => void;
 }
 
 export interface PathOps {

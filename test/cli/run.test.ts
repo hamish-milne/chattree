@@ -55,7 +55,7 @@ describe("chattree run", { timeout: 60_000 }, () => {
       await say(dir, "go");
       const first = testIo(dir);
       assert.equal(await main(["run", "--once"], first), 3);
-      assert.match(first.stderr, /waiting on main: allow .*echo hi/);
+      assert.match(first.stderr, /waiting on main( for \d+\w)?: allow .*echo hi/);
       await assert.rejects(readFile(join(dir, "out.txt")), /ENOENT/);
       assert.equal(server.seen.length, 1);
       // another session answers: all it takes is the entry
@@ -79,7 +79,11 @@ describe("chattree run", { timeout: 60_000 }, () => {
       await say(dir, "are you there");
       const end = Date.now() + WAIT_MS;
       while ((await replies(dir)).length === 0) {
-        if (Date.now() > end) throw new Error("timed out waiting for the reply");
+        if (Date.now() > end) {
+          stop.abort();
+          await done;
+          throw new Error(`timed out waiting for the reply\n${io.stderr}`);
+        }
         await new Promise((r) => setTimeout(r, 30));
       }
       stop.abort();

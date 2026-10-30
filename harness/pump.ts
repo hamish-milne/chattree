@@ -3,6 +3,7 @@ import type { ChatEntry } from "./entries.ts";
 import { keyProblem, untilAfter } from "./approvals.ts";
 import { ThreadRuns, type CycleEnd, type Run, type RunOptions } from "./runs.ts";
 import type { Approval, LoopEvent } from "./loop.ts";
+import { ulidTime } from "./ulid.ts";
 import { decisionsIn, foldTip, unanswered, type CallNeed, type TipState } from "./tip.ts";
 
 /**
@@ -49,6 +50,8 @@ export interface Question {
   args: Record<string, unknown>;
   /** What a grant would add to the tool's allow list, or null when the call can only be allowed once. */
   keys: string[] | null;
+  /** When the call was made (ms since the epoch), from the id of the entry that holds it: how long it has been waiting. A question may wait as long as it likes. */
+  since?: number;
 }
 
 export type AnswerResult = { status: "recorded"; granted?: { keys: string[]; until: string }; grantError?: string } | { status: "already_decided" | "gone" };
@@ -63,6 +66,8 @@ export class Pump {
   #closed = false;
   #timer: ReturnType<typeof setInterval> | undefined;
   #tips = "";
+  #watching = false;
+  #stops: (() => void)[] = [];
   #swept = 0;
 
   constructor(hooks: PumpHooks) {
@@ -144,7 +149,13 @@ export class Pump {
     }
     await this.#hooks.deliver?.(convo);
     const tip = await this.#fold(convo, options);
-    this.#setQuestion(branch, tip.kind === "needs_approval" ? tip.question : undefined, branch);
+    let since: number | undefined;
+    if (tip.kind === "needs_approval") {
+      const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+      const holder = entries.findLast((e) => e.$tag === "assistant" && e.blocks.some((b) => b.$tag === "tool_call" && b.call_id === tip.question.callId));
+      if (holder !== undefined && "id" in holder && typeof holder.id === "string") since = ulidTime(holder.id);
+    }
+    this.#setQuestion(branch, tip.kind === "needs_approval" ? tip.question : undefined, branch, since);
     if (this.#held.has(branch)) return;
     const wants = await this.#wants(convo, tip);
     if (wants === undefined) return;
@@ -198,12 +209,12 @@ export class Pump {
     return last !== undefined && "id" in last && typeof last.id === "string" ? last.id : undefined;
   }
 
-  #setQuestion(branch: string, need: CallNeed | undefined, from?: string): void {
+  #setQuestion(branch: string, need: CallNeed | undefined, from?: string, since?: number): void {
     if (need === undefined || from === undefined) {
       this.#questions.delete(branch);
       return;
     }
-    this.#questions.set(branch, { branch, callId: need.callId, name: need.name, args: need.args, keys: need.keys ?? null });
+    this.#questions.set(branch, { branch, callId: need.callId, name: need.name, args: need.args, keys: need.keys ?? null, ...(since === undefined ? {} : { since }) });
   }
 
   #start(branch: string, convo: Conversation, options: RunOptions): void {
@@ -246,11 +257,13 @@ export class Pump {
   }
 
   /**
-   * Watch for changes made by other processes: tips are compared every `pollMs`, and every `sweepMs` all threads are looked at anyway
-   * (a lease running out is a change nothing writes down).
+   * Watch for changes made by other processes. Where the host can watch files, a change to any branch ref (every append is a commit, so
+   * it moves one) triggers a look at once; polling then only sweeps now and then (`sweepMs`), because a lease running out, a change on a
+   * remote and a host that cannot watch are changes no file event reports. Without file watching, branch tips are compared every `pollMs`.
    */
   watch(pollMs = 1500, sweepMs = 10_000): () => void {
-    if (this.#timer !== undefined) return () => undefined;
+    if (this.#timer !== undefined || this.#watching) return () => undefined;
+    this.#watching = true;
     const poll = async (): Promise<void> => {
       try {
         const names = await this.#hooks.threads();
@@ -270,12 +283,44 @@ export class Pump {
       }
     };
     this.#timer = setInterval(() => void poll(), pollMs);
+    void (async () => {
+      try {
+        const first = (await this.#hooks.threads())[0];
+        if (first === undefined || this.#closed || !this.#watching) return;
+        const convo = await this.#convo(first);
+        const fs = convo.host.fs;
+        if (fs.watch === undefined) return;
+        const common = await convo.git.commonDir();
+        let pending: ReturnType<typeof setTimeout> | undefined;
+        const changed = (): void => {
+          if (pending !== undefined || this.#closed) return;
+          pending = setTimeout(() => {
+            pending = undefined;
+            void poll();
+          }, 75);
+          pending.unref?.();
+        };
+        const stops = [fs.watch(convo.host.path.join(common, "refs"), () => changed(), { recursive: true }), fs.watch(common, (name) => (name === undefined || name === "packed-refs") && changed())];
+        if (!this.#watching) {
+          for (const stop of stops) stop();
+          return;
+        }
+        this.#stops = stops;
+        // Events carry the news now; the timer only sweeps.
+        if (this.#timer !== undefined) clearInterval(this.#timer);
+        this.#timer = setInterval(() => void poll(), Math.max(pollMs, sweepMs));
+      } catch {
+        /* polling carries on */
+      }
+    })();
     return () => this.unwatch();
   }
 
   unwatch(): void {
     if (this.#timer !== undefined) clearInterval(this.#timer);
     this.#timer = undefined;
+    this.#watching = false;
+    for (const stop of this.#stops.splice(0)) stop();
   }
 
   /**
