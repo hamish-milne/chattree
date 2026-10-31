@@ -363,12 +363,13 @@ export class Git {
 
   /**
    * Stage every change in the worktree, including deletions (respecting .gitignore). A file another handle is writing (a blob lands as
-   * `<name>.tmp-<hex>` and is renamed into place) can be gone between git listing it and reading it: that is retried, a few times.
+   * `<name>.tmp-<hex>` and is renamed into place) can be gone between git listing it and reading it, so temp files are excluded from the add by pathspec (git never stats
+   * them); the retry is a backstop.
    */
   async addAll(): Promise<void> {
     for (let attempt = 1; ; attempt++) {
       try {
-        await this.run(["add", "--all"]);
+        await this.run(["add", "--all", "--", ".", ":(exclude,glob)**/*.tmp-*"]);
         return;
       } catch (e) {
         if (attempt >= 5 || !isVanishedTempFile(e)) throw e;
