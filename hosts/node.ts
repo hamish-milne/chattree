@@ -10,6 +10,23 @@ const DEFAULT_MAX_OUTPUT = 256 * 1024 * 1024;
 
 const isCode = (e: unknown, code: string): boolean => typeof e === "object" && e !== null && (e as { code?: unknown }).code === code;
 
+/**
+ * Rename over an existing file. On Windows the rename fails transiently (EPERM, EACCES, EBUSY) while another
+ * process (git, an indexer, antivirus) has the target or source open, so retry briefly before giving up.
+ */
+async function renameReplacing(from: string, to: string): Promise<void> {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      await fsp.rename(from, to);
+      return;
+    } catch (e) {
+      const transient = isCode(e, "EPERM") || isCode(e, "EACCES") || isCode(e, "EBUSY");
+      if (!transient || process.platform !== "win32" || attempt >= 8) throw e;
+      await new Promise((r) => setTimeout(r, 10 * attempt));
+    }
+  }
+}
+
 function concat(chunks: Uint8Array[], total: number): Uint8Array {
   const out = new Uint8Array(total);
   let at = 0;
@@ -356,7 +373,7 @@ const nodeFs: Fs = {
     }
     await h.close();
     try {
-      await fsp.rename(tmp, path);
+      await renameReplacing(tmp, path);
     } catch (e) {
       await fsp.rm(tmp, { force: true });
       throw e;

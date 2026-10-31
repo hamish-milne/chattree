@@ -644,8 +644,12 @@ describe("staging while another handle writes files", () => {
     const dir = join(git.cwd, "blobs", "ab");
     await mkdir(dir, { recursive: true });
     let writing = true;
+    // The writer only creates churn for git to race against; its own transient errors (Windows can refuse a
+    // rename while git has the file open) must neither fail the test nor escape as an unhandled rejection.
     const writer = (async () => {
-      for (let i = 0; writing; i++) await host.fs.writeAtomic(join(dir, `f${i % 40}`), enc.encode(`${i}`.repeat(50)));
+      for (let i = 0; writing; i++) {
+        await host.fs.writeAtomic(join(dir, `f${i % 40}`), enc.encode(`${i}`.repeat(50))).catch(() => undefined);
+      }
     })();
     try {
       for (let i = 0; i < 60; i++) await git.addAll();
