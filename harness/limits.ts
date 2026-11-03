@@ -20,7 +20,7 @@ export interface Violation {
 }
 
 export interface CostWarning {
-  kind: "near_limit" | "unknown_price" | "unpriced_history" | "context_window" | "long_context" | "token_count_failed";
+  kind: "near_limit" | "unknown_price" | "unpriced_history" | "context_window" | "long_context" | "token_count_failed" | "injection_failed";
   message: string;
 }
 

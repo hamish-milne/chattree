@@ -4,6 +4,7 @@ import { prepareContext, type PrepareOptions, type Prepared } from "./request.ts
 import { Journal, RequestSuperseded, type JournalOptions } from "./journal.ts";
 import { StreamAccumulator } from "./partial.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
+import { rulesFromConfig, runInjections, type InjectionRule } from "./injections.ts";
 import { usageRecord } from "./ledger.ts";
 import { servedModelId, stable } from "./setup.ts";
 import { sha256Hex } from "../src/blobs.ts";
@@ -30,6 +31,8 @@ export interface TurnOptions extends PrepareOptions {
   owner?: { pid?: number; host?: string; session?: string };
   /** How often to look for an abort request from another process. Default 250 ms. */
   abortPollMs?: number;
+  /** Injection rules from the host, run after the ones `harness.yml` asks for (`injections` in config). */
+  injections?: readonly InjectionRule[];
   /** Called with what was checked, before anything is sent: the host's chance to show warnings. */
   onPrepared?: (prepared: Prepared) => void | Promise<void>;
 }
@@ -44,6 +47,19 @@ export type TurnResult =
 
 const enc = new TextEncoder();
 
+/** The rules this request runs: those `harness.yml` asks for (the built-in usage notice, reminders), then the host's. */
+async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promise<InjectionRule[]> {
+  const config = await convo.readConfig();
+  const dec = new TextDecoder();
+  const fromConfig = config?.ok === true ? rulesFromConfig(config.value.injections, async (file) => {
+    const path = convo.host.path.resolve(convo.dir, file);
+    const rel = convo.host.path.relative(convo.dir, path);
+    if (rel === "" || rel.startsWith("..") || convo.host.path.isAbsolute(rel)) throw new Error(`${file} is outside the thread's workspace`);
+    return dec.decode(await convo.host.fs.read(path));
+  }) : [];
+  return [...fromConfig, ...(opts.injections ?? [])];
+}
+
 /**
  * Run one request and yield its events. Stopping the iteration early (`return()`, or leaving a `for await`) counts as
  * the user stopping the request. Throws what `prepareContext` throws (nothing has been sent or journaled then),
@@ -51,7 +67,12 @@ const enc = new TextEncoder();
  * anything worth recording arrived (the transcript is left as it was, so asking again is safe).
  */
 export async function* requestStream(convo: Conversation, opts: TurnOptions): AsyncGenerator<StreamEvent, TurnResult, void> {
-  const prepared = await prepareContext(convo, opts);
+  let prepared = await prepareContext(convo, opts);
+  // Injection rules see the request as it would go out; what they write goes into the transcript, and the context is built again from it.
+  const rules = await injectionRulesFor(convo, opts);
+  const injected = await runInjections(convo, rules, prepared);
+  if (injected.appended > 0) prepared = await prepareContext(convo, opts);
+  if (injected.failures.length > 0) prepared = { ...prepared, warnings: [...prepared.warnings, ...injected.failures] };
   await opts.onPrepared?.(prepared);
   const { setup, context } = prepared;
   const model = setup.model;

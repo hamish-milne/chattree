@@ -436,3 +436,61 @@ describe("a request whose journal was recovered under it", () => {
     assert.equal((await entries(convo)).filter((e) => e.$tag === "interrupted").length, 1, "only the recovered outcome is on disk");
   });
 });
+
+describe("injections", () => {
+  const sentTurns = (): string => JSON.stringify(lastRequest?.context.turns ?? []);
+
+  test("a host rule's text is recorded, then shown to the model in the same request and on every later one", async () => {
+    const { convo } = await fresh();
+    const seen: string[] = [];
+    const r = await run(convo, { injections: [() => ({ key: "style", text: "keep it short" })], onPrepared: (p: { context: { turns: unknown[] } }) => void seen.push(JSON.stringify(p.context.turns)) });
+    assert.equal(r.status, "completed");
+    assert.match(sentTurns(), /\[Note from the harness\]\\nkeep it short/);
+    assert.match(seen[0] as string, /keep it short/, "the host is shown the request as it goes out");
+    const all = await entries(convo);
+    assert.deepEqual(all.filter((e) => e.$tag === "injection").map((e) => (e as { key: string }).key), ["style"]);
+    assert.equal(all.findIndex((e) => e.$tag === "injection") < all.findIndex((e) => e.$tag === "assistant"), true, "recorded before the response");
+    await convo.append(hi);
+    await run(convo);
+    assert.match(sentTurns(), /keep it short/, "still there, though no rule ran this time");
+  });
+
+  test("a rule that throws is skipped and reported, and the request goes out", async () => {
+    const { convo } = await fresh();
+    const warned: string[] = [];
+    const r = await run(convo, {
+      injections: [
+        () => {
+          throw new Error("boom");
+        },
+        () => ({ key: "ok", text: "still here" }),
+      ],
+      onPrepared: (p: { warnings: { kind: string; message: string }[] }) => void warned.push(...p.warnings.filter((w) => w.kind === "injection_failed").map((w) => w.message)),
+    });
+    assert.equal(r.status, "completed");
+    assert.match(sentTurns(), /still here/);
+    assert.match(warned.join(), /boom/);
+  });
+
+  test("harness.yml reminders: on the first request, then every N responses; the usage notice is on by default", async () => {
+    const config = `${CONFIG}injections:\n  rules:\n    - key: style\n      every: 2\n      first: true\n      text: Use the style guide.\n`;
+    const { convo } = await fresh(config);
+    const shown: boolean[] = [];
+    for (let i = 0; i < 5; i++) {
+      if (i > 0) await convo.append(hi);
+      await run(convo);
+      shown.push((await entries(convo)).filter((e) => e.$tag === "injection").length > shown.filter(Boolean).length);
+    }
+    assert.deepEqual(shown, [true, false, true, false, true]);
+  });
+
+  test("a reminder's file is read from the thread's workspace, and cannot leave it", async () => {
+    const config = `${CONFIG}injections:\n  rules:\n    - key: notes\n      every: 1\n      first: true\n      file: NOTES.md\n    - key: escape\n      every: 1\n      first: true\n      file: ../outside.md\n`;
+    const { convo, dir } = await fresh(config);
+    await writeFile(join(dir, "NOTES.md"), "Remember the notes.\n");
+    const warned: string[] = [];
+    await run(convo, { onPrepared: (p: { warnings: { kind: string; message: string }[] }) => void warned.push(...p.warnings.filter((w) => w.kind === "injection_failed").map((w) => w.message)) });
+    assert.match(sentTurns(), /Remember the notes\./);
+    assert.match(warned.join(), /outside the thread's workspace/);
+  });
+});

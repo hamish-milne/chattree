@@ -70,7 +70,12 @@ Rules, as built:
    `pendingAppends`, `rebasesPrefix`, `hasRequested`, `loadDefinitions().prefixInstructions`, the builder's `instructionUpdates`, renderer methods
    `instructionsUpdated` and `injection`, `Conversation.rebuildPrefix`, `/rebuild`. Injection entries are skipped when reading what a thread is
    waiting for, like approvals.
-2. **Injection framework**: the hook API, config rules, the near-limit built-in. Can run in parallel with 3.
+2. **Injection framework. Done.** `harness/injections.ts`: `InjectionRule` (a function of `InjectionContext`: the prepared request, the flow's entries, the
+   clock, `turns`, and `since(key)`, the responses since the key last spoke), `runInjections`, `usageRule`, `configRule`. `requestStream` runs the rules after
+   `prepareContext`, records what they return with `Conversation.inject`, and builds the context again (so `onPrepared` and the provider see the final one); at most one
+   entry per key per request, and a rule that throws is skipped and reported as an `injection_failed` warning. Rules come from `harness.yml` (`injections.usage`, default
+   on: the near-limit, context-window and long-context warnings, per kind, repeated every 5 responses while they stand; `injections.rules`: `key`, `every` N responses,
+   `first`, and `text` or a `file` read from the thread's workspace when the rule fires) and from the host (`TurnOptions.injections`). "Turns" are the model's responses.
 3. **Skills. Done.** `harness/skills.ts` (loader, pinned value, drift, `syncSkills`, catalog, notices), `harness/skill-tool.ts`, renderer methods `skillCatalog` and
    `skillsUpdated`, the builder's `skillUpdates`, `/skills` and `/skill`. Skills are appendable like instructions (an entry changing both is one append).
    Following the disk is a per-kind policy in `harness.yml`: `skills: { follow: ask | auto | off }` (default `ask`): `ask` reports `N skills changed on disk` once
