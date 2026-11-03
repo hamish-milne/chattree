@@ -36,7 +36,7 @@ import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineC
 import { DEFAULT_MAX_ATTACHMENT_BYTES, attachmentKind, decodeText, mimeCharset, normalizeMime } from "./attachments.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import type { ModelInfo } from "../providers/registry.ts";
-import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, inToolLoop, minimizeChange, sameSetup, servedModelId, type AgentSetup, type Change, type Classifier, type ModelSetup, type SetupChange } from "./setup.ts";
+import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, hasRequested, inToolLoop, minimizeChange, prefixLags, sameSetup, servedModelId, withDefsOf, type AgentSetup, type Change, type Classifier, type ModelSetup, type SetupChange } from "./setup.ts";
 import { createUlid } from "./ulid.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
 import { StreamAccumulator } from "./partial.ts";
@@ -340,6 +340,9 @@ const DEFAULT_COMMITTER: Identity = { name: "chattree", email: "chattree@localho
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+/** The kinds of change that lose the cached prefix anyway: rewriting the prefix with them costs nothing more. */
+const PREFIX_BREAKING: readonly ChangeKind[] = ["cache_break", "tools_changed", "renderer_changed", "model_changed", "provider_changed"];
+
 function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
   if (prefix.length > bytes.length) return false;
   for (let i = 0; i < prefix.length; i++) if (bytes[i] !== prefix[i]) return false;
@@ -392,6 +395,8 @@ export function describeEntry(e: ChatEntry): string {
       return `job_event: ${oneLine(e.job, 20)} ${e.status}`;
     case "approval":
       return `approval: ${oneLine(e.call_id, 40)} ${e.allow ? "allowed" : "declined"}`;
+    case "injection":
+      return `injection: ${oneLine(e.key, 40)}`;
     case "interrupted":
       return `interrupted: ${e.by}`;
   }
@@ -1426,19 +1431,54 @@ export class Conversation {
       for (const id of opts.acknowledges ?? []) if (!acknowledges.includes(id)) throw new ConversationError(`${id} is not an unacknowledged provider change on this branch`);
       if (Object.keys(delta).length === 0 && acknowledges.length === 0) return undefined;
       const next = applyChange(setup, delta);
-      const changes = sameSetup(setup, next) ? [] : this.#classify(setup, next, inToolLoop(entries));
+      // A change to nothing but the instructions or skills is shown to the model where it is made: the cached prefix keeps what it has (docs/context.md),
+      // so it is classified as if the instructions and skills had not changed.
+      // (Skills are rewritten into the prefix for now: their catalog is not shown to the model yet, see docs/context.md.)
+      const touchesDefs = delta.instructions !== undefined || delta.skills !== undefined;
+      const instructionsOnly = delta.instructions !== undefined && setup.model !== undefined && delta.skills === undefined && delta.model === undefined && delta.tools === undefined && delta.mcp === undefined && delta.renderer === undefined;
+      // Before the first request nothing is cached: the change goes straight into the prefix, and costs nothing.
+      const appendOnly = instructionsOnly && hasRequested(entries);
+      const seen = instructionsOnly ? withDefsOf(next, setup) : next;
+      const changes = sameSetup(setup, seen) ? [] : this.#classify(setup, seen, inToolLoop(entries));
       const allowed = new Set(opts.allow ?? []);
       const refused = changes.filter((c) => !allowed.has(c.kind));
       if (refused.length > 0) throw new ChangeNotAllowed(refused);
       const used = [...new Set(changes.map((c) => c.kind))];
+      // The prefix is rewritten, for free, when the cache is lost anyway; otherwise it is left to lag.
+      const breaksCache = changes.some((c) => PREFIX_BREAKING.includes(c.kind));
+      const apply = touchesDefs ? (appendOnly ? "append" : "rebuild") : breaksCache && prefixLags(setup) ? "rebuild" : undefined;
       return this.#appendLocked({
         $tag: "agent_setup",
         reason: opts.reason ?? "user",
+        ...(apply === undefined ? {} : { apply }),
         ...delta,
         ...(used.length > 0 ? { allow: used } : {}),
         ...(acknowledges.length > 0 ? { acknowledges } : {}),
       });
     });
+  }
+
+  /**
+   * Fold the instructions and skills changes the model was only told about (`append`) into the cached prefix, which is then rewritten: the
+   * whole conversation is read again once, at the full input price (`cache_break`, which `allow` must name). A compaction does the same
+   * as a side effect. Resolves to the entry, or undefined when the prefix already shows everything.
+   */
+  rebuildPrefix(opts: { allow?: readonly ChangeKind[] } = {}): Promise<Appended | undefined> {
+    return this.#transaction(async () => {
+      const { setup, entries } = await this.#foldedSetup();
+      if (!prefixLags(setup)) return undefined;
+      const changes = [...this.#classify(withDefsOf(setup, setup.prefix), setup, inToolLoop(entries))];
+      if (!changes.some((c) => c.kind === "cache_break")) changes.push({ kind: "cache_break", message: "the cached prefix is rewritten: the whole conversation is read again at the full input price" });
+      const allowed = new Set(opts.allow ?? []);
+      const refused = changes.filter((c) => !allowed.has(c.kind));
+      if (refused.length > 0) throw new ChangeNotAllowed(refused);
+      return this.#appendLocked({ $tag: "agent_setup", reason: "user", apply: "rebuild", allow: [...new Set(changes.map((c) => c.kind))] });
+    });
+  }
+
+  /** Put text in front of the model as a note from the harness. It is recorded, so every later request shows the same. `key` names the rule that wrote it. */
+  inject(key: string, text: string): Promise<Appended> {
+    return this.append({ $tag: "injection", key, text });
   }
 
   /**

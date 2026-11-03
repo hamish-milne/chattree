@@ -118,7 +118,7 @@ export async function childState(child: Conversation, entries: readonly ChatEntr
     }
     break;
   }
-  const last = [...own].reverse().find((e) => e.$tag !== "agent_setup" && e.$tag !== "approval");
+  const last = [...own].reverse().find((e) => e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection");
   const spoke = own.some((e) => e.$tag === "user" && !isNudge(e));
   if (last?.$tag === "interrupted") return last.by === "user" ? { state: "working" } : { state: "gave_up", why: `it stopped with an error${last.error === undefined ? "" : `: ${last.error}`}` };
   if (last?.$tag === "assistant" && !last.blocks.some((b) => b.$tag === "tool_call") && !spoke) {

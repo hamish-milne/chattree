@@ -1,6 +1,6 @@
 import type { Conversation } from "../../harness/conversation.ts";
 import { pinDefinition, loadDefinitions } from "../../harness/definitions.ts";
-import type { AgentSetup, ModelSetup } from "../../harness/setup.ts";
+import { prefixLags, type AgentSetup, type ModelSetup } from "../../harness/setup.ts";
 import { tableHash } from "../../providers/pricing.ts";
 import { defaultRegistry } from "../../providers/index.ts";
 import { withConfirmation } from "../changes.ts";
@@ -182,6 +182,7 @@ const instructions: Command = {
       let next: string | undefined;
       if (sub === "show") {
         yield { type: "text", text: text ?? "(no instructions are set: the model gets only the harness's own prompt)" };
+        if (prefixLags(setup)) yield { type: "notice", message: "the model's cached prefix still holds the earlier text; it was told of the change in a message. /rebuild folds it into the prefix." };
         return;
       } else if (sub === "set") next = rest.replace(/^\s*set\s*/, "");
       else if (sub === "edit") {
@@ -211,7 +212,26 @@ const instructions: Command = {
       }
       const pin = await pinDefinition("instructions", next, { store: "blob", blobs: ctx.convo.store });
       const r = yield* withConfirmation(ctx, (allow) => ctx.convo.setupChange({ instructions: pin }, { allow }));
-      if (r.done) yield { type: "notice", message: `instructions updated (${next.length} characters)` };
+      if (r.done) yield { type: "notice", message: `instructions updated (${next.length} characters); the model is told of the change with its next request` };
+    } catch (e) {
+      yield failure(e);
+    }
+  },
+};
+
+const rebuild: Command = {
+  name: "rebuild",
+  summary: "fold changed instructions into the cached prefix",
+  usage: "/rebuild",
+  busy: "blocked",
+  async *run(ctx) {
+    try {
+      if (!prefixLags(await ctx.convo.setup())) {
+        yield { type: "notice", message: "the cached prefix already shows everything" };
+        return;
+      }
+      const r = yield* withConfirmation(ctx, (allow) => ctx.convo.rebuildPrefix({ allow }));
+      if (r.done) yield { type: "notice", message: "the prefix is rewritten; the next request reads the whole conversation again" };
     } catch (e) {
       yield failure(e);
     }
@@ -345,4 +365,4 @@ const config: Command = {
   },
 };
 
-export const setupCommands: Command[] = [model, set, instructions, providers, pricing, accept, config];
+export const setupCommands: Command[] = [model, set, instructions, rebuild, providers, pricing, accept, config];

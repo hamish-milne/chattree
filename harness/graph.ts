@@ -58,6 +58,8 @@ export function summarizeEntry(e: ChatEntry | undefined, fallback: string): stri
       return `job ${e.job} ${e.status}: ${flat(e.summary)}`;
     case "approval":
       return `${e.allow ? "allowed" : "declined"} ${e.call_id}`;
+    case "injection":
+      return `injection ${e.key}: ${flat(e.text)}`;
     case "interrupted":
       return `interrupted by ${e.by}`;
     case "header":
@@ -145,6 +147,7 @@ const TAGGED: Record<string, string> = {
   fork_merge: "fork merge",
   job_event: "job",
   approval: "approval",
+  injection: "injection",
   branch_start: "start",
   header: "header",
   gc: "blob gc",

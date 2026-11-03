@@ -59,6 +59,8 @@ export interface BuildInput {
   target: { provider: string; model: string };
   /** Turns structured entries into text for the model. Default: `chattree-english-v1`. See `renderer.ts`. */
   renderer?: Renderer;
+  /** For each `agent_setup` entry that changed the instructions by `append` (see `pendingAppends`): the new text, shown where the entry is. */
+  instructionUpdates?: ReadonlyMap<string, string>;
   /** Read a blob-backed text (large values are stored as blobs). Without it, a blob reference is an error. */
   readText?: (ref: { sha256: string; bytes: number }) => Promise<string>;
   /** Read a blob's bytes, for attachments. Without it, a message with an attachment is an error. */
@@ -103,8 +105,16 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
   for (const e of contextEntries(entries)) {
     switch (e.$tag) {
       case "header":
-      case "agent_setup":
       case "approval": // a decision about a call: the model sees the call's result, which says what happened
+        break;
+      case "agent_setup": {
+        // An appended change to the instructions is shown like a queued message: after the results that close the open turn.
+        const updated = input.instructionUpdates?.get(e.id);
+        if (updated !== undefined) raw.push({ role: "user", parts: [{ type: "text", text: render.instructionsUpdated(updated) }], queued: e.id });
+        break;
+      }
+      case "injection":
+        raw.push({ role: "user", parts: [{ type: "text", text: render.injection(e.key, await text(e.text)) }], queued: e.id });
         break;
       case "branch_start":
         if (e.context === "fresh" && e.brief !== undefined) userText(render.subagentBrief(await text(e.brief)));

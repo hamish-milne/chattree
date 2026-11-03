@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 2, minor: 3 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 4 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -171,6 +171,25 @@ export const agentSetup = z.object({
   changes: z.array(changeKind).optional(),
   /** Provider-observed `agent_setup` entries this one accepts. */
   acknowledges: z.array(ulid).optional(),
+  /**
+   * How a change to the instructions (or skills) reaches the model (format 2.4). `append`: the cached prefix keeps the text it had, and the
+   * model is told of the change at this point in the conversation, so nothing before it is re-read. `rebuild`: the prefix is rewritten from the
+   * setup as it is after this entry, and earlier `append` changes are folded into it. Absent on entries that change neither (and on entries
+   * from before 2.4, where a change to the instructions always rewrote the prefix).
+   */
+  apply: z.enum(["append", "rebuild"]).optional(),
+});
+
+/**
+ * Text the harness put in front of the model (format 2.4): a usage warning, a reminder every N turns, a rule's output. Recorded, not
+ * generated at request time, so the context is the same on every later request, replays exactly, and is paid for and audited like any message.
+ * `key` names the rule that wrote it, so "every N turns" can be answered from the history alone.
+ */
+export const injection = z.object({
+  $tag: z.literal("injection"),
+  id: ulid,
+  key: z.string().min(1),
+  text,
 });
 
 export const branchStart = z.object({
@@ -300,6 +319,7 @@ export type ChatEntry =
   | z.infer<typeof forkMerge>
   | z.infer<typeof jobEvent>
   | z.infer<typeof approval>
+  | z.infer<typeof injection>
   | z.infer<typeof interrupted>;
 
 export const entryTypes = [
@@ -314,6 +334,7 @@ export const entryTypes = [
   defineEntry("fork_merge", forkMerge),
   defineEntry("job_event", jobEvent),
   defineEntry("approval", approval),
+  defineEntry("injection", injection),
   defineEntry("interrupted", interrupted),
 ];
 

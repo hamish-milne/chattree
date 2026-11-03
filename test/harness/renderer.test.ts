@@ -30,6 +30,8 @@ describe("chattree-english-v1 is frozen", () => {
     assert.equal(r.subagentBrief("B"), "B");
     assert.equal(r.textAttachment("n.txt", "body"), "[Attached file: n.txt]\nbody");
     assert.equal(r.textAttachment(undefined, "body"), "[Attached file]\nbody");
+    assert.equal(r.instructionsUpdated("be brief"), "[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\nbe brief");
+    assert.equal(r.injection("usage", "80% spent"), "[Note from the harness]\n80% spent");
     assert.equal(r.continueInterrupted(), "Your previous reply was cut off. Continue from where it stopped, without repeating what you already wrote.");
     assert.ok(Object.isFrozen(r));
     assert.equal(builtinRenderers[DEFAULT_RENDERER], r);

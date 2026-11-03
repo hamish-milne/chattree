@@ -1,13 +1,13 @@
 import { createHash } from "node:crypto";
 import type { Conversation } from "./conversation.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
-import { assertDefinitions, loadDefinitions, type DefinitionSource } from "./definitions.ts";
+import { assertDefinitions, INSTRUCTIONS_NAME, loadDefinitions, loadPinned, type DefinitionSource } from "./definitions.ts";
 import type { ChangeKind } from "./entries.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import { contextJson, estimateRequest, type Estimate } from "./estimate.ts";
 import { computeLedger, type Ledger } from "./ledger.ts";
 import { checkLimits, LimitExceeded, type CostWarning } from "./limits.ts";
-import { ChangeNotAllowed, servedModelId, type AgentSetup } from "./setup.ts";
+import { ChangeNotAllowed, pendingAppends, servedModelId, type AgentSetup } from "./setup.ts";
 import { tableHash } from "../providers/pricing.ts";
 
 export interface PrepareOptions {
@@ -64,11 +64,17 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const lastWithId = entries.findLast((e) => "id" in e && typeof e.id === "string" && e.$tag !== "approval");
   const tip = lastWithId !== undefined && "id" in lastWithId ? (lastWithId.id as string) : undefined;
   const dec = new TextDecoder();
+  // Instructions changed since the prefix was last rebuilt are shown where they were changed (docs/context.md).
+  const instructionUpdates = new Map<string, string>();
+  for (const e of pendingAppends(entries)) {
+    if (e.instructions !== undefined) instructionUpdates.set(e.id, (await loadPinned("instructions", INSTRUCTIONS_NAME, e.instructions, { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) })) as string);
+  }
   const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);
   const context = await buildContext(entries, {
     renderer,
     system: opts.system,
-    instructions: defs.instructions,
+    instructions: defs.prefixInstructions,
+    instructionUpdates,
     tools: defs.tools,
     target: { provider: setup.model.provider, model: servedModelId(setup.model) },
     readBytes: async (r) => {

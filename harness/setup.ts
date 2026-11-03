@@ -14,6 +14,12 @@ export type ModelSetup = NonNullable<AgentSetupEntry["model"]>;
 /** The fields of an `agent_setup` entry that describe state; what a mutation changes. */
 export type SetupChange = Pick<AgentSetupEntry, "model" | "tools" | "instructions" | "skills" | "mcp" | "pricing" | "renderer">;
 
+/** The definitions the model's cached prefix shows. It lags `AgentSetup` after an `append` change, until a rebuild or a compaction folds the difference in. */
+export interface PrefixSetup {
+  instructions?: PinnedDefinition;
+  skills: Record<string, PinnedDefinition>;
+}
+
 export interface AgentSetup {
   model?: ModelSetup;
   tools: Record<string, PinnedDefinition>;
@@ -23,11 +29,45 @@ export interface AgentSetup {
   pricing?: { table: string };
   /** Id of the renderer for structured entries; undefined means the default (`chattree-english-v1`, which never changes). */
   renderer?: string;
+  /** What the prefix shows (see `PrefixSetup`); the rest of the setup is always current. */
+  prefix: PrefixSetup;
   /** Provider-observed changes (`reason: provider`) no later entry has acknowledged. */
   unacknowledged: { id: string; changes: ChangeKind[] }[];
 }
 
-export const emptySetup = (): AgentSetup => ({ tools: {}, skills: {}, mcp: {}, unacknowledged: [] });
+export const emptySetup = (): AgentSetup => ({ tools: {}, skills: {}, mcp: {}, prefix: { skills: {} }, unacknowledged: [] });
+
+const prefixOf = (s: AgentSetup): PrefixSetup => ({ ...(s.instructions === undefined ? {} : { instructions: s.instructions }), skills: s.skills });
+
+/**
+ * Whether an entry rewrites the prefix to the setup as it stands after the entry. A compaction does (the history it stands for is rewritten
+ * anyway, so everything appended before it is folded in), and so does a setup entry marked `rebuild`. One written before format 2.4 that changes
+ * the instructions or skills has no mark and always did.
+ */
+export function rebasesPrefix(e: ChatEntry): boolean {
+  if (e.$tag === "compaction") return true;
+  if (e.$tag !== "agent_setup") return false;
+  return e.apply === "rebuild" || (e.apply === undefined && (e.instructions !== undefined || e.skills !== undefined));
+}
+
+/** The `append` setup entries the model has to be told about: those after the last entry that rebased the prefix. */
+export function pendingAppends(entries: readonly ChatEntry[]): AgentSetupEntry[] {
+  let out: AgentSetupEntry[] = [];
+  for (const e of entries.slice(flowStart(entries))) {
+    if (rebasesPrefix(e)) out = [];
+    else if (e.$tag === "agent_setup" && e.apply === "append") out.push(e);
+  }
+  return out;
+}
+
+/** `s` with the instructions and skills of `like`: a setup as the cached prefix would show it. */
+export function withDefsOf(s: AgentSetup, like: { instructions?: PinnedDefinition | undefined; skills: Record<string, PinnedDefinition> }): AgentSetup {
+  const { instructions: _drop, ...rest } = s;
+  return { ...rest, skills: like.skills, ...(like.instructions === undefined ? {} : { instructions: like.instructions }) };
+}
+
+/** Whether the prefix shows something other than the current instructions and skills. */
+export const prefixLags = (s: AgentSetup): boolean => stable(s.prefix.instructions ?? null) !== stable(s.instructions ?? null) || stable(s.prefix.skills) !== stable(s.skills);
 
 /** The model id requests should carry: the dated model once the provider has reported it, else what was asked for. */
 export const servedModelId = (m: ModelSetup): string => m.resolved ?? m.id;
@@ -97,13 +137,19 @@ export function applyChange(base: AgentSetup, change: SetupChange): AgentSetup {
 export function foldSetup(entries: readonly ChatEntry[]): AgentSetup {
   let s = emptySetup();
   for (const e of entries.slice(flowStart(entries))) {
+    if (e.$tag === "compaction") s = { ...s, prefix: prefixOf(s) };
     if (e.$tag !== "agent_setup") continue;
     const next = applyChange(s, e);
     const pending = s.unacknowledged.filter((u) => !(e.acknowledges ?? []).includes(u.id));
     if (e.reason === "provider") pending.push({ id: e.id, changes: e.changes ?? [] });
-    s = { ...next, unacknowledged: pending };
+    s = { ...next, prefix: rebasesPrefix(e) ? prefixOf(next) : s.prefix, unacknowledged: pending };
   }
   return s;
+}
+
+/** Whether a request has been made in this agent's flow: before that nothing is cached, so there is no prefix to protect. */
+export function hasRequested(entries: readonly ChatEntry[]): boolean {
+  return entries.slice(flowStart(entries)).some((e) => e.$tag === "assistant" || e.$tag === "interrupted");
 }
 
 /** Whether the last assistant entry made tool calls that have no result yet. */

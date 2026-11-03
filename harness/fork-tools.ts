@@ -41,7 +41,7 @@ export async function deliverForks(convo: Conversation): Promise<number> {
     const name = m[1] as string;
     if ((await convo.git.revParse(`refs/heads/${name}`)) === undefined) continue;
     const theirs = (await convo.readEntriesAt(`refs/heads/${name}`)).flatMap((x) => (x.ok ? [x.value] : []));
-    const last = [...theirs].reverse().find((x) => x.$tag !== "agent_setup" && x.$tag !== "approval");
+    const last = [...theirs].reverse().find((x) => x.$tag !== "agent_setup" && x.$tag !== "approval" && x.$tag !== "injection");
     if (last?.$tag === "assistant" && !last.blocks.some((b) => b.$tag === "tool_call")) {
       const text = last.blocks.flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : [])).join("").trim();
       await convo.append({ $tag: "job_event", job: name, call_id: e.call_id, status: "completed", summary: `${name} finished its first run`, ...(text === "" ? {} : { output: text }) });

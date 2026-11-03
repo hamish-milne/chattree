@@ -253,7 +253,7 @@ export class Pump {
   /** The id of the last entry that says something about the thread's state (not set-up or approvals): what a screen compares to tell new from old. */
   async #lastEntryId(convo: Conversation): Promise<string | undefined> {
     const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-    const last = entries.findLast((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval");
+    const last = entries.findLast((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection");
     return last !== undefined && "id" in last && typeof last.id === "string" ? last.id : undefined;
   }
 

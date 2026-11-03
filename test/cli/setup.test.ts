@@ -96,6 +96,27 @@ describe("instructions", () => {
   });
 });
 
+describe("changing instructions mid-conversation", () => {
+  test("the model is told in a message, the prefix is left alone, and /rebuild folds the change in", async () => {
+    const { server, dir } = await started([answer("one"), answer("two"), answer("three")]);
+    try {
+      const r = await session(dir, ["/instructions set Answer in one word.", "hello", "/instructions set Answer in two words.", "again", "/instructions", "/rebuild", "/rebuild", "last"]);
+      assert.match(sentSystem(server, 0), /Answer in one word\./);
+      assert.match(sentSystem(server, 1), /Answer in one word\./, "the cached prefix is untouched");
+      assert.doesNotMatch(sentSystem(server, 1), /two words/);
+      const second = (JSON.parse(server.seen[1]?.body ?? "") as { messages: { role: string; content: string }[] }).messages;
+      assert.match(JSON.stringify(second.slice(1)), /Your instructions were updated[\s\S]*Answer in two words\./);
+      assert.match(r.all, /cached prefix still holds the earlier text/);
+      assert.match(r.all, /the prefix is rewritten/);
+      assert.match(r.all, /the cached prefix already shows everything/);
+      assert.match(sentSystem(server, 2), /Answer in two words\./);
+      assert.doesNotMatch(JSON.stringify((JSON.parse(server.seen[2]?.body ?? "") as { messages: unknown[] }).messages), /were updated/);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("providers, prices, config", () => {
   test("/providers lists them with their key state; /pricing shows and pins; /config validates and reloads after an edit", async () => {
     const { server, dir } = await started([answer("ok")]);

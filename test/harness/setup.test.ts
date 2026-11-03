@@ -118,6 +118,8 @@ describe("setupChange", () => {
   test("tools, instructions and pricing changes are classified", async () => {
     const { convo } = await fresh();
     await convo.setupChange({ model: sonnet, tools: { set: { a: { hash: H1, store: "blob" } } }, instructions: { hash: H1, store: "blob" }, pricing: { table: H1 } });
+    await convo.append(user("hi"));
+    await convo.append(reply());
     const kinds = async (c: Parameters<Conversation["setupChange"]>[0]) =>
       convo.setupChange(c).then(
         () => [],
@@ -125,7 +127,9 @@ describe("setupChange", () => {
       );
     assert.deepEqual(await kinds({ tools: { set: { a: { hash: H2, store: "blob" } } } }), ["tools_changed"]);
     assert.deepEqual(await kinds({ tools: { remove: ["a"] } }), ["tools_changed"]);
-    assert.deepEqual(await kinds({ instructions: { hash: H2, store: "blob" } }), ["instructions_changed"]);
+    assert.deepEqual(await kinds({ instructions: { hash: H2, store: "blob" } }), [], "the prefix keeps its text, so nothing is lost and nothing is asked");
+    const last = (await entries(convo)).at(-1);
+    assert.ok(last?.$tag === "agent_setup" && last.apply === "append");
     assert.deepEqual(await kinds({ pricing: { table: H2 } }), ["pricing_changed"]);
     assert.deepEqual(await kinds({ skills: { set: { s: { hash: H1, store: "external", ref: "skills/s" } } } }), ["tools_changed"]);
   });

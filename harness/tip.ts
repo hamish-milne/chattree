@@ -203,7 +203,7 @@ export async function foldTip(input: TipInput): Promise<TipState> {
     const on = calls.flatMap((c) => (c.status === "blocked" && c.on !== undefined ? [c.on] : []));
     return on.length > 0 ? { kind: "blocked", calls, on } : { kind: "run", calls };
   }
-  const last = [...entries].reverse().find((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval");
+  const last = [...entries].reverse().find((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection");
   switch (last?.$tag) {
     case "user":
       return { kind: "ready", cause: "human" };

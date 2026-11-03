@@ -115,23 +115,35 @@ export async function assertDefinitions(setup: AgentSetup, source: DefinitionSou
 export interface LoadedDefinitions {
   /** Sorted by name, so the rendered tool list (and the cache prefix) never depends on map order. */
   tools: ToolDefinition[];
+  /** The instructions as they are now. */
   instructions: string | undefined;
+  /** The instructions the cached prefix shows: older than `instructions` after an `append` change (see `PrefixSetup`). */
+  prefixInstructions: string | undefined;
   skills: Record<string, unknown>;
   mcp: Record<string, unknown>;
 }
 
+type DefinitionFrom = { blobs: BlobStore; source?: DefinitionSource };
+
+/** The verified value of one pinned definition, from `blobs/` or the host's source. Throws if it is missing or does not match its hash. */
+export async function loadPinned(kind: DefinitionKind, name: string, pin: PinnedDefinition, from: DefinitionFrom): Promise<unknown> {
+  const bytes = pin.store === "blob" ? await from.blobs.get(pin.hash) : await from.source?.get(kind, name, pin.hash);
+  if (bytes === undefined) throw new DefinitionError(`${kind} ${name} (${pin.hash.slice(0, 12)}) is not available from ${pin.store === "blob" ? "blobs/" : "the definition source"}`);
+  if ((await sha256Hex(bytes)) !== pin.hash) throw new DefinitionError(`${kind} ${name}: the bytes do not match the pinned hash ${pin.hash.slice(0, 12)}`);
+  return decodeDefinition(kind, bytes);
+}
+
 /** Fetch and verify the bytes of every pinned definition: from `blobs/` or from the host's source. Throws if any does not match its hash. */
-export async function loadDefinitions(setup: AgentSetup, from: { blobs: BlobStore; source?: DefinitionSource }): Promise<LoadedDefinitions> {
-  const out: LoadedDefinitions = { tools: [], instructions: undefined, skills: {}, mcp: {} };
+export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): Promise<LoadedDefinitions> {
+  const out: LoadedDefinitions = { tools: [], instructions: undefined, prefixInstructions: undefined, skills: {}, mcp: {} };
   for (const { section, kind, name, pin } of pinnedOf(setup)) {
-    const bytes = pin.store === "blob" ? await from.blobs.get(pin.hash) : await from.source?.get(kind, name, pin.hash);
-    if (bytes === undefined) throw new DefinitionError(`${kind} ${name} (${pin.hash.slice(0, 12)}) is not available from ${pin.store === "blob" ? "blobs/" : "the definition source"}`);
-    if ((await sha256Hex(bytes)) !== pin.hash) throw new DefinitionError(`${kind} ${name}: the bytes do not match the pinned hash ${pin.hash.slice(0, 12)}`);
-    const value = decodeDefinition(kind, bytes);
+    const value = await loadPinned(kind, name, pin, from);
     if (section === "tools") out.tools.push(value as ToolDefinition);
     else if (section === "instructions") out.instructions = value as string;
     else out[section][name] = value;
   }
   out.tools.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const shown = setup.prefix.instructions;
+  out.prefixInstructions = shown === undefined ? undefined : stable(shown) === stable(setup.instructions ?? null) ? out.instructions : ((await loadPinned("instructions", INSTRUCTIONS_NAME, shown, from)) as string);
   return out;
 }

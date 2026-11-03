@@ -58,6 +58,9 @@ export async function exportMarkdown(convo: Conversation, entries: readonly Chat
       case "subagent_result":
         out.push(`*Subagent ${e.branch} finished:*\n\n${(await text(e.summary)).split("\n").map((l) => `> ${l}`).join("\n")}`);
         break;
+      case "injection":
+        out.push(`*A note from the harness (${e.key}):*\n\n${(await text(e.text)).split("\n").map((l) => `> ${l}`).join("\n")}`);
+        break;
       case "branch_start":
         out.push(`*This thread started as a ${e.kind} of ${e.from.branch}.*`);
         break;

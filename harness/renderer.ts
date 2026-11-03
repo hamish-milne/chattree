@@ -39,6 +39,10 @@ export interface Renderer {
   continueInterrupted(): string;
   /** A text file attached to a message, shown inline. */
   textAttachment(name: string | undefined, content: string): string;
+  /** The instructions were changed after the conversation began: the new text, shown where the change was made. */
+  instructionsUpdated(instructions: string): string;
+  /** Text the harness put in front of the model (an `injection` entry). */
+  injection(key: string, text: string): string;
 }
 
 /** Looks a renderer up by the id an agent's setup names. */
@@ -68,6 +72,8 @@ export const chattreeEnglishV1: Renderer = Object.freeze({
   toolDidNotRun: () => "The tool did not run: the conversation was interrupted before it produced a result.",
   subagentBrief: (brief: string) => brief,
   textAttachment: (name: string | undefined, content: string) => `[Attached file${name === undefined ? "" : `: ${name}`}]\n${content}`,
+  instructionsUpdated: (instructions: string) => `[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\n${instructions}`,
+  injection: (_key: string, text: string) => `[Note from the harness]\n${text}`,
   continueInterrupted: () => "Your previous reply was cut off. Continue from where it stopped, without repeating what you already wrote.",
 });
 
