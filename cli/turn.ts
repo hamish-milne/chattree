@@ -35,6 +35,8 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
       yield failure(e);
       return;
     }
+    await engine.followSkills();
+    for (const note of engine.takeSkillNotes()) yield { type: "notice", message: note };
     for (let attempt = 0; attempt < 3; attempt++) {
       const warnings: string[] = [];
       let model = "";

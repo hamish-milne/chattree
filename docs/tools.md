@@ -197,6 +197,8 @@ The child gets the leaf tools but not the meta tools: no recursion, depth one. W
 
 **`merge`** brings a fork back with `mergeFork`: non-conflicting changes land, conflicting files keep this branch's version, a `fork_merge` entry records `summary`. Each merge reports only what is new since the last. It changes the parent's files, so it asks first.
 
+**`skill`** (`harness/skill-tool.ts`) takes a skill's `name` and returns its instructions as the result (docs/context.md, section 2). It serves the skills the agent's setup pins now, read through `ToolContext.setup()`, not the catalog the cached prefix lists: a skill added since is served, one removed is refused with an error that lists the names that exist. A skill that came from a directory has the directory in the result (relative to the workspace for a project skill, absolute for a user-level one), so `read` and `run` can reach bundled files; `read` refuses `.chattree/` and anything outside the workspace, so only skills under `.agents/skills` of the workspace have files `read` can open. Read-only; the key is `all`, and `chattree init` writes `skill: allow: { all: 2999-01-01 }`. It is a leaf tool, so subagents have it too (they ask their own setup). The catalog is shown to the model only when `skill` is among the pinned tools, so a project that does not list it gets no catalog it could not use.
+
 Nested loops use the same code as the top-level loop with the child's conversation and its own tool context, so a child's tools can never write into the parent's worktree.
 
 ## 5. Safety

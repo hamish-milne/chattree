@@ -322,6 +322,7 @@ limits: { max_request_usd: 1.00, max_turn_usd: 5.00, max_conversation_usd: 50.00
   choice per definition: `store: blob` copies the canonical bytes into `blobs/` (replayable byte-for-byte,
   checkable by `verifyHistory`), or `store: external` records only the hash and the host's locator (for
   example a path in a shared submodule of organisation-wide tooling, where copying would be redundant).
+- **A skill** (`kind: skill`) is pinned as the whole `SKILL.md` in canonical JSON: `{name, description, body, meta?, dir?}` (`meta` holds the other frontmatter keys, `dir` the skill's directory). The hash covers the body. See docs/context.md.
 - **The host provides one hook**, so the harness can discover and retrieve definitions and the host handles the
   wiring:
   ```ts

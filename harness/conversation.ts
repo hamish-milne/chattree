@@ -1697,8 +1697,9 @@ export class Conversation {
       model: { provider, id, ...(settings === undefined ? {} : { settings }) },
       ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),
       ...(source.instructions === undefined ? {} : { instructions: source.instructions }),
-      ...(Object.keys(source.skills).length > 0 ? { skills: source.skills } : {}),
-      ...(Object.keys(source.mcp).length > 0 ? { mcp: source.mcp } : {}),
+      // A definition section is a delta: what a new agent starts with is `set`. (Tools are left to the host, which pins its own registry.)
+      ...(Object.keys(source.skills).length > 0 ? { skills: { set: source.skills } } : {}),
+      ...(Object.keys(source.mcp).length > 0 ? { mcp: { set: source.mcp } } : {}),
       ...(source.pricing === undefined ? {} : { pricing: source.pricing }),
       ...(source.renderer === undefined ? {} : { renderer: source.renderer }),
     }, { reason });

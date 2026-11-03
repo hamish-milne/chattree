@@ -131,7 +131,7 @@ describe("setupChange", () => {
     const last = (await entries(convo)).at(-1);
     assert.ok(last?.$tag === "agent_setup" && last.apply === "append");
     assert.deepEqual(await kinds({ pricing: { table: H2 } }), ["pricing_changed"]);
-    assert.deepEqual(await kinds({ skills: { set: { s: { hash: H1, store: "external", ref: "skills/s" } } } }), ["tools_changed"]);
+    assert.deepEqual(await kinds({ skills: { set: { s: { hash: H1, store: "external", ref: "skills/s" } } } }), [], "skills are appended like instructions: nothing is lost and nothing is asked");
   });
 
   test("inside a tool loop any model or tool change also needs mid_loop", async () => {

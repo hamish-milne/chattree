@@ -18,6 +18,7 @@ import { deliverSubagents, subagentChildRegistry, subagentGrants, subagentNudge 
 import type { ChatEntry } from "../harness/entries.ts";
 import { deliverForks } from "../harness/fork-tools.ts";
 import { openThread } from "./project.ts";
+import { followSkills, skillsWaiting } from "./skills.ts";
 
 /** A file staged for the next prompt. Only the path and what was decided about it are kept; the blob is made when the prompt is sent. */
 export interface StagedAttachment {
@@ -161,6 +162,9 @@ export class Engine {
   #asking = false;
   #wanted = false;
   readonly #sets: Promise<ToolSet>[] = [];
+  /** What the disk said about skills and the user has not been told yet; an unchanged report is not repeated. */
+  #skillNotes: string[] = [];
+  #skillsReported = "";
 
   constructor(o: EngineOptions) {
     this.io = o.io;
@@ -278,6 +282,7 @@ export class Engine {
           }
         }
       }
+      if (this.#headless && convo === this.convo) await this.followSkills();
       return { system: this.system, registry: set.registry, grants: convo.grantStore(), owner, ...(this.#headless ? { jobs: set.jobs, standing: this.standing } : {}) };
     }
     return { system: this.system, registry: subagentChildRegistry(set.childRegistry), grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };
@@ -381,6 +386,25 @@ export class Engine {
     void this.#pump?.tick().catch(() => undefined);
   }
 
+  /**
+   * Look at the skills on disk, as `skills.follow` in harness.yml says (docs/context.md, section 3): `auto` records what changed, `ask` reports it.
+   * The sentence waits in `takeSkillNotes`. A report that has not changed since it was last made is not repeated. Never throws: a failed look is not worth a failed request.
+   */
+  async followSkills(): Promise<void> {
+    try {
+      const r = await followSkills(this.io, this.project, this.convo);
+      const key = r?.note ?? "";
+      if (key !== "" && key !== this.#skillsReported) this.#skillNotes.push(key);
+      this.#skillsReported = key;
+    } catch {
+      /* skills are a convenience: the request goes on with the ones it has */
+    }
+  }
+
+  takeSkillNotes(): string[] {
+    return this.#skillNotes.splice(0);
+  }
+
   /** Pin the session's tools to the agent (once, and again if they change) before a message is sent, so a first message is not split from its reply by a setup entry. */
   async prepareTools(): Promise<void> {
     const set = await this.toolset(); // a tool set that cannot be built is the user's to fix: this throws
@@ -391,6 +415,7 @@ export class Engine {
     } catch {
       /* the request reports what is wrong with the setup */
     }
+    await this.followSkills();
   }
 
   /** One line for between turns: thread, model, what the thread has cost, and background jobs that are running. */
@@ -415,6 +440,8 @@ export class Engine {
       if (others.length > 0) parts.push(`${others.length} asking (${others.map((q) => `${q.branch}${q.since === undefined ? "" : ` ${formatAge(Date.now() - q.since)}`}`).join(", ")}; /questions)`);
       if (sum.held > 0) parts.push(`${sum.held} held`);
     }
+    const waiting = await skillsWaiting(this.io, this.project, this.convo).catch(() => 0);
+    if (waiting > 0) parts.push(`${waiting} skill${waiting === 1 ? "" : "s"} changed on disk (/skills sync)`);
     if (this.state.attachments.length > 0) parts.push(`${this.state.attachments.length} file${this.state.attachments.length === 1 ? "" : "s"} staged`);
     if (this.state.drafts.length > 0) parts.push(`${this.state.drafts.length} draft${this.state.drafts.length === 1 ? "" : "s"}`);
     return parts.join(" · ");

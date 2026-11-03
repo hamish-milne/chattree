@@ -221,7 +221,7 @@ const instructions: Command = {
 
 const rebuild: Command = {
   name: "rebuild",
-  summary: "fold changed instructions into the cached prefix",
+  summary: "fold changed instructions and skills into the cached prefix",
   usage: "/rebuild",
   busy: "blocked",
   async *run(ctx) {

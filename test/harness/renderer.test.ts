@@ -32,6 +32,11 @@ describe("chattree-english-v1 is frozen", () => {
     assert.equal(r.textAttachment(undefined, "body"), "[Attached file]\nbody");
     assert.equal(r.instructionsUpdated("be brief"), "[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\nbe brief");
     assert.equal(r.injection("usage", "80% spent"), "[Note from the harness]\n80% spent");
+    const notes = [{ name: "pdf", description: "Work with PDFs" }, { name: "xlsx", description: "Spreadsheets" }];
+    assert.equal(r.skillCatalog(notes, 0), "[Skills]\nA skill is a set of instructions for one kind of task. When a task matches one of these, call the skill tool with its name and follow what it returns.\n- pdf: Work with PDFs\n- xlsx: Spreadsheets");
+    assert.equal(r.skillCatalog(notes.slice(0, 1), 3), "[Skills]\nA skill is a set of instructions for one kind of task. When a task matches one of these, call the skill tool with its name and follow what it returns.\n- pdf: Work with PDFs\n(3 more are not listed here; the skill tool names them when given a name it does not know)");
+    assert.equal(r.skillsUpdated(notes.slice(0, 1), notes.slice(1), ["old"]), "[The skills changed; this overrides the skill list you were given earlier where they differ]\nAdded:\n- pdf: Work with PDFs\nChanged (call the skill tool again before relying on what you read earlier):\n- xlsx: Spreadsheets\nRemoved (the skill tool no longer serves these):\n- old");
+    assert.equal(r.skillsUpdated([], [], ["old"]), "[The skills changed; this overrides the skill list you were given earlier where they differ]\nRemoved (the skill tool no longer serves these):\n- old");
     assert.equal(r.continueInterrupted(), "Your previous reply was cut off. Continue from where it stopped, without repeating what you already wrote.");
     assert.ok(Object.isFrozen(r));
     assert.equal(builtinRenderers[DEFAULT_RENDERER], r);

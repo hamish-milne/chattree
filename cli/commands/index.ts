@@ -7,10 +7,11 @@ import { miscCommands } from "./misc.ts";
 import { readCommands } from "./read.ts";
 import { sessionCommands } from "./sessions.ts";
 import { setupCommands } from "./setup.ts";
+import { skillCommands } from "./skills.ts";
 import { threadCommands } from "./threads.ts";
 import { toolCommands } from "./tools.ts";
 import { undoCommands } from "./undo.ts";
 
 export function defaultCommands(): Command[] {
-  return [...chatCommands, ...draftCommands, ...readCommands, ...sessionCommands, ...threadCommands, ...setupCommands, ...miscCommands, ...undoCommands, ...metaCommands, ...toolCommands, ...execCommands];
+  return [...chatCommands, ...draftCommands, ...readCommands, ...sessionCommands, ...threadCommands, ...setupCommands, ...skillCommands, ...miscCommands, ...undoCommands, ...metaCommands, ...toolCommands, ...execCommands];
 }
