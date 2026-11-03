@@ -249,10 +249,10 @@ describe("which tools are offered", () => {
         const set = await buildToolSet(testIo(dir), await Conversation.open(host, dir), { busy: () => false, onCommitted: () => undefined, onResume: () => undefined });
         return set.registry.definitions().map((d) => d.name).sort();
       };
-      assert.deepEqual(await names(), ["edit", "job_output", "job_stop", "jobs", "read", "run", "script", "write"]);
+      assert.deepEqual(await names(), ["edit", "job_output", "job_stop", "jobs", "read", "run", "script", "skill", "write"]);
       const yml = join(dir, "harness.yml");
       await writeFile(yml, (await readFile(yml, "utf8")).replace(/ {2}script:\n {4}allow: \{\}\n/, "").replace(/ {2}write:\n {4}allow: \{ all: 2999-01-01 \}\n/, ""));
-      assert.deepEqual(await names(), ["edit", "job_output", "job_stop", "jobs", "read", "run"]);
+      assert.deepEqual(await names(), ["edit", "job_output", "job_stop", "jobs", "read", "run", "skill"]);
     } finally {
       await server.close();
     }
