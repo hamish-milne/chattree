@@ -18,6 +18,12 @@ export interface MergedFiles {
   discarded: string[];
 }
 
+/** A skill as the model is told of it: its name and its one-line description. */
+export interface SkillNote {
+  name: string;
+  description: string;
+}
+
 export interface Renderer {
   /** The summary a compaction stands for, shown where the compacted range began. */
   compaction(summary: string): string;
@@ -43,6 +49,10 @@ export interface Renderer {
   instructionsUpdated(instructions: string): string;
   /** Text the harness put in front of the model (an `injection` entry). */
   injection(key: string, text: string): string;
+  /** The skills in the cached prefix, after the instructions. `omitted` more were left out of the list for its length. */
+  skillCatalog(skills: readonly SkillNote[], omitted: number): string;
+  /** Skills were added, changed or removed after the conversation began: shown where the change was made. */
+  skillsUpdated(added: readonly SkillNote[], changed: readonly SkillNote[], removed: readonly string[]): string;
 }
 
 /** Looks a renderer up by the id an agent's setup names. */
@@ -74,6 +84,15 @@ export const chattreeEnglishV1: Renderer = Object.freeze({
   textAttachment: (name: string | undefined, content: string) => `[Attached file${name === undefined ? "" : `: ${name}`}]\n${content}`,
   instructionsUpdated: (instructions: string) => `[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\n${instructions}`,
   injection: (_key: string, text: string) => `[Note from the harness]\n${text}`,
+  skillCatalog: (skills: readonly SkillNote[], omitted: number) =>
+    `[Skills]\nA skill is a set of instructions for one kind of task. When a task matches one of these, call the skill tool with its name and follow what it returns.\n${skills.map((s) => `- ${s.name}: ${s.description}`).join("\n")}${omitted > 0 ? `\n(${omitted} more are not listed here; the skill tool names them when given a name it does not know)` : ""}`,
+  skillsUpdated: (added: readonly SkillNote[], changed: readonly SkillNote[], removed: readonly string[]) => {
+    const parts = ["[The skills changed; this overrides the skill list you were given earlier where they differ]"];
+    if (added.length > 0) parts.push(`Added:\n${added.map((s) => `- ${s.name}: ${s.description}`).join("\n")}`);
+    if (changed.length > 0) parts.push(`Changed (call the skill tool again before relying on what you read earlier):\n${changed.map((s) => `- ${s.name}: ${s.description}`).join("\n")}`);
+    if (removed.length > 0) parts.push(`Removed (the skill tool no longer serves these):\n${removed.map((n) => `- ${n}`).join("\n")}`);
+    return parts.join("\n");
+  },
   continueInterrupted: () => "Your previous reply was cut off. Continue from where it stopped, without repeating what you already wrote.",
 });
 

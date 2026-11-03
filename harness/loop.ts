@@ -399,7 +399,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     const followKey = `call:${call.call_id}`;
     let out: ToolOutput;
     try {
-      const running = checked.tool.execute(checked.args, { signal, callId: call.call_id, workspace: convo.dir, host: convo.host, blobs: convo.store, lease: { follow: (branch) => lease.follow(followKey, branch) } });
+      const running = checked.tool.execute(checked.args, { signal, callId: call.call_id, workspace: convo.dir, host: convo.host, blobs: convo.store, setup: () => convo.setup(), lease: { follow: (branch) => lease.follow(followKey, branch) } });
       const res = timedOut === undefined ? await running : await Promise.race([running, timedOut]);
       if (res !== "timeout" && !isStarted(res) && res.waiting !== undefined) {
         blocked = { callId: call.call_id, name: call.name, on: res.waiting };

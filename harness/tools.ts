@@ -1,7 +1,7 @@
 import type { BlobStore } from "../src/index.ts";
 import type { Host } from "../src/host.ts";
 import { pinDefinition, type ToolDefinition } from "./definitions.ts";
-import type { PinnedDefinition } from "./setup.ts";
+import type { AgentSetup, PinnedDefinition } from "./setup.ts";
 import { checkSchema, coerceArgs, validateArgs } from "./tool-schema.ts";
 
 /**
@@ -20,6 +20,8 @@ export interface ToolContext {
   host: Host;
   /** The conversation's blobs, for tools that read stored output (`blob:<sha256>`). */
   blobs?: BlobStore;
+  /** The agent's setup as it is now, for a tool that serves what the setup pins (the `skill` tool). */
+  setup?(): Promise<AgentSetup>;
   /**
    * For a tool whose `timeout` is `"thread"`: say which thread's work this call is waiting for. The call keeps the thread's run lease for
    * as long as that thread's lease is live, and no longer (docs/tools.md, 5.3).

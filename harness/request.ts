@@ -8,6 +8,7 @@ import { contextJson, estimateRequest, type Estimate } from "./estimate.ts";
 import { computeLedger, type Ledger } from "./ledger.ts";
 import { checkLimits, LimitExceeded, type CostWarning } from "./limits.ts";
 import { ChangeNotAllowed, pendingAppends, servedModelId, type AgentSetup } from "./setup.ts";
+import { hasSkillTool, skillCatalog, skillUpdates, withCatalog } from "./skills.ts";
 import { tableHash } from "../providers/pricing.ts";
 
 export interface PrepareOptions {
@@ -70,11 +71,14 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
     if (e.instructions !== undefined) instructionUpdates.set(e.id, (await loadPinned("instructions", INSTRUCTIONS_NAME, e.instructions, { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) })) as string);
   }
   const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);
+  // The same for skills; the catalog in the prefix lists what the prefix shows, not what is current, and only for a model that has the tool.
+  const skillNotes = await skillUpdates(entries, pendingAppends(entries), { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) });
   const context = await buildContext(entries, {
     renderer,
     system: opts.system,
-    instructions: defs.prefixInstructions,
+    instructions: withCatalog(defs.prefixInstructions, hasSkillTool(setup) ? skillCatalog(renderer, defs.prefixSkills) : undefined),
     instructionUpdates,
+    skillUpdates: skillNotes,
     tools: defs.tools,
     target: { provider: setup.model.provider, model: servedModelId(setup.model) },
     readBytes: async (r) => {

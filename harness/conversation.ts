@@ -1431,14 +1431,13 @@ export class Conversation {
       for (const id of opts.acknowledges ?? []) if (!acknowledges.includes(id)) throw new ConversationError(`${id} is not an unacknowledged provider change on this branch`);
       if (Object.keys(delta).length === 0 && acknowledges.length === 0) return undefined;
       const next = applyChange(setup, delta);
-      // A change to nothing but the instructions or skills is shown to the model where it is made: the cached prefix keeps what it has (docs/context.md),
+      // A change to nothing but the instructions and skills is shown to the model where it is made: the cached prefix keeps what it has (docs/context.md),
       // so it is classified as if the instructions and skills had not changed.
-      // (Skills are rewritten into the prefix for now: their catalog is not shown to the model yet, see docs/context.md.)
       const touchesDefs = delta.instructions !== undefined || delta.skills !== undefined;
-      const instructionsOnly = delta.instructions !== undefined && setup.model !== undefined && delta.skills === undefined && delta.model === undefined && delta.tools === undefined && delta.mcp === undefined && delta.renderer === undefined;
+      const defsOnly = touchesDefs && setup.model !== undefined && delta.model === undefined && delta.tools === undefined && delta.mcp === undefined && delta.renderer === undefined;
       // Before the first request nothing is cached: the change goes straight into the prefix, and costs nothing.
-      const appendOnly = instructionsOnly && hasRequested(entries);
-      const seen = instructionsOnly ? withDefsOf(next, setup) : next;
+      const appendOnly = defsOnly && hasRequested(entries);
+      const seen = defsOnly ? withDefsOf(next, setup) : next;
       const changes = sameSetup(setup, seen) ? [] : this.#classify(setup, seen, inToolLoop(entries));
       const allowed = new Set(opts.allow ?? []);
       const refused = changes.filter((c) => !allowed.has(c.kind));

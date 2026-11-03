@@ -68,6 +68,8 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; wi
     "    allow: { all: 2999-01-01 }",
     "  edit:",
     "    allow: { all: 2999-01-01 }",
+    "  skill:",
+    "    allow: { all: 2999-01-01 }",
     "  jobs:",
     "    allow: { all: 2999-01-01 }",
     "  job_output:",

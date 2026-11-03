@@ -124,6 +124,12 @@ export const harnessConfig = z.object({
     .default({ auto: true, loose_objects: 1000, packs: 20, check_every: 200 }),
   /** Files added to messages (`Conversation.attach`). */
   attachments: z.object({ max_bytes: z.number().int().positive().default(20 * 1024 * 1024) }).default({ max_bytes: 20 * 1024 * 1024 }),
+  /**
+   * Skills (docs/context.md, section 2). `follow` says what happens when a `SKILL.md` changes, appears or disappears on disk while a thread
+   * runs: `ask` (default) reports it and `/skills sync` takes it, `auto` pins it at the start of the next request (the model is told where
+   * it happened, the cached prefix is untouched), `off` never looks.
+   */
+  skills: z.object({ follow: z.enum(["auto", "ask", "off"]).default("ask") }).default({ follow: "ask" }),
   compaction: z.object({ threshold_tokens: z.number().int().positive(), keep_recent: z.number().int().nonnegative() }).optional(),
 });
 

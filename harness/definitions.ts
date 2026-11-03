@@ -120,6 +120,8 @@ export interface LoadedDefinitions {
   /** The instructions the cached prefix shows: older than `instructions` after an `append` change (see `PrefixSetup`). */
   prefixInstructions: string | undefined;
   skills: Record<string, unknown>;
+  /** The skills the cached prefix lists: older than `skills` after an `append` change (see `PrefixSetup`). */
+  prefixSkills: Record<string, unknown>;
   mcp: Record<string, unknown>;
 }
 
@@ -135,7 +137,7 @@ export async function loadPinned(kind: DefinitionKind, name: string, pin: Pinned
 
 /** Fetch and verify the bytes of every pinned definition: from `blobs/` or from the host's source. Throws if any does not match its hash. */
 export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): Promise<LoadedDefinitions> {
-  const out: LoadedDefinitions = { tools: [], instructions: undefined, prefixInstructions: undefined, skills: {}, mcp: {} };
+  const out: LoadedDefinitions = { tools: [], instructions: undefined, prefixInstructions: undefined, skills: {}, prefixSkills: {}, mcp: {} };
   for (const { section, kind, name, pin } of pinnedOf(setup)) {
     const value = await loadPinned(kind, name, pin, from);
     if (section === "tools") out.tools.push(value as ToolDefinition);
@@ -145,5 +147,8 @@ export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): 
   out.tools.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const shown = setup.prefix.instructions;
   out.prefixInstructions = shown === undefined ? undefined : stable(shown) === stable(setup.instructions ?? null) ? out.instructions : ((await loadPinned("instructions", INSTRUCTIONS_NAME, shown, from)) as string);
+  for (const [name, pin] of Object.entries(setup.prefix.skills)) {
+    out.prefixSkills[name] = stable(pin) === stable(setup.skills[name] ?? null) ? out.skills[name] : await loadPinned("skill", name, pin, from);
+  }
   return out;
 }

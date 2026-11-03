@@ -208,8 +208,10 @@ export function coreClassify(from: AgentSetup, to: AgentSetup, ctx: ClassifyCont
     out.push({ kind: "resolved_model_changed", message: `served model ${fm.resolved} became ${tm.resolved}` });
   }
   if (!sameDefs(from.tools, to.tools)) out.push({ kind: "tools_changed", message: "the tool definitions differ" });
-  if (!sameDefs(from.skills, to.skills) || !sameDefs(from.mcp, to.mcp)) out.push({ kind: "tools_changed", message: "skills or MCP servers differ" });
+  if (!sameDefs(from.mcp, to.mcp)) out.push({ kind: "tools_changed", message: "MCP servers differ" });
   if (stable(from.instructions ?? null) !== stable(to.instructions ?? null)) out.push({ kind: "instructions_changed", message: "the instructions differ" });
+  // The skill catalog is part of what follows the instructions in the prefix, so a skills change is an instructions change to the cache.
+  if (!sameDefs(from.skills, to.skills)) out.push({ kind: "instructions_changed", message: "the skills differ" });
   if (from.pricing !== undefined && stable(from.pricing) !== stable(to.pricing ?? null)) out.push({ kind: "pricing_changed", message: "the price table differs" });
   if ((from.renderer ?? DEFAULT_RENDERER) !== (to.renderer ?? DEFAULT_RENDERER)) out.push({ kind: "renderer_changed", message: `renderer ${from.renderer ?? DEFAULT_RENDERER} to ${to.renderer ?? DEFAULT_RENDERER}: every rendered turn changes` });
   if (ctx.midLoop && (out.length > 0 || stable(fm.settings ?? null) !== stable(tm.settings ?? null))) {

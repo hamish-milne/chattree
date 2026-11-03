@@ -2,7 +2,7 @@ import { attachmentKind, decodeText, normalizeMime } from "./attachments.ts";
 import { contextEntries } from "./context.ts";
 import type { ChatEntry } from "./entries.ts";
 import type { ToolDefinition } from "./definitions.ts";
-import { chattreeEnglishV1, type Renderer } from "./renderer.ts";
+import { chattreeEnglishV1, type Renderer, type SkillNote } from "./renderer.ts";
 
 /** Put the text back where a long string inside tool arguments was stored as a blob reference. */
 export async function inlineBlobs(v: unknown, text: (t: { sha256: string; bytes: number }) => Promise<string>): Promise<unknown> {
@@ -61,6 +61,8 @@ export interface BuildInput {
   renderer?: Renderer;
   /** For each `agent_setup` entry that changed the instructions by `append` (see `pendingAppends`): the new text, shown where the entry is. */
   instructionUpdates?: ReadonlyMap<string, string>;
+  /** The same for skills (see `skillUpdates`): what was added, changed and removed by that entry. An entry may carry both. */
+  skillUpdates?: ReadonlyMap<string, { added: readonly SkillNote[]; changed: readonly SkillNote[]; removed: readonly string[] }>;
   /** Read a blob-backed text (large values are stored as blobs). Without it, a blob reference is an error. */
   readText?: (ref: { sha256: string; bytes: number }) => Promise<string>;
   /** Read a blob's bytes, for attachments. Without it, a message with an attachment is an error. */
@@ -108,9 +110,13 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       case "approval": // a decision about a call: the model sees the call's result, which says what happened
         break;
       case "agent_setup": {
-        // An appended change to the instructions is shown like a queued message: after the results that close the open turn.
+        // An appended change to the instructions or skills is shown like a queued message: after the results that close the open turn.
+        const parts: UserPart[] = [];
         const updated = input.instructionUpdates?.get(e.id);
-        if (updated !== undefined) raw.push({ role: "user", parts: [{ type: "text", text: render.instructionsUpdated(updated) }], queued: e.id });
+        if (updated !== undefined) parts.push({ type: "text", text: render.instructionsUpdated(updated) });
+        const skills = input.skillUpdates?.get(e.id);
+        if (skills !== undefined) parts.push({ type: "text", text: render.skillsUpdated(skills.added, skills.changed, skills.removed) });
+        if (parts.length > 0) raw.push({ role: "user", parts, queued: e.id });
         break;
       }
       case "injection":
