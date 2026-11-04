@@ -110,6 +110,7 @@ Threads
 | `/merge [summary]` | Merge this fork into the thread it came from and move there (`fork_merge`, with the summary the user or the model writes). |
 | `/merge <thread> [summary]` | Merge that fork into this thread. |
 | `/compact <from> <to>` | Replace a range with a summary (the CLI asks the model for the summary, shows it, asks to accept). |
+| `/compact trim [keep]` | Leave old tool output, long tool arguments and reasoning out of what the model sees; the last `keep` entries (default `compaction.keep_recent`, 12) stay whole. No model is asked. |
 
 Agent setup and configuration
 

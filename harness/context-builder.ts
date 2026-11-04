@@ -2,6 +2,7 @@ import { attachmentKind, decodeText, normalizeMime } from "./attachments.ts";
 import { contextEntries } from "./context.ts";
 import type { ChatEntry } from "./entries.ts";
 import type { ToolDefinition } from "./definitions.ts";
+import { elideArgs, outputLeftOut, textBytes, trimRules, type TrimRule } from "./trim.ts";
 import { chattreeEnglishV1, type Renderer, type SkillNote } from "./renderer.ts";
 
 /** Put the text back where a long string inside tool arguments was stored as a blob reference. */
@@ -92,11 +93,14 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     return input.readText(t);
   };
   const keepReasoning = (provider: string, model: string, b: EntryBlock): boolean => (b.$tag !== "reasoning" && b.$tag !== "provider_compaction") || (provider === input.target.provider && model === input.target.model && b.provider === input.target.provider);
-  const block = async (b: EntryBlock): Promise<Block> => {
+  const block = async (b: EntryBlock, rule?: TrimRule): Promise<Block> => {
     const ext = b.ext === undefined ? {} : { ext: b.ext };
     if (b.$tag === "text") return { type: "text", text: await text(b.text), ...ext };
     if (b.$tag === "provider_compaction") return { type: "provider_compaction", provider: b.provider, payload: await text(b.payload), ...ext };
     if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, ...(b.payload === undefined ? {} : { payload: b.payload }), ...(b.visible === undefined ? {} : { visible: await text(b.visible) }), ...ext };
+    const min = rule?.tool_args;
+    // A trim keeps the shape of the arguments and leaves out the long texts (before any blob is read); the provider's raw string would show them again, so it goes.
+    if (min !== undefined) return { type: "tool_call", call_id: b.call_id, name: b.name, args: (await inlineBlobs(elideArgs(b.args, min), text)) as Record<string, unknown>, ...ext };
     return { type: "tool_call", call_id: b.call_id, name: b.name, args: (await inlineBlobs(b.args, text)) as Record<string, unknown>, ...(b.args_raw === undefined ? {} : { args_raw: await text(b.args_raw) }), ...ext };
   };
 
@@ -104,9 +108,14 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
   const raw: Raw[] = [];
   const userText = (s: string): void => void raw.push({ role: "user", parts: [{ type: "text", text: s }] });
 
-  for (const e of contextEntries(entries)) {
+  const visible = contextEntries(entries);
+  const trims = trimRules(visible);
+  for (const [at, e] of visible.entries()) {
+    const rule = trims[at];
     switch (e.$tag) {
       case "header":
+      case "trim": // its effect is on the entries it covers
+
       case "approval": // a decision about a call: the model sees the call's result, which says what happened
         break;
       case "agent_setup": {
@@ -146,13 +155,15 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       }
       case "assistant": {
         const blocks: Block[] = [];
-        for (const b of e.blocks) if (keepReasoning(e.provider, e.model, b)) blocks.push(await block(b));
+        for (const b of e.blocks) if (keepReasoning(e.provider, e.model, b) && !(rule?.reasoning === true && b.$tag === "reasoning")) blocks.push(await block(b, rule));
         if (blocks.length > 0) raw.push({ role: "assistant", provider: e.provider, model: e.model, blocks, ...(isObject(e.ext) ? { ext: e.ext } : {}), ...(e.context_tip === undefined ? {} : { tip: e.context_tip }) });
         break;
       }
-      case "tool_result":
-        raw.push({ role: "result", result: { call_id: e.call_id, is_error: e.is_error, content: await text(e.content), truncated: e.truncated === true } });
+      case "tool_result": {
+        const left = rule?.tool_results !== undefined && textBytes(e.content) >= rule.tool_results;
+        raw.push({ role: "result", result: { call_id: e.call_id, is_error: e.is_error, content: left ? outputLeftOut(textBytes(e.content)) : await text(e.content), truncated: !left && e.truncated === true } });
         break;
+      }
       case "compaction":
         userText(render.compaction(await text(e.summary)));
         break;

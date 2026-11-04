@@ -107,3 +107,14 @@ Rules, as built:
 4. **MCP. Done.** `harness/mcp/client.ts` (JSON-RPC client; stdio and streamable-HTTP transports; no dependency), `harness/schema-project.ts`, `harness/mcp/servers.ts`
    (configuration pin, acceptance state, naming, tool wrapping, `McpServers`), `syncMcpTools` in `loop.ts`, the tool set's `mcp` and `reloadMcp`, the server-wide `allow`
    in the grant store, and `/mcp` (list, `show`, `accept`, `forget`, `refresh`). Then the pool and subagent access (above).
+
+## 5. Trimming
+
+The cheap kind of compaction: nothing is summarised, so no model is asked and no meaning is lost. The bulky parts of old entries are left out of what the model sees, and every word the user and the model wrote stays.
+
+- **The entry** (format 2.5): `trim { upto, rule: { tool_results?, tool_args?, reasoning? }, by: user | auto }`. From that point the model is shown the entries up to and including `upto` with the parts the rule names left out: tool output of at least `tool_results` bytes (replaced by a line saying how big it was and that running the call again gets it back), text values of at least `tool_args` bytes inside tool-call arguments (the shape of the arguments stays; the provider's raw argument string goes), and, with `reasoning: true`, the model's reasoning. Nothing is rewritten or deleted: the transcript keeps everything and `/show` still reads it.
+- **Replay is the same**: the rule is in the entry, and the two marker texts (`harness/trim.ts`) are frozen like a renderer's. Several trims add up (the smaller size and any reasoning win, per entry). A trim whose `upto` is unknown, compacted away or not before it does nothing, and `verify` warns (`trim-ignored`).
+- **A trim is a rebuild**, like a compaction: it folds lagging appends into the prefix and loses the cache once, so the next request reads the context at the full input price.
+- **By hand**: `/compact trim [keep]`. **Automatically**: `compaction: { auto: trim }` in `harness.yml` (off by default). Before a request whose size reaches `threshold_tokens` (default 70% of the model's context window, if known) the harness records a trim of everything before the last `keep_recent` entries (default 12), unless that would take out less than 10% of the threshold, which is not worth losing the cache for. The sizes are `compaction.trim` (`tool_results` and `tool_args`, default 2048 bytes; `reasoning`, default true).
+- **Left for later**: summaries written automatically (the other strategies in the parking lot), a trim that spares a tool's results by name, and an undo.
+

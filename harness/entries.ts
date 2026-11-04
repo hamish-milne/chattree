@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 2, minor: 4 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 5 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -105,6 +105,33 @@ export const compaction = z.object({
   replaces: z.object({ from: ulid, to: ulid }),
   summary: text,
   model: z.string().optional(),
+});
+
+/**
+ * What a trim leaves out of the entries it covers (format 2.5). Each part is optional; an absent part leaves that kind of content whole.
+ * Sizes are UTF-8 bytes. The words of the user and of the model are never touched, nor are tool names and the shape of the arguments.
+ */
+export const trimRule = z.object({
+  /** Leave out the output of tool calls of at least this many bytes (the model is told how large it was). */
+  tool_results: z.number().int().nonnegative().optional(),
+  /** Leave out text values of at least this many bytes inside the arguments of tool calls (a file written, a patch). */
+  tool_args: z.number().int().nonnegative().optional(),
+  /** Leave out the model's reasoning. */
+  reasoning: z.boolean().optional(),
+});
+
+/**
+ * A trim (format 2.5): from this point on, the model is shown the entries up to and including `upto` with the bulky parts `rule` names left
+ * out. Nothing is rewritten or deleted (see `contextEntries` and `trimRules`); several trims add up, the strictest part of each applying.
+ * Like a compaction it rewrites the prefix of the history, so it folds lagging appends in and loses the cache once.
+ */
+export const trim = z.object({
+  $tag: z.literal("trim"),
+  id: ulid,
+  upto: ulid,
+  rule: trimRule,
+  /** Who asked for it: the user (`/compact trim`) or the harness at the configured threshold. */
+  by: z.enum(["user", "auto"]),
 });
 
 // ---- agent_setup: the agent's state, folded per branch (see docs/providers.md, P8) -----------------------------
@@ -313,6 +340,7 @@ export type ChatEntry =
   | z.infer<typeof assistant>
   | z.infer<typeof toolResult>
   | z.infer<typeof compaction>
+  | z.infer<typeof trim>
   | z.infer<typeof agentSetup>
   | z.infer<typeof branchStart>
   | z.infer<typeof subagentResult>
@@ -328,6 +356,7 @@ export const entryTypes = [
   defineEntry("assistant", assistant),
   defineEntry("tool_result", toolResult),
   defineEntry("compaction", compaction),
+  defineEntry("trim", trim),
   defineEntry("agent_setup", agentSetup),
   defineEntry("branch_start", branchStart),
   defineEntry("subagent_result", subagentResult),

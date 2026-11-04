@@ -46,6 +46,8 @@ export function summarizeEntry(e: ChatEntry | undefined, fallback: string): stri
       return `tool result${typeof e.content === "string" ? `: ${flat(e.content)}` : " (large, stored as a blob)"}`;
     case "compaction":
       return `compaction: ${flat(e.summary)}`;
+    case "trim":
+      return `trim${e.by === "auto" ? " (automatic)" : ""}: ${[e.rule.tool_results !== undefined && "tool results", e.rule.tool_args !== undefined && "tool arguments", e.rule.reasoning === true && "reasoning"].filter(Boolean).join(", ")} up to ${e.upto}`;
     case "agent_setup":
       return `setup (${e.reason})${e.model === undefined ? "" : `: ${e.model.resolved ?? e.model.id}`}`;
     case "branch_start":
@@ -141,6 +143,7 @@ export interface MermaidOptions {
 
 const TAGGED: Record<string, string> = {
   compaction: "compaction",
+  trim: "trim",
   agent_setup: "setup",
   interrupted: "interrupted",
   subagent_result: "subagent result",

@@ -1,5 +1,7 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
+import { trimRuleOf } from "../../harness/auto-trim.ts";
+import { planTrim } from "../../harness/trim.ts";
 import { readCommitGraph } from "../../harness/graph.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import type { Ctx } from "../engine.ts";
@@ -15,9 +17,30 @@ const entriesOf = async (ctx: Ctx): Promise<ChatEntry[]> => (await ctx.convo.rea
 const compact: Command = {
   name: "compact",
   summary: "replace a range of earlier entries, in what the model sees, with a summary (nothing is deleted)",
-  usage: "/compact <from> <to> [summary text]   (entries are numbers counting back from the last, or the start of an id; without a summary the model writes one for you to confirm)",
+  usage: "/compact <from> <to> [summary text]   (entries are numbers counting back from the last, or the start of an id; without a summary the model writes one for you to confirm)\n/compact trim [keep]   (leave old tool output, long tool arguments and reasoning out of what the model sees, keeping the last [keep] entries whole; no model is asked)",
   busy: "blocked",
   async *run(ctx, args, rest) {
+    if (args[0] === "trim") {
+      try {
+        const given = args[1] === undefined ? undefined : Number(args[1]);
+        if (args.length > 2 || (given !== undefined && !(Number.isInteger(given) && given >= 0))) {
+          yield { type: "error", message: "give how many recent entries to keep whole, as a number", hint: "/compact trim [keep]" };
+          return;
+        }
+        const { rule, keepRecent } = await trimRuleOf(ctx.convo);
+        const keep = given ?? keepRecent;
+        const plan = planTrim(await entriesOf(ctx), keep, rule);
+        if (plan === undefined) {
+          yield { type: "notice", message: `nothing to trim before the last ${keep} entries` };
+          return;
+        }
+        await ctx.convo.trim({ upto: plan.upto, rule, by: "user" });
+        yield { type: "notice", message: `trimmed: about ${(plan.bytes / 1024).toFixed(1)} KB of old tool output, arguments and reasoning is left out of what the model sees (the last ${keep} entries are whole; the transcript keeps everything). The next request reads the context again at the full input price.` };
+      } catch (e) {
+        yield failure(e);
+      }
+      return;
+    }
     if (args.length < 2) {
       yield { type: "error", message: "give the first and last entry to replace", hint: "/compact <from> <to> [summary text]; see /history and /show for entries" };
       return;

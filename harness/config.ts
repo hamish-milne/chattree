@@ -199,7 +199,19 @@ export const harnessConfig = z.object({
         .default({}),
     })
     .default({ usage: true, rules: {} }),
-  compaction: z.object({ threshold_tokens: z.number().int().positive(), keep_recent: z.number().int().nonnegative() }).optional(),
+  /**
+   * Keeping the context within the window. `auto: trim` leaves the bulky parts of old entries out (docs/context.md, section 5) when a request
+   * would be at least `threshold_tokens` (default: 70% of the model's context window, if known); the last `keep_recent` entries stay whole.
+   */
+  compaction: z
+    .object({
+      threshold_tokens: z.number().int().positive().optional(),
+      keep_recent: z.number().int().nonnegative().default(12),
+      auto: z.enum(["off", "trim"]).default("off"),
+      /** What a trim leaves out, as sizes in bytes (`reasoning`: all of it). */
+      trim: z.object({ tool_results: z.number().int().nonnegative().default(2048), tool_args: z.number().int().nonnegative().default(2048), reasoning: z.boolean().default(true) }).default({ tool_results: 2048, tool_args: 2048, reasoning: true }),
+    })
+    .optional(),
 });
 
 export type HarnessConfig = z.infer<typeof harnessConfig>;

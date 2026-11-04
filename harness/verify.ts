@@ -175,6 +175,12 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
     const upto = entries.slice(0, i + 1).flatMap((x) => (x.value === undefined ? [] : [x.value]));
     if (!contextEntries(upto).includes(e.value)) add("warning", "compaction-ignored", "this compaction cannot be applied (unknown ids, a range not entirely before it, or a range in another context) and has no effect", { entry: e.id ?? `#${i + 1}` });
   }
+  for (const [i, e] of entries.entries()) {
+    const v = e.value;
+    if (v?.$tag !== "trim") continue;
+    const before = entries.slice(0, i).flatMap((x) => (x.value === undefined ? [] : [x.value]));
+    if (!contextEntries(before).some((x) => "id" in x && x.id === v.upto)) add("warning", "trim-ignored", "this trim names an entry that is not in the context before it (unknown, or compacted away) and has no effect", { entry: e.id ?? `#${i + 1}` });
+  }
   // ---- agent setups ----------------------------------------------------------------------------------------------
   const providerEntries = new Set<string>();
   let flowFirstSetup = true;

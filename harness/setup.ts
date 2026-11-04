@@ -45,7 +45,7 @@ const prefixOf = (s: AgentSetup): PrefixSetup => ({ ...(s.instructions === undef
  * the instructions or skills has no mark and always did.
  */
 export function rebasesPrefix(e: ChatEntry): boolean {
-  if (e.$tag === "compaction") return true;
+  if (e.$tag === "compaction" || e.$tag === "trim") return true;
   if (e.$tag !== "agent_setup") return false;
   return e.apply === "rebuild" || (e.apply === undefined && (e.instructions !== undefined || e.skills !== undefined));
 }
@@ -137,7 +137,7 @@ export function applyChange(base: AgentSetup, change: SetupChange): AgentSetup {
 export function foldSetup(entries: readonly ChatEntry[]): AgentSetup {
   let s = emptySetup();
   for (const e of entries.slice(flowStart(entries))) {
-    if (e.$tag === "compaction") s = { ...s, prefix: prefixOf(s) };
+    if (e.$tag === "compaction" || e.$tag === "trim") s = { ...s, prefix: prefixOf(s) };
     if (e.$tag !== "agent_setup") continue;
     const next = applyChange(s, e);
     const pending = s.unacknowledged.filter((u) => !(e.acknowledges ?? []).includes(u.id));

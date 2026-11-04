@@ -34,6 +34,7 @@ import { computeLedger, priceResolver, type Ledger, type PriceResolver, type Spe
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
 import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
+import type { TrimRule } from "./trim.ts";
 import { DEFAULT_MAX_ATTACHMENT_BYTES, attachmentKind, decodeText, mimeCharset, normalizeMime } from "./attachments.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import type { ModelInfo } from "../providers/registry.ts";
@@ -390,6 +391,8 @@ export function describeEntry(e: ChatEntry): string {
       return `tool_result: ${oneLine(e.call_id, 40)}${e.is_error ? " (error)" : ""}`;
     case "compaction":
       return "compaction";
+    case "trim":
+      return `trim${e.by === "auto" ? ": automatic" : ""}`;
     case "agent_setup":
       return `agent_setup: ${e.reason}${e.model === undefined ? "" : ` ${oneLine(e.model.resolved ?? e.model.id, 40)}`}`;
     case "branch_start":
@@ -1312,6 +1315,23 @@ export class Conversation {
         summary: opts.summary,
         ...(opts.model === undefined ? {} : { model: opts.model }),
       });
+    });
+  }
+
+  /**
+   * Record a trim: from now on the model is shown the entries up to and including `upto` with what `rule` names left out (`trimRules`). Nothing is
+   * rewritten. `upto` must be an entry of the current context.
+   */
+  trim(opts: { upto: string; rule: TrimRule; by: "user" | "auto" }): Promise<Appended> {
+    return this.#transaction(async () => {
+      const entries = await this.readEntries();
+      const values: ChatEntry[] = [];
+      for (const [i, e] of entries.entries()) {
+        if (!e.ok) throw new ConversationError(`entry ${i + 1} no longer validates, so the context cannot be computed; cannot trim`);
+        values.push(e.value);
+      }
+      if (!contextEntries(values).some((e) => "id" in e && e.id === opts.upto)) throw new ConversationError(`${opts.upto} is not an entry in the current context`);
+      return this.#appendLocked({ $tag: "trim", upto: opts.upto, rule: opts.rule, by: opts.by });
     });
   }
 
