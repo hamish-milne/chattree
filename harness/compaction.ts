@@ -6,7 +6,7 @@ import { askModel } from "./oneshot.ts";
 import { prepareContext, type PrepareOptions, type Prepared } from "./request.ts";
 import { chattreeEnglishV1 } from "./renderer.ts";
 import { servedModelId } from "./setup.ts";
-import { planTrim, byteLength, type TrimRule } from "./trim.ts";
+import { planTrim, byteLength, textBytes, type TrimRule } from "./trim.ts";
 
 /**
  * Keeping a thread inside the model's window (docs/context.md, sections 5 and 6). `compactionSettings` reads the policy from `harness.yml`;
@@ -20,6 +20,8 @@ export interface CompactionSettings {
   threshold?: number;
   summaryModel?: string;
   summaryInput: "seen" | "raw";
+  /** The summaries in the context may use this share of the threshold before a new one takes them in. */
+  summaryBudget: number;
 }
 
 export async function compactionSettings(convo: Conversation): Promise<CompactionSettings> {
@@ -33,6 +35,7 @@ export async function compactionSettings(convo: Conversation): Promise<Compactio
     ...(c?.threshold_tokens === undefined ? {} : { threshold: c.threshold_tokens }),
     ...(c?.summary_model === undefined ? {} : { summaryModel: c.summary_model }),
     summaryInput: c?.summary_input ?? "seen",
+    summaryBudget: c?.summary_budget ?? 0.15,
   };
 }
 
@@ -75,7 +78,7 @@ export function atTurnStart(entries: readonly ChatEntry[]): boolean {
  * The range a summary would replace: from the first entry of the context (an earlier summary included) up to before the last `keepRecent`
  * entries. It never reaches into the open turn (from the last user message on) and never ends between a call and its result.
  */
-export function summaryRange(entries: readonly ChatEntry[], keepRecent: number): { from: string; to: string; entries: number } | undefined {
+export function summaryRange(entries: readonly ChatEntry[], keepRecent: number, budgetBytes?: number): { from: string; to: string; entries: number; merges: boolean } | undefined {
   const visible = contextEntries(entries);
   let end = visible.length - 1;
   for (let kept = 0; end >= 0 && kept < keepRecent; end--) if (carries(visible[end] as ChatEntry)) kept++;
@@ -96,11 +99,20 @@ export function summaryRange(entries: readonly ChatEntry[], keepRecent: number):
     }
   }
   while (end >= 0 && !(carries(visible[end] as ChatEntry) && idOf(visible[end] as ChatEntry) !== undefined)) end--;
-  const first = visible.findIndex((e) => carries(e) && idOf(e) !== undefined);
-  if (end < 0 || first < 0 || first > end) return undefined;
-  const count = visible.slice(first, end + 1).filter(carries).length;
-  if (count < 2) return undefined;
-  return { from: idOf(visible[first] as ChatEntry) as string, to: idOf(visible[end] as ChatEntry) as string, entries: count };
+  if (end < 0) return undefined;
+  const pick = (first: number, merges: boolean): { from: string; to: string; entries: number; merges: boolean } | undefined => {
+    if (first < 0 || first > end) return undefined;
+    const count = visible.slice(first, end + 1).filter(carries).length;
+    return count < 2 ? undefined : { from: idOf(visible[first] as ChatEntry) as string, to: idOf(visible[end] as ChatEntry) as string, entries: count, merges };
+  };
+  const firstOf = (from: number): number => visible.findIndex((e, i) => i >= from && carries(e) && idOf(e) !== undefined);
+  // Summaries already in the context stay as they are (their text, and so the cached prefix, does not change) while they are small: the new one covers
+  // only what came after the last of them. Once they exceed the budget, the new one takes them in and covers everything (summary of summaries).
+  const lastSummary = visible.findLastIndex((e, i) => e.$tag === "compaction" && i <= end);
+  const summaryBytes = visible.reduce((n, e) => n + (e.$tag === "compaction" ? textBytes(e.summary) : 0), 0);
+  const merged = pick(firstOf(0), true);
+  if (lastSummary < 0 || (budgetBytes !== undefined && summaryBytes >= budgetBytes)) return merged;
+  return pick(firstOf(lastSummary + 1), false) ?? merged;
 }
 
 /** A context's turns as plain text, for a summarizer to read. */
@@ -137,6 +149,7 @@ export async function summariseRange(convo: Conversation, opts: PrepareOptions, 
       system: "",
       target: { provider: setup.model!.provider, model: servedModelId(setup.model!) },
       renderer: chattreeEnglishV1,
+      from: range.from,
       upTo: range.to,
       trims,
       readBytes: async (r) => {
@@ -191,7 +204,7 @@ export async function autoCompact(convo: Conversation, opts: PrepareOptions, pre
       const lastAuto = now.findLastIndex((e) => e.$tag === "compaction" && e.by === "auto");
       const cooling = lastAuto >= 0 && now.slice(lastAuto + 1).filter(carries).length < COOLDOWN;
       if (!cooling && atTurnStart(now)) {
-        const range = summaryRange(now, s.keepRecent);
+        const range = summaryRange(now, s.keepRecent, Math.floor(threshold * s.summaryBudget * 3));
         if (range === undefined) throw new CompactionInsufficient(`the request is about ${p.estimate?.inputTokens} tokens, over the threshold of ${threshold}, but nothing older than the last ${s.keepRecent} entries can be summarised; lower compaction.keep_recent`);
         await summariseRange(convo, opts, range, s, "auto");
         p = await prepareContext(convo, opts);

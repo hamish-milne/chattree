@@ -129,12 +129,15 @@ compaction:
   keep_recent: 12       # the last entries stay whole
   summary_model: claude-haiku-5-5   # of the same provider; default: the thread's model
   summary_input: seen   # or raw
+  summary_budget: 0.15  # the share of the threshold the summaries in the context may take
   trim: { tool_results: 2048, tool_args: 2048, reasoning: true }
 ```
 
 **Order, at a request that would reach the threshold.** (1) Trim everything before the last `keep_recent` entries. With `auto: trim` this only happens if it takes out at least a tenth of the threshold (4 bytes to a token), because a trim loses the cache once; with `auto: full` any saving is taken. (2) With `auto: full`, if the request is still at the threshold **and it starts a turn** (the last entry with content is a user message or a finished job), write a summary of everything from the start of the context (an earlier summary included) up to the last `keep_recent` entries. The range never reaches into the open turn and never ends between a call and its result. Both writes come before the request, so the cache is lost once.
 
 **Why not in the middle of a turn.** A summary there would hide the work the model is in the middle of, and a model that cannot see its own recent output loops and contradicts itself. So mid-turn only the trim runs. The default threshold is 70% of the window for the same reason: it leaves 30% for a long tool loop to finish its turn after a trim. The harness also tells the model once the request reaches 85% of the threshold (an `injection` under the key `compaction:soon`, repeated every 5 responses while it stands) that older output will be left out and that it should write down what it needs.
+
+**Several summaries in a row.** While the summaries already in the context are small (`summary_budget`, default 15% of the threshold at 3 bytes to a token), a new summary covers only what came after the last of them: the earlier summaries keep their exact text, so the cached prefix up to them is unchanged, and the summarizer is not asked to rewrite them. Once they pass the budget, the next summary takes them in and covers everything from the first (a summary of summaries), which bounds the context for runs with any number of compactions at the cost of some detail in the oldest part. The transcript keeps every original either way.
 
 **Hard stop.** With `auto` on, a request that is still at 90% of the window after all that is not sent (`ContextFull`). The thread is intact; `/compact`, a new thread, or a lower `keep_recent` goes on from there.
 

@@ -66,6 +66,8 @@ export interface BuildInput {
   skillUpdates?: ReadonlyMap<string, { added: readonly SkillNote[]; changed: readonly SkillNote[]; removed: readonly string[] }>;
   /** Build the context as it stood after this entry (an id in the visible sequence); what comes later is left out. */
   upTo?: string;
+  /** Leave out the visible entries before this one (an id in the visible sequence): a summary of a range is written from the range, not from the summaries above it. */
+  from?: string;
   /** `false`: show every entry whole, as if no trim had been made (the raw input of a summary). Default true. */
   trims?: boolean;
   /** Read a blob-backed text (large values are stored as blobs). Without it, a blob reference is an error. */
@@ -116,9 +118,11 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
   const trims = input.trims === false ? [] : trimRules(whole);
   // `upTo`: the context as it stood after that entry (what a summary of the range up to it is written from).
   const stop = input.upTo === undefined ? -1 : whole.findIndex((e) => "id" in e && e.id === input.upTo);
-  const visible = stop < 0 ? whole : whole.slice(0, stop + 1);
+  const start = input.from === undefined ? -1 : whole.findIndex((e) => "id" in e && e.id === input.from);
+  const visible = whole.slice(Math.max(start, 0), stop < 0 ? undefined : stop + 1);
+  const offset = Math.max(start, 0);
   for (const [at, e] of visible.entries()) {
-    const rule = trims[at];
+    const rule = trims[at + offset];
     switch (e.$tag) {
       case "header":
       case "trim": // its effect is on the entries it covers

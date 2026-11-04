@@ -215,6 +215,8 @@ export const harnessConfig = z.object({
       summary_model: z.string().min(1).optional(),
       /** What the summarizer reads: `seen`, what the main model sees (past summaries and trimmed entries); or `raw`, the entries since the last summary untrimmed (falls back to `seen` if that does not fit). */
       summary_input: z.enum(["seen", "raw"]).default("seen"),
+      /** The share of the threshold (at 3 bytes to a token) that the summaries in the context may take. While they fit, a new summary covers only what came after them and they stay as they are (cache-friendly); beyond it, the new one takes them in and covers everything. */
+      summary_budget: z.number().gt(0).lt(1).default(0.15),
     })
     .optional(),
 });

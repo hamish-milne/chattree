@@ -106,3 +106,33 @@ describe("summaryRange", () => {
     assert.equal(atTurnStart([user("q"), say([call("c1")]), result("c1", "o")]), false);
   });
 });
+
+describe("summaryRange with earlier summaries", () => {
+  const [u1, a1, u2, a2] = [user("q1"), say("r1"), user("q2"), say("r2")];
+  const comp1: ChatEntry = { $tag: "compaction", id: id(), replaces: { from: idOf(u1), to: idOf(a1) }, summary: "S1 ".repeat(20) };
+  const [u3, a3, u4, a4, u5] = [user("q3"), say("r3"), user("q4"), say("r4"), user("q5")];
+  const all = [u1, a1, u2, a2, comp1, u3, a3, u4, a4, u5];
+
+  test("while the summaries fit the budget, the new one covers only what came after them", () => {
+    const r = summaryRange(all, 2, 10_000);
+    assert.deepEqual(r && [r.from, r.to, r.merges], [idOf(u2), idOf(u4), false]);
+  });
+
+  test("beyond the budget it takes the earlier summaries in and covers everything", () => {
+    const r = summaryRange(all, 2, 10);
+    assert.deepEqual(r && [r.from, r.to, r.merges], [idOf(comp1), idOf(u4), true]);
+    assert.equal(summaryRange(all, 2)?.merges, false, "no budget given: they stay");
+  });
+
+  test("with nothing but the summary before the kept entries there is nothing to do", () => {
+    assert.equal(summaryRange([u1, a1, comp1, u2], 1, 10_000), undefined);
+  });
+
+
+  test("the text a summary is written from starts at its range, without the summaries above it", async () => {
+    const whole = flat(await build(all));
+    const part = flat(await buildContext(all, { system: "s", target: { provider: "anthropic", model: "sonnet" }, from: idOf(u2), upTo: idOf(u4) }));
+    assert.ok(whole.includes("S1 S1") && !part.includes("S1 S1"));
+    assert.ok(part.includes("q2") && part.includes("q4") && !part.includes("q5"));
+  });
+});
