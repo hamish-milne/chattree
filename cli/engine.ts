@@ -21,6 +21,8 @@ import type { ChatEntry } from "../harness/entries.ts";
 import { deliverForks } from "../harness/fork-tools.ts";
 import { openThread } from "./project.ts";
 import { followSkills, skillsWaiting } from "./skills.ts";
+import { SYSTEM_PROMPT, type HostEnvironment } from "../harness/environment.ts";
+import { hostEnvironment } from "./environment.ts";
 
 /** A file staged for the next prompt. Only the path and what was decided about it are kept; the blob is made when the prompt is sent. */
 export interface StagedAttachment {
@@ -91,7 +93,7 @@ export interface EngineOptions {
   headless?: boolean;
 }
 
-export const DEFAULT_SYSTEM = "You are a helpful assistant. The conversation is stored in a git repository; be concise and say plainly when you are unsure.";
+export const DEFAULT_SYSTEM = SYSTEM_PROMPT;
 
 /**
  * The session engine: one thread, the state a session keeps, and the commands. `submit(line)` takes what the user entered
@@ -102,6 +104,8 @@ export class Engine {
   readonly project: Project;
   readonly registry: Registry;
   readonly system: string;
+  /** What the model is told about this machine (`environment` injection). */
+  readonly environment: HostEnvironment | undefined;
   readonly session: Session | undefined;
   readonly sessions: SessionStore | undefined;
   state: SessionState;
@@ -179,6 +183,8 @@ export class Engine {
     this.thread = o.opened.thread;
     this.degraded = o.opened.degraded;
     this.system = o.system ?? DEFAULT_SYSTEM;
+    // CHATTREE_ENVIRONMENT=off leaves the note out whatever harness.yml says: for scripts and tests that need the transcript to hold only what was typed.
+    this.environment = o.io.env["CHATTREE_ENVIRONMENT"] === "off" ? undefined : hostEnvironment(o.io);
     this.session = o.session;
     this.sessions = o.sessions;
     this.state = o.session?.state ?? emptyState();
@@ -283,7 +289,7 @@ export class Engine {
       // A thread the user is not on: run it only if its pinned tools are exactly the ones this session would give a child (a fork that works by itself).
       const d = await toolDrift(convo, set.childRegistry);
       if (d.missing.length + d.changed.length + d.extra.length > 0) return undefined;
-      return { system: this.system, registry: set.childRegistry, grants: convo.grantStore(), owner, standing: this.standing };
+      return { system: this.system, environment: this.environment, registry: set.childRegistry, grants: convo.grantStore(), owner, standing: this.standing };
     }
     if (!sub) {
       // No screen to pin the tools before a message is sent, so it is done here; a failure shows when the loop runs and is held.
@@ -300,7 +306,7 @@ export class Engine {
         }
       }
       if (this.#headless && convo === this.convo) await this.followSkills();
-      return { system: this.system, registry: set.registry, grants: convo.grantStore(), owner, ...(this.#headless ? { jobs: set.jobs, standing: this.standing } : {}) };
+      return { system: this.system, environment: this.environment, registry: set.registry, grants: convo.grantStore(), owner, ...(this.#headless ? { jobs: set.jobs, standing: this.standing } : {}) };
     }
     // A subagent has the MCP servers its thread has (`subagent.mcp`), started for its own worktree, and pins their tools as the thread did.
     const mcp = await this.#childServers(convo);
@@ -312,7 +318,7 @@ export class Engine {
         this.childLine?.(`  ↳ ${convo.branch}: could not pin the MCP tools: ${e instanceof Error ? e.message : String(e)}\n`);
       }
     }
-    return { system: this.system, registry, grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };
+    return { system: this.system, environment: this.environment, registry, grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };
   }
 
   /** Connect the MCP servers a subagent gets (the thread's, all or the ones `subagent.mcp` names), once per run of its loop. */

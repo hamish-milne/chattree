@@ -24,7 +24,7 @@ export function testIo(cwd: string, over: Partial<Io> & { stdin?: string } = {})
     stderr: "",
     out: (t) => void (cap.stdout += t),
     err: (t) => void (cap.stderr += t),
-    env: {},
+    env: { CHATTREE_ENVIRONMENT: "off" },
     cwd,
     interactive: false,
     readStdin: async () => new TextEncoder().encode(over.stdin ?? ""),

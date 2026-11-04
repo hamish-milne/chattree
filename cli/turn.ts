@@ -71,6 +71,7 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
       }
       const gen = requestStream(convo, {
         system: engine.system,
+        environment: engine.environment,
         signal: ac.signal,
         owner: localOwner(engine.sessionId),
         standing: [...engine.standing, ...drift],
@@ -145,6 +146,7 @@ async function* toolLoop(
   engine.pump(); // questions and subagents are the pump's, which looks at every thread when this turn ends
   const loop = runLoop(convo, {
     system: engine.system,
+    environment: engine.environment,
     registry: tools.registry,
     jobs: tools.jobs,
     grants: convo.grantStore(),

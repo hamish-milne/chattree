@@ -184,6 +184,8 @@ export const harnessConfig = z.object({
   injections: z
     .object({
       usage: z.boolean().default(true),
+      /** Tell the model where it is (system, thread, date; docs/context.md, section 2). Default on. */
+      environment: z.boolean().default(true),
       rules: z
         .record(
           z.string().regex(/^[a-z0-9][a-z0-9_.-]*$/, "lowercase letters, digits, and . _ -"),
@@ -198,7 +200,7 @@ export const harnessConfig = z.object({
         )
         .default({}),
     })
-    .default({ usage: true, rules: {} }),
+    .default({ usage: true, environment: true, rules: {} }),
   /**
    * Keeping the context within the window (docs/context.md, sections 5 and 6). With `auto` on, a request that would reach `threshold_tokens` (default:
    * 70% of the model's context window, which leaves room to finish a long tool loop) is trimmed first; `auto: full` then writes a summary if the trim

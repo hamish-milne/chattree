@@ -4,6 +4,7 @@ import { prepareContext, type PrepareOptions, type Prepared } from "./request.ts
 import { Journal, RequestSuperseded, type JournalOptions } from "./journal.ts";
 import { StreamAccumulator } from "./partial.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
+import { environmentRule, type HostEnvironment } from "./environment.ts";
 import { autoCompact, compactionSettings } from "./compaction.ts";
 import { compactionRule, rulesFromConfig, runInjections, type InjectionRule } from "./injections.ts";
 import { usageRecord } from "./ledger.ts";
@@ -34,6 +35,8 @@ export interface TurnOptions extends PrepareOptions {
   abortPollMs?: number;
   /** Injection rules from the host, run after the ones `harness.yml` asks for (`injections` in config). */
   injections?: readonly InjectionRule[];
+  /** What the host knows about the machine; with it the model is told where it is (`environment` injection, docs/context.md). */
+  environment?: HostEnvironment | undefined;
   /** Called with what was checked, before anything is sent: the host's chance to show warnings. */
   onPrepared?: (prepared: Prepared) => void | Promise<void>;
 }
@@ -59,7 +62,8 @@ async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promis
     return dec.decode(await convo.host.fs.read(path));
   }) : [];
   const compaction = await compactionSettings(convo);
-  return [...fromConfig, ...(compaction.auto === "off" ? [] : [compactionRule(compaction)]), ...(opts.injections ?? [])];
+  const where = opts.environment === undefined || (config?.ok === true && !config.value.injections.environment) ? [] : [environmentRule({ ...opts.environment, thread: convo.branch, workspace: convo.dir })];
+  return [...where, ...fromConfig, ...(compaction.auto === "off" ? [] : [compactionRule(compaction)]), ...(opts.injections ?? [])];
 }
 
 /**

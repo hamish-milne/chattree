@@ -57,6 +57,8 @@ which changes can be made as **deltas at the tail** of the conversation instead 
   (near-limit and context-window warnings, today only shown to the user), and a TypeScript API. Injections cause no drift: their
   output is appended history, and the rules sit outside the transcript like the clock.
 
+**The environment** (`harness/environment.ts`, `cli/environment.ts`). The system prompt (`SYSTEM_PROMPT`, ending in its version) says once what chattree is: threads, forks and subagents, the transcript as a repository, approvals, that old output may be left out or summarised, skills, and how to read a "Note from the harness". What changes goes in an `environment` injection instead, so it is not part of the cached prefix: the system and where `run` gets its commands, the time zone and today's date in it, the thread and its workspace. It is recorded on a thread's first request and again only when its text would differ from the last time: a new day, a fork (it has its own thread name), a changed fact. `injections.environment: false` in `harness.yml` leaves it out, and so does `CHATTREE_ENVIRONMENT=off` in the environment (for scripts and tests that need the transcript to hold only what was typed). Custom text for a project belongs in the instructions, not here.
+
 ## 3. Drift: tail deltas by default
 
 `agent_setup.apply` (format 2.4) is `append` or `rebuild`. The **prefix** is what the model's cached prefix shows for the instructions
