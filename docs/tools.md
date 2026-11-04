@@ -211,6 +211,14 @@ The child gets the leaf tools but not the meta tools: no recursion, depth one. W
 
 Nested loops use the same code as the top-level loop with the child's conversation and its own tool context, so a child's tools can never write into the parent's worktree.
 
+### 4.3 Threads talking to each other
+
+`harness/thread-tools.ts`: **`thread_read {thread, last?, since?, full?}`** shows what another thread has done, as text, and **`thread_send {thread, message}`** writes to it. `thread` is a branch name, or `parent`. Only kin may talk, and kin is worked out from the histories, never from what the model says: a thread's origin is the `from.branch` of its *last* `branch_start` (the earlier ones belong to the threads it inherited from), so a parent is the thread that started this one, a child is a thread whose origin is this one (a subagent or a fork), and siblings share an origin. Siblings are refused unless `threads.siblings: true` is in `harness.yml`; everything else is an error naming the rule. Which thread is calling comes from the call (`ToolContext.thread`), because the tool set is shared by the threads a session runs.
+
+- **Reading** shows the target's own entries only (after its `branch_start`, counted from 1 so `since` can continue a read): messages, calls with shortened arguments, results (300 characters, or 4000 with `full`), subagent reports, job events. Reasoning, approvals and setup are left out. At most about 16 KB comes back, oldest dropped first and said so; a result kept as a blob is named so the `read` tool can open it. The reader pays for what it reads, as part of its own context.
+- **Sending** appends a `user` entry on the receiver's branch with `queued: true` and `from: <sender>` (**format 2.6**), whose text starts with `[Message from thread <sender>]`: the line is in the text because renderers are frozen and the model must tell the message from a person's. A running receiver picks it up with its next request (5.5); a waiting one has a user message as its last entry, which the fold calls `ready` (cause `human`), so the pump runs it. The sender's work goes on, nothing is waited for; a message that needs an answer says so, and the answer is the receiver's own `thread_send`. A question that must stop the sender is still a tool call that needs approval.
+- **Approvals.** Both tools are listed in the `harness.yml` that `init` writes, allowed without asking (they stay inside the thread family, and a send costs the receiver's tokens, not the user's attention); take them out of `tools` to turn them off. A thread whose `harness.yml` predates them does not have them. A child works from the copy of `harness.yml` made when it started, so a parent's later approvals do not reach it: a parent that wants its child to do something newly allowed has to hand it back to the user, or fork again.
+
 ## 5. Safety
 
 Three layers, in order of how much they can guarantee.

@@ -7,6 +7,7 @@ import { forkTool, mergeTool, type ForkDeps } from "../harness/fork-tools.ts";
 import { ThreadRuns } from "../harness/runs.ts";
 import { skillTool } from "../harness/skill-tool.ts";
 import { subagentTool } from "../harness/subagent.ts";
+import { threadTools } from "../harness/thread-tools.ts";
 import { resolveSubagentModels } from "../harness/subagent-models.ts";
 import { defaultRegistry } from "../providers/index.ts";
 import type { McpPool } from "../harness/mcp/pool.ts";
@@ -99,7 +100,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const listed = (name: string): boolean => config?.tools[name] !== undefined;
   const busybox = listed("run") || listed("script") ? await resolveBusybox(io, io.settings?.busybox) : undefined;
   const runs = new ThreadRuns();
-  const leaf = [...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), skillTool()];
+  const leaf = [...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), skillTool(), ...threadTools({ convo, siblings: config?.threads.siblings === true })];
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
   const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
   // The models the parent may choose for a subagent. A list that names a provider harness.yml does not have is the user's to fix.

@@ -107,12 +107,13 @@ export class Pump {
     return out;
   }
 
-  /** The thread a branch was started from, if it is a fork or subagent (the first entry says; it never changes). */
+  /** The thread a branch was started from, if it is a fork or subagent (its own `branch_start` says; it never changes). */
   async #parentOf(branch: string): Promise<string | undefined> {
     const known = this.#parents.get(branch);
     if (known !== undefined) return known ?? undefined;
     const entries = await (await this.#convo(branch)).readEntries();
-    const start = entries.flatMap((e) => (e.ok && e.value.$tag === "branch_start" ? [e.value] : []))[0];
+    // The thread's own start is the last one: a fork of a fork also holds the starts of the threads it inherited from.
+    const start = entries.flatMap((e) => (e.ok && e.value.$tag === "branch_start" ? [e.value] : [])).at(-1);
     this.#parents.set(branch, start?.from.branch ?? null);
     return start?.from.branch;
   }

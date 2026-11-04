@@ -15,6 +15,8 @@ export interface ToolContext {
   signal: AbortSignal;
   /** The call this execution answers. */
   callId: string;
+  /** The thread making the call (its branch). */
+  thread?: string;
   /** The thread's worktree: the workspace, and the root every path is relative to. */
   workspace: string;
   host: Host;

@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 2, minor: 5 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 6 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -71,6 +71,11 @@ export const user = z.object({
    * the model is shown it after the results that close the turn, in the next request.
    */
   queued: z.boolean().optional(),
+  /**
+   * The thread that sent it (format 2.6), for a message one thread wrote to another with `thread_send`; absent for what a person typed. The
+   * text itself starts with a line naming the sender, so the model reads it the same way (renderers are frozen and know nothing of this field).
+   */
+  from: z.string().optional(),
 });
 
 export const assistant = z.object({

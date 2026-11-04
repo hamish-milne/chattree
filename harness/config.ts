@@ -102,6 +102,8 @@ export const harnessConfig = z.object({
    * session on this machine. With `remote`, a ref on that remote instead, so clones that share it but not a git directory agree too.
    */
   leases: z.object({ remote: z.string().min(1) }).optional(),
+  /** Threads talking to each other (docs/tools.md, 4.3). A parent and its children always may, if the tools are listed; siblings only with `siblings`. */
+  threads: z.object({ siblings: z.boolean().default(false) }).default({ siblings: false }),
   /** Subagents (docs/tools.md, 4.2). */
   subagent: z
     .object({
