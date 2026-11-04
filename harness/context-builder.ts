@@ -64,6 +64,10 @@ export interface BuildInput {
   instructionUpdates?: ReadonlyMap<string, string>;
   /** The same for skills (see `skillUpdates`): what was added, changed and removed by that entry. An entry may carry both. */
   skillUpdates?: ReadonlyMap<string, { added: readonly SkillNote[]; changed: readonly SkillNote[]; removed: readonly string[] }>;
+  /** Build the context as it stood after this entry (an id in the visible sequence); what comes later is left out. */
+  upTo?: string;
+  /** `false`: show every entry whole, as if no trim had been made (the raw input of a summary). Default true. */
+  trims?: boolean;
   /** Read a blob-backed text (large values are stored as blobs). Without it, a blob reference is an error. */
   readText?: (ref: { sha256: string; bytes: number }) => Promise<string>;
   /** Read a blob's bytes, for attachments. Without it, a message with an attachment is an error. */
@@ -108,8 +112,11 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
   const raw: Raw[] = [];
   const userText = (s: string): void => void raw.push({ role: "user", parts: [{ type: "text", text: s }] });
 
-  const visible = contextEntries(entries);
-  const trims = trimRules(visible);
+  const whole = contextEntries(entries);
+  const trims = input.trims === false ? [] : trimRules(whole);
+  // `upTo`: the context as it stood after that entry (what a summary of the range up to it is written from).
+  const stop = input.upTo === undefined ? -1 : whole.findIndex((e) => "id" in e && e.id === input.upTo);
+  const visible = stop < 0 ? whole : whole.slice(0, stop + 1);
   for (const [at, e] of visible.entries()) {
     const rule = trims[at];
     switch (e.$tag) {

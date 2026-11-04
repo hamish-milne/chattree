@@ -97,6 +97,7 @@ export async function computeLedger(entries: readonly ChatEntry[], prices: Price
     if (i < from) continue;
     if (e.$tag === "user") out.turn = zero();
     else if (e.$tag === "assistant") count(await spendOf(e.model, e.usage), e.model);
+    else if (e.$tag === "compaction" && e.usage !== undefined) count(await spendOf(e.model ?? setup.model?.resolved ?? setup.model?.id ?? "", e.usage), e.model ?? setup.model?.id);
     else if (e.$tag === "interrupted" && e.usage !== undefined) count(await spendOf(setup.model?.resolved ?? setup.model?.id ?? "", e.usage), setup.model?.id);
     else if ((e.$tag === "subagent_result" || e.$tag === "fork_merge") && e.spend !== undefined) count(e.spend);
   }

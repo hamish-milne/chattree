@@ -200,16 +200,21 @@ export const harnessConfig = z.object({
     })
     .default({ usage: true, rules: {} }),
   /**
-   * Keeping the context within the window. `auto: trim` leaves the bulky parts of old entries out (docs/context.md, section 5) when a request
-   * would be at least `threshold_tokens` (default: 70% of the model's context window, if known); the last `keep_recent` entries stay whole.
+   * Keeping the context within the window (docs/context.md, sections 5 and 6). With `auto` on, a request that would reach `threshold_tokens` (default:
+   * 70% of the model's context window, which leaves room to finish a long tool loop) is trimmed first; `auto: full` then writes a summary if the trim
+   * was not enough, between turns only. The last `keep_recent` entries stay whole.
    */
   compaction: z
     .object({
       threshold_tokens: z.number().int().positive().optional(),
       keep_recent: z.number().int().nonnegative().default(12),
-      auto: z.enum(["off", "trim"]).default("off"),
+      auto: z.enum(["off", "trim", "full"]).default("off"),
       /** What a trim leaves out, as sizes in bytes (`reasoning`: all of it). */
       trim: z.object({ tool_results: z.number().int().nonnegative().default(2048), tool_args: z.number().int().nonnegative().default(2048), reasoning: z.boolean().default(true) }).default({ tool_results: 2048, tool_args: 2048, reasoning: true }),
+      /** The model that writes summaries, of the thread's provider. Default: the thread's own model. */
+      summary_model: z.string().min(1).optional(),
+      /** What the summarizer reads: `seen`, what the main model sees (past summaries and trimmed entries); or `raw`, the entries since the last summary untrimmed (falls back to `seen` if that does not fit). */
+      summary_input: z.enum(["seen", "raw"]).default("seen"),
     })
     .optional(),
 });

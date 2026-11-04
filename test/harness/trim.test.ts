@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { buildContext, type ModelContext } from "../../harness/context-builder.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
+import { atTurnStart, summaryRange } from "../../harness/compaction.ts";
 import { planTrim, trimRules } from "../../harness/trim.ts";
 
 let n = 0;
@@ -80,5 +81,28 @@ describe("planTrim", () => {
   test("a smaller output than the size is not worth a trim", () => {
     const h = [user("q"), say([call("c1", { x: 1 })]), result("c1", "short"), user("q2"), say("a")];
     assert.equal(planTrim(h, 1, { tool_results: 1024, tool_args: 1024 }), undefined);
+  });
+});
+
+describe("summaryRange", () => {
+  test("stops before the last entries kept and before the open turn, and starts at the first entry or an earlier summary", () => {
+    const h = history(); // user, assistant+call, result, user, assistant
+    const r = summaryRange([...h, user("third")], 2);
+    assert.deepEqual(r && [r.from, r.to], [idOf(h[0] as ChatEntry), idOf(h[3] as ChatEntry)]);
+    assert.equal(summaryRange(h, 100), undefined, "everything is recent");
+    assert.equal(summaryRange([user("a"), say("b")], 0), undefined, "an open turn is never summarised");
+  });
+
+  test("never ends between a call and its result", () => {
+    const [u, a, r2, u2] = [user("q"), say([call("c1")]), result("c1", "out"), user("q2")];
+    const range = summaryRange([u, a, r2, say("done"), u2, say("x")], 3);
+    assert.ok(range === undefined || range.to !== idOf(a), "the call is not the last of the range");
+  });
+
+  test("a turn starts when the last content entry is a user message, not in a tool loop", () => {
+    const h = history();
+    assert.equal(atTurnStart([...h, user("next")]), true);
+    assert.equal(atTurnStart(h), false);
+    assert.equal(atTurnStart([user("q"), say([call("c1")]), result("c1", "o")]), false);
   });
 });

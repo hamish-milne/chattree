@@ -3,6 +3,7 @@ import type { HarnessConfig } from "./config.ts";
 import type { ChatEntry } from "./entries.ts";
 import type { CostWarning } from "./limits.ts";
 import type { Prepared } from "./request.ts";
+import { thresholdOf, type CompactionSettings } from "./compaction.ts";
 
 /**
  * Injections (docs/context.md, section 2): text the harness puts in front of the model before a request. A rule is a pure function of what the
@@ -73,6 +74,23 @@ export const usageRule: InjectionRule = (ctx) => {
   }
   return out;
 };
+
+// ---- built-in: compaction is near -------------------------------------------------------------------------------
+
+/** Tell the model, from this share of the compaction threshold, that its context will be reduced, so it writes down what it needs before that. */
+export const SOON_SHARE = 0.85;
+
+export function compactionRule(s: CompactionSettings): InjectionRule {
+  return (ctx) => {
+    const tokens = ctx.prepared.estimate?.inputTokens;
+    const threshold = thresholdOf(s, ctx.prepared.estimate?.contextWindow);
+    if (tokens === undefined || threshold === undefined || tokens < threshold * SOON_SHARE) return undefined;
+    const since = ctx.since("compaction:soon");
+    if (since !== undefined && since < USAGE_REPEAT) return undefined;
+    const what = s.auto === "full" ? "At the start of the next turn the older part of this conversation will be replaced by a summary, and before that the long tool output, long tool arguments and reasoning of older steps are left out." : "The long tool output, long tool arguments and reasoning of older steps will be left out.";
+    return { key: "compaction:soon", text: `The context is filling up (about ${tokens} tokens; it is reduced at ${threshold}). ${what} Your own text and the user's messages stay. Before then, write down what you will need later (decisions, findings, file paths, what is left to do) in a file or in your reply, and do not repeat earlier output.` };
+  };
+}
 
 // ---- rules from harness.yml ---------------------------------------------------------------------------------
 

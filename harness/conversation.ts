@@ -179,6 +179,10 @@ export interface CompactOptions {
   summary: string;
   /** The model that wrote the summary. */
   model?: string;
+  /** What writing it used, so the ledger counts it. */
+  usage?: Record<string, number>;
+  /** Who asked for it. Default: the user. */
+  by?: "user" | "auto";
 }
 
 export interface InterruptOptions {
@@ -1314,6 +1318,8 @@ export class Conversation {
         replaces: { from: opts.from, to: opts.to },
         summary: opts.summary,
         ...(opts.model === undefined ? {} : { model: opts.model }),
+        ...(opts.usage === undefined ? {} : { usage: opts.usage }),
+        ...(opts.by === undefined ? {} : { by: opts.by }),
       });
     });
   }

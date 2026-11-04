@@ -1,6 +1,7 @@
 import { ChangeNotAllowed } from "../harness/setup.ts";
 import { localOwner } from "./owner.ts";
 import type { ChangeKind } from "../harness/entries.ts";
+import { CompactionInsufficient, ContextFull } from "../harness/compaction.ts";
 import { LimitExceeded } from "../harness/limits.ts";
 import { JournalBusy } from "../harness/journal.ts";
 import { ThreadBusy } from "../harness/lease.ts";
@@ -231,6 +232,8 @@ function mapEvent(e: StreamEvent): Output | undefined {
 export function failure(e: unknown): Output {
   if (e instanceof ConfigNotTrusted) return { type: "error", message: e.message, hint: "/trust shows what is in it and approves it" };
   if (e instanceof ChangeNotAllowed) return { type: "error", message: e.message };
+  if (e instanceof ContextFull) return { type: "error", message: e.message };
+  if (e instanceof CompactionInsufficient) return { type: "error", message: e.message, hint: "the thread is kept as it is; send again to go on without another summary for a few entries, or change compaction in harness.yml" };
   if (e instanceof LimitExceeded) return { type: "error", message: e.message };
   if (e instanceof ThreadBusy) return { type: "error", message: e.message, hint: "wait for it to finish, or stop it there; a lease left by a process that died is taken over by itself" };
   if (e instanceof JournalBusy) return { type: "error", message: e.message, hint: "/abort stops the request that is running" };

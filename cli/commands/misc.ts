@@ -1,6 +1,6 @@
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
-import { trimRuleOf } from "../../harness/auto-trim.ts";
+import { compactionSettings } from "../../harness/compaction.ts";
 import { planTrim } from "../../harness/trim.ts";
 import { readCommitGraph } from "../../harness/graph.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
@@ -27,7 +27,7 @@ const compact: Command = {
           yield { type: "error", message: "give how many recent entries to keep whole, as a number", hint: "/compact trim [keep]" };
           return;
         }
-        const { rule, keepRecent } = await trimRuleOf(ctx.convo);
+        const { rule, keepRecent } = await compactionSettings(ctx.convo);
         const keep = given ?? keepRecent;
         const plan = planTrim(await entriesOf(ctx), keep, rule);
         if (plan === undefined) {
@@ -55,6 +55,7 @@ const compact: Command = {
       }
       let summary = rest.replace(/^\s*\S+\s+\S+\s*/, "").trim();
       let model: string | undefined;
+      let usage: Record<string, number> | undefined;
       if (summary === "") {
         const a = entries.indexOf(from);
         const b = entries.indexOf(to);
@@ -63,8 +64,8 @@ const compact: Command = {
           return;
         }
         const lines = await formatTranscript(ctx.convo, entries.slice(a, b + 1).filter((e) => e.$tag !== "agent_setup"), { thinking: "off", tools: "brief", max: 4000 });
-        const r = await askModel(ctx.convo, `Summarise this part of a conversation so that it can replace it in the model's context. Keep decisions, facts, names, numbers and open questions; drop pleasantries. Plain text.\n\n${lines.join("\n")}`);
-        yield { type: "notice", message: `summary of ${b - a + 1} entries by ${r.model} (${r.usage.input} in, ${r.usage.output} out; not in the ledger):` };
+        const r = await askModel(ctx.convo, `Summarise this part of a conversation so that it can replace it in the model's context. Keep decisions, facts, names, numbers and open questions; drop pleasantries. Plain text.\n\n${lines.join("\n")}`, { limits: true });
+        yield { type: "notice", message: `summary of ${b - a + 1} entries by ${r.model} (${r.usage.input} in, ${r.usage.output} out; counted in the ledger if you accept it):` };
         yield { type: "text", text: r.text };
         if (!(await ctx.confirm("Replace them with this summary?"))) {
           yield { type: "notice", message: "not compacted" };
@@ -72,8 +73,9 @@ const compact: Command = {
         }
         summary = r.text;
         model = r.model;
+        usage = r.record;
       }
-      await ctx.convo.compact({ from: from.id, to: to.id, summary, ...(model === undefined ? {} : { model }) });
+      await ctx.convo.compact({ from: from.id, to: to.id, summary, ...(model === undefined ? {} : { model }), ...(usage === undefined ? {} : { usage }) });
       yield { type: "notice", message: "compacted: the model now sees the summary in place of that range; the entries stay in the transcript" };
     } catch (e) {
       yield failure(e);

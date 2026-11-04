@@ -104,7 +104,12 @@ export const compaction = z.object({
   id: ulid,
   replaces: z.object({ from: ulid, to: ulid }),
   summary: text,
+  /** The model that wrote the summary, when one did. */
   model: z.string().optional(),
+  /** What writing it used (format 2.5, normalised names as in `assistant.usage`): counted in the ledger like a response. */
+  usage: z.record(z.string(), z.number()).optional(),
+  /** Who asked for it (format 2.5): the user, or the harness at the configured threshold. Absent on older entries (the user). */
+  by: z.enum(["user", "auto"]).optional(),
 });
 
 /**

@@ -115,6 +115,33 @@ The cheap kind of compaction: nothing is summarised, so no model is asked and no
 - **The entry** (format 2.5): `trim { upto, rule: { tool_results?, tool_args?, reasoning? }, by: user | auto }`. From that point the model is shown the entries up to and including `upto` with the parts the rule names left out: tool output of at least `tool_results` bytes (replaced by a line saying how big it was and that running the call again gets it back), text values of at least `tool_args` bytes inside tool-call arguments (the shape of the arguments stays; the provider's raw argument string goes), and, with `reasoning: true`, the model's reasoning. Nothing is rewritten or deleted: the transcript keeps everything and `/show` still reads it.
 - **Replay is the same**: the rule is in the entry, and the two marker texts (`harness/trim.ts`) are frozen like a renderer's. Several trims add up (the smaller size and any reasoning win, per entry). A trim whose `upto` is unknown, compacted away or not before it does nothing, and `verify` warns (`trim-ignored`).
 - **A trim is a rebuild**, like a compaction: it folds lagging appends into the prefix and loses the cache once, so the next request reads the context at the full input price.
-- **By hand**: `/compact trim [keep]`. **Automatically**: `compaction: { auto: trim }` in `harness.yml` (off by default). Before a request whose size reaches `threshold_tokens` (default 70% of the model's context window, if known) the harness records a trim of everything before the last `keep_recent` entries (default 12), unless that would take out less than 10% of the threshold, which is not worth losing the cache for. The sizes are `compaction.trim` (`tool_results` and `tool_args`, default 2048 bytes; `reasoning`, default true).
+- **By hand**: `/compact trim [keep]`. **Automatically**: see section 6.
 - **Left for later**: summaries written automatically (the other strategies in the parking lot), a trim that spares a tool's results by name, and an undo.
 
+## 6. Automatic compaction
+
+`compaction` in `harness.yml` (`harness/compaction.ts`, called by `requestStream` before every request):
+
+```yaml
+compaction:
+  auto: full            # off (default) | trim | full
+  threshold_tokens: 140000   # default: 70% of the model's context window, if known; with neither, nothing happens
+  keep_recent: 12       # the last entries stay whole
+  summary_model: claude-haiku-5-5   # of the same provider; default: the thread's model
+  summary_input: seen   # or raw
+  trim: { tool_results: 2048, tool_args: 2048, reasoning: true }
+```
+
+**Order, at a request that would reach the threshold.** (1) Trim everything before the last `keep_recent` entries. With `auto: trim` this only happens if it takes out at least a tenth of the threshold (4 bytes to a token), because a trim loses the cache once; with `auto: full` any saving is taken. (2) With `auto: full`, if the request is still at the threshold **and it starts a turn** (the last entry with content is a user message or a finished job), write a summary of everything from the start of the context (an earlier summary included) up to the last `keep_recent` entries. The range never reaches into the open turn and never ends between a call and its result. Both writes come before the request, so the cache is lost once.
+
+**Why not in the middle of a turn.** A summary there would hide the work the model is in the middle of, and a model that cannot see its own recent output loops and contradicts itself. So mid-turn only the trim runs. The default threshold is 70% of the window for the same reason: it leaves 30% for a long tool loop to finish its turn after a trim. The harness also tells the model once the request reaches 85% of the threshold (an `injection` under the key `compaction:soon`, repeated every 5 responses while it stands) that older output will be left out and that it should write down what it needs.
+
+**Hard stop.** With `auto` on, a request that is still at 90% of the window after all that is not sent (`ContextFull`). The thread is intact; `/compact`, a new thread, or a lower `keep_recent` goes on from there.
+
+**What the summarizer reads** (`summary_input`). `seen` (default): exactly what the main model sees for the range, so the past summaries and the trimmed entries. It always fits when the summarizer is the thread's model, because the request it replaces was smaller than the window. `raw`: the entries since the last summary, whole; if that does not fit the summarizer's window it falls back to `seen`; if that does not fit either, it is an error that names `summary_model`.
+
+**Cost.** The summary request is checked against the limits in `harness.yml` before it is sent, like any request (`LimitExceeded`), and its usage is written into the `compaction` entry, which the ledger counts. `/compact` with a model-written summary does the same once the user accepts. The summary model is another model of the thread's provider; its price comes from that provider's pinned table.
+
+**Failure.** An empty summary, or one as long as the text it summarises, is refused and nothing is recorded. A summary that does not bring the request under the threshold is an error (`CompactionInsufficient`, with the numbers and what to change); it stays recorded because it still helped, and no automatic summary is tried again until 6 more entries have been added, so the next request goes out. Nothing older than `keep_recent` to summarise is the same error.
+
+**Not covered.** A request that already breaks a cost limit is refused (by `prepareContext`) before compaction can run; with the default threshold that is rare, and raising the limit or compacting by hand fixes it. Provider-side compaction (OpenAI's `compact_threshold`) stays a separate opt-in. A summary model on another provider is not supported.

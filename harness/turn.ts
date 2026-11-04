@@ -4,8 +4,8 @@ import { prepareContext, type PrepareOptions, type Prepared } from "./request.ts
 import { Journal, RequestSuperseded, type JournalOptions } from "./journal.ts";
 import { StreamAccumulator } from "./partial.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
-import { autoTrim } from "./auto-trim.ts";
-import { rulesFromConfig, runInjections, type InjectionRule } from "./injections.ts";
+import { autoCompact, compactionSettings } from "./compaction.ts";
+import { compactionRule, rulesFromConfig, runInjections, type InjectionRule } from "./injections.ts";
 import { usageRecord } from "./ledger.ts";
 import { servedModelId, stable } from "./setup.ts";
 import { sha256Hex } from "../src/blobs.ts";
@@ -58,7 +58,8 @@ async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promis
     if (rel === "" || rel.startsWith("..") || convo.host.path.isAbsolute(rel)) throw new Error(`${file} is outside the thread's workspace`);
     return dec.decode(await convo.host.fs.read(path));
   }) : [];
-  return [...fromConfig, ...(opts.injections ?? [])];
+  const compaction = await compactionSettings(convo);
+  return [...fromConfig, ...(compaction.auto === "off" ? [] : [compactionRule(compaction)]), ...(opts.injections ?? [])];
 }
 
 /**
@@ -70,7 +71,7 @@ async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promis
 export async function* requestStream(convo: Conversation, opts: TurnOptions): AsyncGenerator<StreamEvent, TurnResult, void> {
   await convo.assertConfigTrusted();
   let prepared = await prepareContext(convo, opts);
-  if (await autoTrim(convo, prepared)) prepared = await prepareContext(convo, opts);
+  prepared = await autoCompact(convo, opts, prepared);
   // Injection rules see the request as it would go out; what they write goes into the transcript, and the context is built again from it.
   const rules = await injectionRulesFor(convo, opts);
   const injected = await runInjections(convo, rules, prepared);
