@@ -14,7 +14,7 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - run: pnpm typecheck
 
@@ -27,7 +27,7 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       # The run and script tools use busybox on Windows; the tests that run real shell commands need it installed (it is checked against a pinned hash).
       - if: runner.os == 'Windows'
@@ -45,6 +45,6 @@ jobs:
   slow:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: ./.github/actions/setup
       - run: pnpm test:slow
