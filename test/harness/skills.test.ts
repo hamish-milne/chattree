@@ -139,11 +139,16 @@ describe("scanSkills", () => {
 
 describe("the user-level directory", () => {
   test("CHATTREE_SKILLS_DIR wins, then the config directory; nothing when the environment says nothing", () => {
-    assert.equal(userSkillsDir(host, { CHATTREE_SKILLS_DIR: "/x/skills", HOME: "/h" }), "/x/skills");
-    assert.equal(userSkillsDir(host, { XDG_CONFIG_HOME: "/cfg", HOME: "/h" }), join("/cfg", "chattree", "skills"));
-    assert.equal(userSkillsDir(host, { HOME: "/h" }), join("/h", ".config", "chattree", "skills"));
+    assert.equal(userSkillsDir(host, { CHATTREE_SKILLS_DIR: "/x/skills", HOME: "/h" }), host.path.resolve("/x/skills"), "made absolute, so on Windows it gains a drive");
+    if (host.platform === "windows") {
+      assert.equal(userSkillsDir(host, { APPDATA: "C:\\Users\\u\\AppData\\Roaming" }), join("C:\\Users\\u\\AppData\\Roaming", "chattree", "skills"));
+      assert.equal(userSkillsDir(host, { HOME: "/h" }), undefined, "Windows looks at APPDATA");
+    } else {
+      assert.equal(userSkillsDir(host, { XDG_CONFIG_HOME: "/cfg", HOME: "/h" }), join("/cfg", "chattree", "skills"));
+      assert.equal(userSkillsDir(host, { HOME: "/h" }), join("/h", ".config", "chattree", "skills"));
+      assert.equal(userSkillsDir(host, { HOME: "" }), undefined);
+    }
     assert.equal(userSkillsDir(host, {}), undefined);
-    assert.equal(userSkillsDir(host, { HOME: "" }), undefined);
   });
 });
 

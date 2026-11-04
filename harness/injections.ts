@@ -76,22 +76,22 @@ export const usageRule: InjectionRule = (ctx) => {
 
 // ---- rules from harness.yml ---------------------------------------------------------------------------------
 
-type ConfigRule = HarnessConfig["injections"]["rules"][number];
+type ConfigRule = HarnessConfig["injections"]["rules"][string] & {};
 
 /** A reminder from `harness.yml`: its text (or the file's) every N responses, and on the first request if `first` is set. */
-export function configRule(rule: ConfigRule, readFile: (path: string) => Promise<string>): InjectionRule {
+export function configRule(key: string, rule: ConfigRule, readFile: (path: string) => Promise<string>): InjectionRule {
   return async (ctx) => {
-    const since = ctx.since(rule.key);
+    const since = ctx.since(key);
     const due = since === undefined ? (rule.first ? true : ctx.turns >= rule.every) : since >= rule.every;
     if (!due) return undefined;
     const text = rule.text ?? (await readFile(rule.file as string));
-    return text.trim() === "" ? undefined : { key: rule.key, text: text.trim() };
+    return text.trim() === "" ? undefined : { key, text: text.trim() };
   };
 }
 
 /** The rules `harness.yml` asks for, ahead of any the host passes. */
 export function rulesFromConfig(cfg: HarnessConfig["injections"], readFile: (path: string) => Promise<string>): InjectionRule[] {
-  return [...(cfg.usage ? [usageRule] : []), ...cfg.rules.map((r) => configRule(r, readFile))];
+  return [...(cfg.usage ? [usageRule] : []), ...Object.entries(cfg.rules).map(([key, r]) => configRule(key, r, readFile))];
 }
 
 // ---- running them -------------------------------------------------------------------------------------------

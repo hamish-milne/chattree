@@ -132,17 +132,17 @@ export const harnessConfig = z.object({
   skills: z.object({ follow: z.enum(["auto", "ask", "off"]).default("ask") }).default({ follow: "ask" }),
   /**
    * Text the harness puts in front of the model before a request (docs/context.md, section 2); each is recorded in the transcript.
-   * `usage`: tell the model when a request nears a limit or the context window (default on). `rules`: reminders, each with a `key`, a
+   * `usage`: tell the model when a request nears a limit or the context window (default on). `rules`: reminders by key (the key is what the rule is recorded under), each with a
    * `text` or a `file` (read from the thread's workspace when the rule fires), and `every` N responses since the last time (`first`: also on the first request).
    */
   injections: z
     .object({
       usage: z.boolean().default(true),
       rules: z
-        .array(
+        .record(
+          z.string().regex(/^[a-z0-9][a-z0-9_.-]*$/, "lowercase letters, digits, and . _ -"),
           z
             .object({
-              key: z.string().regex(/^[a-z0-9][a-z0-9_.-]*$/, "lowercase letters, digits, and . _ -"),
               every: z.number().int().positive(),
               first: z.boolean().default(false),
               text: z.string().min(1).optional(),
@@ -150,10 +150,9 @@ export const harnessConfig = z.object({
             })
             .refine((r) => (r.text === undefined) !== (r.file === undefined), "give either text or file"),
         )
-        .default([])
-        .refine((rs) => new Set(rs.map((r) => r.key)).size === rs.length, "injection keys must be unique"),
+        .default({}),
     })
-    .default({ usage: true, rules: [] }),
+    .default({ usage: true, rules: {} }),
   compaction: z.object({ threshold_tokens: z.number().int().positive(), keep_recent: z.number().int().nonnegative() }).optional(),
 });
 

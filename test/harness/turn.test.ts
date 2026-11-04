@@ -473,7 +473,7 @@ describe("injections", () => {
   });
 
   test("harness.yml reminders: on the first request, then every N responses; the usage notice is on by default", async () => {
-    const config = `${CONFIG}injections:\n  rules:\n    - key: style\n      every: 2\n      first: true\n      text: Use the style guide.\n`;
+    const config = `${CONFIG}injections:\n  rules:\n    style:\n      every: 2\n      first: true\n      text: Use the style guide.\n`;
     const { convo } = await fresh(config);
     const shown: boolean[] = [];
     for (let i = 0; i < 5; i++) {
@@ -485,7 +485,7 @@ describe("injections", () => {
   });
 
   test("a reminder's file is read from the thread's workspace, and cannot leave it", async () => {
-    const config = `${CONFIG}injections:\n  rules:\n    - key: notes\n      every: 1\n      first: true\n      file: NOTES.md\n    - key: escape\n      every: 1\n      first: true\n      file: ../outside.md\n`;
+    const config = `${CONFIG}injections:\n  rules:\n    notes:\n      every: 1\n      first: true\n      file: NOTES.md\n    escape:\n      every: 1\n      first: true\n      file: ../outside.md\n`;
     const { convo, dir } = await fresh(config);
     await writeFile(join(dir, "NOTES.md"), "Remember the notes.\n");
     const warned: string[] = [];

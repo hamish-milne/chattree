@@ -74,7 +74,7 @@ Rules, as built:
    clock, `turns`, and `since(key)`, the responses since the key last spoke), `runInjections`, `usageRule`, `configRule`. `requestStream` runs the rules after
    `prepareContext`, records what they return with `Conversation.inject`, and builds the context again (so `onPrepared` and the provider see the final one); at most one
    entry per key per request, and a rule that throws is skipped and reported as an `injection_failed` warning. Rules come from `harness.yml` (`injections.usage`, default
-   on: the near-limit, context-window and long-context warnings, per kind, repeated every 5 responses while they stand; `injections.rules`: `key`, `every` N responses,
+   on: the near-limit, context-window and long-context warnings, per kind, repeated every 5 responses while they stand; `injections.rules`: a map by `key` (unique by construction; it is what the entry is recorded under) of `every` N responses,
    `first`, and `text` or a `file` read from the thread's workspace when the rule fires) and from the host (`TurnOptions.injections`). "Turns" are the model's responses.
 3. **Skills. Done.** `harness/skills.ts` (loader, pinned value, drift, `syncSkills`, catalog, notices), `harness/skill-tool.ts`, renderer methods `skillCatalog` and
    `skillsUpdated`, the builder's `skillUpdates`, `/skills` and `/skill`. Skills are appendable like instructions (an entry changing both is one append).
