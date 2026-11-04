@@ -14,15 +14,8 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
       - run: pnpm typecheck
 
   # The quick group (pnpm test) on both platforms: the Windows paths (busybox, cmd.exe, path handling) only run for real there.
@@ -34,15 +27,8 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest]
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
       # The run and script tools use busybox on Windows; the tests that run real shell commands need it installed (it is checked against a pinned hash).
       - if: runner.os == 'Windows'
         run: node tools/fetch-busybox.ts
@@ -59,13 +45,6 @@ jobs:
   slow:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
       - run: pnpm test:slow

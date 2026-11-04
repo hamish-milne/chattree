@@ -2,6 +2,7 @@
   "name": "chattree",
   "version": "0.0.1",
   "private": true,
+  "packageManager": "pnpm@10.34.9",
   "description": "Model-neutral agent harness whose conversation history lives in Git",
   "license": "MIT",
   "type": "module",
@@ -23,13 +24,13 @@
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
-    "typescript": "^7.0.2",
-    "zod": "^4.6.7"
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "zod": "^4.6.7"
   },
   "bin": {
     "chattree": "./cli/chattree.ts"
