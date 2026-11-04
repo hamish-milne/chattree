@@ -918,6 +918,42 @@ describe("background jobs", () => {
     assert.deepEqual(ev.filter((e) => e.type === "job.event").map((e) => [(e as { job: string }).job, (e as { status: string }).status]), [["j1", "lost"]]);
   });
 
+  test("a fork made while a job runs is told the job is not running there, and the parent still gets its event", async () => {
+    const g = gate();
+    const registry = reg(slow(g), echo);
+    const { convo } = await fresh(registry);
+    queue = [calls(call("c1", "slow")), answer("started")];
+    await drive(convo, registry, { jobs: new JobRegistry(convo) });
+    const { conversation: side } = await convo.fork(undefined, { name: "side" });
+    assert.ok(side !== undefined);
+    queue = [answer("fork answer")];
+    const { events: ev } = await drive(side, registry, { jobs: new JobRegistry(side) });
+    assert.deepEqual(ev.filter((e) => e.type === "job.event").map((e) => (e as { job: string }).job), ["j1"]);
+    const lost = (await events(side)).filter((e) => e.status === "lost");
+    assert.equal(lost.length, 1);
+    assert.match(str(lost[0]!.summary), /started on the thread this one was forked from \(main\); it is not running here/);
+    assert.doesNotMatch(str(lost[0]!.summary), /output is gone/);
+    g.resolve({ content: "done" });
+    await settle();
+    assert.deepEqual((await events(convo)).map((e) => e.status), ["completed"], "the parent has its own event and no lost one");
+    queue = [answer("again")];
+    await drive(side, registry, { jobs: new JobRegistry(side) });
+    assert.equal((await events(side)).filter((e) => e.status === "lost").length, 1, "once");
+  });
+
+  test("a job started in the fork itself and cut off is still lost the old way; a fork of a finished job hears nothing", async () => {
+    const registry = reg(echo);
+    const { convo } = await fresh(registry);
+    await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "started job j1: run: ls. It keeps running" });
+    await convo.append({ $tag: "job_event", job: "j1", call_id: "c1", status: "completed", summary: "ls completed after 0s" });
+    const { conversation: side } = await convo.fork(undefined, { name: "side" });
+    assert.ok(side !== undefined);
+    await side.append({ $tag: "tool_result", call_id: "c2", is_error: false, content: "started job j2: run: sleep 100. It keeps running" });
+    assert.deepEqual(await new JobRegistry(side).recover(), ["j2"]);
+    const lost = (await events(side)).filter((e) => e.status === "lost");
+    assert.match(str(lost[0]!.summary), /output is gone/);
+  });
+
   test("without a registry a background start is refused and the job is stopped", async () => {
     const g = gate();
     const stopped = { n: 0 };

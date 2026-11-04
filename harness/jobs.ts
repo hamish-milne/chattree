@@ -233,22 +233,28 @@ export class JobRegistry {
    */
   async recover(): Promise<string[]> {
     const entries = await this.#entries();
-    const started = new Map<string, string>();
+    // What came before the last point where this branch inherited a history (a fork) belongs to the branch it was copied from.
+    const forkedAt = entries.findLastIndex((e) => e.$tag === "branch_start" && e.context === "inherit");
+    const from = forkedAt < 0 ? undefined : (entries[forkedAt] as Extract<ChatEntry, { $tag: "branch_start" }>).from.branch;
+    const started = new Map<string, { call: string; inherited: boolean }>();
     const ended = new Set<string>();
     const reported = new Set<string>();
-    for (const e of entries) {
+    for (const [i, e] of entries.entries()) {
       if (e.$tag === "job_event") ended.add(e.job);
       else if (e.$tag === "subagent_result") reported.add(e.call_id);
       else if (e.$tag === "fork_merge" && e.call_id !== undefined) reported.add(e.call_id);
       else if (e.$tag === "tool_result" && typeof e.content === "string") {
         const m = JOB_STARTED.exec(e.content);
-        if (m !== null) started.set(m[1] as string, e.call_id);
+        if (m !== null) started.set(m[1] as string, { call: e.call_id, inherited: i < forkedAt });
       }
     }
     // A job a merge reported (a background subagent) has ended even though it has no job_event.
-    const lost = [...started].filter(([id, call]) => !ended.has(id) && !reported.has(call) && !this.#jobs.has(id));
-    for (const [id, call_id] of lost) {
-      await this.#convo.append({ $tag: "job_event", job: id, call_id, status: "lost", summary: `job ${id} was running when the process that started it ended; it did not finish and its output is gone` });
+    const lost = [...started].filter(([id, j]) => !ended.has(id) && !reported.has(j.call) && !this.#jobs.has(id));
+    for (const [id, { call, inherited }] of lost) {
+      const summary = inherited
+        ? `job ${id} was started on the thread this one was forked from (${from}); it is not running here, and its output stays there`
+        : `job ${id} was running when the process that started it ended; it did not finish and its output is gone`;
+      await this.#convo.append({ $tag: "job_event", job: id, call_id: call, status: "lost", summary });
     }
     await this.#syncNumber();
     return lost.map(([id]) => id);

@@ -104,7 +104,7 @@ A tool that declares itself background-capable can be started with `background: 
 - Mid-loop: the event is delivered with the next request in that loop.
 - Idle: the entry is committed either way. With `background.resume: true` in `harness.yml` the harness also sends a request so the model can react; without it (the default) the CLI tells the user at the next prompt (`background job j1 has finished; your next message will report the result`).
 
-Three small tools manage jobs: `jobs`, `job_output` (read the log from an offset) and `job_stop`. Jobs live as long as the CLI process. After a crash, recovery commits a `job_event` marking each job lost.
+Three small tools manage jobs: `jobs`, `job_output` (read the log from an offset) and `job_stop`. Jobs live as long as the CLI process. After a crash, recovery commits a `job_event` marking each job lost. A fork inherits the "started job" result of a job its parent is still running; recovery on the fork marks such a job lost too, but says it was started on the thread it was forked from and is not running here, since the parent still owns it and commits its own event there.
 
 ### 3.6 Provider adapters and the canonical tool format
 
