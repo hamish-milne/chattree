@@ -129,6 +129,7 @@ Agent setup and configuration
 | `/config` | Validate `harness.yml` and show issues; `chattree config edit` opens it (and approves what you saved). |
 | `/trust` | Check that `harness.yml` is the file you approved for this thread; if not, show what changed and ask to approve it (`/trust show` prints the file). Until then no provider, tool or grant from it is used. `chattree trust` does the same; `chattree -y trust` approves without asking. |
 | `/settings [edit]` | Show the user settings file and what it holds, or open it in the editor (created with a commented template). `chattree settings [edit]` does the same, and works even when the file is broken. |
+| `/search <query> [--scope thread|family|project] [--regex] [--visible] [--reasoning] [--limit n]` | Search the history (docs/tools.md, 4.4): this thread by default, what the model already sees left out unless `--visible`. Hits are `thread:id` references; `/show thread:id` opens one. No permission question: you are the user. |
 
 Housekeeping and session
 

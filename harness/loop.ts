@@ -291,7 +291,7 @@ const DEFAULT_REQUEST_SECONDS = 600;
 async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): AsyncGenerator<LoopEvent, LoopResult, void> {
   const { registry } = opts;
   const now = convo.now;
-  const approvalCtx = { workspace: convo.dir, host: convo.host };
+  const approvalCtx = { thread: convo.branch, workspace: convo.dir, host: convo.host };
   let deadline = opts.deadline;
   const config = await convo.readConfig();
   const limits = config?.ok === true ? config.value.limits : undefined;

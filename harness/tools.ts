@@ -33,6 +33,8 @@ export interface ToolContext {
 
 /** What a tool may look at to decide about approvals: the workspace and the host that can inspect it. */
 export interface ApprovalContext {
+  /** The thread making the call, for a tool whose approval depends on which thread that is. */
+  thread?: string;
   workspace: string;
   host: Host;
 }

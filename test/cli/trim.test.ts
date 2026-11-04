@@ -19,7 +19,9 @@ async function started(replies: Reply[], config = "") {
   assert.equal(await main(initArgs(server, dir), testIo(dir)), 0);
   await writeFile(join(dir, "big.txt"), "a line of old output\n".repeat(300));
   const yml = await readFile(join(dir, "harness.yml"), "utf8");
-  await writeFile(join(dir, "harness.yml"), yml.replace("  run:\n", '  run:\n    allow: { "cat **": 2999-01-01 }\n'));
+  // The sizes in these tests are tuned to a fixed set of tool definitions: tools added since (which grow every request) are left out, so a new tool does not move them.
+  const lean = yml.replace(/ {2}(thread_read|thread_send|search):\n {4}allow: \{[^\n]*\}\n/g, "");
+  await writeFile(join(dir, "harness.yml"), lean.replace("  run:\n", '  run:\n    allow: { "cat **": 2999-01-01 }\n'));
   if (config !== "") await appendFile(join(dir, "harness.yml"), `\n${config}`);
   await approve(dir);
   return { server, dir };
@@ -102,7 +104,7 @@ describe("automatic summaries", () => {
   const requests = async (dir: string): Promise<number> => (await (await Conversation.open(host, dir)).ledger()).conversation.requests;
 
   test("a summary is written at the start of a turn, from what the model saw, counted in the ledger, and the request is then smaller", async () => {
-    const { server, dir } = await started([answer("a1"), answer("The user sent a long message about alpha."), answer("a2")], full(6600, 1));
+    const { server, dir } = await started([answer("a1"), answer("The user sent a long message about alpha."), answer("a2")], full(6000, 1));
     try {
       const r = await session(dir, [long("alpha"), long("beta")]);
       assert.equal(r.code, 0, r.all);
@@ -122,7 +124,7 @@ describe("automatic summaries", () => {
   });
 
   test("never in the middle of a tool loop: a long result there is left alone, and nothing is written", async () => {
-    const { server, dir } = await started([callRun("c1", "cat big.txt"), answer("it is long")], full(5600));
+    const { server, dir } = await started([callRun("c1", "cat big.txt"), answer("it is long")], full(5000));
     try {
       const r = await session(dir, ["show me big.txt"]);
       assert.equal(r.code, 0, r.all);
@@ -133,7 +135,7 @@ describe("automatic summaries", () => {
   });
 
   test("a summary that does not bring the request under the threshold is an error, it stays recorded, and the next request goes out without another", async () => {
-    const { server, dir } = await started([answer("a1"), answer("a2"), answer("A short summary."), answer("fine, carrying on")], full(6600));
+    const { server, dir } = await started([answer("a1"), answer("a2"), answer("A short summary."), answer("fine, carrying on")], full(6000));
     try {
       const r = await session(dir, ["one", "two", long("alpha", 1250), "ok"]);
       assert.match(r.all, /did not bring the request under the threshold/);
@@ -147,7 +149,7 @@ describe("automatic summaries", () => {
   });
 
   test("an empty summary is refused and nothing is recorded", async () => {
-    const { server, dir } = await started([answer("a1"), answer("  ")], full(6600, 1));
+    const { server, dir } = await started([answer("a1"), answer("  ")], full(6000, 1));
     try {
       const r = await session(dir, [long("alpha"), long("beta")]);
       assert.match(r.all, /returned an empty summary/);
@@ -174,7 +176,7 @@ describe("automatic summaries", () => {
     await writeFile(join(dir, "harness.yml"), yml.replace("    pricing: { free: true }\n", `    pricing: { free: true }\n${models}`));
     await approve(dir);
     try {
-      const r = await session(dir, [long("alpha", 1000), long("beta", 1250)]);
+      const r = await session(dir, [long("alpha", 1250), long("beta", 1250)]);
       assert.match(r.all, /was not sent/);
       assert.equal(server.seen.length, 1, "only the first request went out");
     } finally {
@@ -183,7 +185,7 @@ describe("automatic summaries", () => {
   });
 
   test("near the threshold the model is told the context is filling up", async () => {
-    const { server, dir } = await started([answer("a1"), answer("a2"), answer("a3")], full(8100));
+    const { server, dir } = await started([answer("a1"), answer("a2"), answer("a3")], full(7500));
     try {
       await session(dir, [long("alpha"), long("beta"), "ok"]);
       assert.match(bodies(server).at(-1) as string, /The context is filling up/);
@@ -195,7 +197,7 @@ describe("automatic summaries", () => {
 
   for (const input of ["seen", "raw"] as const) {
     test(`summary_input: ${input} decides whether the summarizer reads the old tool output`, async () => {
-      const { server, dir } = await started([callRun("c1", "cat big.txt"), answer("it is long"), answer("It was long."), answer("ok")], full(6600, 1).concat(`  summary_input: ${input}\n`));
+      const { server, dir } = await started([callRun("c1", "cat big.txt"), answer("it is long"), answer("It was long."), answer("ok")], full(6000, 1).concat(`  summary_input: ${input}\n`));
       try {
         await session(dir, ["show me big.txt", long("beta", 1250)]);
         const asked = bodies(server)[2] as string;

@@ -1,4 +1,5 @@
 import type { ChatEntry } from "../../harness/entries.ts";
+import { openEntry, parseRef } from "../../harness/search.ts";
 import { formatEntry, type Thinking, type ToolView } from "../output.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import type { Command } from "../registry.ts";
@@ -35,11 +36,17 @@ const history: Command = {
 const show: Command = {
   name: "show",
   summary: "one entry in full",
-  usage: "/show [n | id]  (n counts back from the last entry, default 1)",
+  usage: "/show [n | id | thread:id]  (n counts back from the last entry, default 1; thread:id is a search hit)",
   busy: "allowed",
   async *run(ctx, args) {
-    const all = (await entriesOf(ctx)).filter((e) => e.$tag !== "header");
     const want = args[0] ?? "1";
+    // thread:entry-id, as /search and the search tool give it: an entry of any thread.
+    if (parseRef(want) !== undefined) {
+      const r = await openEntry(ctx.convo, want);
+      yield "error" in r ? { type: "error", message: r.error } : { type: "text", text: r.text };
+      return;
+    }
+    const all = (await entriesOf(ctx)).filter((e) => e.$tag !== "header");
     let entry: ChatEntry | undefined;
     if (/^\d+$/.test(want) && Number(want) <= all.length) entry = all[all.length - Number(want)];
     else entry = all.find((e) => "id" in e && e.id.startsWith(want));

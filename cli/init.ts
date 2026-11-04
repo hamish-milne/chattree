@@ -84,6 +84,8 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; wi
     "    allow: { all: 2999-01-01 }",
     "  thread_send:",
     "    allow: { all: 2999-01-01 }",
+    "  search:",
+    "    allow: { current: 2999-01-01 }",
     "  fork:",
     "    allow: {}",
     "  merge:",

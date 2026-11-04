@@ -223,7 +223,7 @@ export class Pump {
       registry: options.registry,
       allow: (tool) => (options.grants === undefined ? Promise.resolve(undefined) : options.grants.allow(tool)),
       nowMs: this.#now(),
-      ctx: { workspace: convo.dir, host: convo.host },
+      ctx: { thread: convo.branch, workspace: convo.dir, host: convo.host },
       lease: await convo.leaseState(),
     });
   }
