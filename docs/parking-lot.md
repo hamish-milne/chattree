@@ -2,45 +2,131 @@
 
 Things deliberately left out, with enough context to pick them up later, grouped by priority:
 
-- **High**: correctness. Left alone, it could lose data, show wrong output or block the user.
+- **High**: correctness, safety and verification. Left alone, it could lose data, show wrong output, leak something or block the user, or it is a claim we have built on and not yet checked.
 - **Medium**: features and support. Wider application or significant functionality, weighed against the cost.
 - **Low**: small conveniences, unusual edge cases, minor performance gains.
 - **Deferred**: pricing data that comes from external pages. It affects no other code, so it is cleaned up close to release.
 
-Each entry says what it is and what a first step would be. Within a group, the order is the order of intent.
+Each entry says what it is and what a first step would be. Within a group, the order is the order of intent. Last reviewed 2026-11-04 (after MCP, skills, injections and the full-schema work); entries for things that have since been built were removed.
+
+**Before the graphical UI** (the entries to look at first, all below): the engine as a service for a UI (Medium), the settings file (Medium), thread communication (Medium), live output from other sessions and jobs (Medium), a trusted `harness.yml` (High), compaction (High), the environment prompt (Medium), a release and packaging story (Medium).
 
 ## High
 
-- **Verify the Anthropic adapter against the real API.** No free tier, so today it is only checked against Ollama's
-  compatible endpoint. From memory: the request shapes for `system` and `cache_control`, breakpoints, lifetimes and
-  multipliers. If one is wrong, the paid provider's requests fail. Needs a key and a small spend.
+- **Verify the Anthropic adapter against the real API.** No free tier, so today it is only checked against Ollama's compatible endpoint. From memory: the request shapes for `system` and `cache_control`, breakpoints, lifetimes and multipliers. If one is wrong, the paid provider's requests fail. Needs a key and a small spend. The prompt-caching prices and multipliers (Deferred, below) are verified together with it.
+- **Exercise MCP against real servers.** The client, pool, per-worktree scope and subagent access are tested only against our own fake server (`test/support/mcp-server.ts`), which speaks what we think the protocol is. Candidates to spin up, from memory and not checked (the sandbox this was written in would not download and run packages, so run them on a machine that can): the MCP project's reference servers in `modelcontextprotocol/servers`, such as `@modelcontextprotocol/server-everything` (a test server that exercises the protocol: echo, long-running calls with progress, image content, and a transport choice that includes stdio and streamable HTTP), `server-filesystem` (real file tools, so it tests worktree scope and the subagent's own process), `server-memory` (a server with state, so it tests `scope: project`), and the git and fetch servers through `uvx`. First step: a `tools/mcp-check.ts`, like `live-check.ts`, that takes server configs and reports the tool list, the schema report per level (`full` / `portable`: offered, left out, why), a call of each tool that needs no arguments, cancellation, the pool sharing between a thread and a subagent, and a recorded transcript to turn into a fixture. Also on Windows: `npx` is a `.cmd` (`command: cmd`, `args: ["/c", "npx", ...]`) and nobody has tried it.
+- **Compaction: what exists, and what is missing.** Today: manual `/compact <from> <to> [summary]`, where the summary is typed or written by the current model and confirmed (its usage is shown but not in the ledger); and OpenAI's server-side compaction (`compact_threshold`, opt-in, the compaction item replayed and earlier items dropped). Nothing runs by itself, so a long session ends at the context window. The options, which can coexist as strategies of one setting:
+  1. *Native provider compaction*: OpenAI is built; check whether Anthropic's server-side context management is usable (a first-class compaction or clearing of old tool results). Cache-friendly and cheap to run, but opaque and tied to the provider: the `provider_compaction` block is never sent to another provider, so a model switch needs the entries underneath to be enough.
+  2. *The model itself* (today's `/compact`): the best summaries, costs a request on the working model, and is a request the ledger should count.
+  3. *Trimming without rewriting*: elide old tool results, thinking and large tool arguments in what the model sees, keeping every word the user and the model wrote. Deterministic, no model cost, recorded as a compaction of a new kind with its rule so replay is the same. Probably the first thing to build, because it is free and reversible.
+  4. *A separate (cheaper) model* writes the summary: a `compaction.model` setting, using the provider and price pin of that model.
+  5. *Automation*: the CLI or the loop acts at a threshold of the context window (known from model info and `countTokens`). Steps: warn (an injection, so the model and the user see it; the framework exists), then `trim` automatically, then summarise with confirmation, then summarise unattended for background threads. Every compaction is a prefix rebuild and squashes drift appends (decided in docs/context.md), so the trigger should wait for a natural point (between turns, not mid tool loop).
+  Open: which range is kept (the first turns and the recent ones), never splitting a call from its result (the compaction entry already refuses), what a subagent's report looks like after its parent compacts. First step: the `trim` strategy with an `/compact trim` command and the threshold warning.
+- **A cloned `harness.yml` is trusted for more than it should be (check first).** MCP servers are gated: nothing runs until the thread accepts the configuration. Other parts of the file may not be: a provider's `base_url` together with `api_key_env` would send a key from the user's environment to whatever host a cloned repository names; `tools.env` names which environment variables `run` may expand; `tools.run.safe` and `local` decide what runs without asking; an `injections` rule reads a file. Decide which settings need the same acceptance (a pin of their canonical form in the setup, with `/trust`-like confirmation when it differs) and which are harmless, and add a test per case.
+- **`zod` is a runtime dependency listed under `devDependencies`.** The harness imports it at run time, so an installed package would fail. Small and mechanical; do it with the dependency chores (Medium).
+- **Forks and lost jobs (check first).** Recovery decides a job is lost when the branch's history says it started and has no event, and this process is not running it. A fork made while the parent's job is still running inherits that history, so the fork could mark the job lost although the parent still owns it. Fix by recording which branch a job belongs to (in the start result or a `job_start` marker) and recovering only that branch's.
 
 ## Medium
 
-- **Tool loop above `requestStream`**: the turn's deadline, `max_requests_per_turn`, tool results, and raising `cost`
-  warnings as events from `Prepared.warnings`. The next layer rather than a gap in this phase.
-- Merge policy per environment (below), and the production workspace split (below).
-- **OpenAI compaction on the real API**: check `context_management`, dropping items before a compaction item, and the
-  not-found error the chain fallback matches. Opt-in features. Spend sparingly: the free tier is limited, so use
-  `--only` to pick scenarios.
-- **API-backed model catalog**: `/models`, and llama-server's `/props` for the context size.
-- **Check the `openai-compatible` adapter against a real llama-server** (`--jinja` tools, `reasoning_content`, the usage
-  chunk; the list is in docs/providers.md step 8).
-- **Windows**: the `Host` seam keeps Node-specific code out of the core, and paths go through `host.path`, but the suite has
-  only been run on Linux.
-- **A `chattree` command** that creates `.chattree/env`, with a `secrets check` that lists the variables each provider needs.
-- **A command-line verifier**: `chattree verify` and `chattree graph` over `verifyHistory` and `readCommitGraph`, so they
-  work on any conversation repository.
+### Before the graphical UI
 
-### Merge policy per environment, file or hunk (the main one)
+- **The engine as a service for a UI.** `cli/engine.ts` holds the session: tool set, pump, drafts, notices, staged files. A UI needs the same operations through a stable interface. The pieces are already structured (`Output` and `LoopEvent` are typed events; history is the source of truth; leases, journals and the pump let several processes share a repository). Decide the process model: the UI opens the repository itself as one more session (git as the shared store, nothing new to run), or one local server that the CLI and the UI both talk to (HTTP or a socket), and which of the CLI's state (drafts, session id, display settings) moves out of `cli/`. Related: *Events are in memory* (Low): `onEvent` is delivered after commit, so a crash between loses the event; a UI that must not miss one rebuilds from history, or an outbox is added. First step: write down the interface the CLI's own commands would need to run against, before choosing a transport.
+- **A settings file, user level** (not per thread): `~/.config/chattree/settings.yml` (`%APPDATA%\chattree\settings.yml` on Windows). First users: `editor`, display defaults (`/display`, colour, width), whether the prompt confirms `/undo`, key bindings for the draft moves, the data directory (below) and the busybox location if it should not live in `vendor/`. The UI needs it for the same things.
+- **Thread communication.** A parent cannot read a child's transcript, and a child cannot ask the parent anything except through the question mechanism and its final report. Wanted: a tool for the parent to read a child's entries (rendered like `/history`, bounded, since the child's branch starts from the parent's history and only the child's own entries matter), a way to send a message to a running child (a queued user message on the child's branch, attributed to the sender, which the pump wakes), and a way for a child to message its parent without ending (a note, or a question that does not block). Limits: only parent and child may talk (or siblings under one parent); the message lives on the recipient's branch, which is where its context is built; both sides pay for what they read. A child also does not see approvals the parent grants after it started (its `harness.yml` was copied at spawn), which is the same gap from the other side. Related: questions from threads the user is not on are only counted, not shown.
+- **Conversation search.** A tool (and `/search`) over the history: *direct* (text and regular expressions over entries, including large results kept as blobs) and *semantic* (embeddings), in the current thread or in the whole project, ordered by closeness to the asking thread (itself, then its ancestors and descendants and siblings by commit-graph distance, then the rest). Questions: an embeddings model is a provider setting (OpenAI, or a local server started with embeddings on), and it makes sending transcripts to a provider, so it needs the same redaction as requests and an explicit opt-in; the index is derived data kept outside history (next to the index cache, keyed by entry id, append-only because entries never change, rebuildable); a result is a reference (thread, entry, excerpt) the model can open with `show`; searching other threads is a permission, since a subagent would otherwise read everything the project ever said. First step: lexical search over the current thread and the project's branches as a tool, with the result format and ordering, then embeddings behind the same tool.
+- **Live output from other sessions and from jobs.** Another session shows finished entries, not the stream (tail the journal; a `follow` helper does not exist). A job's output is read only after it ends, because `Host.run` collects output (an `onOutput` callback in `RunSpec`, and a log kept in the job, would let the model read progress and `tail` a server). Both are what a UI shows first.
+- **Environment prompt.** One block, built by the host, saying where the agent is: operating system and shell, which utilities `run` has and where they come from (busybox on Windows), the working directory and thread, the date and time zone; and a fixed description of chattree itself: what a thread, a fork and a subagent are, that the transcript is a repository, that calls ask for approval, how to use skills and injections, and what the tools are for. Until then `run`'s description says only that it takes a cross-platform bash-like syntax. Decisions: the date changes every day and would break the cached prefix, so it is stated at the start and refreshed by an injection (`every` N turns or at a new day), not in the system prompt; static text is part of the pinned system prompt, so changing it is a visible change (a version in the text). Pairs with the next entry.
+- **The transcript is inside the workspace the agent sees.** `ls -R` lists `blobs/`, `grep -r` matches `chat.yml` (including earlier tool results and thinking), and `git log` in the workspace shows the conversation's own commits. gemma and gpt-oss both stumbled over this (extra requests, repeated checks). Options: keep blobs and the transcript under a hidden directory, hide them from `run`'s globbing and listings, or say in the environment prompt which files are the conversation's.
+- **A release and packaging story.** Package name and publishing (npm, or a single executable), `engines`, a versioning policy for the CLI and the history format (the format is 2.4: what does opening an older repository do, and is there a `chattree upgrade`?), a changelog, and the install check in CI. Needs `zod` fixed first (High).
 
-**Today.** Merging a subagent or a fork (D6, `finishSubagent`, `mergeFork`) has one policy: *trunk wins, per
-file*. Files only the child changed come across; a file both sides changed keeps the trunk's version whole, and
-the merge entry records exactly what happened (`files.changed/added/discarded`, `merge.conflicts`). That is safe
-and predictable, and it is the right default for code, but it is too blunt for other kinds of work.
+### Merge, workspaces and environments
 
-**The idea.** The workspace an agent works in is an *environment*, and different environments want different
-rules. Examples:
+- **Merge policy per environment, file or hunk.** (The design is below.) Merging a subagent or a fork has one policy today: trunk wins, per file.
+- **Code-split workspaces (multi-repo).** The MVP keeps chat and project files in one repository. The production shape keeps the project in one or more submodules, with the pointer tracked in the chat repository (plus branch name and a saved diff of uncommitted changes), so one agent flow can work across several repositories. It touches snapshots (a commit per repository, then the pointer), forks (a branch in each), merges (each repository, then the pointer; the merge policy applies per repository), verification, tool working directories (a thread has several roots), and what a branch in a submodule is tracking. First step: a spike with one submodule under a `workspace:` setting, doing snapshot, fork and merge on it; the open questions come out of that.
+
+### Providers and models
+
+- **Local model framework.** A host utility that downloads and manages `llama-server` or `llama-swap` (a release asset for the platform and backend, its hash pinned, as `tools/fetch-busybox.ts` does) and the user's GGUF files by URL (Hugging Face and others; a cache directory, resume, hash check), writes the `llama-swap` configuration for several models, starts and stops the server (a managed job), waits for it to be ready, and chooses the flags that matter (`--jinja`, context size, embeddings). It should give the model catalog what the server knows (`/props` for the context size, `/models`), which is the *API-backed model catalog* item. A second part, because it needs control of the prompt: our own tool rendering, to work around servers that show a model only a flat or partial view of a schema (gpt-oss through Ollama prints `any[]`); either a chat template of ours, or a pre-rendered prompt sent through the completion endpoint, so a model sees the full schema and the call format we choose. That is where the text and raw tool conventions (Low, below) become real. Open: who the user-supplied GGUF's chat template belongs to, and when `flat` applies to it.
+- **Verify OpenAI compaction on the real API**: `context_management`, dropping items before a compaction item, and the not-found error the chain fallback matches. Spend sparingly: the free tier is limited, so use `--only` to pick scenarios.
+- **Check the `openai-compatible` adapter against a real llama-server** (`--jinja` tools, `reasoning_content`, the usage chunk; the list is in docs/providers.md step 8). Also measure which compatible servers take full tool schemas, and set `tool_schema: full` in their catalog entries (the default is the portable subset).
+- **The credential layer and subscription providers.** `chattree auth login`, a store for credentials that is not the environment, and, on top of it, the ChatGPT/Codex subscription provider. Parked together because the second needs the first.
+
+### Plugins, tools and context
+
+- **A plugin API.** Injections, context renderers, tools, providers and commands loaded from JavaScript modules named in `harness.yml` (or the user's settings). The seams exist (`AdapterRegistry`, `Renderers`, `injections` options, `ToolRegistry`, the command registry); what is missing is one `Plugin` interface, a loader, and the rules. Rules to settle: a module from a cloned repository is code to run, so it is accepted per thread like an MCP server (a pin of its content, nothing loaded until accepted); a plugin's tools are pinned like any tool, and its renderer has an immutable id and is pure (as decided for renderers); a versioned, typed API with a compatibility promise; where modules are found (project, user directory, `node_modules`); and that Node gives no sandbox, so a plugin has the user's permissions. First step: expose injections and tools through the loader, since they need the least.
+- **MCP, parked.** A gateway tool (`mcp(server, tool, args)`) that keeps the prefix stable; OAuth for HTTP servers (needed for hosted servers); resources, prompts, sampling and elicitation; following `tools/list_changed` while connected (today it is flagged and read again on refresh). Also the cost of a process per subagent for each worktree-scoped server, if it turns out to matter.
+- **File-reference tool results**: store a `read` result as a reference (path, offset, length at the entry's commit) re-rendered when the context is built, instead of a copy. The result is formatted with headers and line numbers and can hold several files, so it needs the renderer to run at read time and a format version bump with verifier support. Until then a large result is a blob, shared by hash between identical re-reads.
+- **OS-level sandbox** for `run` and `script` (container or restricted user): the real answer to approved commands having the user's permissions.
+- **Detached jobs** that outlive the CLI process (today a crash marks them lost).
+- **Search and web tools** (`grep`, `fetch`) if `run` proves awkward for them. **Image and PDF results** from `read`: a tool result that carries an image needs adapter work.
+- **Subagent budgets.** (1) A `max_spend` argument (and a default under `subagent`) that the child's requests are limited by, on top of the inherited ledger. (2) Telling the child how much is left: the injection framework exists, so this is a rule that reads the ledger (spend and requests left) and asks the child to wrap up; elapsed time is another. (3) A child's spend against the parent while it runs: the parent's limits do not see the child's spend until the merge's rollup, so several background children can break a limit the parent passes; either the run manager sums live children into the parent's check, or their requests are charged to the parent's ledger as they happen.
+
+### Code health
+
+- **Dependency chores.** Check that every dependency is used (a tool such as `knip` reports unused ones), is the right choice for the job, and is current (`pnpm outdated`); `zod` moves to `dependencies` or out (High). Look at each GitHub Action (versions, pinned by hash or tag, the Node and OS matrix), the lockfile policy (`--frozen-lockfile` in CI), `engines`, and an update bot's configuration. Record the decision per dependency, short, in a docs table.
+- **Architecture and code review.** Draw the module graph (a dependency-cycle report such as `dependency-cruiser`) and clean it up: the layering `src` ← `harness` ← `cli`, with `providers` and `hosts` beside them, has leaks (`harness/schema-project.ts` imports `Conversation`; the adapters know about harness types); some files are very large (`harness/conversation.ts`, `harness/loop.ts`, `cli/engine.ts`) and want splitting along their seams. Add linting (typescript-eslint, or a single tool such as Biome or oxlint) and a formatter (Prettier, Biome or dprint), enforced in CI, chosen by trying them on the repository. Check the `tsconfig` strictness flags and unused-code settings. First step: the graph and the lint report, before choosing.
+- **Live checks in CI.** `tools/live-check.ts` and the sampler run by hand against providers and local models; a scheduled job against a free provider would catch drift, if the keys can be kept safe.
+
+## Low
+
+### Providers, requests and cost
+
+- **Attachment capabilities**: a per-model `input: [text, image, pdf]` list so a request with a file the model cannot take is refused early and a model switch warns (`capability_loss`); today the provider's error is the signal, and the Chat Completions adapter refuses PDFs itself. Also: downscaling large images before sending, and SVG (sent as text).
+- **Token counting, further**: llama-server `/tokenize` for the openai-compatible adapter (unverified), and calibrating the bytes-per-token estimate from the usage of earlier requests for providers with no counting endpoint.
+- **Usage as it arrives** on `openai-compatible`, not only at the end. A stream that dies mid-way reports no tokens, which matters only for a hosted Chat Completions provider. The alternative is to report running totals as events and let the result differ.
+- **More Chat Completions settings**: `tool_choice`, `parallel_tool_calls`, JSON schema output; an `is_error` prefix for tool results (the API has no flag, so errors are plain text).
+- **Cache and tool options**: mixed cache lifetimes within one request (the docs allow it, longer first: the pinned prefix at 1h and the conversation at 5m; OpenAI's per-breakpoint `prompt_cache_breakpoint.ttl`; today one `cache_ttl` covers every marker); an Anthropic equivalent of `allowed_tools` for restricting tools without changing the prefix; OpenAI standalone compaction (`/responses/compact`) for compacting on demand.
+- **Strict mode for Responses** (`strict: true`) for definitions that fit it: a third schema level next to `full` and `portable` (every property required, no open objects), now that the model's view of a schema is a projection (docs/tools.md, 3.8).
+- **A provider option to disable streaming responses**, for debugging and for servers that stream badly. The adapters only parse streams today; a non-streaming response would be replayed through the same mapper, as the throwaway copy-probe patch did for the Anthropic flavor.
+- **Pricing extras**: calibrate the estimate from the last response's real usage; Anthropic's `inference_geo` 1.1x multiplier and batch discounts; OpenAI's regional-processing uplift.
+- **Provider checks and fixtures**: a live A/B of OpenAI stored (`previous_response_id`) versus stateless replay (cost, cached tokens, latency; needs a key); whether OpenAI hosted tools (web search, code interpreter) need server-side state; the OpenAI WebSocket continuation cache; record fixtures from `tools/live-check.ts --record` runs against Ollama (known caveats: no `cache_control` or `tool_choice`, in-stream errors are unreliable, small models may not call tools or reason, so those scenarios skip).
+- **Catalog data.** The bundled descriptions, tiers and level names are written by hand (dated 2026-10-25), and the effort names a model accepts depend on the model. Check them against the providers' documentation; a live check that sends each level and reports the provider's refusal would keep them honest. Level names beyond low/medium/high/off, such as `max`, and per-level cost hints, if the tiers turn out too coarse.
+- **Cost ordering for approvals.** Keys are `provider/model@level` with globs. "Anything cheaper than X" would need an order in the catalog (tier numbers or a price rank); not built, on purpose.
+- **A merge's rollup** resolves tables the child pinned only from this conversation's providers and blobs, so a child that pinned a table which no longer exists here is counted as unpriced (the safe default: unknown is never zero). **Summaries from `/merge` and `/compact`** are not in the cost ledger either (the usage is shown when they are made).
+
+### History, recovery and locks
+
+- **Recovery that checks the owner is dead.** A journal that goes quiet is taken for dead after `journalStaleMs`; a suspended but living process is only caught by the commit-time ownership check (`RequestSuperseded`), after its work is wasted. A `Host` method that says whether a process is alive would let recovery on the same machine wait for it.
+- **Journal extras**: keep a copy of the events of failed requests outside the repository for debugging; a `follow` helper so a second process can tail a request's journal (nothing reads it live yet; the live-output entry in Medium needs it); record the digest the adapter computed for the request so a recovered OpenAI response can still be chained from.
+- **Events are in memory.** `onEvent` is delivered after commit, but a crash between commit and delivery loses the event. Consumers that must not miss anything should rebuild from history (`index()`, the `recovery` event); an at-least-once persisted outbox is possible if needed (see the engine entry in Medium).
+- **Index cache assumption.** A cached index is extended when its tip is an ancestor of HEAD, which for a branch that has only ever advanced is also on its first-parent line. A branch reset to a sibling line that still contains the old tip would be indexed from a longer `git log`, not wrongly, but a first-parent check would make that explicit. `verifyHistory` never uses the cache.
+- **Locks across machines.** Locks are files, which is right for one machine and for local-disk worktrees; a network file system with weak `link`/`rename` semantics is not supported.
+- **A persistent `fast-import` process.** Considered and parked on measurement. An append costs two short git processes (stage, commit), about 12 ms; the floor is git's own index and commit work. A long-lived `fast-import` would need `checkpoint`/`get-mark` round trips for the hash, would leave the index behind the commit (needing `reset` anyway), and would add a process to supervise on every handle. `appendMany` already makes bulk writes constant-cost. Revisit only if profiling a real agent loop shows process start-up dominating.
+- **Blob garbage collection and finished worktrees**: `gcBlobs` exists; running it, and cleaning up worktrees of merged or abandoned threads, is manual.
+- **Renderers**: verifying a renderer's output at runtime (a self-test with fixed inputs, output hash recorded in the setup). Decided: stability is part of the renderer interface contract (an id is immutable, renderers are pure), not something the harness defensively checks, at least for now. Revisit if host-supplied renderers (the plugin API) cause drift.
+
+### Tools
+
+- **Tool conventions, the rest** (docs/tools.md, 3.7). Built: `full` and `flat`, the refusal, the probe. Parked: (1) a `schemas` block per tool with a hand-written variant per convention and an optional description override, for the first tool that genuinely needs nesting (it must then provide a flat variant to be used on flat models); (2) `text`, calls written as text for models with no native tool calling (`<call name="run">` blocks with raw, unescaped values), built on flat schemas; (3) `raw`, one unescaped text argument (like OpenAI's custom tools), probably for `script` only, which removes JSON string escaping for large commands; (4) bundled `tool_convention` values for models we have measured, once there are enough of them (today it is set in `harness.yml`, because the same model can differ between Ollama and vLLM); (5) a `--tool-convention` flag for the sampler, only needed once a tool is not flat. Revisit with the local model framework (Medium).
+- **Nested schema variants for `read`, `write` and `edit`**, to allow batch operation (several files, several changes in one call, applied together). They would be the first tools to need the per-convention `schemas` block above.
+- **Parallel foreground calls**: today they run in order; background jobs are the concurrency story.
+- **Exact stdout/stderr interleaving** for `run`: the two pipes are separate, so order is by arrival. Exact order needs the child's two descriptors to be one pipe, which Node cannot ask for directly. **`run` stderr handling:** `2>/dev/null` is accepted and ignored (stderr is shown with stdout). Separating stderr per stage would let it really discard, and would let results label it.
+- **Pin the busybox download:** `tools/fetch-busybox.ts` prints the zip's SHA-256; once a release is settled on, check it against a pinned value.
+- **Sampler noise floor.** With 10 samples a task that really succeeds 95% of the time scores 9/10 or better only 91% of the time, so a per-cell gate of 9/10 over 51 cells is expected to miss about four by chance. Candidates: 20 samples per cell, a gate that only fails a cell if two runs in a row miss, and classifying each miss as tool, task wording or model.
+- **Jobs and approvals.** A background job is approved when it starts; nothing re-checks a grant that lapses while it runs. Acceptable while jobs are only `run` and `script`; revisit for `subagent`.
+- **Windows batch programs.** Resolve npm, pnpm and yarn `.cmd` shims instead of running them through `cmd.exe` (they only start `node <script>`, so reading the shim and starting `node` directly would need no flag and no argument restrictions, but needs a parser per tool's shim format and breaks when a shim changes). Local shims are done as `tools.run.local`.
+- **Notes for test cases.** Ollama's gpt-oss garbles the word PELICAN (misspellings, inserted zero-width or no-break characters) in about 5% of runs, in its reasoning and its output alike, even in plain native calls. Not our harness. Keep it in mind when choosing words for test cases, and note that a model can emit invisible characters in text.
+
+### CLI and terminal
+
+- **Commands and output**: `chattree doctor` (git and Node versions, providers and keys with what each provider needs, a request to each provider with `--online`; this absorbs the old idea of a `secrets check`); `chattree graph` over `readCommitGraph` (`verify` already works as a verb); `--json` output for the non-interactive verbs; `/threads` showing how many sessions point at each thread; `/sessions` deleting or adopting a session (a stale session file is removed by hand); `/exec --record` (send the command and its output to the model as a user message), output streaming instead of taking over the terminal, and `/exec` in non-terminal sessions.
+- **Prompt and display**: ghost-text suggestions and a configurable way to end bare text (today a blank line sends); `/display` defaults (settings file), `usage` as a third switch, and tools in `/log`; user messages in the prompt style in the history, clearer merge and fork markers, a `/history all` pager; other key bindings (a configurable map belongs with the settings file; Ctrl-O inside a bracketed paste is ignored on purpose).
+- **Terminal plan**: colour themes and a light/dark setting; wrapping of command output such as tables; syntax highlighting and diff colouring in tool previews; multi-line editing with cursor movement inside the draft; mouse handling off by default; Windows console quirks (legacy conhost, `chcp`, VT sequences) on a real machine; selection lists for `/thread`, `/undo n` and `/accept`; re-wrapping on resize; a fuller screen layer if a pager needs one (a line pinned to the bottom was not worth fighting readline's redraws for).
+- **Where worktrees live.** Forks are nested inside the main worktree (`.chattree/threads/<name>`, configurable with `git config chattree.worktrees`). Concerns: (1) the main thread's agent and every tool that scans the tree (grep -r, find, tsc's default include, vite/jest watchers, linters, an IDE) sees each fork's full copy of the source, so searches return duplicates and watchers do double work, which is the strongest argument against nesting; (2) Windows path length, with node_modules a few levels deeper; (3) `.chattree` has to be excluded from the main thread's snapshots (it is, through `.git/info/exclude`) and from anything that copies the directory. Recommendation: keep `main` where it is (the user's directory), move forks out of the tree to a sibling or per-user location (`<root>.chattree/threads/<n>`, or the settings file's data directory keyed by project), and make that the default. Still open: that default, a switch to keep `main` out of the repository root (and `init --adopt` moving the current checkout into the worktree folder), and `git worktree move` for existing nested worktrees.
+- **Small ones**: a VS Code helper that adds the `!tag` custom tags to settings (`yaml.customTags`); a per-user preferences file (see the settings file); a coordination daemon over a named pipe (revisit with the engine-as-a-service entry).
+
+## Deferred: pricing data
+
+Prices come from external pages and affect no other code. Accuracy matters for the cost shown and for limits, so clean these up together before release.
+
+- **OpenAI**: the long-context threshold is not stated on the page (272k is assumed, from earlier GPT-5.x models); which `service_tier` value selects "Fast" (Priority was renamed Fast on 2026-07-30) is unverified; `gpt-6-luna` has no Ultrafast price; `gpt-5.4-mini` and other smaller models are no longer on the page; `chat-latest` (an alias) and the cyber (`gpt-5.6-sol`, `gpt-5.6-cyber`) and life-sciences models are left to overrides. The tier-to-table binding is confirmed (the page's URL carries `latest-pricing=standard|batch|fast|ultrafast`; our `flex` is the page's "Flex/Batch").
+- **Anthropic**: the table came from a summarising read of the pricing page; read it in a browser as was done for OpenAI, and add the older models once their API ids are confirmed. Prompt caching prices and multipliers (lifetimes, write multipliers) are verified together with the adapter's request shapes (High).
+
+## Merge policy per environment, file or hunk: the design
+
+**Today.** Merging a subagent or a fork (`finishSubagent`, `mergeFork`) has one policy: *trunk wins, per file*. Files only the child changed come across; a file both sides changed keeps the trunk's version whole, and the merge entry records exactly what happened (`files.changed/added/discarded`, `merge.conflicts`). That is safe and predictable, and it is the right default for code, but it is too blunt for other kinds of work.
+
+**The idea.** The workspace an agent works in is an *environment*, and different environments want different rules. Examples:
 
 | Environment | What it wants |
 | --- | --- |
@@ -54,10 +140,9 @@ rules. Examples:
 Two independent choices make up a policy:
 
 - **Granularity**: `file` (what we have) or `hunk`.
-- **Resolution** for what cannot be merged cleanly: `trunk`, `child`, `union`, `ask` (leave the branch unmerged
-  and tell the model what is in the way), or `regenerate` (drop both, run a command).
+- **Resolution** for what cannot be merged cleanly: `trunk`, `child`, `union`, `ask` (leave the branch unmerged and tell the model what is in the way), or `regenerate` (drop both, run a command).
 
-**Where it is configured.** In `harness.yml`, so it is versioned with the repository (there is no `config_changed` entry any more):
+**Where it is configured.** In `harness.yml`, so it is versioned with the repository:
 
 ```yaml
 merge:
@@ -69,183 +154,21 @@ merge:
     - { paths: ["data/**/*.jsonl"],   resolution: union }
 ```
 
-The policy used is the one recorded in the *receiving* branch's configuration at merge time, and the merge
-entry records which rule applied to each path, so a later reader never has to guess.
+The policy used is the one recorded in the *receiving* branch's configuration at merge time, and the merge entry records which rule applied to each path, so a later reader never has to guess.
 
-**How hunk-level could be done.** `git merge-tree --write-tree` (which we already use, git ≥ 2.38) reports
-conflicted paths but does not itself offer per-hunk resolution at our minimum version. Two routes:
+**How hunk-level could be done.** `git merge-tree --write-tree` (which we already use, git ≥ 2.38) reports conflicted paths but does not itself offer per-hunk resolution at our minimum version. Two routes:
 
-1. For each conflicted path, run `git merge-file -p --ours|--theirs|--union <current> <base> <other>` on the three
-   versions (read through `catFile`) and write the result into the merge tree with `rewriteTree`. `merge-file`
-   has existed for a very long time, resolves conflicting *hunks* (not whole files) by the chosen side, and
-   needs no new git version. Binary files must be detected first and kept at file level.
-2. Use `merge-tree -X ours|theirs` if and when the minimum version is raised to one that has it (to be checked
-   before relying on it; we avoided depending on it in step 4).
+1. For each conflicted path, run `git merge-file -p --ours|--theirs|--union <current> <base> <other>` on the three versions (read through `catFile`) and write the result into the merge tree with `rewriteTree`. `merge-file` has existed for a very long time, resolves conflicting *hunks* (not whole files) by the chosen side, and needs no new git version. Binary files must be detected first and kept at file level.
+2. Use `merge-tree -X ours|theirs` if and when the minimum version is raised to one that has it (to be checked before relying on it).
 
-**Format impact.** The merge report grows: per path, the rule that applied, the granularity, and for hunk merges
-the number of hunks taken from each side. That is an additive format change (minor 1.4, since 1.3 went to `tool_result.full`); `policy: "trunk"` stays
-valid and is simply the default rule.
+**Format impact.** The merge report grows: per path, the rule that applied, the granularity, and for hunk merges the number of hunks taken from each side. That is an additive format change; `policy: "trunk"` stays valid and is simply the default rule.
 
 **Open questions.**
 
-- `ask`: does the merge refuse and leave both branches as they are, or does it merge everything else and report
-  the unresolved paths? Either way the model needs a way to resolve and retry; a "resolve" turn on the child
-  branch is the natural shape.
+- `ask`: does the merge refuse and leave both branches as they are, or does it merge everything else and report the unresolved paths? Either way the model needs a way to resolve and retry; a "resolve" turn on the child branch is the natural shape.
 - `union` on prose can produce duplicated or contradictory paragraphs; is it only for line-oriented data?
 - Is `regenerate` a merge feature at all, or a post-merge hook the environment owns?
-- Determinism: resolution must depend only on committed state (the three versions and the recorded config), never
-  on timing or on a model call inside the merge, so a merge can be re-verified from the history alone.
-- Interaction with the production layout (item 3): a merge across the code submodule and the chat repository.
+- Determinism: resolution must depend only on committed state (the three versions and the recorded config), never on timing or on a model call inside the merge, so a merge can be re-verified from the history alone.
+- Interaction with code-split workspaces: a merge across the code submodule and the chat repository.
 
-**First step.** Put the policy type and rule matching (pure, no git) behind the existing merge code, keep the
-default identical to today's, and add hunk granularity with `merge-file` behind it, with a test per row of the
-table above.
-
-### Production workspace split (D8)
-
-The MVP keeps chat and project files in one repository. The production shape keeps the project in a submodule
-with the pointer tracked in the chat repository (plus branch name and a saved diff of uncommitted changes). This
-also lets one agent flow work across several repositories. It touches snapshots, forks, merges and verification.
-
-## Low
-
-- **CLI refinements**: ghost-text suggestions in the prompt; streaming one session's reply to another by tailing the
-  journal; a per-user preferences file; a coordination daemon over a named pipe (revisit with the tool loop).
-
-- **Attachment capabilities**: a per-model `input: [text, image, pdf]` list so a request with a file the model cannot take
-  is refused early and a model switch warns (`capability_loss`); today the provider's error is the signal, and the
-  Chat Completions adapter refuses PDFs itself. Also: downscaling large images before sending, and SVG (sent as text).
-
-- **Token counting, further**: llama-server `/tokenize` for the openai-compatible adapter (unverified), and calibrating the
-  bytes-per-token estimate from the usage of earlier requests for providers with no counting endpoint.
-
-- **Recovery that checks the owner is dead.** A journal that goes quiet is taken for dead after `journalStaleMs`; a suspended
-  but living process is only caught by the commit-time ownership check (`RequestSuperseded`), after its work is wasted.
-  A `Host` method that says whether a process is alive would let recovery on the same machine wait for it.
-- **Journal extras**: keep a copy of the events of failed requests outside the repository for debugging; a `follow`
-  helper so a second process can tail a request's journal (nothing reads it live yet); record the digest the adapter
-  computed for the request so a recovered OpenAI response can still be chained from.
-- **Usage as it arrives** on `openai-compatible`, not only at the end. A stream that dies mid-way reports no tokens,
-  which matters only for a hosted Chat Completions provider. The alternative is to report running totals as events and
-  let the result differ.
-- **More Chat Completions settings**: `tool_choice`, `parallel_tool_calls`, JSON schema output; an `is_error` prefix for
-  tool results (the API has no flag, so errors are plain text).
-- **Cache and tool options**: mixed cache lifetimes within one request (the docs allow it, longer first: the pinned
-  prefix at 1h and the conversation at 5m; OpenAI's per-breakpoint `prompt_cache_breakpoint.ttl`; today one
-  `cache_ttl` covers every marker); an Anthropic equivalent of `allowed_tools` for restricting tools without changing the
-  prefix; OpenAI standalone compaction (`/responses/compact`) for compacting on demand.
-- **Pricing extras**: calibrate the estimate from the last response's real usage; Anthropic's `inference_geo` 1.1x
-  multiplier and batch discounts; OpenAI's regional-processing uplift.
-- **Provider checks and fixtures**: a live A/B of OpenAI stored (`previous_response_id`) versus stateless replay (cost,
-  cached tokens, latency; needs a key); whether OpenAI hosted tools (web search, code interpreter) need server-side
-  state; the OpenAI WebSocket continuation cache; record fixtures from `tools/live-check.ts --record` runs against
-  Ollama (known caveats: no `cache_control` or `tool_choice`, in-stream errors are unreliable, small models may not call
-  tools or reason, so those scenarios skip).
-- **A merge's rollup** resolves tables the child pinned only from this conversation's providers and blobs, so a child that
-  pinned a table which no longer exists here is counted as unpriced (the safe default: unknown is never zero).
-- **Events are in memory.** `onEvent` is delivered after commit, but a crash between commit and delivery loses the event.
-  Consumers that must not miss anything should rebuild from history (`index()`, the `recovery` event); an at-least-once
-  persisted outbox is possible if needed.
-- **Index cache assumption.** A cached index is extended when its tip is an ancestor of HEAD, which for a branch that has
-  only ever advanced is also on its first-parent line. A branch reset to a sibling line that still contains the old tip
-  would be indexed from a longer `git log`, not wrongly, but a first-parent check would make that explicit.
-  `verifyHistory` never uses the cache.
-- **Locks across machines.** Locks are files, which is right for one machine and for local-disk worktrees; a network file
-  system with weak `link`/`rename` semantics is not supported.
-- **A persistent `fast-import` process.** Considered and parked on measurement. An append costs two short git processes
-  (stage, commit), about 12 ms; the floor is git's own index and commit work. A long-lived `fast-import` would need
-  `checkpoint`/`get-mark` round trips for the hash, would leave the index behind the commit (needing `reset` anyway), and
-  would add a process to supervise on every handle. `appendMany` already makes bulk writes constant-cost. Revisit only if
-  profiling a real agent loop shows process start-up dominating.
-- **Renderers**: verifying a renderer's output at runtime (a self-test with fixed inputs, output hash recorded in the
-  setup). Decided: stability is part of the renderer interface contract (an id is immutable, renderers are pure), not
-  something the harness defensively checks, at least for now. Revisit if host-supplied renderers cause drift.
-- **A VS Code helper** that adds the `!tag` custom tags to settings (`yaml.customTags`).
-
-## Deferred: pricing data
-
-Prices come from external pages and affect no other code. Accuracy matters for the cost shown and for limits, so clean
-these up together before release.
-
-- **OpenAI**: the long-context threshold is not stated on the page (272k is assumed, from earlier GPT-5.x models); which
-  `service_tier` value selects "Fast" (Priority was renamed Fast on 2026-07-30) is unverified; `gpt-6-luna` has no Ultrafast
-  price; `gpt-5.4-mini` and other smaller models are no longer on the page; `chat-latest` (an alias) and the cyber
-  (`gpt-5.6-sol`, `gpt-5.6-cyber`) and life-sciences models are left to overrides. The tier-to-table binding is
-  confirmed (the page's URL carries `latest-pricing=standard|batch|fast|ultrafast`; our `flex` is the page's "Flex/Batch").
-- **Anthropic**: the table came from a summarising read of the pricing page; read it in a browser as was done for OpenAI,
-  and add the older models once their API ids are confirmed.
-- **Prompt caching prices and multipliers** for Anthropic (lifetimes, write multipliers) are verified together with the
-  adapter's request shapes (High).
-
-## CLI (left after the first complete version)
-
-Low unless noted. The CLI is chat-only: the tool loop is the next big piece (the engine, activity model and renderer leave room for it).
-
-- **Tool loop** (Medium): planned in `docs/tools.md`; the CLI notes a `tool_use` stop and stops there until it is built.
-- **`chattree doctor`**: git and Node versions, providers and keys, a request to each provider with `--online`.
-- **`--json` output** for the non-interactive verbs, for scripts.
-- **Ghost-text suggestions** and a configurable way to end bare text (today: a blank line sends).
-- **Another session's streaming reply**: a second session shows the finished entries as they land, not the stream (tail the journal).
-- **`/threads`**: how many sessions point at each thread (`/thread` shows it for the current one).
-- **Summaries from `/merge` and `/compact`** are not in the cost ledger (the usage is shown when they are made).
-- **Sessions**: `/sessions` cannot yet delete or adopt one; a stale session file is removed by hand.
-
-## Tools (follow-ups from docs/tools.md)
-
-Not part of the first tool loop.
-
-- **OS-level sandbox** for `run` and `script` (container or restricted user): the real answer to approved commands having the user's permissions (Medium).
-- **Search and web tools** (`grep`, `fetch`) if `run` proves awkward for them.
-- **Image and PDF results** from `read`: a tool result that carries an image needs adapter work.
-- **Parallel foreground calls**: today they run in order; background jobs are the concurrency story.
-- **MCP servers and user-defined tools**: planned in docs/context.md (step 4); the registry is shaped for them. Built (step 4), with a connection pool and MCP for subagents. Parked: a gateway tool (`mcp(server, tool, args)`) that keeps the prefix stable; OAuth for HTTP servers; resources, prompts, sampling and elicitation; following `tools/list_changed` while connected.
-- **Detached jobs** that outlive the CLI process (today a crash marks them lost).
-- **Strict mode for Responses** (`strict: true`) for definitions that fit it.
-- **Use a validation library for tool schemas**: done (`ajv`, docs/tools.md 3.8). `zod` is still listed under `devDependencies` while the harness imports it at runtime, which needs fixing.
-- **File-reference tool results** (Medium): store a `read` result as a reference (path, offset, length at the entry's commit) re-rendered when the context is built, instead of a copy. The result is formatted with headers and line numbers and can hold several files, so it needs the renderer to run at read time and a format version bump with verifier support. Until then a large result is a blob, shared by hash between identical re-reads.
-- **Exact stdout/stderr interleaving** for `run`: the two pipes are separate, so order is by arrival. Exact order needs the child's two descriptors to be one pipe, which Node cannot ask for directly.
-- **Describe the host environment to the agent** (operating system, shell availability, which utilities `run` has and where they come from, the working directory, the date): one block in the system prompt, built by the host. Until then `run`'s description says only that it takes a cross-platform bash-like syntax with common utilities and the host's programs.
-- **Text-protocol tool calls** for models without reliable native tool calling (e.g. `<call name="run">` blocks with raw, unescaped values), so a large command or file body needs no JSON string escaping. Revisit if the sampler shows escaping slips.
-- **`run` stderr handling:** `2>/dev/null` is accepted and ignored (stderr is shown with stdout). Separating stderr per stage would let it really discard, and would let results label it.
-- **Pin the busybox download:** `tools/fetch-busybox.ts` prints the zip's SHA-256; once a release is settled on, check it against a pinned value.
-- **The transcript is inside the workspace the agent sees.** `ls -R` lists `blobs/`, `grep -r` matches `chat.yml` (including earlier tool results and thinking), and `git log` in the workspace shows the conversation's own commits. gemma and gpt-oss both stumbled over this (extra requests, repeated checks). Options: keep blobs and the transcript under a hidden directory, hide them from `run`'s globbing and listings, or say in the host description which files are the conversation's. Not done yet.
-- **Sampler noise floor.** With 10 samples a task that really succeeds 95% of the time scores 9/10 or better only 91% of the time, so a per-cell gate of 9/10 over 51 cells is expected to miss about four by chance. Candidates: 20 samples per cell, a gate that only fails a cell if two runs in a row miss, and classifying each miss as tool, task wording or model.
-- **Tool conventions, the rest** (docs/tools.md, 3.7). Built: `full` and `flat`, the refusal, the probe. Parked: (1) a `schemas` block per tool with a hand-written variant per convention and an optional description override, for the first tool that genuinely needs nesting (it must then provide a flat variant to be used on flat models); (2) `text`, calls written as text for models with no native tool calling, built on flat schemas; (3) `raw`, one unescaped text argument (like OpenAI's custom tools), probably for `script` only, which removes JSON string escaping for large commands; (4) bundled `tool_convention` values for models we have measured, once there are enough of them (today it is set in `harness.yml`, because the same model can differ between Ollama and vLLM); (5) a `--tool-convention` flag for the sampler, only needed once a tool is not flat.
-- **Nested schema variants for `read`, `write` and `edit`**, to allow batch operation (several files, several changes in one call, applied together). They would be the first tools to need the per-convention `schemas` block above: a nested variant for `full` models and the flat one for `flat` models.
-- **Tool instruction generation in llama-server.** When does the `flat` convention apply to user-supplied GGUFs, whose chat template decides how tools are shown? Can we provide our own renderer (a template or a pre-rendered prompt) so a model sees the full schema?
-- **A provider option to disable streaming responses**, for debugging and for servers that stream badly. The adapters only parse streams today; a non-streaming response would be replayed through the same mapper, as the throwaway copy-probe patch did for the Anthropic flavor.
-- **Test-case note: PELICAN.** Ollama's gpt-oss garbles the word PELICAN (misspellings, inserted zero-width or no-break characters) in about 5% of runs, in its reasoning and its output alike, even in plain native calls. Not our harness. Keep it in mind when choosing words for test cases, and note that a model can emit invisible characters in text.
-
-
-## Background jobs
-
-- **Live job output.** `job_output` reads a job's output only once it has ended, because `Host.run` collects output rather than streaming it. Streaming (an `onOutput` callback in `RunSpec`, a log kept in the job) would let the model read progress and `tail` a server.
-- **Forks and lost jobs.** Recovery decides a job is lost when the branch's history says it started and has no event, and this process is not running it. A fork made while the parent's job is still running inherits that history, so the fork would mark the job lost although the parent still owns it. Fix by recording which branch a job belongs to (in the start result or a `job_start` marker) and recovering only that branch's.
-- **Jobs and approvals.** A background job is approved when it starts; nothing re-checks a grant that lapses while it runs (noted in 5.1). A long-running job holding a stale permission is acceptable while jobs are only `run` and `script`; revisit for `subagent`.
-
-## Windows batch programs
-
-- **Resolve shims instead of running them through cmd.exe.** npm, pnpm and yarn install `.cmd` shims that only start `node <script>`. Reading the shim and starting `node` directly would avoid `cmd.exe` altogether, so no flag and no argument restrictions; it needs a parser for each tool's shim format, and breaks when a shim changes.
-- **Local shims.** Done as `tools.run.local`, a glob allowlist for batch files that resolve inside the workspace (e.g. `./node_modules/.bin/*.cmd`). A custom shim parser (reading what the `.cmd` shim runs and starting that directly) is still not built.
-
-## CLI backlog from the first real use (2026-10-28)
-
-Collected after the first hands-on session (Windows, a Pong project built by gemma4:12b). Done in the same pass: `/merge` with no argument merges the current fork into its parent and moves there (`/merge <thread>` still merges a named fork into this thread); unnamed forks are `fork/1`, `fork/2` (the smallest unused number, archived threads count); `/merge` checks that the merge can happen (`Conversation.assertMergeable`) before it asks the model for a summary; the summary covers only what the fork wrote since it was last merged and the prompt says the main thread is not shown; the default editor on Windows is Notepad and `$EDITOR` may carry arguments (the path is now quoted).
-
-- **Output display: done as `/display`** (`/show` was taken by "one entry in full"). `/display thinking on|brief|off` and `/display tools full|brief|off`, kept per session, applied to the live display, `/history`, the opening recap and the text handed to the model for summaries (`formatTranscript`, which also lets a tool result know which call it answers). `/export` still has its own `--thinking` flag and always shows tool calls as before. Not done: defaults in a settings file, `usage` as a third switch, and showing tools in `/log` (that is the commit list, not the conversation).
-- **A readable log that looks like the TUI.** Mostly done: `/history [n]`, the recap when a thread opens, and the live display now share one format (`formatEntry`/`formatTranscript`: `you:` / model name blocks, `→` call lines, `←` result lines, honouring `/display`). Still to do: user messages in the prompt style, merge and fork markers drawn more clearly, a `/history all` pager, and wrapping to the terminal width.
-- **Inline draft ↔ named draft without an editor: done.** Ctrl-O puts the prompt (the draft so far and the current line) aside as the next numbered draft; `/paste [name]` brings it back, last line on the editable prompt line. Not done: other key bindings (a configurable map belongs with the settings file), and Ctrl-O inside a bracketed paste is ignored on purpose.
-- **CLI settings file.** User-level (not per thread): `%APPDATA%\chattree\settings.yml` / `~/.config/chattree/settings.yml`. First users: `editor` (with the Notepad/vi default), `/show` defaults, colour and width overrides, whether the prompt confirms `/undo`. Also the natural home for the busybox location if it should not live in vendor/.
-- **`/exec <command>`: done** (`cli/commands/exec.ts`, `Io.exec`, `Engine.exec`): POSIX `sh -c` (busybox on Windows) with the terminal inherited, in the thread's worktree, nothing recorded and no approvals. Not done: `--record` to send the command and its output to the model as a user message, output streaming into the TUI instead of taking over the terminal, and `/exec` in non-terminal sessions (it needs a terminal).
-- **`vite dev` 404 in a fork worktree.** Cause confirmed as the `%2F` in the directory name. Fixed: worktree directories are now `[A-Za-z0-9._-]` only (`fork/1` is `fork-1`, a taken name gets `-2`, ...). Original notes: needs logs from the failing run (the URL requested, vite's `--debug` output, and `dir` of the worktree). Suspects, in order: the worktree path contains `%2F` (`encodeURIComponent("fork/1")`), which is a hostile character to URL-minded tools and to cmd.exe, and a dot directory (`.chattree`) above the project root; the fork's files checked out but `node_modules` missing is not the cause (the page loaded). Worth trying: `/thread new side` (no slash in the name) and the same `vite dev` there, to see whether the `%2F` is involved. If it is, name worktree directories safely (e.g. `/` → `-` with a numeric suffix on collision) instead of percent-encoding.
-- **Where worktrees live.** Forks are now nested inside the main worktree (`.chattree/threads/<name>`). Concerns: (1) the main thread's agent and every tool that scans the tree (grep -r, find, tsc's default include, vite/jest watchers, linters, an IDE) sees each fork's full copy of the source, so searches return duplicates and watchers do double work, which is the strongest argument against nesting; (2) Windows path length, with node_modules a few levels deeper; (3) `.chattree` has to be excluded from the main thread's snapshots (it is, through `.git/info/exclude`) and from anything that copies the directory. Against a fully bare layout (`.chattree/threads/main`, an empty root): `chattree init --adopt` and the idea that the user's own checkout is the main thread would go, and an IDE opened on the root would show nothing. Recommendation: keep `main` where it is (the user's directory), move forks out of the tree to a sibling or per-user location (`<root>.chattree/threads/<n>` or the settings file's data directory keyed by project), and make the location a setting. Done so far: the worktree root is configurable with `git config chattree.worktrees <path>` (relative to the main working tree, or absolute; default `.chattree/threads`), used for every new worktree; existing ones are found by branch wherever they are. Still open: a switch to keep `main` out of the repository root (and `init --adopt` moving the current checkout into the worktree folder), a default outside the tree, and `git worktree move` for existing nested worktrees.
-- **TUI improvements.** Done (batch 1 to 3): `/display` and the shared readable history; colour in the history as in the live display (labels bold, tool lines dim, errors red); width detection and wrapping of history and recap entries (hanging indent kept, code fences and long words left alone; not re-wrapped on resize); arrow-key selection for tool approvals and yes/no questions (up/down or k/j, a letter jumps, Enter chooses, Escape or Ctrl-C gives the default, which is highlighted first). To plan: colour themes and a light/dark setting; wrapping of command output such as tables; syntax highlighting and diff colouring in tool previews; live streaming of job output; multi-line editing with cursor movement inside the draft; mouse handling off by default; Windows console quirks (legacy conhost, `chcp`, VT sequences) on a real machine; key bindings for the draft/named-draft moves above; selection lists for `/thread`, `/undo n` and `/accept`; re-wrapping on resize. Also done: paging (a command's output taller than the terminal shows one page, `/more` the next; not a raw-key pager, so it behaves the same on Windows and in tests; live model output is never paged); a dim status line before the prompt after each turn (thread, model, spend, running jobs, staged files, drafts); a line pinned to the bottom was not worth fighting readline's redraws for, and can come with a fuller screen layer if a pager needs one.
-
-## Subagent model choice: follow-ups (2026-10-29)
-
-- **A spend cap per subagent.** A `max_spend` argument (and a default under `subagent`) that the child's requests are limited by, on top of the inherited ledger, so a parent can say "no more than $0.50 on this".
-- **Telling the child how much is left.** The child should be told when it is running out of money or requests and asked to wrap up. That needs an injection framework first: a way for the harness to add a short note to the next request (a system or user-side notice that is not an entry the user typed), with its own rendering and recording so replay is the same. Budget is the first user; elapsed time and "the user has been waiting" are others.
-- **A child's spend against the parent while it runs.** The child's branch inherits the parent's spend at the spawn, but the parent's own limits do not see the child's spend until the merge's rollup. For a background subagent, or several, the parent can pass a limit the children already broke. Either the run manager sums the live children into the parent's check, or the child's requests are charged to the parent's ledger as they happen.
-- **Cost ordering for approvals.** Keys are `provider/model@level` with globs. "Anything cheaper than X" would need an order in the catalog (tier numbers or a price rank); not built, on purpose.
-- **Catalog data.** The bundled descriptions, tiers and level names are written by hand (dated 2026-10-25), and the effort names a model accepts depend on the model. Check them against the providers' documentation; a live check that sends each level and reports the provider's refusal would keep them honest.
-- **Level names beyond low/medium/high/off**, such as `max`, and per-level cost hints, if the tiers turn out too coarse.
+**First step.** Put the policy type and rule matching (pure, no git) behind the existing merge code, keep the default identical to today's, and add hunk granularity with `merge-file` behind it, with a test per row of the table above.
