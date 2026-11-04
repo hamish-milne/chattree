@@ -36,16 +36,16 @@ describe("/exec", () => {
     }
   });
 
-  test("on Windows the shell is busybox (the one tools.run.busybox names)", async () => {
+  test("on Windows the shell is busybox (the one the busybox setting names)", async () => {
     const { server, dir } = await started();
     try {
       const bb = join(await tempDir(), "busybox.exe");
       const fs = await import("node:fs/promises");
       await fs.writeFile(bb, "x");
-      await fs.writeFile(join(dir, "harness.yml"), (await fs.readFile(join(dir, "harness.yml"), "utf8")).replace(/ {2}run:\n/, `  run:\n    busybox: ${JSON.stringify(bb)}\n`));
-      await approve(dir);
+      const settings = join(await tempDir(), "settings.yml");
+      await fs.writeFile(settings, `busybox: ${JSON.stringify(bb)}\n`);
       const calls: (readonly string[])[] = [];
-      const io = { ...testIo(dir, { stdin: "/exec echo hi\n", exec: async (stage) => (calls.push(stage), 0) }) };
+      const io = { ...testIo(dir, { env: { CHATTREE_ENVIRONMENT: "off", CHATTREE_SETTINGS: settings }, stdin: "/exec echo hi\n", exec: async (stage) => (calls.push(stage), 0) }) };
       io.host = { ...io.host, platform: "windows" as const };
       await main(["chat", "--plain", "-y"], io);
       assert.deepEqual(calls, [[bb, "sh", "-c", "echo hi"]]);

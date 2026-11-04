@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Settings } from "./settings.ts";
 import { Pipeline, acquireLock, defineEntry, emitEntry, parseEntry, LockHeldError, type Lock, type Git, type Host } from "../src/index.ts";
 import { createUlid, ULID_RE } from "../harness/ulid.ts";
 import { hasPendingState, type SessionState, type StagedAttachment } from "./engine.ts";
@@ -202,8 +203,11 @@ export class SessionStore {
   readonly #now: () => number;
   readonly #opts: SessionOptions;
   readonly #ulid: () => string;
+  /** What a new session shows, from the settings file. */
+  readonly #display: Settings["display"];
 
-  private constructor(host: Host, dir: string, now: () => number, opts: SessionOptions) {
+  private constructor(host: Host, dir: string, now: () => number, opts: SessionOptions, display: Settings["display"]) {
+    this.#display = display;
     this.#host = host;
     this.dir = dir;
     this.#now = now;
@@ -211,9 +215,9 @@ export class SessionStore {
     this.#ulid = createUlid(now);
   }
 
-  static async open(io: Pick<Io, "host" | "now">, git: Git, opts: SessionOptions = {}): Promise<SessionStore> {
+  static async open(io: Pick<Io, "host" | "now" | "settings">, git: Git, opts: SessionOptions = {}): Promise<SessionStore> {
     const dir = io.host.path.join(await git.commonDir(), "chattree", "cli", "sessions");
-    return new SessionStore(io.host, dir, io.now, opts);
+    return new SessionStore(io.host, dir, io.now, opts, io.settings?.display);
   }
 
   now(): number {
@@ -289,7 +293,7 @@ export class SessionStore {
     const lock = await this.#lock(id);
     if (lock === undefined) throw new CliError(`session ${id} is already locked`);
     const at = new Date(this.#now()).toISOString();
-    const session = new Session(this, lock, { $tag: "session", format: 1, id, thread, created: at, updated: at, draft: "", drafts: [], history: [], thinking: "off", tools: "brief", attachments: [] }, this.#opts);
+    const session = new Session(this, lock, { $tag: "session", format: 1, id, thread, created: at, updated: at, draft: "", drafts: [], history: [], thinking: this.#display?.thinking ?? "off", tools: this.#display?.tools ?? "brief", attachments: [] }, this.#opts);
     return session;
   }
 

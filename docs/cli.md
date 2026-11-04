@@ -106,7 +106,7 @@ Threads
 | `/thread [name]` | Show the current thread, or re-point this session at another (opens or creates the worktree). |
 | `/thread new <name> [--from <entry>]` | A new thread, optionally from an earlier point. |
 | `/fork [<entry>] [name]` | Fork this thread (a side conversation). |
-| `/exec [command line]` | Run a command in this thread's worktree as yourself: no approval, nothing added to the transcript, the terminal handed over (so `/exec sh`, an editor or a watcher work; Ctrl-C goes to the program). The line goes to POSIX `sh -c`, which on Windows is busybox's (fetched on first use, see `tools.run.busybox`), so pipes, `&&` and redirects mean the same everywhere. No command starts a shell; a non-zero exit is reported. |
+| `/exec [command line]` | Run a command in this thread's worktree as yourself: no approval, nothing added to the transcript, the terminal handed over (so `/exec sh`, an editor or a watcher work; Ctrl-C goes to the program). The line goes to POSIX `sh -c`, which on Windows is busybox's (fetched on first use, see the `busybox` setting), so pipes, `&&` and redirects mean the same everywhere. No command starts a shell; a non-zero exit is reported. |
 | `/merge [summary]` | Merge this fork into the thread it came from and move there (`fork_merge`, with the summary the user or the model writes). |
 | `/merge <thread> [summary]` | Merge that fork into this thread. |
 | `/compact <from> <to>` | Replace a range with a summary (the CLI asks the model for the summary, shows it, asks to accept). |
@@ -128,6 +128,7 @@ Agent setup and configuration
 | `/accept` | Accept a provider-observed change (`setup_changed` with `reason: provider`). |
 | `/config` | Validate `harness.yml` and show issues; `chattree config edit` opens it (and approves what you saved). |
 | `/trust` | Check that `harness.yml` is the file you approved for this thread; if not, show what changed and ask to approve it (`/trust show` prints the file). Until then no provider, tool or grant from it is used. `chattree trust` does the same; `chattree -y trust` approves without asking. |
+| `/settings [edit]` | Show the user settings file and what it holds, or open it in the editor (created with a commented template). `chattree settings [edit]` does the same, and works even when the file is broken. |
 
 Housekeeping and session
 
@@ -151,6 +152,10 @@ Non-interactive verbs use the same engine: `chattree say "text" [--attach f]... 
 ### 5.1 Archiving threads
 
 `/threads` can grow long, so a thread can be archived: a **zero-diff commit** on its branch with the trailer `Chattree-Archived: true` (and the `Chattree-Offset`, as the snapshot and gc commits carry, so the entry index skips it the way it skips them). Reading the state is the tip's trailer, which one `git for-each-ref --format=...%(contents:trailers)` gives for all branches at once. The archive commit is made with `commit-tree` and `update-ref` under the branch lock, so it needs no worktree and does not touch a checked-out one (same tree, so `git status` stays clean). Any later commit on the branch (an entry, a snapshot) makes the tip non-archived, which is the implicit un-archive; `/thread unarchive` writes the same kind of commit with `Chattree-Archived: false` for when nothing else is to be said. `/threads` hides archived threads unless asked for `archived` or `all`; the other filters are `merged` (the thread has entries of its own and its tip is contained in another thread), `running` (a live journal), and `idle`. `readCommitGraph` shows the commit as an archive marker.
+
+### 5.2 The settings file
+
+User-level settings, which belong to the person and the machine rather than a thread, live in `settings.yml` under `~/.config/chattree/` (`$XDG_CONFIG_HOME` if set; `%APPDATA%\chattree\` on Windows); `CHATTREE_SETTINGS` names another file. It is read once at startup (`cli/settings.ts`, `Io.settings`) and a file that cannot be read or has an unknown key or a bad value stops the command with its path and the problems (`chattree settings edit` still opens it). Keys: `editor` (a command, may carry arguments; before `$VISUAL` and `$EDITOR`), `busybox` (`auto`, `off` or a path to busybox.exe; Windows, see docs/tools.md), and `display.thinking` / `display.tools` (what a new session shows; `/display` changes one session). Changes apply the next time chattree starts. Not yet: colour and width, key bindings, confirming `/undo`, the data directory.
 
 ## 6. Activity
 

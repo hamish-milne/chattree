@@ -16,7 +16,7 @@ const exec: Command = {
   async *run(ctx, _args, rest) {
     try {
       const line = rest.trim();
-      const stage = shellStage(line === "" ? "exec sh" : line, ctx.io.host.platform, await busyboxFor(ctx.io, ctx.convo));
+      const stage = shellStage(line === "" ? "exec sh" : line, ctx.io.host.platform, await busyboxFor(ctx.io));
       const code = await ctx.engine.exec(stage, ctx.convo.dir);
       if (code !== 0) yield { type: "notice", message: `exit ${code}` };
     } catch (e) {

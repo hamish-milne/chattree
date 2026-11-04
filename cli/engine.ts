@@ -23,6 +23,7 @@ import { openThread } from "./project.ts";
 import { followSkills, skillsWaiting } from "./skills.ts";
 import { SYSTEM_PROMPT, type HostEnvironment } from "../harness/environment.ts";
 import { hostEnvironment } from "./environment.ts";
+import { editorFor, type Settings } from "./settings.ts";
 
 /** A file staged for the next prompt. Only the path and what was decided about it are kept; the blob is made when the prompt is sent. */
 export interface StagedAttachment {
@@ -61,7 +62,7 @@ export interface SessionState {
   history: string[];
 }
 
-export const emptyState = (): SessionState => ({ draft: "", drafts: [], attachments: [], thinking: "off", tools: "brief", history: [] });
+export const emptyState = (display?: Settings["display"]): SessionState => ({ draft: "", drafts: [], attachments: [], thinking: display?.thinking ?? "off", tools: display?.tools ?? "brief", history: [] });
 
 /** Nothing waiting to be sent: a session in this state is not worth keeping. (Preferences and history alone are not.) */
 export const hasPendingState = (s: SessionState): boolean => s.draft.trim() !== "" || s.drafts.length > 0 || s.attachments.length > 0;
@@ -187,7 +188,7 @@ export class Engine {
     this.environment = o.io.env["CHATTREE_ENVIRONMENT"] === "off" ? undefined : hostEnvironment(o.io);
     this.session = o.session;
     this.sessions = o.sessions;
-    this.state = o.session?.state ?? emptyState();
+    this.state = o.session?.state ?? emptyState(o.io.settings?.display);
     this.registry = new Registry(defaultCommands());
     this.#confirm = o.confirm ?? (async () => false);
     this.tools = o.tools === true;
@@ -538,7 +539,7 @@ export class Engine {
   async edit(path: string): Promise<boolean> {
     const edit = this.io.edit;
     if (edit === undefined) throw new CliError("there is no editor here", "run `chattree chat` in a terminal, or edit the file yourself");
-    const run = (): Promise<boolean> => edit.call(this.io, path);
+    const run = (): Promise<boolean> => edit.call(this.io, path, editorFor(this.io));
     return this.suspend === undefined ? run() : this.suspend(run);
   }
 

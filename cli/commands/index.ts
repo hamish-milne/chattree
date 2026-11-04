@@ -1,4 +1,5 @@
 import type { Command } from "../registry.ts";
+import { settingsCommands } from "./settings.ts";
 import { chatCommands } from "./chat.ts";
 import { draftCommands } from "./drafts.ts";
 import { execCommands } from "./exec.ts";
@@ -15,5 +16,5 @@ import { trustCommands } from "./trust.ts";
 import { undoCommands } from "./undo.ts";
 
 export function defaultCommands(): Command[] {
-  return [...chatCommands, ...draftCommands, ...readCommands, ...sessionCommands, ...threadCommands, ...setupCommands, ...skillCommands, ...mcpCommands, ...miscCommands, ...undoCommands, ...metaCommands, ...toolCommands, ...execCommands, ...trustCommands];
+  return [...chatCommands, ...draftCommands, ...readCommands, ...sessionCommands, ...threadCommands, ...setupCommands, ...skillCommands, ...mcpCommands, ...miscCommands, ...undoCommands, ...metaCommands, ...toolCommands, ...execCommands, ...trustCommands, ...settingsCommands];
 }

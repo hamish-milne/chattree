@@ -1,4 +1,6 @@
 import { parseArgs } from "node:util";
+import { describeSettings } from "./commands/settings.ts";
+import { editorFor, ensureSettingsFile, loadSettings } from "./settings.ts";
 import { runInit } from "./init.ts";
 import { CliError, type Io } from "./io.ts";
 import { Engine } from "./engine.ts";
@@ -44,6 +46,7 @@ usage: chattree [-C dir] [-t thread] <verb> [arguments]
   run                run every thread that can go on without a person (subagents, forks, answered questions), until
                      stopped (--once: do what can be done now and leave; status 3 means questions are waiting)
   say <text>         send a message and print the reply ("-" reads standard input; --attach <file> may repeat)
+  settings [edit]    show the user settings file, or open it in the editor
 
 Any session command works as a verb too (chattree status, chattree history 20, chattree threads archived,
 chattree usage, chattree verify ...). Inside a session they are /status, /history 20, and so on; /help lists them.
@@ -90,6 +93,13 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       io.out(`next: cd ${r.root} && chattree chat\n`);
       return 0;
     }
+    // The settings file is read once, here. `settings` is handled before that, so that a broken file can still be shown and edited.
+    if (verb === "settings") {
+      if (args.length === 0) return (where.out(`${describeSettings({ host: where.host, env: where.env, settings: await loadSettings(where) })}\n`), 0);
+      if (args[0] === "edit" && args.length === 1 && where.edit !== undefined) return (await where.edit(await ensureSettingsFile(where), editorFor(where))) ? 0 : 1;
+      throw new CliError("usage: chattree settings [edit]", "edit needs a terminal");
+    }
+    where.settings = await loadSettings(where);
     const registry = new Registry(defaultCommands());
     if (verb === "run") return await runRunner(where, start, { thread: values.thread ?? args[0], once: values.once === true });
     if (verb === "chat") {

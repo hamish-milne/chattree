@@ -1,5 +1,6 @@
 import type { Host } from "../src/host.ts";
 import { nodeHost } from "../hosts/node.ts";
+import type { Settings } from "./settings.ts";
 
 /**
  * Everything the CLI needs from the process, so tests can run it in-process: where output goes, the environment, the
@@ -20,8 +21,10 @@ export interface Io {
   tty?: Tty;
   /** Run `fn` when the process is asked to stop (SIGTERM, SIGHUP, SIGINT); returns the way to stop listening. Absent in tests. */
   onSignal?(fn: (signal: string) => void): () => void;
-  /** Open a file in the user's editor (`$VISUAL`, `$EDITOR`, else `vi`) and wait; true if it exited cleanly. Absent where there is no terminal. */
-  edit?(path: string): Promise<boolean>;
+  /** The user-level settings file, read once at startup (cli/settings.ts); absent means none. */
+  settings?: Settings;
+  /** Open a file in the editor and wait; true if it exited cleanly. `editor` is the command to use (the settings file, `$VISUAL` or `$EDITOR`; else `vi`, or Notepad on Windows). Absent where there is no terminal. */
+  edit?(path: string, editor?: string): Promise<boolean>;
   /**
    * Run a program with the terminal handed to it (stdin, stdout and stderr inherited: interactive programs work) and wait for it. Resolves to
    * its exit code (127 when it could not be started). Ctrl-C goes to the program, not to us. Absent where there is no terminal.
@@ -60,9 +63,9 @@ export function nodeIo(): Io {
       });
       return () => names.forEach((n, i) => process.off(n, handlers[i] as () => void));
     },
-    async edit(path) {
+    async edit(path, editor) {
       const { spawn } = await import("node:child_process");
-      const configured = process.env["VISUAL"] ?? process.env["EDITOR"];
+      const configured = editor ?? process.env["VISUAL"] ?? process.env["EDITOR"];
       return await new Promise<boolean>((resolve) => {
         // $VISUAL and $EDITOR may carry arguments ("code -w"), so they go through a shell, with the path quoted. Without either, Windows
         // has no vi: Notepad is started directly (no shell needed) and waited for.

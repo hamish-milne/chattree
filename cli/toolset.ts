@@ -61,7 +61,7 @@ export interface ToolSetHooks {
 }
 
 /**
- * The busybox.exe `run` uses on Windows, or undefined elsewhere. `tools.run.busybox` is `auto` (default: the one that is there, else
+ * The busybox.exe `run` uses on Windows, or undefined elsewhere. The `busybox` setting (settings file) is `auto` (default: the one that is there, else
  * the pinned release is fetched), `off` (use one that is there, never fetch) or the path of a busybox.exe. Failing to get one is the
  * user's problem, not the model's, so it is a CliError raised before anything is sent.
  */
@@ -70,7 +70,7 @@ export async function resolveBusybox(io: Io, mode: string | undefined, ensure: t
   const how = mode ?? "auto";
   if (how === "off") return findBusybox(io.env);
   if (how !== "auto") {
-    if ((await io.host.fs.stat(how))?.isFile !== true) throw new CliError(`tools.run.busybox is ${how}, which is not a file`, BUSYBOX_HINT);
+    if ((await io.host.fs.stat(how))?.isFile !== true) throw new CliError(`busybox is ${how}, which is not a file`, BUSYBOX_HINT);
     return how;
   }
   try {
@@ -81,10 +81,9 @@ export async function resolveBusybox(io: Io, mode: string | undefined, ensure: t
   }
 }
 
-/** The busybox.exe for this thread's configuration (fetched on first use when `tools.run.busybox` is auto), or undefined off Windows. */
-export async function busyboxFor(io: Io, convo: Conversation): Promise<string | undefined> {
-  const cfg = await convo.readConfig();
-  return resolveBusybox(io, cfg?.ok === true ? cfg.value.tools["run"]?.busybox : undefined);
+/** The busybox.exe for this thread's configuration (fetched on first use when the `busybox` setting is auto), or undefined off Windows. */
+export async function busyboxFor(io: Io): Promise<string | undefined> {
+  return resolveBusybox(io, io.settings?.busybox);
 }
 
 /** What starting an MCP server needs from this session. */
@@ -98,7 +97,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const safe = config?.tools["run"]?.safe ?? [];
   // Only tools listed under `tools` in harness.yml are offered; leaving one out turns it off.
   const listed = (name: string): boolean => config?.tools[name] !== undefined;
-  const busybox = listed("run") || listed("script") ? await resolveBusybox(io, config?.tools["run"]?.busybox) : undefined;
+  const busybox = listed("run") || listed("script") ? await resolveBusybox(io, io.settings?.busybox) : undefined;
   const runs = new ThreadRuns();
   const leaf = [...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), skillTool()];
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
