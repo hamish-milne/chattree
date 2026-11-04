@@ -118,6 +118,7 @@ Agent setup and configuration
 | `/model [provider/id]` | Show or change the model; changes that the library classifies (`cache_break`, `cost_increase`, `capability_loss`...) are shown and need a `y`. |
 | `/set <key> [value]` | Model settings, validated by the adapter's schema (`/set max_output_tokens 4000`); no value shows it. |
 | `/instructions` | Show or edit the agent's instructions. A change mid-conversation is shown to the model as a message and leaves the cached prefix alone (docs/context.md). |
+| `/mcp` | MCP servers: `/mcp` lists them, `show <server> [tool]`, `accept [server...]` (asks before the program is run or the tools are pinned), `forget`, `refresh`. See docs/context.md. |
 | `/rebuild` | Fold changed instructions and skills into the cached prefix (the next request reads the whole conversation again). |
 | `/skills [sync]` | List the thread's skills (name, description, and whether the model's cached catalog lists them, only announces them, or still lists a removed one), what differs on disk, and any `SKILL.md` that could not be read. `sync` takes what is on disk: added, changed and removed skills are pinned as one `append` setup change, and the model is told where it was made. |
 | `/skill <name> [what to do]` | Send the skill's body (and its directory) as your message, followed by what you want done, and run the request. The text is the thread's pinned copy; a skill that is only on disk says `/skills sync` pins it. |

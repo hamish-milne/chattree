@@ -194,11 +194,11 @@ describe("skills are appendable", () => {
     assert.equal(prefixLags(await other.convo.setup()), true);
   });
 
-  test("a skills difference counts as an instructions change to the cache, and MCP stays a tools change", () => {
+  test("a skills difference counts as an instructions change to the cache; an MCP pin changes nothing the model is shown", () => {
     const from = foldSetup([{ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: sonnet } as ChatEntry]);
     const withSkill = { ...from, skills: { a: { hash: "a1".repeat(32), store: "blob" as const } } };
     assert.deepEqual(coreClassify(from, withSkill, { midLoop: false }).map((c) => c.kind), ["instructions_changed"]);
-    assert.deepEqual(coreClassify(from, { ...from, mcp: withSkill.skills }, { midLoop: false }).map((c) => c.kind), ["tools_changed"]);
+    assert.deepEqual(coreClassify(from, { ...from, mcp: withSkill.skills }, { midLoop: false }), []);
   });
 
   test("a fork inherits the lag; a subagent's first setup lists the parent's current skills in its own prefix", async () => {

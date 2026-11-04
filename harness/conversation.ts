@@ -20,7 +20,7 @@ import {
 } from "../src/index.ts";
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
-import { addGrants, revokeGrants } from "./approvals.ts";
+import { addGrants, revokeGrants, untilMs } from "./approvals.ts";
 import { LeaseStore, sharedLeaseStore, type LeaseEnv, type LeaseOwner, type LeaseState } from "./lease.ts";
 import { refLeaseBackend } from "./lease-ref.ts";
 import type { GrantStore } from "./loop.ts";
@@ -1369,7 +1369,15 @@ export class Conversation {
       allow: async (tool) => {
         if ((await this.host.fs.stat(path)) === undefined) return undefined;
         const r = await parseConfig(dec.decode(await this.host.fs.read(path)), harnessConfig);
-        return r.ok ? r.value.tools[tool]?.allow : undefined; // a file that does not parse grants nothing
+        if (!r.ok) return undefined; // a file that does not parse grants nothing
+        // An MCP server's own `allow` map covers all of its tools, besides what each tool's entry grants.
+        const server = /^mcp__([a-z0-9]+(?:-[a-z0-9]+)*)__/.exec(tool)?.[1];
+        const own = r.value.tools[tool]?.allow;
+        const wide = server === undefined ? undefined : r.value.mcp[server]?.allow;
+        if (wide === undefined || Object.keys(wide).length === 0) return own;
+        const merged: Record<string, string> = { ...wide };
+        for (const [k, until] of Object.entries(own ?? {})) if (merged[k] === undefined || (untilMs(until) ?? 0) > (untilMs(merged[k] as string) ?? 0)) merged[k] = until;
+        return merged;
       },
       grant: (tool, keys, until, opts) => this.changeGrants((text, now) => addGrants(text, tool, keys, until, now), `allow ${tool}: ${keys.join(", ")} until ${until}`, opts.commit),
     };

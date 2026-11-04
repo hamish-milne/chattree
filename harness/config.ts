@@ -43,6 +43,38 @@ const toolEntry = z.object({
   busybox: z.string().min(1).optional(),
 });
 
+const envName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
+
+/**
+ * An MCP server (docs/context.md, section 2): a program that speaks MCP on stdin and stdout (`command`), or an HTTP endpoint (`url`). Nothing
+ * is started or contacted until the thread has accepted the server's configuration (`/mcp accept`), because a `harness.yml` can arrive with a
+ * cloned repository. Secrets are named, never written here: `env_from` and `bearer_env` read the host's environment when the server is started.
+ */
+const mcpServer = z
+  .strictObject({
+    command: z.string().min(1).optional(),
+    args: z.array(z.string()).default([]),
+    /** Environment values for the program that are not secret. */
+    env: z.record(envName, z.string()).optional(),
+    /** Host environment variables passed to the program unchanged (a token): the value never enters the transcript. */
+    env_from: z.array(envName).optional(),
+    url: z.url().optional(),
+    /** Request headers that are not secret. */
+    headers: z.record(z.string().min(1), z.string()).optional(),
+    /** A host environment variable that holds a bearer token, sent as `Authorization: Bearer ...`. */
+    bearer_env: envName.optional(),
+    /** Header name to the host environment variable that holds its value. */
+    header_env: z.record(z.string().min(1), envName).optional(),
+    /** Offer only these of the server's tools (by their own names), or all but those in `skip`. */
+    only: z.array(z.string().min(1)).optional(),
+    skip: z.array(z.string().min(1)).optional(),
+    /** Approvals for every tool of this server, as for `tools`: `all` covers any call until its date. */
+    allow: z.record(z.string().min(1), untilTimestamp).default({}),
+  })
+  .refine((s) => (s.command === undefined) !== (s.url === undefined), "give either command or url")
+  .refine((s) => s.url === undefined || (s.args.length === 0 && s.env === undefined && s.env_from === undefined), "args and env belong to a command, not a url")
+  .refine((s) => s.command === undefined || (s.headers === undefined && s.bearer_env === undefined && s.header_env === undefined), "headers belong to a url, not a command");
+
 export const harnessConfig = z.object({
   /** Providers by name (the name is what an agent's model setting refers to). */
   providers: z.record(name, provider).default({}),
@@ -51,6 +83,8 @@ export const harnessConfig = z.object({
    * key that covers it; a tool without an entry asks. `env` is not a tool: the environment variables `run` may expand.
    */
   tools: z.object({ env: z.array(z.string().min(1)).optional() }).catchall(toolEntry).default({}),
+  /** MCP servers by name (lowercase letters, digits and single hyphens). Their tools are offered as `mcp__<name>__<tool>`. */
+  mcp: z.record(z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "lowercase letters, digits and single hyphens").max(24), mcpServer).default({}),
   /** Background jobs (docs/tools.md, 3.5). */
   background: z
     .object({

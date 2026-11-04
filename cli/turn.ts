@@ -59,7 +59,8 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
             continue;
           }
           if (e instanceof ToolsNotSupported || e instanceof ToolsOutOfSync) {
-            yield { type: "error", message: e.message, hint: "the model cannot be given these tools; /model another model, or set tool_convention for it in harness.yml" };
+            const mcp = e instanceof ToolsOutOfSync && [...e.missing, ...e.changed, ...e.extra].some((n) => n.startsWith("mcp__"));
+            yield { type: "error", message: e.message, hint: mcp ? "an MCP server's tools are not what this thread accepted: /mcp shows why, /mcp accept pins them" : "the model cannot be given these tools; /model another model, or set tool_convention for it in harness.yml" };
             return;
           }
           yield failure(e);

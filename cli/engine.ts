@@ -208,6 +208,14 @@ export class Engine {
         },
         pumped: true,
       });
+      // Servers harness.yml names that are not running are said once, with what to do.
+      void p.then((set) => {
+        for (const s of set.mcp.status) {
+          if (s.connected) continue;
+          this.notices.push(s.state === "accepted" ? `MCP server ${s.name} is unavailable: ${s.error ?? "unknown"} (/mcp)` : `MCP server ${s.name} is ${s.state === "new" ? "not accepted by this thread" : "configured differently from what this thread accepted"}; /mcp accept ${s.name} shows what it would run`);
+        }
+        if (set.mcp.status.some((s) => !s.connected)) this.onNotice?.();
+      }).catch(() => undefined);
       // A set that could not be built (no busybox) is built again next time, once the user has dealt with it.
       p.catch(() => {
         if (this.#toolsets.get(convo) === p) this.#toolsets.delete(convo);
@@ -453,6 +461,7 @@ export class Engine {
       const set = await p;
       set.runs.closeAll();
       await set.jobs.shutdown();
+      await set.mcp.close();
     }
     await this.#pump?.close();
   }

@@ -208,7 +208,7 @@ export function coreClassify(from: AgentSetup, to: AgentSetup, ctx: ClassifyCont
     out.push({ kind: "resolved_model_changed", message: `served model ${fm.resolved} became ${tm.resolved}` });
   }
   if (!sameDefs(from.tools, to.tools)) out.push({ kind: "tools_changed", message: "the tool definitions differ" });
-  if (!sameDefs(from.mcp, to.mcp)) out.push({ kind: "tools_changed", message: "MCP servers differ" });
+  // The pin of an MCP server's configuration changes nothing the model is shown (its tools are pinned as tools), so it is not classified.
   if (stable(from.instructions ?? null) !== stable(to.instructions ?? null)) out.push({ kind: "instructions_changed", message: "the instructions differ" });
   // The skill catalog is part of what follows the instructions in the prefix, so a skills change is an instructions change to the cache.
   if (!sameDefs(from.skills, to.skills)) out.push({ kind: "instructions_changed", message: "the skills differ" });

@@ -126,7 +126,7 @@ describe("JSON Schema", () => {
   const schema = configJsonSchema(registry) as { properties: Record<string, { additionalProperties?: { oneOf: { title: string; properties: Record<string, unknown>; required: string[] }[] } }> };
 
   test("core keys, and one variant per adapter discriminated by a $tag const", () => {
-    assert.deepEqual(Object.keys(schema.properties).sort(), ["attachments", "background", "compaction", "injections", "leases", "limits", "maintenance", "providers", "skills", "subagent", "tools"]);
+    assert.deepEqual(Object.keys(schema.properties).sort(), ["attachments", "background", "compaction", "injections", "leases", "limits", "maintenance", "mcp", "providers", "skills", "subagent", "tools"]);
     const variants = schema.properties["providers"]?.additionalProperties?.oneOf ?? [];
     assert.deepEqual(variants.map((v) => v.title), ["anthropic", "gemini", "openai", "openai-compatible", "opencode-go"]);
     for (const v of variants) {

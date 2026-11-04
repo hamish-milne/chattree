@@ -26,11 +26,22 @@ which changes can be made as **deltas at the tail** of the conversation instead 
   that leaves the skill's directory is not followed, frontmatter is bounded and parsed with the config rules (no anchors, aliases or tags), the
   name must be lowercase letters, digits and hyphens and equal its directory name, and a skill that fails any of this is skipped and reported,
   never a failed scan.
-- **MCP**: the pinned unit is the server's config (command or URL, never secrets) plus the hash of the tool list it presents.
-  Its tools join the registry as `mcp__<server>__<tool>` (so the loop, approvals and limits apply unchanged; asked by default).
-  A changed tool list or description is drift the user must accept, which also covers a description swapped after approval.
-  Tools only, over stdio and streamable HTTP. Native tools, not a gateway tool (parked: a gateway keeps the prefix stable but
-  weakens schema adherence).
+- **MCP** (`mcp:` in harness.yml, `harness/mcp/`): a server is a program on stdin and stdout (`command`, `args`, `env`, `env_from`) or an HTTP endpoint
+  (`url`, `headers`, `bearer_env`, `header_env`); secrets are named by environment variable and never written to the file or the transcript. Tools only, over stdio and
+  streamable HTTP; no resources, prompts, sampling or OAuth. Its tools join the registry as `mcp__<server>__<tool>`, so the loop, approvals and limits
+  apply unchanged: **every call asks**, and the user can grant a tool (`/tools`) or the whole server (`allow: {all: <date>}` under the server).
+  - **Nothing is started until the thread accepts the server's configuration** (`/mcp accept`), because a harness.yml can arrive with a cloned
+    repository and a `command` is a program to run. The configuration without secrets (a header's name, not its value) is pinned in `agent_setup.mcp`; a changed
+    command line, URL or environment is "changed" and not started until accepted again. A new thread copies the pins of the one it starts from.
+  - **The tools are pinned like any tool's** (`agent_setup.tools`, hash of name, description and schema), but `syncTools` never follows a server silently:
+    a new, changed or missing MCP tool makes the loop refuse (`ToolsOutOfSync`) until `/mcp accept` shows what changed and the user allows the `tools_changed`
+    cache break. This is what stops a description swapped after approval.
+  - **Schemas are narrowed** to the portable subset (`harness/mcp/schema.ts`): constraints the subset cannot say (`pattern`, `format`, lengths) move into the
+    description; a free-form object or a choice between shapes is left out when optional, and a tool that needs one is reported and not offered.
+  - **Limits, as built:** the connection is per thread, started when the thread's tools are built and closed when the session ends (`/mcp refresh` reconnects);
+    a subagent does not get MCP tools; a server whose tool list changes while connected is flagged (`/mcp`) and read again on refresh, not followed; on Windows, a
+    program that is a `.cmd` (`npx`) needs `command: cmd`, `args: ["/c", "npx", ...]`. Native tools, not a gateway tool (parked: a gateway keeps the prefix stable but
+    weakens schema adherence).
 - **Injections**: a rule is a pure function of (entries, folded context, config, clock) that returns zero or more `{key, text}`;
   it runs before each request. Each result is **recorded** as an `injection` entry (format 2.4), not generated at request time, so
   the context is identical on every later request, replays exactly, and is costed and audited like any message. A rule's state
@@ -85,4 +96,6 @@ Rules, as built:
    is pinned automatically under `ask`, a new thread must `/skills sync` once). Subagents inherit skills through `copySetupTo`, which now passes `skills` and `mcp` as
    deltas (they were silently dropped before); their tools are pinned by the subagent tool from the child registry, which includes `skill`. Left out: following
    the disk during a running tool loop (it looks at the start of a request), and a host hook for other sources (the loader takes a list of roots).
-4. **MCP**: client, registry integration, pinning, approvals.
+4. **MCP. Done.** `harness/mcp/client.ts` (JSON-RPC client; stdio and streamable-HTTP transports; no dependency), `harness/mcp/schema.ts`, `harness/mcp/servers.ts`
+   (configuration pin, acceptance state, naming, tool wrapping, `McpServers`), `syncMcpTools` in `loop.ts`, the tool set's `mcp` and `reloadMcp`, the server-wide `allow`
+   in the grant store, and `/mcp` (list, `show`, `accept`, `forget`, `refresh`).

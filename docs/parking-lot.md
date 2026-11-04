@@ -198,7 +198,7 @@ Not part of the first tool loop.
 - **Search and web tools** (`grep`, `fetch`) if `run` proves awkward for them.
 - **Image and PDF results** from `read`: a tool result that carries an image needs adapter work.
 - **Parallel foreground calls**: today they run in order; background jobs are the concurrency story.
-- **MCP servers and user-defined tools**: planned in docs/context.md (step 4); the registry is shaped for them. A gateway tool (`mcp(server, tool, args)`) that keeps the prefix stable is parked.
+- **MCP servers and user-defined tools**: planned in docs/context.md (step 4); the registry is shaped for them. Built (step 4). Parked: a gateway tool (`mcp(server, tool, args)`) that keeps the prefix stable; OAuth for HTTP servers; resources, prompts, sampling and elicitation; MCP tools for subagents (they need pinning in the child); one connection shared by all threads of a session; following `tools/list_changed` while connected.
 - **Detached jobs** that outlive the CLI process (today a crash marks them lost).
 - **Strict mode for Responses** (`strict: true`) for definitions that fit it.
 - **Use a validation library for tool schemas** instead of `harness/tool-schema.ts`. `zod` is already a dependency (4.6.7, which has `z.fromJSONSchema`), but it is listed under `devDependencies` while the harness imports it at runtime, so that needs fixing first. An off-the-shelf validator would also take on keywords beyond the portable subset; the subset check at registration would stay, since it is about provider portability, not validity.

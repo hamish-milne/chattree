@@ -1,5 +1,6 @@
 import type { Conversation } from "./conversation.ts";
-import type { ChatEntry } from "./entries.ts";
+import { isMcpTool, serverOf } from "./mcp/servers.ts";
+import type { ChangeKind, ChatEntry } from "./entries.ts";
 import { hashDefinition } from "./definitions.ts";
 import { DEFAULT_RESULT_LIMIT, ToolRegistry, isStarted, shapeResult, type Tool, type ToolOutput } from "./tools.ts";
 import { requestStream, type TurnOptions, type TurnResult } from "./turn.ts";
@@ -168,12 +169,28 @@ export async function toolDrift(convo: Conversation, registry: ToolRegistry): Pr
   return { missing, changed, extra: Object.keys(pinned).filter((n) => registry.get(n) === undefined).sort() };
 }
 
-/** Make the agent's pinned tools exactly the registry's (a `tools_changed` setup entry, only when something differs). */
+/**
+ * Make the agent's pinned tools exactly the registry's (a `tools_changed` setup entry, only when something differs). The tools of MCP servers
+ * are left alone: what a server says its tools are is for the user to accept (`/mcp accept`, `syncMcpTools`), never something to follow silently.
+ * Until they are accepted the loop refuses (`ToolsOutOfSync`).
+ */
 export async function syncTools(convo: Conversation, registry: ToolRegistry) {
   const d = await toolDrift(convo, registry);
-  if (d.missing.length + d.changed.length + d.extra.length === 0) return undefined;
-  const pins = await registry.pin(convo.store);
-  return convo.setupChange({ tools: { set: pins, remove: d.extra } }, { allow: ["tools_changed"] });
+  const own = (names: string[]): string[] => names.filter((n) => !isMcpTool(n));
+  if (own(d.missing).length + own(d.changed).length + own(d.extra).length === 0) return undefined;
+  const pins = Object.fromEntries(Object.entries(await registry.pin(convo.store)).filter(([n]) => !isMcpTool(n)));
+  return convo.setupChange({ tools: { set: pins, remove: own(d.extra) } }, { allow: ["tools_changed"] });
+}
+
+/** Pin the registry's tools of the given MCP servers exactly, and unpin the ones of those servers that are gone. The caller says which kinds the user allowed. */
+export async function syncMcpTools(convo: Conversation, registry: ToolRegistry, servers: readonly string[], allow: readonly ChangeKind[]) {
+  const d = await toolDrift(convo, registry);
+  const mine = (n: string): boolean => servers.includes(serverOf(n) ?? "");
+  const names = new Set([...d.missing, ...d.changed].filter(mine));
+  const pins = Object.fromEntries(Object.entries(await registry.pin(convo.store)).filter(([n]) => names.has(n)));
+  const remove = d.extra.filter(mine);
+  if (names.size + remove.length === 0) return undefined;
+  return convo.setupChange({ tools: { set: pins, remove } }, { allow });
 }
 
 const DID_NOT_RUN = {

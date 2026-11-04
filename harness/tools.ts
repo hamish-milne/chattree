@@ -146,6 +146,11 @@ export class ToolRegistry {
     return this;
   }
 
+  /** Take a tool out (an MCP server was reconnected). Only done between loops. */
+  remove(name: string): boolean {
+    return this.#tools.delete(name);
+  }
+
   get(name: string): Tool | undefined {
     return this.#tools.get(name);
   }

@@ -9,6 +9,7 @@ import { skillTool } from "../harness/skill-tool.ts";
 import { subagentTool } from "../harness/subagent.ts";
 import { resolveSubagentModels } from "../harness/subagent-models.ts";
 import { defaultRegistry } from "../providers/index.ts";
+import { McpServers } from "../harness/mcp/servers.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
 import { findBusybox } from "../hosts/node.ts";
@@ -28,6 +29,10 @@ export interface ToolSet {
   merge: "auto" | "review";
   /** `background.resume`: a request is sent when something ended while idle. */
   resume: boolean;
+  /** The MCP servers this thread has accepted and could reach, with the state of every server `harness.yml` names; their tools are in `registry`. */
+  mcp: McpServers;
+  /** Close the MCP servers and connect again (after the thread accepted one, or the configuration changed), keeping everything else running. Only between loops. */
+  reloadMcp(): Promise<McpServers>;
 }
 
 export interface ToolSetHooks {
@@ -104,9 +109,32 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const meta = hooks.pumped !== true ? [] : [subagentTool({ convo, childRegistry, models: chosen.models, validateSettings, merge: config?.subagent.merge ?? "auto" })];
   const auto = hooks.createFork === undefined || hooks.pumped !== true ? undefined : { childRegistry };
   const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(auto === undefined ? {} : { auto }), ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
+  // MCP servers start only once the thread has accepted their configuration (a harness.yml can arrive with a cloned repository).
+  const connect = async (): Promise<McpServers> => {
+    const now = await convo.readConfig();
+    return McpServers.connect(now?.ok === true ? now.value.mcp : {}, await convo.setup(), { host: io.host, cwd: convo.dir, env: io.env });
+  };
+  const mcp = await connect();
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
-  const registry = new ToolRegistry(all.filter((t) => listed(t.definition.name)));
-  return { registry, jobs, runs, childRegistry, merge: config?.subagent.merge ?? "auto", resume: config?.background.resume === true };
+  const registry = new ToolRegistry([...all.filter((t) => listed(t.definition.name)), ...mcp.tools]);
+  const set: ToolSet = {
+    registry,
+    jobs,
+    runs,
+    childRegistry,
+    merge: config?.subagent.merge ?? "auto",
+    resume: config?.background.resume === true,
+    mcp,
+    async reloadMcp() {
+      const old = set.mcp;
+      await old.close();
+      for (const t of old.tools) registry.remove(t.definition.name);
+      set.mcp = await connect();
+      for (const t of set.mcp.tools) registry.add(t);
+      return set.mcp;
+    },
+  };
+  return set;
 }
 
 /** The user's answer to "may this call run?", as a loop approval. */
