@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { parseConfig } from "../src/config.ts";
 import type { Host } from "../src/host.ts";
+import { localModelsSchema } from "../localmodels/config.ts";
 import { CliError, type Io } from "./io.ts";
 
 /**
@@ -13,6 +14,10 @@ export const settingsSchema = z
     editor: z.string().min(1).optional(),
     /** Windows: where `run` gets cat, ls, grep and the rest. `auto` (the default) uses the busybox.exe that is there or fetches the pinned release, `off` never fetches, anything else is the path of a busybox.exe. */
     busybox: z.string().min(1).optional(),
+    /** Where downloaded programs and models are kept. Default: the user data directory (`$XDG_DATA_HOME/chattree`, `%LOCALAPPDATA%\\chattree`). */
+    data_dir: z.string().min(1).optional(),
+    /** The models chattree downloads and runs itself (docs/local-models.md). */
+    local_models: localModelsSchema.optional(),
     /** What new sessions show; `/display` changes it for one session. */
     display: z
       .object({
@@ -50,6 +55,11 @@ export async function loadSettings(io: Pick<Io, "host" | "env">): Promise<Settin
 const TEMPLATE = `# chattree settings (user level; thread settings are in harness.yml)
 # editor: code -w
 # busybox: auto        # auto | off | path to busybox.exe (Windows)
+# data_dir: ~/.local/share/chattree
+# local_models:             # see docs/local-models.md
+#   llama_cpp: { tag: b12110, backend: auto }
+#   models:
+#     qwen: { hf: "Qwen/Qwen3-8B-GGUF:Q4_K_M", ctx_size: 16384 }
 # display:
 #   thinking: brief    # on | brief | off
 #   tools: brief       # full | brief | off
