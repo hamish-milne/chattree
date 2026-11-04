@@ -9,8 +9,10 @@ import { defaultCommands } from "./commands/index.ts";
 import type { Session, SessionStore } from "./session.ts";
 import { summarizeCall } from "./tool-lines.ts";
 import { createFork } from "./commands/threads.ts";
-import { buildToolSet, makeApprover, type ToolSet } from "./toolset.ts";
-import { syncTools, toolDrift, type Approval, type LoopEvent } from "../harness/loop.ts";
+import { buildToolSet, makeApprover, mcpDeps, type ToolSet } from "./toolset.ts";
+import { syncMcpTools, syncTools, toolDrift, type Approval, type LoopEvent } from "../harness/loop.ts";
+import { McpPool } from "../harness/mcp/pool.ts";
+import { McpServers } from "../harness/mcp/servers.ts";
 import { Pump, type Question } from "../harness/pump.ts";
 import type { RunOptions } from "../harness/runs.ts";
 import { formatAge } from "./age.ts";
@@ -147,6 +149,10 @@ export class Engine {
   /** Called when the questions waiting for the user changed (the terminal asks them when it is idle). */
   onQuestion: (() => void) | undefined;
   readonly #toolsets = new WeakMap<Conversation, Promise<ToolSet>>();
+  /** The MCP connections of this process, shared by the threads and subagents that would make the same one (docs/context.md, section 2). */
+  readonly #mcpPool = new McpPool();
+  /** The MCP servers each running subagent holds, by branch; let go when its loop ends. */
+  readonly #childMcp = new Map<string, Promise<{ servers: McpServers; names: string[] }>>();
   /** The user pressed Ctrl-C at the question being asked: the answer is no, and nothing carries on afterwards (the terminal sets it). */
   escaped = false;
   /** A message is being put in the transcript and its turn is about to start: the pump must not start one too. */
@@ -193,6 +199,8 @@ export class Engine {
     if (p === undefined) {
       p = buildToolSet(this.io, convo, {
         busy: () => this.running,
+        mcpPool: this.#mcpPool,
+        projectDir: this.project.mainRoot,
         ...(this.sessionId === undefined ? {} : { session: this.sessionId }),
         onCommitted: (events) => {
           for (const e of events) this.notices.push(`background job ${e.job} ${e.status}: ${e.summary}; your next message will report the result`);
@@ -252,6 +260,7 @@ export class Engine {
         },
         onEvent: (branch, e) => this.#childEvent(branch, e),
         onEnd: (branch, end) => {
+          void this.#releaseChildMcp(branch);
           const status = end.result?.status;
           const why = end.error !== undefined ? `failed: ${end.error instanceof Error ? end.error.message : String(end.error)}` : status === "stopped" || status === "deadline" || status === "interrupted" || status === "cancelled" ? status : undefined;
           if (why !== undefined) this.childLine?.(`  ↳ ${branch}: ${why}\n`);
@@ -293,7 +302,42 @@ export class Engine {
       if (this.#headless && convo === this.convo) await this.followSkills();
       return { system: this.system, registry: set.registry, grants: convo.grantStore(), owner, ...(this.#headless ? { jobs: set.jobs, standing: this.standing } : {}) };
     }
-    return { system: this.system, registry: subagentChildRegistry(set.childRegistry), grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };
+    // A subagent has the MCP servers its thread has (`subagent.mcp`), started for its own worktree, and pins their tools as the thread did.
+    const mcp = await this.#childServers(convo);
+    const registry = subagentChildRegistry(set.childRegistry, mcp.servers.tools);
+    if (mcp.names.length > 0) {
+      try {
+        await syncMcpTools(convo, registry, mcp.names, ["tools_changed"]);
+      } catch (e) {
+        this.childLine?.(`  ↳ ${convo.branch}: could not pin the MCP tools: ${e instanceof Error ? e.message : String(e)}\n`);
+      }
+    }
+    return { system: this.system, registry, grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };
+  }
+
+  /** Connect the MCP servers a subagent gets (the thread's, all or the ones `subagent.mcp` names), once per run of its loop. */
+  #childServers(convo: Conversation): Promise<{ servers: McpServers; names: string[] }> {
+    let p = this.#childMcp.get(convo.branch);
+    if (p === undefined) {
+      p = (async () => {
+        const cfg = await convo.readConfig();
+        const config = cfg?.ok === true ? cfg.value : undefined;
+        const policy = config?.subagent.mcp ?? "inherit";
+        const all = config?.mcp ?? {};
+        const wanted = Object.fromEntries(Object.entries(all).filter(([name]) => (policy === "inherit" ? true : policy === "none" ? false : policy.includes(name))));
+        const servers = await McpServers.connect(wanted, await convo.setup(), mcpDeps(this.io, convo, this.project.mainRoot), { pool: this.#mcpPool });
+        for (const st of servers.status) if (!st.connected && st.state === "accepted") this.childLine?.(`  ↳ ${convo.branch}: MCP server ${st.name} is unavailable: ${st.error ?? "unknown"}\n`);
+        return { servers, names: Object.keys(wanted) };
+      })();
+      this.#childMcp.set(convo.branch, p);
+    }
+    return p;
+  }
+
+  async #releaseChildMcp(branch: string): Promise<void> {
+    const p = this.#childMcp.get(branch);
+    this.#childMcp.delete(branch);
+    if (p !== undefined) await (await p).servers.close().catch(() => undefined);
   }
 
   #childEvent(name: string, e: LoopEvent): void {
@@ -464,6 +508,8 @@ export class Engine {
       await set.mcp.close();
     }
     await this.#pump?.close();
+    await Promise.all([...this.#childMcp.keys()].map((b) => this.#releaseChildMcp(b)));
+    await this.#mcpPool.closeAll();
   }
 
   /** Send a request without a new user message, so the model can react to what happened (a job's event). */

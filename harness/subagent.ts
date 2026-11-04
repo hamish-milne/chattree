@@ -69,9 +69,9 @@ function reportTool(): Tool {
   };
 }
 
-/** The registry a child works with: the leaf tools it was given, and the `merge` tool that hands its work back. */
-export function subagentChildRegistry(base: ToolRegistry): ToolRegistry {
-  return new ToolRegistry([...base.names().map((n) => base.get(n) as Tool), reportTool()]);
+/** The registry a child works with: the leaf tools it was given, the MCP tools it connected (`extra`), and the `merge` tool that hands its work back. */
+export function subagentChildRegistry(base: ToolRegistry, extra: readonly Tool[] = []): ToolRegistry {
+  return new ToolRegistry([...base.names().map((n) => base.get(n) as Tool), ...extra, reportTool()]);
 }
 
 /**

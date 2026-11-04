@@ -9,7 +9,8 @@ import { skillTool } from "../harness/skill-tool.ts";
 import { subagentTool } from "../harness/subagent.ts";
 import { resolveSubagentModels } from "../harness/subagent-models.ts";
 import { defaultRegistry } from "../providers/index.ts";
-import { McpServers } from "../harness/mcp/servers.ts";
+import type { McpPool } from "../harness/mcp/pool.ts";
+import { McpServers, type McpDeps } from "../harness/mcp/servers.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
 import { findBusybox } from "../hosts/node.ts";
@@ -51,6 +52,10 @@ export interface ToolSetHooks {
   createFork?: ForkDeps["createFork"];
   /** The first message the model gave a fork it made. */
   onForkDraft?: ForkDeps["onDraft"];
+  /** The process's MCP connections, shared with the subagents and the other threads (`McpPool`). Without it the set connects by itself. */
+  mcpPool?: McpPool;
+  /** The project's main directory, where an MCP server with `scope: project` starts. */
+  projectDir?: string;
   /** Threads are pumped here (`Engine.pump`): the model may start subagents, and forks that run by themselves. */
   pumped?: boolean;
 }
@@ -82,6 +87,9 @@ export async function busyboxFor(io: Io, convo: Conversation): Promise<string | 
   return resolveBusybox(io, cfg?.ok === true ? cfg.value.tools["run"]?.busybox : undefined);
 }
 
+/** What starting an MCP server needs from this session. */
+export const mcpDeps = (io: Io, convo: Conversation, projectDir: string | undefined): McpDeps => ({ host: io.host, cwd: convo.dir, env: io.env, ...(projectDir === undefined ? {} : { projectDir }) });
+
 export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHooks): Promise<ToolSet> {
   const cfg = await convo.readConfig();
   const config = cfg?.ok === true ? cfg.value : undefined;
@@ -110,9 +118,9 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const auto = hooks.createFork === undefined || hooks.pumped !== true ? undefined : { childRegistry };
   const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(auto === undefined ? {} : { auto }), ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
   // MCP servers start only once the thread has accepted their configuration (a harness.yml can arrive with a cloned repository).
-  const connect = async (): Promise<McpServers> => {
+  const connect = async (fresh = false): Promise<McpServers> => {
     const now = await convo.readConfig();
-    return McpServers.connect(now?.ok === true ? now.value.mcp : {}, await convo.setup(), { host: io.host, cwd: convo.dir, env: io.env });
+    return McpServers.connect(now?.ok === true ? now.value.mcp : {}, await convo.setup(), mcpDeps(io, convo, hooks.projectDir), hooks.mcpPool === undefined ? undefined : { pool: hooks.mcpPool, fresh });
   };
   const mcp = await connect();
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
@@ -129,7 +137,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
       const old = set.mcp;
       await old.close();
       for (const t of old.tools) registry.remove(t.definition.name);
-      set.mcp = await connect();
+      set.mcp = await connect(true);
       for (const t of set.mcp.tools) registry.add(t);
       return set.mcp;
     },

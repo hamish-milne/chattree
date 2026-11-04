@@ -38,8 +38,16 @@ which changes can be made as **deltas at the tail** of the conversation instead 
     cache break. This is what stops a description swapped after approval.
   - **Schemas are narrowed** to the portable subset (`harness/mcp/schema.ts`): constraints the subset cannot say (`pattern`, `format`, lengths) move into the
     description; a free-form object or a choice between shapes is left out when optional, and a tool that needs one is reported and not offered.
-  - **Limits, as built:** the connection is per thread, started when the thread's tools are built and closed when the session ends (`/mcp refresh` reconnects);
-    a subagent does not get MCP tools; a server whose tool list changes while connected is flagged (`/mcp`) and read again on refresh, not followed; on Windows, a
+  - **Connections are pooled** (`harness/mcp/pool.ts`): one `McpPool` per process, keyed by the server's name, its whole configuration (secrets as a hash) and, for
+    a program, the directory it starts in. A connection lives while a thread or subagent holds a lease and closes with the last one. A program starts in the thread's
+    worktree by default (`scope: thread`), so a server that works on files sees that thread's files and each subagent has a process of its own; `scope: project` runs
+    it once in the project's main directory for every thread (a server with state of its own). A url is always shared. `/mcp refresh` reads the tools again and shows
+    the other holders as stale.
+  - **Subagents get what their thread has** (`subagent.mcp`: `inherit`, the default, `none`, or a list of names). The child's setup carries the server pins
+    (`copySetupTo`), the engine connects the servers for the child's worktree when its loop starts, pins their tools (`syncMcpTools`) and lets go when the loop ends.
+    Approvals are the thread's: the child's worktree starts with the thread's `harness.yml`, so `mcp.<server>.allow` and `tools.<name>.allow` hold. A grant the
+    parent gets after the child started is not seen by it.
+  - **Limits, as built:** a server whose tool list changes while connected is flagged (`/mcp`) and read again on refresh, not followed; on Windows, a
     program that is a `.cmd` (`npx`) needs `command: cmd`, `args: ["/c", "npx", ...]`. Native tools, not a gateway tool (parked: a gateway keeps the prefix stable but
     weakens schema adherence).
 - **Injections**: a rule is a pure function of (entries, folded context, config, clock) that returns zero or more `{key, text}`;
@@ -98,4 +106,4 @@ Rules, as built:
    the disk during a running tool loop (it looks at the start of a request), and a host hook for other sources (the loader takes a list of roots).
 4. **MCP. Done.** `harness/mcp/client.ts` (JSON-RPC client; stdio and streamable-HTTP transports; no dependency), `harness/mcp/schema.ts`, `harness/mcp/servers.ts`
    (configuration pin, acceptance state, naming, tool wrapping, `McpServers`), `syncMcpTools` in `loop.ts`, the tool set's `mcp` and `reloadMcp`, the server-wide `allow`
-   in the grant store, and `/mcp` (list, `show`, `accept`, `forget`, `refresh`).
+   in the grant store, and `/mcp` (list, `show`, `accept`, `forget`, `refresh`). Then the pool and subagent access (above).

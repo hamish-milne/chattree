@@ -6,6 +6,7 @@ import { hashDefinition, pinDefinition, type ToolDefinition } from "../definitio
 import type { AgentSetup, PinnedDefinition } from "../setup.ts";
 import type { Tool, ToolOutput } from "../tools.ts";
 import { httpTransport, McpClient, McpError, stdioTransport, type McpCallResult, type McpTool, type McpTransport } from "./client.ts";
+import type { McpPool } from "./pool.ts";
 import { toPortableSchema } from "./schema.ts";
 
 /**
@@ -30,6 +31,7 @@ export function configValue(cfg: McpServerConfig): Record<string, unknown> {
     ...(cfg.header_env === undefined ? {} : { header_env: sorted(cfg.header_env) }),
     ...(cfg.only === undefined ? {} : { only: [...cfg.only].sort() }),
     ...(cfg.skip === undefined ? {} : { skip: [...cfg.skip].sort() }),
+    ...(cfg.scope === undefined || cfg.scope === "thread" ? {} : { scope: cfg.scope }),
   };
 }
 
@@ -133,8 +135,10 @@ export interface ConnectedServer {
 
 export interface McpDeps {
   host: Host;
-  /** Where a server's program starts. */
+  /** Where a server's program starts (the thread's worktree). */
   cwd: string;
+  /** The project's main directory, where a server with `scope: project` starts. */
+  projectDir?: string;
   /** The host's environment, for `env_from`, `bearer_env` and `header_env`. */
   env: Readonly<Record<string, string | undefined>>;
   fetch?: typeof fetch;
@@ -159,54 +163,94 @@ function transportFor(host: Host, cwd: string, env: McpDeps["env"], cfg: McpServ
   return httpTransport({ url: cfg.url as string, headers, ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }) });
 }
 
+/** Read a connected server's tools and turn them into registry tools (also how a pooled connection is refreshed). */
+export async function listServer(client: McpClient, name: string, cfg: McpServerConfig, state: ServerStatus["state"], deps: { timeoutMs?: number }): Promise<ConnectedServer> {
+  const listed = await client.listTools(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs });
+  const status: ServerStatus = { name, state, connected: true, tools: [], skipped: [], notes: [], stale: false, ...(client.serverInfo === undefined ? {} : { info: client.serverInfo }), ...(client.instructions === undefined ? {} : { instructions: client.instructions }) };
+  const tools: Tool[] = [];
+  const taken = new Set<string>();
+  for (const t of listed.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
+    if (cfg.only !== undefined && !cfg.only.includes(t.name)) continue;
+    if (cfg.skip?.includes(t.name) === true) continue;
+    const schema = toPortableSchema(t.inputSchema);
+    if (!schema.ok) {
+      status.skipped.push({ tool: t.name, why: schema.problems.join("; ") });
+      continue;
+    }
+    let full = toolName(name, t.name);
+    for (let n = 2; taken.has(full); n++) full = `${toolName(name, t.name).slice(0, MAX_NAME - 3)}_${n}`;
+    taken.add(full);
+    tools.push(wrap(name, client, t, full, schema.schema));
+    status.tools.push({ name: full, tool: t.name });
+    for (const note of schema.notes) status.notes.push({ tool: t.name, note });
+  }
+  return { client, tools, status };
+}
+
 /** Start one server whatever the thread has accepted (`/mcp accept` does this to show its tools first), and turn its tools into registry tools. */
 export async function connectServer(name: string, cfg: McpServerConfig, state: ServerStatus["state"], deps: McpDeps): Promise<ConnectedServer> {
-  const transport = transportFor(deps.host, deps.cwd, deps.env, cfg, deps.fetch);
+  const transport = transportFor(deps.host, serverCwd(cfg, deps), deps.env, cfg, deps.fetch);
   const client = await McpClient.connect(transport, { clientName: "chattree", clientVersion: deps.clientVersion ?? "0", ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }) });
   try {
-    const listed = await client.listTools(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs });
-    const status: ServerStatus = { name, state, connected: true, tools: [], skipped: [], notes: [], stale: false, ...(client.serverInfo === undefined ? {} : { info: client.serverInfo }), ...(client.instructions === undefined ? {} : { instructions: client.instructions }) };
-    const tools: Tool[] = [];
-    const taken = new Set<string>();
-    for (const t of listed.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
-      if (cfg.only !== undefined && !cfg.only.includes(t.name)) continue;
-      if (cfg.skip?.includes(t.name) === true) continue;
-      const schema = toPortableSchema(t.inputSchema);
-      if (!schema.ok) {
-        status.skipped.push({ tool: t.name, why: schema.problems.join("; ") });
-        continue;
-      }
-      let full = toolName(name, t.name);
-      for (let n = 2; taken.has(full); n++) full = `${toolName(name, t.name).slice(0, MAX_NAME - 3)}_${n}`;
-      taken.add(full);
-      tools.push(wrap(name, client, t, full, schema.schema));
-      status.tools.push({ name: full, tool: t.name });
-      for (const note of schema.notes) status.notes.push({ tool: t.name, note });
-    }
-    return { client, tools, status };
+    return await listServer(client, name, cfg, state, deps);
   } catch (e) {
     await client.close();
     throw e;
   }
 }
 
+/**
+ * Where a stdio server's program starts: the thread's worktree, so a server that works on files sees the files of the thread it serves, or,
+ * for `scope: project`, the project's main directory, the same for every thread, so one process can serve them all.
+ */
+function serverCwd(cfg: McpServerConfig, deps: Pick<McpDeps, "cwd" | "projectDir">): string {
+  return cfg.scope === "project" ? (deps.projectDir ?? deps.cwd) : deps.cwd;
+}
+
+/**
+ * What makes two threads' connections to a server the same one, so the pool may share it: the server's name and everything its configuration
+ * says (secrets too, as a hash, so a different token is a different connection), and for a program the directory it starts in.
+ */
+export function connectionKey(name: string, cfg: McpServerConfig, deps: Pick<McpDeps, "cwd" | "projectDir" | "env">): string {
+  const secrets = [...(cfg.env_from ?? []), ...(cfg.bearer_env === undefined ? [] : [cfg.bearer_env]), ...Object.values(cfg.header_env ?? {})].sort().map((n) => [n, deps.env[n] ?? ""]);
+  return createHash("sha256").update(JSON.stringify({ name, cfg: { ...cfg, allow: undefined }, secrets, cwd: cfg.command === undefined ? undefined : serverCwd(cfg, deps) })).digest("hex");
+}
+
+/** What `McpServers` holds for each connected server: whether its tools are out of date, and how to let go. */
+interface Holder {
+  name: string;
+  stale(): boolean;
+  close(): Promise<void>;
+}
+
 /** The servers a thread has accepted, connected, and what could not be. */
 export class McpServers {
   readonly tools: Tool[] = [];
   readonly status: ServerStatus[] = [];
-  readonly #clients: McpClient[] = [];
+  readonly #holders: Holder[] = [];
 
-  /** Connect every accepted server, in parallel. A server that is not accepted is not started; one that fails is reported, not thrown. */
-  static async connect(servers: Record<string, McpServerConfig>, setup: AgentSetup, deps: McpDeps): Promise<McpServers> {
+  /**
+   * Connect every accepted server, in parallel. A server that is not accepted is not started; one that fails is reported, not thrown.
+   * With a `pool` the connections are shared with whoever else holds them (`fresh` reads the tools again) and `close` only lets go.
+   */
+  static async connect(servers: Record<string, McpServerConfig>, setup: AgentSetup, deps: McpDeps, pool?: { pool: McpPool; fresh?: boolean }): Promise<McpServers> {
     const out = new McpServers();
     const results = await Promise.all(
-      Object.entries(servers).map(async ([name, cfg]): Promise<{ status: ServerStatus; connected?: ConnectedServer }> => {
+      Object.entries(servers).map(async ([name, cfg]): Promise<{ status: ServerStatus; tools?: Tool[]; holder?: Holder }> => {
         const state = await serverState(setup, name, cfg);
         const base: ServerStatus = { name, state, connected: false, tools: [], skipped: [], notes: [], stale: false };
         if (state !== "accepted") return { status: { ...base, error: state === "new" ? "not accepted by this thread yet" : "its configuration changed since this thread accepted it" } };
         try {
-          const c = await connectServer(name, cfg, state, deps);
-          return { status: c.status, connected: c };
+          if (pool === undefined) {
+            const c = await connectServer(name, cfg, state, deps);
+            return { status: c.status, tools: c.tools, holder: { name, stale: () => c.client.stale, close: () => c.client.close() } };
+          }
+          const lease = await pool.pool.acquire(
+            connectionKey(name, cfg, deps),
+            { open: () => connectServer(name, cfg, state, deps), list: (client) => listServer(client, name, cfg, state, deps) },
+            pool.fresh === true ? { fresh: true } : {},
+          );
+          return { status: lease.server.status, tools: lease.server.tools, holder: { name, stale: () => lease.stale(), close: () => lease.release() } };
         } catch (e) {
           return { status: { ...base, error: e instanceof Error ? e.message : String(e) } };
         }
@@ -214,20 +258,18 @@ export class McpServers {
     );
     for (const r of results.sort((a, b) => (a.status.name < b.status.name ? -1 : 1))) {
       out.status.push(r.status);
-      if (r.connected !== undefined) {
-        out.tools.push(...r.connected.tools);
-        out.#clients.push(r.connected.client);
-      }
+      if (r.tools !== undefined) out.tools.push(...r.tools);
+      if (r.holder !== undefined) out.#holders.push(r.holder);
     }
     return out;
   }
 
-  /** Whether any connected server says its tools changed. */
+  /** The connected servers that say their tools changed. */
   stale(): string[] {
-    return this.status.filter((s) => s.connected).flatMap((s, i) => (this.#clients[i]?.stale === true ? [s.name] : []));
+    return this.#holders.filter((h) => h.stale()).map((h) => h.name);
   }
 
   async close(): Promise<void> {
-    await Promise.all(this.#clients.map((c) => c.close()));
+    await Promise.all(this.#holders.map((h) => h.close()));
   }
 }

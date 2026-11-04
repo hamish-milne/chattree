@@ -70,10 +70,17 @@ const mcpServer = z
     skip: z.array(z.string().min(1)).optional(),
     /** Approvals for every tool of this server, as for `tools`: `all` covers any call until its date. */
     allow: z.record(z.string().min(1), untilTimestamp).default({}),
+    /**
+     * Where a program is run. `thread` (the default): in the worktree of the thread that uses it, so a server that works on files sees that
+     * thread's files, and a subagent has a process of its own. `project`: in the project's main directory, one process for every thread (a
+     * server with state of its own, such as a memory). A url is always shared.
+     */
+    scope: z.enum(["thread", "project"]).optional(),
   })
   .refine((s) => (s.command === undefined) !== (s.url === undefined), "give either command or url")
   .refine((s) => s.url === undefined || (s.args.length === 0 && s.env === undefined && s.env_from === undefined), "args and env belong to a command, not a url")
-  .refine((s) => s.command === undefined || (s.headers === undefined && s.bearer_env === undefined && s.header_env === undefined), "headers belong to a url, not a command");
+  .refine((s) => s.command === undefined || (s.headers === undefined && s.bearer_env === undefined && s.header_env === undefined), "headers belong to a url, not a command")
+  .refine((s) => s.url === undefined || s.scope === undefined, "scope belongs to a command: a url is always shared");
 
 export const harnessConfig = z.object({
   /** Providers by name (the name is what an agent's model setting refers to). */
@@ -103,6 +110,11 @@ export const harnessConfig = z.object({
       /** `auto`: a subagent hands its work back without asking. `review`: you are asked first, and see its report. */
       merge: z.enum(["auto", "review"]).default("auto"),
       /**
+       * The MCP servers a subagent gets: `inherit` (the default) every one the thread has, `none`, or only the named ones. What it
+       * inherits it uses with the approvals the thread had when it started.
+       */
+      mcp: z.union([z.enum(["inherit", "none"]), z.array(z.string().min(1)).min(1)]).default("inherit"),
+      /**
        * The models the parent may choose for a subagent, as `provider/model` (the provider is a name from `providers`). Without this
        * the subagent always uses the parent's own model and the tool has no `model` argument. What each is good at, its cost tier
        * and its reasoning levels come from the provider's `models` catalog; the entry here can narrow the levels or reword the description.
@@ -118,7 +130,7 @@ export const harnessConfig = z.object({
         )
         .optional(),
     })
-    .default({ merge: "auto" }),
+    .default({ merge: "auto", mcp: "inherit" }),
   /** Hard limits: a request that would exceed one is not sent. To go past one, change it here. */
   limits: z
     .object({

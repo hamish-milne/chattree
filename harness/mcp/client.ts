@@ -67,6 +67,7 @@ export class McpClient {
   #next = 1;
   #closed: string | undefined;
   #stale = false;
+  #listings = 0;
   serverInfo: { name: string; version: string } | undefined;
   instructions: string | undefined;
 
@@ -100,6 +101,11 @@ export class McpClient {
     return this.#stale;
   }
 
+  /** How many times the tool list has been read: a holder that read it earlier than this has an older list than the next one to read it. */
+  get listings(): number {
+    return this.#listings;
+  }
+
   /** Why the connection ended, or undefined while it is up. */
   get closedBecause(): string | undefined {
     return this.#closed;
@@ -126,6 +132,7 @@ export class McpClient {
       cursor = typeof r["nextCursor"] === "string" && r["nextCursor"] !== "" ? r["nextCursor"] : undefined;
       if (cursor === undefined) {
         this.#stale = false;
+        this.#listings++;
         return out;
       }
     }

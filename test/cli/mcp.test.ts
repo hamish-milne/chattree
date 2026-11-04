@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { appendFile } from "node:fs/promises";
+import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
@@ -102,6 +102,46 @@ describe("MCP servers in a chat", () => {
       assert.match(r.all, /fake is forgotten/);
       const setup = await (await Conversation.open(host, dir)).setup();
       assert.deepEqual([Object.keys(setup.mcp), Object.keys(setup.tools).filter((n) => n.startsWith("mcp__"))], [[], []]);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("MCP servers for subagents", () => {
+  /** A project whose model calls `subagent`; the child calls `echo` (when it has it) and hands back. */
+  async function delegating(extra: string) {
+    const { server, dir } = await started([callTool("s1", "subagent", { brief: "echo something", name: "echoer" }), callTool("c1", "mcp__fake__echo", { text: "from the child" }), callTool("c2", "merge", { summary: "echoed" }), answer("all done")], true);
+    const file = join(dir, "harness.yml");
+    await writeFile(file, `${(await readFile(file, "utf8")).replace("  subagent:\n    allow: {}", "  subagent:\n    allow: { all: 2999-01-01 }")}${extra}`);
+    return { server, dir };
+  }
+
+  test("a child has what its thread has: the server runs for its own worktree, its tools are pinned and offered, and the thread's approval covers the call", async () => {
+    const { server, dir } = await delegating("");
+    try {
+      const r = await session(dir, ["/mcp accept fake", "please delegate"]);
+      assert.equal(r.code, 0, r.err);
+      const childBody = bodyOf(server, 1);
+      assert.ok(childBody.tools?.some((t) => t.function.name === "mcp__fake__echo"), "the child is offered the server's tool");
+      assert.match(JSON.stringify(bodyOf(server, 2).messages), /echo: from the child/, "the call ran, with no one asked");
+      const branches = await (await Conversation.open(host, dir)).listBranches();
+      const child = branches.find((b) => b.name.startsWith("sub/echoer-"));
+      assert.ok(child !== undefined);
+      const setup = await (await (await Conversation.open(host, dir)).openBranch(child.name)).setup();
+      assert.ok(setup.mcp["fake"] !== undefined && setup.tools["mcp__fake__echo"] !== undefined, "pinned on the child's own thread");
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("subagent.mcp: none leaves a child without the servers, and it can still do its work", async () => {
+    const { server, dir } = await delegating("subagent:\n  mcp: none\n");
+    try {
+      const r = await session(dir, ["/mcp accept fake", "please delegate"]);
+      assert.equal(r.code, 0, r.err);
+      assert.equal(bodyOf(server, 1).tools?.some((t) => t.function.name.startsWith("mcp__")) ?? false, false);
+      assert.match(JSON.stringify(bodyOf(server, 2).messages), /unknown tool|not a tool|no tool/i);
     } finally {
       await server.close();
     }
