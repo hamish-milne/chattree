@@ -94,7 +94,12 @@ export async function openThread(io: Io, project: Project, name?: string, opts: 
   if ((await io.host.fs.stat(io.host.path.join(dir, "chat.yml"))) === undefined) throw new CliError(`the branch ${thread} is not a thread (it has no chat.yml)`, "name a thread with `chattree chat <thread>`, or start one with `/thread new <name>`");
   const git = project.git.withCwd(dir);
   try {
-    return { convo: await Conversation.open(io.host, dir, await conversationOptions(io, git)), thread };
+    const convo = await Conversation.open(io.host, dir, await conversationOptions(io, git));
+    // A command that needs the model cannot go on with a file nobody approved; the commands that only read the thread can.
+    if (opts.providers === "required") await convo.assertConfigTrusted().catch((e: unknown) => {
+      throw new CliError(e instanceof Error ? e.message : String(e), "chattree trust shows what is in harness.yml and approves it");
+    });
+    return { convo, thread };
   } catch (e) {
     if (opts.providers === "optional" && e instanceof ConversationError && /secrets|environment variable/i.test(e.message)) {
       return { convo: await Conversation.open(io.host, dir, await conversationOptions(io, git, { providers: false })), thread, degraded: e.message };

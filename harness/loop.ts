@@ -234,6 +234,7 @@ export async function* runLoop(convo: Conversation, opts: LoopOptions): AsyncGen
 
 async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator<LoopEvent, LoopResult, void> {
   const { registry } = opts;
+  await convo.assertConfigTrusted();
   const drift = await toolDrift(convo, registry);
   if (drift.missing.length + drift.changed.length + drift.extra.length > 0) throw new ToolsOutOfSync(drift);
   const unsupported = toolConventionProblems(convo, registry, (await convo.setup()).model);
@@ -343,6 +344,8 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
 
   /** One call of a response (or a call a crashed loop left, for a tool that can resume): checks, approvals, execution, the result. True when the call ended the loop. */
   const callOne = async function* (call: CallBlock): AsyncGenerator<LoopEvent, "next" | "finish" | "wait" | "blocked", void> {
+    // A tool that writes harness.yml (the model may) makes the next call wait for the user's approval of the file.
+    await convo.assertConfigTrusted();
     const t0 = now();
     yield { type: "tool.start", callId: call.call_id, name: call.name, args: (call.args ?? {}) as Record<string, unknown> };
     const checked = registry.check(call);

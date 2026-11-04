@@ -340,6 +340,8 @@ const config: Command = {
           yield { type: "error", message: "the editor did not exit cleanly" };
           return;
         }
+        // The user has just read and changed the file: it is theirs, so it is approved.
+        await ctx.convo.approveConfig();
         const edited = await ctx.convo.readConfig();
         if (edited !== undefined && edited.ok) {
           const opened = await openThread(ctx.io, ctx.engine.project, ctx.engine.thread, { providers: "optional" });

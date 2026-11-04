@@ -8,6 +8,7 @@ import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { answer, chunk, host, initArgs, testIo, usageChunk } from "./support.ts";
+import { approve } from "../support/trust.ts";
 
 const SERVER = fileURLToPath(new URL("../support/mcp-server.ts", import.meta.url));
 
@@ -20,6 +21,7 @@ async function started(replies: Reply[], allow = false) {
   const dir = join(await tempDir(), "p");
   assert.equal(await main(initArgs(server, dir), testIo(dir)), 0);
   await appendFile(join(dir, "harness.yml"), `\nmcp:\n  fake:\n    command: ${JSON.stringify(process.execPath)}\n    args: ["--no-warnings", ${JSON.stringify(SERVER)}]\n${allow ? "    allow: {all: 2999-01-01}\n" : ""}`);
+  await approve(dir);
   return { server, dir };
 }
 async function session(dir: string, lines: string[], opts: { yes?: boolean } = {}) {
@@ -61,6 +63,7 @@ describe("MCP servers in a chat", () => {
       await appendFile(join(dir, "harness.yml"), "");
       const text = await import("node:fs/promises").then((f) => f.readFile(join(dir, "harness.yml"), "utf8"));
       await import("node:fs/promises").then((f) => f.writeFile(join(dir, "harness.yml"), text.replace('"--no-warnings",', '"--no-warnings", "--check",')));
+      await approve(dir);
       const again = await session(dir, ["/mcp", "hello again"]);
       assert.match(again.all, /fake {2}\[configuration changed\]/);
       assert.match(again.all, /not what this thread accepted: \/mcp shows why/);
@@ -114,6 +117,7 @@ describe("MCP servers for subagents", () => {
     const { server, dir } = await started([callTool("s1", "subagent", { brief: "echo something", name: "echoer" }), callTool("c1", "mcp__fake__echo", { text: "from the child" }), callTool("c2", "merge", { summary: "echoed" }), answer("all done")], true);
     const file = join(dir, "harness.yml");
     await writeFile(file, `${(await readFile(file, "utf8")).replace("  subagent:\n    allow: {}", "  subagent:\n    allow: { all: 2999-01-01 }")}${extra}`);
+    await approve(dir);
     return { server, dir };
   }
 

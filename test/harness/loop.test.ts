@@ -20,6 +20,7 @@ import { ProviderError, type Completed } from "../../providers/types.ts";
 import { flatProblems } from "../../harness/tool-schema.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
+import { approve } from "../support/trust.ts";
 
 const host = nodeHost();
 
@@ -472,6 +473,7 @@ describe("approvals", () => {
     assert.equal(await store.allow("echo"), undefined);
     const { writeFile } = await import("node:fs/promises");
     await writeFile(join(dir, "harness.yml"), `${CFG}tools:\n  echo:\n    allow: {all: 2999-01-01}\n`);
+    await approve(dir);
     assert.deepEqual(await store.allow("echo"), { all: "2999-01-01" });
     await convo.revokeGrant("echo", undefined);
     assert.deepEqual(await store.allow("echo"), {});

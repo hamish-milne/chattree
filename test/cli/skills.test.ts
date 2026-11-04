@@ -12,6 +12,7 @@ import { parseConfig } from "../../src/config.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { answer, host, initArgs, testIo } from "./support.ts";
+import { approve } from "../support/trust.ts";
 
 async function started(replies: Reply[]) {
   const server = await FakeServer.start(replies);
@@ -34,7 +35,10 @@ async function skill(dir: string, name: string, text: string, where = ".agents/s
   await mkdir(join(dir, where, name), { recursive: true });
   await writeFile(join(dir, where, name, "SKILL.md"), text);
 }
-const configure = (dir: string, follow: string): Promise<void> => appendFile(join(dir, "harness.yml"), `skills:\n  follow: ${follow}\n`);
+const configure = async (dir: string, follow: string): Promise<void> => {
+  await appendFile(join(dir, "harness.yml"), `skills:\n  follow: ${follow}\n`);
+  await approve(dir);
+};
 
 describe("/skills and /skill", () => {
   test("/skills reports what is on disk; /skills sync pins it before the first request, so the catalog is in the prefix", async () => {
@@ -166,6 +170,7 @@ describe("following the disk", () => {
       assert.doesNotMatch(dialogue(server, 1), /skills changed/);
       // back to auto, with the first skill's file now unreadable
       await writeFile(join(dir, "harness.yml"), (await readFile(join(dir, "harness.yml"), "utf8")).replace("follow: off", "follow: auto"));
+      await approve(dir);
       await writeFile(join(dir, ".agents", "skills", "first", "SKILL.md"), "---\nname: first\n---\nbroken, no description\n");
       const r = await session(dir, ["third", "/skills"]);
       assert.match(r.all, /skills followed the disk: 1 added \(second\)/);
@@ -199,6 +204,7 @@ describe("following the disk", () => {
     const { server, dir } = await started([answer("ok")]);
     try {
       await writeFile(join(dir, "harness.yml"), (await readFile(join(dir, "harness.yml"), "utf8")).replace("  skill:\n    allow: { all: 2999-01-01 }\n", ""));
+      await approve(dir);
       await skill(dir, "greet", md("greet", "Say hello"));
       const r = await session(dir, ["/skills sync", "hello", "/skills"]);
       assert.doesNotMatch(system(server, 0), /greet/);

@@ -92,6 +92,8 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
 
   try {
     for (const s of skipped) io.err(`note: ${s}\n`);
+    const trust = await engine.convo.configTrust();
+    if (trust.state !== "trusted") io.err(`warning: harness.yml has ${trust.state === "unknown" ? "not been approved" : "changed since you approved it"} for thread ${engine.thread}; no providers or tools are used until you approve it (/trust)\n`);
     if (engine.degraded !== undefined) io.err(`warning: providers are unavailable (${engine.degraded}); you can read the thread but not send\n`);
     const style = interactive && io.env.NO_COLOR === undefined && io.env.TERM !== "dumb" ? ansiStyle : plainStyle;
     engine.style = style;

@@ -26,6 +26,7 @@ import { refLeaseBackend } from "./lease-ref.ts";
 import type { GrantStore } from "./loop.ts";
 import { SCHEMA_COMMENT, SCHEMA_PATH, configJsonSchema } from "./config-schema.ts";
 import { redactionPatterns, type SecretSource } from "./secrets.ts";
+import { ConfigNotTrusted, NO_CONFIG, TrustStore, configHash, judge, type ConfigTrust } from "./trust.ts";
 import { ProviderSetupError, buildProviders, validateProviders, type AdapterRegistry, type BuiltProviders } from "../providers/registry.ts";
 import type { ProviderAdapter } from "../providers/types.ts";
 import { tableBytes, tableHash, type PriceTable } from "../providers/pricing.ts";
@@ -69,6 +70,12 @@ type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K>
 export type NewEntry = DistributiveOmit<ChatEntry, "id"> & { id?: string };
 
 export interface ConversationOptions {
+  /**
+   * `enforce` (the default): `harness.yml` is used only while it is the file the user approved for this thread (`approveConfig`, `trust.ts`).
+   * Otherwise the thread opens without providers, `readConfig` says why it has none, no grant counts, and the loop refuses
+   * (`ConfigNotTrusted`). `ignore` is for hosts that decide for themselves.
+   */
+  configTrust?: "enforce" | "ignore";
   /** Used as committer, and as author for entries that are neither the user's nor the model's. */
   committer?: Identity;
   /** Author of user entries. Defaults to the committer. */
@@ -576,7 +583,11 @@ export class Conversation {
 
   static async #start(host: Host, git: Git, dir: string, branch: string, opts: CreateOptions, configText: string | undefined): Promise<Conversation> {
     const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [], cleaned: [] });
-    if (configText !== undefined) await host.fs.writeAtomic(host.path.join(dir, CONFIG_FILE), enc.encode(configText));
+    if (configText !== undefined) {
+      await host.fs.writeAtomic(host.path.join(dir, CONFIG_FILE), enc.encode(configText));
+      // The user is creating this conversation with this file.
+      await new TrustStore(host, await git.commonDir()).set(branch, configHash(enc.encode(configText)));
+    }
     if (opts.providers !== undefined) await Conversation.#writeSchema(host, git, dir, opts.providers.registry);
     await convo.#transaction(async () => {
       await convo.#appendLocked({ $tag: "header", ...FORMAT });
@@ -662,15 +673,20 @@ export class Conversation {
   static async open(host: Host, dir: string, inOpts: ConversationOptions = {}): Promise<Conversation> {
     const git = await Git.open(host, { cwd: dir });
     let opts = inOpts;
-    if (inOpts.providers !== undefined && inOpts.built === undefined) {
-      const text = (await host.fs.stat(host.path.join(dir, CONFIG_FILE))) === undefined ? undefined : dec.decode(await host.fs.read(host.path.join(dir, CONFIG_FILE)));
-      const parsed = text === undefined ? undefined : await parseConfig(text, harnessConfig);
-      if (parsed !== undefined && !parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
-      opts = { ...inOpts, ...(await Conversation.#withProviders(parsed?.value ?? harnessConfig.parse({}), inOpts)) };
-      await Conversation.#writeSchema(host, git, dir, inOpts.providers.registry);
-    }
     const branch = await git.currentBranch();
     if (branch === undefined) throw new ConversationError("HEAD is detached; check out the conversation's branch first");
+    if (inOpts.providers !== undefined && inOpts.built === undefined) {
+      const file = host.path.join(dir, CONFIG_FILE);
+      const bytes = (await host.fs.stat(file)) === undefined ? undefined : await host.fs.read(file);
+      // A file the user has not approved is not read for providers: that is where the keys go.
+      const trusted = inOpts.configTrust === "ignore" || judge(await new TrustStore(host, await git.commonDir()).get(branch), configHash(bytes)).state === "trusted";
+      if (trusted) {
+        const parsed = bytes === undefined ? undefined : await parseConfig(dec.decode(bytes), harnessConfig);
+        if (parsed !== undefined && !parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
+        opts = { ...inOpts, ...(await Conversation.#withProviders(parsed?.value ?? harnessConfig.parse({}), inOpts)) };
+      }
+      await Conversation.#writeSchema(host, git, dir, inOpts.providers.registry);
+    }
     const gitDir = await git.gitDir();
     if ((await host.fs.stat(host.path.join(gitDir, "MERGE_HEAD"))) !== undefined) throw new ConversationError("a merge is in progress; finish or abort it first");
     const lockPath = await Conversation.#lockPathFor(host, git, branch);
@@ -1342,6 +1358,54 @@ export class Conversation {
 
   // ---- configuration ---------------------------------------------------------------------------------------
 
+  #trustStore: TrustStore | undefined;
+  async #trusts(): Promise<TrustStore> {
+    return (this.#trustStore ??= new TrustStore(this.host, await this.git.commonDir()));
+  }
+  async #configBytes(): Promise<Uint8Array | undefined> {
+    const path = this.host.path.join(this.dir, CONFIG_FILE);
+    return (await this.host.fs.stat(path)) === undefined ? undefined : this.host.fs.read(path);
+  }
+  async #trustOf(bytes: Uint8Array | undefined): Promise<ConfigTrust> {
+    const hash = configHash(bytes);
+    if (this.#opts.configTrust === "ignore") return { state: "trusted", hash };
+    return judge(await (await this.#trusts()).get(this.branch), hash);
+  }
+
+  /** Whether `harness.yml` is the file the user approved for this thread (docs/tools.md, section 6). */
+  async configTrust(): Promise<ConfigTrust> {
+    return this.#trustOf(await this.#configBytes());
+  }
+
+  /** Approve the `harness.yml` the thread has now. The caller shows the user what it is first; a thread opened without it needs opening again to use providers. */
+  async approveConfig(): Promise<ConfigTrust> {
+    const hash = configHash(await this.#configBytes());
+    await (await this.#trusts()).set(this.branch, hash);
+    return judge(hash, hash);
+  }
+
+  /** Throws `ConfigNotTrusted` unless `harness.yml` is the approved file. The loop and every request check this. */
+  async assertConfigTrusted(): Promise<void> {
+    const t = await this.configTrust();
+    if (t.state !== "trusted") throw new ConfigNotTrusted(this.branch, t);
+  }
+
+  /** Something the harness does for the user changed `harness.yml`: a file that was approved stays approved, one that was not does not become so. */
+  async #keepTrust<T>(change: () => Promise<T>): Promise<T> {
+    const before = await this.configTrust();
+    const out = await change();
+    if (before.state === "trusted") await (await this.#trusts()).set(this.branch, configHash(await this.#configBytes()));
+    return out;
+  }
+
+  /** A new branch starts from this thread's files: it is approved when this thread is and the file it starts with is the one approved. */
+  async #inheritTrust(branch: string, from: string): Promise<void> {
+    const mine = await this.configTrust();
+    const store = await this.#trusts();
+    if (mine.state === "trusted" && mine.hash !== NO_CONFIG && configHash(await this.git.readFileAt(from, CONFIG_FILE)) === mine.hash) await store.set(branch, mine.hash);
+    else await store.forget(branch);
+  }
+
   /**
    * Read and validate `harness.yml`, the outside-world configuration (providers, limits, host wiring). It is
    * an ordinary file in the repository: edits are committed with the workspace and their history is git's.
@@ -1350,7 +1414,11 @@ export class Conversation {
   async readConfig(): Promise<ConfigResult<HarnessConfig> | undefined> {
     const path = this.host.path.join(this.dir, CONFIG_FILE);
     if ((await this.host.fs.stat(path)) === undefined) return undefined;
-    const r = await parseConfig(dec.decode(await this.host.fs.read(path)), harnessConfig);
+    const bytes = await this.host.fs.read(path);
+    // A file the user has not approved is not used: it reads as one that does not validate, with the reason.
+    const trust = await this.#trustOf(bytes);
+    if (trust.state !== "trusted") return { ok: false, issues: [{ path: "", message: new ConfigNotTrusted(this.branch, trust).message }] };
+    const r = await parseConfig(dec.decode(bytes), harnessConfig);
     if (!r.ok || this.#opts.providers === undefined) return r;
     const { issues } = await validateProviders(r.value.providers, this.#opts.providers.registry);
     return issues.length > 0 ? { ok: false, issues } : r;
@@ -1368,7 +1436,9 @@ export class Conversation {
     return {
       allow: async (tool) => {
         if ((await this.host.fs.stat(path)) === undefined) return undefined;
-        const r = await parseConfig(dec.decode(await this.host.fs.read(path)), harnessConfig);
+        const bytes = await this.host.fs.read(path);
+        if ((await this.#trustOf(bytes)).state !== "trusted") return undefined; // a file the user has not approved grants nothing
+        const r = await parseConfig(dec.decode(bytes), harnessConfig);
         if (!r.ok) return undefined; // a file that does not parse grants nothing
         // An MCP server's own `allow` map covers all of its tools, besides what each tool's entry grants.
         const server = /^mcp__([a-z0-9]+(?:-[a-z0-9]+)*)__/.exec(tool)?.[1];
@@ -1379,7 +1449,10 @@ export class Conversation {
         for (const [k, until] of Object.entries(own ?? {})) if (merged[k] === undefined || (untilMs(until) ?? 0) > (untilMs(merged[k] as string) ?? 0)) merged[k] = until;
         return merged;
       },
-      grant: (tool, keys, until, opts) => this.changeGrants((text, now) => addGrants(text, tool, keys, until, now), `allow ${tool}: ${keys.join(", ")} until ${until}`, opts.commit),
+      grant: async (tool, keys, until, opts) => {
+        await this.assertConfigTrusted();
+        await this.changeGrants((text, now) => addGrants(text, tool, keys, until, now), `allow ${tool}: ${keys.join(", ")} until ${until}`, opts.commit);
+      },
     };
   }
 
@@ -1394,7 +1467,7 @@ export class Conversation {
       if ((await this.host.fs.stat(path)) === undefined) throw new ConversationError(`there is no ${CONFIG_FILE} to hold the approval`);
       const r = await edit(dec.decode(await this.host.fs.read(path)), this.now());
       if (!r.ok) throw new ConversationError(`${CONFIG_FILE}: ${r.message}`);
-      await this.host.fs.writeAtomic(path, enc.encode(r.text));
+      await this.#keepTrust(() => this.host.fs.writeAtomic(path, enc.encode(r.text)));
       if (!commit) return;
       const size = await this.#assertIntact();
       await this.git.add([CONFIG_FILE]);
@@ -1570,6 +1643,7 @@ export class Conversation {
 
   async #newBranch(name: string, from: string, marker: NewEntry, opts: { checkout?: boolean; worktree?: string }): Promise<ForkResult> {
     const start = await this.#startBranch(name, from, marker);
+    await this.#inheritTrust(name, from);
     let conversation: Conversation | undefined;
     if (opts.checkout !== false) conversation = await this.#checkoutBranch(name, opts.worktree);
     return { branch: name, start, from, conversation };
@@ -1663,7 +1737,7 @@ export class Conversation {
       if (!Number.isFinite(offset) || offset <= 0) throw new ConversationError("that is before the thread's header: there is nothing to go back to");
       const ref = `refs/chattree/undone/${encodeURIComponent(this.branch)}/${new Date(this.#opts.now?.() ?? Date.now()).toISOString().replace(/[-:.]/g, "")}-${from.slice(0, 8)}`;
       await this.git.run(["update-ref", ref, from]);
-      await this.git.run(["reset", "--hard", to]);
+      await this.#keepTrust(() => this.git.run(["reset", "--hard", to]));
       this.#head = to;
       this.#idx = undefined;
       this.#foreign = [];
@@ -1839,6 +1913,10 @@ export class Conversation {
       ]);
       const commit = await this.git.commitTree(tree, [head, tip], Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts));
       await this.git.fastForward(commit);
+      // The merged file is approved when it is the file either side was approved with (the merge takes a file from one side whole).
+      const store = await this.#trusts();
+      const mergedHash = configHash(await this.#configBytes());
+      if (mergedHash !== NO_CONFIG && [await store.get(this.branch), await store.get(childBranch)].includes(mergedHash)) await store.set(this.branch, mergedHash);
       const after = (await this.host.fs.stat(this.#file))?.size ?? 0;
       if (after !== data.length) throw new ConversationError(`${CHAT_FILE} is ${after} bytes after the merge, expected ${data.length}`);
       this.#size = after;

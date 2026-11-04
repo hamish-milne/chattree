@@ -10,6 +10,7 @@ import { defaultRegistry } from "../../providers/index.ts";
 import { AdapterRegistry, buildProviders, defineAdapter, ProviderSetupError, validateProviders } from "../../providers/registry.ts";
 import { tempDir } from "../support/tmp.ts";
 import { z } from "zod";
+import { approve } from "../support/trust.ts";
 
 const host = nodeHost();
 const KEY = "sk-ant-api03-THE-SECRET-VALUE";
@@ -203,6 +204,7 @@ describe("create and open", () => {
     const dir = await dirOf();
     const convo = await Conversation.create(host, dir, { ...opts(), config: CONFIG });
     await writeFile(join(dir, CONFIG_FILE), CONFIG.replace("store: false", "stor: false"));
+    await approve(dir);
     const r = await convo.readConfig();
     assert.ok(r !== undefined && !r.ok && r.issues.some((i) => i.path.startsWith("providers.gpt")));
   });

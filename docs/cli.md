@@ -125,7 +125,8 @@ Agent setup and configuration
 | `/providers` | Providers from `harness.yml` and whether their key variables are set. |
 | `/pricing [pin]` | Show the price table in force, or pin the current one. |
 | `/accept` | Accept a provider-observed change (`setup_changed` with `reason: provider`). |
-| `/config` | Validate `harness.yml` and show issues; `chattree config edit` opens it. |
+| `/config` | Validate `harness.yml` and show issues; `chattree config edit` opens it (and approves what you saved). |
+| `/trust` | Check that `harness.yml` is the file you approved for this thread; if not, show what changed and ask to approve it (`/trust show` prints the file). Until then no provider, tool or grant from it is used. `chattree trust` does the same; `chattree -y trust` approves without asking. |
 
 Housekeeping and session
 

@@ -8,6 +8,7 @@ import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { answer, chunk, host, initArgs, testIo, usageChunk } from "./support.ts";
+import { approve } from "../support/trust.ts";
 
 async function started(replies: Reply[]) {
   const server = await FakeServer.start(replies);
@@ -137,6 +138,7 @@ describe("providers, prices, config", () => {
       const broken = await session(dir, ["/config edit"], { io: { edit: async (p) => (await writeFile(p, "providers: {x: {$tag: nonsense}}\n"), true) } });
       assert.match(broken.err, /harness\.yml has problems/);
       await writeFile(join(dir, "harness.yml"), "providers: 5\n");
+      await approve(dir);
       const bad = await session(dir, ["/providers"]);
       assert.notEqual(bad.code, 0);
     } finally {

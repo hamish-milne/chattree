@@ -113,7 +113,10 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     const project = await findProject(where, start);
     const opened = await openThread(where, project, values.thread, { providers: needsProviders ? "required" : "optional" });
     const sessions = await SessionStore.open(where, project.git);
-    const engine = new Engine({ io: where, project, opened, sessions, confirm: async () => values.yes === true });
+    // `chattree trust` asks, as the session command does; every other verb answers its questions with -y or no.
+    const ask = verb === "trust" ? where.ask?.bind(where) : undefined;
+    const confirm = async (q: string): Promise<boolean> => values.yes === true || (ask !== undefined && /^y(es)?$/i.test(await ask(q, "n")));
+    const engine = new Engine({ io: where, project, opened, sessions, confirm });
     if (values.thinking !== undefined) {
       if (!["on", "off", "brief"].includes(values.thinking)) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
       engine.state.thinking = values.thinking as Thinking;

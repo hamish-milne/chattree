@@ -16,6 +16,7 @@ import { emptyTable, tableHash, type PriceTable } from "../../providers/pricing.
 import { OPENAI_PRICES } from "../../providers/pricing-data.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
+import { approve } from "../support/trust.ts";
 
 const host = nodeHost();
 const M = 1_000_000;
@@ -236,6 +237,7 @@ describe("prepareContext with costs", () => {
     await convo.pinPricing();
     await convo.append(hi);
     await writeFile(join(dir, CONFIG_FILE), CONFIG.replace("local:", "gpt2:").replace("input: 0.1, output: 0.5", "input: 0.2, output: 1"));
+    await approve(dir);
     const changed = await Conversation.open(host, dir, opts());
     await assert.rejects(prepareContext(changed, { system: "s" }), (e) => e instanceof ChangeNotAllowed && /not the one this agent is pinned to/.test(e.message));
     await prepareContext(changed, { system: "s", allowDrift: ["pricing_changed"] });

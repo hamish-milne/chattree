@@ -10,6 +10,7 @@ import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { answer, chunk, host, initArgs, testIo, usageChunk } from "./support.ts";
 import { WAIT_MS } from "../support/wait.ts";
+import { approve } from "../support/trust.ts";
 
 const ESC = String.fromCharCode(27);
 const strip = (s: string): string => s.replace(new RegExp(`${ESC}\\[[0-9;?]*[A-Za-z]`, "g"), "").replace(/\r/g, "");
@@ -109,6 +110,7 @@ describe("tools in a plain chat", () => {
     try {
       const yml = await readFile(join(dir, "harness.yml"), "utf8");
       await writeFile(join(dir, "harness.yml"), yml.replace("  run:\n", '  run:\n    allow: { "cat **": 2999-01-01 }\n'));
+      await approve(dir);
       const io = testIo(dir, { stdin: "cat it\n" });
       await main(["chat", "--plain"], io);
       const [r] = await toolResults(dir);
@@ -252,6 +254,7 @@ describe("which tools are offered", () => {
       assert.deepEqual(await names(), ["edit", "job_output", "job_stop", "jobs", "read", "run", "script", "skill", "write"]);
       const yml = join(dir, "harness.yml");
       await writeFile(yml, (await readFile(yml, "utf8")).replace(/ {2}script:\n {4}allow: \{\}\n/, "").replace(/ {2}write:\n {4}allow: \{ all: 2999-01-01 \}\n/, ""));
+      await approve(dir);
       assert.deepEqual(await names(), ["edit", "job_output", "job_stop", "jobs", "read", "run", "skill"]);
     } finally {
       await server.close();
@@ -409,6 +412,7 @@ describe("subagent.models in harness.yml", () => {
   const withModels = async (models: string) => {
     const { server, dir } = await started([answer("ok")]);
     await writeFile(join(dir, "harness.yml"), `${await readFile(join(dir, "harness.yml"), "utf8")}subagent:\n  models:\n${models}`);
+    await approve(dir);
     return { server, dir };
   };
 
@@ -551,6 +555,7 @@ describe("background jobs in a session", () => {
     ], { "job.js": `setTimeout(() => console.log("job output here"), 300)\n` }); // a script file: no quoting to get wrong on Windows
     const yml = await readFile(join(dir, "harness.yml"), "utf8");
     await writeFile(join(dir, "harness.yml"), yml.replace("  run:\n", `  run:\n    allow: { "${node} **": 2999-01-01 }\n`));
+    await approve(dir);
     const t = terminal(dir);
     try {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");

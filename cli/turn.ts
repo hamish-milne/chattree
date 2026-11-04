@@ -5,6 +5,7 @@ import { LimitExceeded } from "../harness/limits.ts";
 import { JournalBusy } from "../harness/journal.ts";
 import { ThreadBusy } from "../harness/lease.ts";
 import { requestStream } from "../harness/turn.ts";
+import { ConfigNotTrusted } from "../harness/trust.ts";
 import { runLoop, syncTools, ToolsNotSupported, ToolsOutOfSync, type LoopEvent } from "../harness/loop.ts";
 import { summarizeCall } from "./tool-lines.ts";
 import { ProviderError, type StreamEvent } from "../providers/types.ts";
@@ -228,6 +229,7 @@ function mapEvent(e: StreamEvent): Output | undefined {
 
 /** A thrown error as something to show, with what to do next. */
 export function failure(e: unknown): Output {
+  if (e instanceof ConfigNotTrusted) return { type: "error", message: e.message, hint: "/trust shows what is in it and approves it" };
   if (e instanceof ChangeNotAllowed) return { type: "error", message: e.message };
   if (e instanceof LimitExceeded) return { type: "error", message: e.message };
   if (e instanceof ThreadBusy) return { type: "error", message: e.message, hint: "wait for it to finish, or stop it there; a lease left by a process that died is taken over by itself" };

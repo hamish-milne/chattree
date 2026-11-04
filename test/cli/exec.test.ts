@@ -6,6 +6,7 @@ import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { host, initArgs, testIo } from "./support.ts";
+import { approve } from "../support/trust.ts";
 
 async function started() {
   const server = await FakeServer.start([]);
@@ -42,6 +43,7 @@ describe("/exec", () => {
       const fs = await import("node:fs/promises");
       await fs.writeFile(bb, "x");
       await fs.writeFile(join(dir, "harness.yml"), (await fs.readFile(join(dir, "harness.yml"), "utf8")).replace(/ {2}run:\n/, `  run:\n    busybox: ${JSON.stringify(bb)}\n`));
+      await approve(dir);
       const calls: (readonly string[])[] = [];
       const io = { ...testIo(dir, { stdin: "/exec echo hi\n", exec: async (stage) => (calls.push(stage), 0) }) };
       io.host = { ...io.host, platform: "windows" as const };

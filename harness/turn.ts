@@ -67,6 +67,7 @@ async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promis
  * anything worth recording arrived (the transcript is left as it was, so asking again is safe).
  */
 export async function* requestStream(convo: Conversation, opts: TurnOptions): AsyncGenerator<StreamEvent, TurnResult, void> {
+  await convo.assertConfigTrusted();
   let prepared = await prepareContext(convo, opts);
   // Injection rules see the request as it would go out; what they write goes into the transcript, and the context is built again from it.
   const rules = await injectionRulesFor(convo, opts);

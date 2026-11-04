@@ -248,6 +248,15 @@ tools:
 - **Time and background work.** Expiry is checked when a call starts; a background job that began under a grant keeps running after it lapses.
 - **Children.** A child conversation inherits a copy of its parent's `allow` maps at spawn; a grant made in a child stays in the child. Prompts always go to the user's terminal, labelled with the child's name.
 
+#### 5.1.1 Which `harness.yml` a thread may use
+
+The file decides which providers get which keys, which tools run without asking, which programs start and which files are read, and a cloned repository, a pull, or a model that can run commands (the `write` and `edit` tools refuse the file, `run` and `script` do not) can change it. So each thread uses only the file the user approved for it. The harness keeps a map from branch name to the SHA-256 of the file's bytes in `<git dir>/chattree/config-trust.json` (outside the repository, so history cannot carry an approval), and `Conversation` (`harness/trust.ts`) compares it with the file on every use:
+
+- **Not the approved file** (`unknown`: never approved, as in a fresh clone; `changed`: another file than the approved one): the thread opens *without providers* (no key is read), `readConfig` reports why instead of a config, no grant in the file counts, `grantStore().grant` refuses, and `runLoop` and `requestStream` throw `ConfigNotTrusted` before the loop starts, before each call and before each request (so a tool that rewrites the file stops the loop at the next step). Reading the thread (`history`, `verify`, `export`) still works.
+- **What approves**: `Conversation.approveConfig()`, which the CLI calls from `/trust` after showing what changed (the diff against the approved version, found in the file's history by hash; or the uncommitted edit; or the commit that last touched it and the file), and from `/config edit` (the user has just read the file). `chattree trust` does the same as a verb.
+- **What keeps it approved by itself**, because the user did it: a grant or revoke (`changeGrants`), an undo (`rewind`), a new thread, fork or subagent (approved when its parent is and it starts with the approved file), and a merge whose resulting file is the one either side was approved with. None of these approves a file that was not approved before: a revoke on a hand-edited file leaves it unapproved.
+- **Not covered**: a thread with no `harness.yml` has nothing to approve; the store is not locked (two processes writing at once can lose an entry, which costs one more approval); the hash is of the raw bytes, so reformatting needs approving again; existing repositories ask once per thread after this was added. `ConversationOptions.configTrust: "ignore"` is for hosts that decide for themselves.
+
 ### 5.2 Decisions in the thread, and the tip's state
 
 An answer to an approval question is an `approval` entry (format 2.2): `{ call_id, allow, reason?, grant? }`, committed before the call's result. It is what lets one place ask and another answer. A call that a live grant covers has no entry, because that is decided by the grants and the clock; an entry exists only for a decision a person (or a host acting for one) made.

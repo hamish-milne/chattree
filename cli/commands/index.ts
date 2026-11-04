@@ -11,8 +11,9 @@ import { mcpCommands } from "./mcp.ts";
 import { skillCommands } from "./skills.ts";
 import { threadCommands } from "./threads.ts";
 import { toolCommands } from "./tools.ts";
+import { trustCommands } from "./trust.ts";
 import { undoCommands } from "./undo.ts";
 
 export function defaultCommands(): Command[] {
-  return [...chatCommands, ...draftCommands, ...readCommands, ...sessionCommands, ...threadCommands, ...setupCommands, ...skillCommands, ...mcpCommands, ...miscCommands, ...undoCommands, ...metaCommands, ...toolCommands, ...execCommands];
+  return [...chatCommands, ...draftCommands, ...readCommands, ...sessionCommands, ...threadCommands, ...setupCommands, ...skillCommands, ...mcpCommands, ...miscCommands, ...undoCommands, ...metaCommands, ...toolCommands, ...execCommands, ...trustCommands];
 }
