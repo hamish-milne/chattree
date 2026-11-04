@@ -4,17 +4,34 @@ Status: **planned** (2026-11-04). Nothing here is built. The aim is to host loca
 
 ## 1. Decisions
 
-- **Engine: llama-swap**, behind an `Engine` interface. llama-server's own router mode (`--models-preset`, `--models-dir`, `--models-max`, autoload) is the alternative; as last read it was experimental, with no idle unload. Both are checked in the spike (section 8, step 0).
+- **Engine: llama-swap**, behind an `Engine` interface. llama-server's own router mode (`--models-preset`, `--models-dir`, `--models-max`, autoload, LRU unloading by memory margin) is the alternative and has caught up on eviction, though it has no per-model idle TTL that we know of; both are checked in the spike (section 8, step 0).
 - **A detached daemon** (`chattree models serve`) owns the host. Sessions find it, start it if needed, and never stop it. `chattree models stop` does.
 - **Sampling** resolved from settings values and (when there are none) the model's own metadata, passed to llama-server as server defaults *and* copied into a thread's agent setup when it chooses the model, so history records what was used.
 - **Model id in history** is `name@hash8` (the first 8 hex digits of the GGUF's SHA-256), so a changed file under the same name shows as a model change.
 - Installing a downloaded binary is a consent step (tag, URL, size, hash) under the dependency policy (docs/dependencies.md); `-y` skips it. Hashes are recorded on first fetch in a lock file and checked at every start. No implicit "latest".
 
-## 2. What was found (unverified parts marked)
+## 2. What was found
 
-- llama-swap model keys: `cmd` (with `${PORT}`), `proxy`, `ttl`, `aliases`, `env`, `checkEndpoint`, `filters.strip_params`, `unlisted`, `useModelName`, `cmdStop`, `name`, `description`, `concurrencyLimit`; top level `healthCheckTimeout` (default 120), `startPort`, `macros`, `groups` (`swap`, `exclusive`, `persistent`, `members`), `hooks.on_startup.preload`. Its command-line flags, release assets and `/running` / `/unload` endpoints: **unverified** (the sandbox could not read the README).
-- llama-server downloads from Hugging Face by itself with `-hf repo:quant` into `LLAMA_CACHE`; we download ourselves instead (progress events, resume, hash check).
-- `general.default_sampling.*` keys in GGUF metadata were merged into llama.cpp in Nov 2025; a March 2026 report says llama-server still ignored them (`/props` showed built-in defaults). Not relied on.
+Read from the projects' own READMEs (2026-11-04) unless marked.
+
+**llama-swap** ([README](https://github.com/mostlygeek/llama-swap), [configuration](https://github.com/mostlygeek/llama-swap/wiki/Configuration)):
+- Config model keys: `cmd` (with `${PORT}`), `proxy`, `ttl`, `aliases`, `env`, `checkEndpoint`, `filters.strip_params`, `unlisted`, `useModelName`, `cmdStop`, `name`, `description`, `concurrencyLimit`; top level `healthCheckTimeout` (default 120, minimum 15), `startPort`, `macros`, `groups` (`swap`, `exclusive`, `persistent`, `members`), `unloadTimeout`, `hooks.on_startup.preload`.
+- Flags (the page mixes `-flag` and `--flag`; Go accepts both): `-config`, `-listen` (examples use `localhost:8080`; the Docker image defaults to `0.0.0.0:8080`), `-watch-config` (default **true in the Docker image**; the plain binary's default is not stated), `-config-dir`, TLS flags, `-version`.
+- Endpoints: `/v1/models`, `/running`, `POST /api/models/unload` (all) and `POST /api/models/unload/:model_id`, `POST /api/models/pause` and `/resume`, `/health` ("OK"), `/metrics`, `/upstream/:model_id`, `/ui`, and logs at `/logs`, `/logs/stream` (`?no-history`), `/logs/stream/{proxy,upstream,http}` and `/logs/stream/{model_id}`. There is no bare `/unload`.
+- Release binaries exist for Linux, Mac, Windows and FreeBSD; **the asset names are not on the page** (and the sandbox cannot reach the releases). Packaged installs exist too: Homebrew, WinGet, MacPorts (community), Docker images by backend (`unified-cuda13`, `unified-cuda`, `unified-vulkan`, `cpu`, ...).
+
+**llama-server** ([README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md), flags as read):
+- Hosting: `--host` (default 127.0.0.1), `--port`, `--api-key` / `--api-key-file`, `--offline`; `-m`; `-hf <user>/<model>[:quant]` (default Q4_K_M, the mmproj is fetched too unless `--no-mmproj`); `-c` (0 = from the model); `-ngl` (default auto); `-fa on|off|auto`; `-ctk` / `-ctv`; `-t`; `-np`; `--embeddings`.
+- Templates: `--jinja` (**on by default**), `--chat-template-file`, `--chat-template-kwargs` (a JSON string), `--reasoning-format none|deepseek|deepseek-legacy` (default auto).
+- Sampling defaults: `--temp` 0.80, `--top-k` 40, `--top-p` 0.95, `--min-p` 0.05.
+- **Router mode is further along than the first article said:** `--models-dir`, `--models-preset` (INI), `--models-max` (default 4, 0 = unlimited), `--models-autoload`, and `--models-memory-margin N` (keeps N MiB free per device by unloading *least-recently-used* models). `GET /models` or `/v1/models` report capabilities such as `multimodal`. There is no per-model idle TTL that I could find. The preset INI keys, any load and unload endpoints, and the shape of `GET /props` are **not in the part of the README that could be read**.
+- `GET /health` is public: 503 "Loading model" while loading, then 200 `{"status":"ok"}`.
+
+**Sampling metadata** (from the llama.cpp discussion): `general.default_sampling.*` keys were merged in Nov 2025; a March 2026 report says llama-server ignored them and `/props` showed built-in defaults. Not relied on.
+
+**Hugging Face downloads** go through `https://huggingface.co/<repo>/resolve/<rev>/<file>` (Range requests; `x-linked-etag` carries the LFS hash): from memory, to be checked.
+
+**The sandbox cannot run the spike's downloads.** From the shell, `api.github.com`, the GitHub release assets and `huggingface.co` answer 403 (the proxy allows the package registries and, through `add_repo`, git clones). The remaining spike items need either those hosts opened or a real machine.
 
 ## 3. Components
 
