@@ -10,14 +10,16 @@ import { tempDir } from "../support/tmp.ts";
 import { answer, host, initArgs, testIo } from "./support.ts";
 
 const windows = { ...host, platform: "windows" as const };
+/** Whatever machine runs the tests, this one behaves as a POSIX host (the real host on Windows would take APPDATA and a busybox). */
+const posix = { ...host, platform: "posix" as const };
 
 describe("where the settings file is", () => {
   test("CHATTREE_SETTINGS first, then APPDATA on Windows, then XDG_CONFIG_HOME, then ~/.config", () => {
-    assert.equal(settingsPath(host, { CHATTREE_SETTINGS: "/x/s.yml", HOME: "/h" }), host.path.resolve("/x/s.yml"));
+    assert.equal(settingsPath(posix, { CHATTREE_SETTINGS: "/x/s.yml", HOME: "/h" }), posix.path.resolve("/x/s.yml"));
     assert.equal(settingsPath(windows, { APPDATA: "C:\\Users\\a\\AppData\\Roaming", HOME: "/h" }), windows.path.join("C:\\Users\\a\\AppData\\Roaming", "chattree", "settings.yml"));
-    assert.equal(settingsPath(host, { XDG_CONFIG_HOME: "/xdg", HOME: "/h" }), host.path.join("/xdg", "chattree", "settings.yml"));
-    assert.equal(settingsPath(host, { HOME: "/h" }), host.path.join("/h", ".config", "chattree", "settings.yml"));
-    assert.equal(settingsPath(host, {}), undefined);
+    assert.equal(settingsPath(posix, { XDG_CONFIG_HOME: "/xdg", HOME: "/h" }), posix.path.join("/xdg", "chattree", "settings.yml"));
+    assert.equal(settingsPath(posix, { HOME: "/h" }), posix.path.join("/h", ".config", "chattree", "settings.yml"));
+    assert.equal(settingsPath(posix, {}), undefined);
   });
 
   test("no file means no settings", async () => {
@@ -37,7 +39,7 @@ describe("using the settings", () => {
   test("a busybox path that is not a file is an error naming the setting; off finds none", async () => {
     const io = testIo(await tempDir(), { host: windows, settings: { busybox: "/no/such/busybox.exe" } });
     await assert.rejects(() => busyboxFor(io), /busybox is \/no\/such\/busybox\.exe, which is not a file/);
-    assert.equal(await busyboxFor(testIo(await tempDir(), { settings: { busybox: "/no/such" } })), undefined, "not Windows: no busybox");
+    assert.equal(await busyboxFor(testIo(await tempDir(), { host: posix, settings: { busybox: "/no/such" } })), undefined, "not Windows: no busybox");
   });
 });
 
