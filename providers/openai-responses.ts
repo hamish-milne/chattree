@@ -560,7 +560,7 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
     return n;
   }
 
-  return { $tag: "openai", stream, retrieve, countTokens, classify: classifyOpenAI };
+  return { $tag: "openai", toolSchema: "full", stream, retrieve, countTokens, classify: classifyOpenAI };
 }
 
 // ---- registration -----------------------------------------------------------------------------------------------

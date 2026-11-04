@@ -2,7 +2,7 @@ import type { BlobStore } from "../src/index.ts";
 import type { Host } from "../src/host.ts";
 import { pinDefinition, type ToolDefinition } from "./definitions.ts";
 import type { AgentSetup, PinnedDefinition } from "./setup.ts";
-import { checkSchema, coerceArgs, validateArgs } from "./tool-schema.ts";
+import { coerceArgs, schemaProblems, validateArgs } from "./tool-schema.ts";
 
 /**
  * The host's tool registry (docs/tools.md, sections 3 and 4): what a tool is, how its call is checked, and how
@@ -134,13 +134,13 @@ export class ToolRegistry {
     for (const t of tools) this.add(t);
   }
 
-  /** Register a tool. Its name must be valid for every provider and its schema must be in the portable subset. */
+  /** Register a tool. Its name must be valid for every provider and its schema must be a JSON Schema for an object that the validator can use. */
   add(tool: Tool): this {
     const { name, description, input_schema } = tool.definition;
     if (!NAME_RE.test(name)) throw new ToolError(`tool name ${JSON.stringify(name)} must be letters, digits, _ and -, starting with a letter, at most 64 long`);
     if (this.#tools.has(name)) throw new ToolError(`tool ${name} is registered twice`);
     if (description.trim() === "") throw new ToolError(`tool ${name} needs a description`);
-    const problems = checkSchema(input_schema);
+    const problems = schemaProblems(input_schema);
     if (problems.length > 0) throw new ToolError(`tool ${name}: ${problems.join("; ")}`);
     this.#tools.set(name, tool);
     return this;

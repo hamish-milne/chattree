@@ -373,6 +373,7 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
   const headers: Record<string, string> = { "content-type": "application/json", "anthropic-version": opts.version ?? "2023-06-01", ...((opts.betas ?? []).length > 0 ? { "anthropic-beta": (opts.betas ?? []).join(",") } : {}) };
   return {
     $tag: "anthropic",
+    toolSchema: "full",
     stream: (req) => httpStream(mapper, req, http),
     async countTokens(req) {
       // POST /v1/messages/count_tokens takes the Messages request without the generation settings. No cache markers: they change nothing about the count.

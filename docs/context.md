@@ -36,8 +36,8 @@ which changes can be made as **deltas at the tail** of the conversation instead 
   - **The tools are pinned like any tool's** (`agent_setup.tools`, hash of name, description and schema), but `syncTools` never follows a server silently:
     a new, changed or missing MCP tool makes the loop refuse (`ToolsOutOfSync`) until `/mcp accept` shows what changed and the user allows the `tools_changed`
     cache break. This is what stops a description swapped after approval.
-  - **Schemas are narrowed** to the portable subset (`harness/mcp/schema.ts`): constraints the subset cannot say (`pattern`, `format`, lengths) move into the
-    description; a free-form object or a choice between shapes is left out when optional, and a tool that needs one is reported and not offered.
+  - **A tool keeps the schema the server wrote** (any JSON Schema for an object; one that cannot be compiled, such as a reference to another document, is not offered).
+    What a model is shown of it is decided per model, at request time (`harness/schema-project.ts`, docs/tools.md 3.8); `/mcp show` says what a portable-only model would lose.
   - **Connections are pooled** (`harness/mcp/pool.ts`): one `McpPool` per process, keyed by the server's name, its whole configuration (secrets as a hash) and, for
     a program, the directory it starts in. A connection lives while a thread or subagent holds a lease and closes with the last one. A program starts in the thread's
     worktree by default (`scope: thread`), so a server that works on files sees that thread's files and each subagent has a process of its own; `scope: project` runs
@@ -104,6 +104,6 @@ Rules, as built:
    is pinned automatically under `ask`, a new thread must `/skills sync` once). Subagents inherit skills through `copySetupTo`, which now passes `skills` and `mcp` as
    deltas (they were silently dropped before); their tools are pinned by the subagent tool from the child registry, which includes `skill`. Left out: following
    the disk during a running tool loop (it looks at the start of a request), and a host hook for other sources (the loader takes a list of roots).
-4. **MCP. Done.** `harness/mcp/client.ts` (JSON-RPC client; stdio and streamable-HTTP transports; no dependency), `harness/mcp/schema.ts`, `harness/mcp/servers.ts`
+4. **MCP. Done.** `harness/mcp/client.ts` (JSON-RPC client; stdio and streamable-HTTP transports; no dependency), `harness/schema-project.ts`, `harness/mcp/servers.ts`
    (configuration pin, acceptance state, naming, tool wrapping, `McpServers`), `syncMcpTools` in `loop.ts`, the tool set's `mcp` and `reloadMcp`, the server-wide `allow`
    in the grant store, and `/mcp` (list, `show`, `accept`, `forget`, `refresh`). Then the pool and subagent access (above).

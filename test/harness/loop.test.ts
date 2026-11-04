@@ -100,7 +100,7 @@ async function drive(convo: Conversation, registry: ToolRegistry, extra: Partial
 }
 
 describe("the model's tool convention", () => {
-  const nested: Tool = { definition: { name: "nest", description: "a tool with a list of objects", input_schema: { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: { type: "object", additionalProperties: false, properties: { a: { type: "string" } } } }, cfg: { type: "object", additionalProperties: false, properties: {} } } } }, execute: () => Promise.resolve({ content: "ok" }) };
+  const nested: Tool = { definition: { name: "nest", description: "a tool with a list of objects", input_schema: { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: { type: "object", additionalProperties: false, properties: { a: { type: "string" } } } }, cfg: { type: "object", additionalProperties: false, properties: { b: { type: "string" } } } } } }, execute: () => Promise.resolve({ content: "ok" }) };
 
   test("a flat model is refused any tool with nested arguments, naming the tool and why", async () => {
     convention = "flat";

@@ -137,6 +137,8 @@ export interface ProviderAdapter {
   /** The `$tag` it handles in `harness.yml`. */
   readonly $tag: string;
   stream(req: StreamRequest): ModelStream;
+  /** How much of a tool's JSON Schema the endpoint takes unless the model's info says otherwise (`ModelInfo.tool_schema`). Absent: `portable`. */
+  readonly toolSchema?: "full" | "portable";
   /** What a change of setup does that the harness cannot tell (cache, cost, capabilities). */
   /**
    * Fetch a finished response by the id reported in `observed.response_id`, for recovery after a crash.

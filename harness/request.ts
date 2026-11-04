@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { Conversation } from "./conversation.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
+import type { ToolDefinition } from "./definitions.ts";
 import { assertDefinitions, INSTRUCTIONS_NAME, loadDefinitions, loadPinned, type DefinitionSource } from "./definitions.ts";
 import type { ChangeKind } from "./entries.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
@@ -8,6 +9,7 @@ import { contextJson, estimateRequest, type Estimate } from "./estimate.ts";
 import { computeLedger, type Ledger } from "./ledger.ts";
 import { checkLimits, LimitExceeded, type CostWarning } from "./limits.ts";
 import { ChangeNotAllowed, pendingAppends, servedModelId, type AgentSetup } from "./setup.ts";
+import { projectDefinitions, toolSchemaLevel } from "./schema-project.ts";
 import { hasSkillTool, skillCatalog, skillUpdates, withCatalog } from "./skills.ts";
 import { tableHash } from "../providers/pricing.ts";
 
@@ -56,6 +58,11 @@ export interface Prepared {
  * once the provider has reported it). Throws `ChangeNotAllowed` for anything the host has not accepted, and
  * `ConversationError` if the agent has no model yet.
  */
+/** The tools as this model is shown them. A tool it cannot be shown is a failure of the loop's own check (`toolConventionProblems`), so it is dropped here only if that was bypassed. */
+function projectedTools(convo: Conversation, model: AgentSetup["model"], tools: ToolDefinition[]): ToolDefinition[] {
+  return projectDefinitions(tools, toolSchemaLevel(convo, model)).tools;
+}
+
 export async function prepareContext(convo: Conversation, opts: PrepareOptions): Promise<Prepared> {
   const setup = await convo.checkRequest(opts.standing);
   if (setup.model === undefined) throw new Error("this agent has no model: set one with setupChange first");
@@ -79,7 +86,7 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
     instructions: withCatalog(defs.prefixInstructions, hasSkillTool(setup) ? skillCatalog(renderer, defs.prefixSkills) : undefined),
     instructionUpdates,
     skillUpdates: skillNotes,
-    tools: defs.tools,
+    tools: projectedTools(convo, setup.model, defs.tools),
     target: { provider: setup.model.provider, model: servedModelId(setup.model) },
     readBytes: async (r) => {
       const bytes = await convo.store.get(r.sha256);

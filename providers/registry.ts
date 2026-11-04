@@ -22,6 +22,10 @@ import type { ProviderAdapter } from "./types.ts";
 export const TOOL_CONVENTIONS = ["full", "flat"] as const;
 export type ToolConvention = (typeof TOOL_CONVENTIONS)[number];
 
+/** How much JSON Schema an endpoint takes for a tool's arguments: `full` (as written) or `portable` (the subset every provider and local grammar compiler takes). */
+export const TOOL_SCHEMAS = ["full", "portable"] as const;
+export type ToolSchemaLevel = (typeof TOOL_SCHEMAS)[number];
+
 /** What is known about a model. Unknown fields are unknown; the harness only warns on what it can tell. */
 export const COST_TIERS = ["low", "medium", "high"] as const;
 export type CostTier = (typeof COST_TIERS)[number];
@@ -39,6 +43,8 @@ export interface ModelInfo {
   default_reasoning?: string | undefined;
   /** Default `full`. Measured by the `tools-nesting` live check, or set in `harness.yml`. */
   tool_convention?: ToolConvention | undefined;
+  /** What the endpoint takes of a tool's JSON Schema. Default: what the adapter says (`ProviderAdapter.toolSchema`), else `portable`. */
+  tool_schema?: ToolSchemaLevel | undefined;
 }
 
 export interface AdapterDefinition<C extends { $tag: string } = { $tag: string }> {
@@ -89,6 +95,7 @@ const modelInfoConfig = z
     context_window: z.number().int().positive().optional(),
     max_output_tokens: z.number().int().positive().optional(),
     tool_convention: z.enum(TOOL_CONVENTIONS).optional(),
+    tool_schema: z.enum(TOOL_SCHEMAS).optional(),
     description: z.string().min(1).optional(),
     cost_tier: z.enum(COST_TIERS).optional(),
     /** Level name (`low`, `high`, `off`, ...) to the settings that produce it, written as the provider's own `settings`. */

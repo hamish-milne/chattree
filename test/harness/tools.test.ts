@@ -66,7 +66,10 @@ describe("the registry", () => {
     assert.throws(() => r.add(tool("1bad")), ToolError);
     assert.throws(() => r.add(tool("has space")), ToolError);
     assert.throws(() => r.add({ ...tool("x"), definition: { name: "x", description: " ", input_schema: read } }), /needs a description/);
-    assert.throws(() => r.add(tool("x", { type: "object" })), /additionalProperties/);
+    // Any JSON Schema for an object is accepted as written (what a model is shown of it is decided per model); what is not one, or cannot be checked, is not.
+    assert.throws(() => r.add(tool("y", { type: "string" })), /must describe an object/);
+    assert.throws(() => r.add(tool("y", { type: "object", properties: { a: { $ref: "https://elsewhere.test/a.json" } } })), /cannot be used/);
+    r.add(tool("z", { type: "object", properties: { a: { anyOf: [{ type: "string", pattern: "^a" }, { type: "integer" }] } } }));
     r.add(tool("x"));
     assert.throws(() => r.add(tool("x")), /registered twice/);
   });

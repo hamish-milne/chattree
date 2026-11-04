@@ -138,10 +138,20 @@ Each scenario skips, not fails, when the model does not support tools. `--record
 
 How much of a tool's schema a model is actually shown depends on the model and on the server it is reached through. Ollama, for gpt-oss, prints a list as `any[]` and an object as `Record<string, any>` and drops what is inside, so the model guesses nested fields (step 4f). Each model therefore has a **tool convention**, in its catalog entry (`ModelInfo.tool_convention`) or under `providers.<name>.models.<model>.tool_convention` in `harness.yml`:
 
-- `full` (the default): any schema in the portable subset.
+- `full` (the default): any schema the model is shown (see 3.8: a model that takes only the portable subset is shown its narrowing).
 - `flat`: only a tool's top-level properties are reliably shown, so a tool must have scalar properties (or lists of scalars) and nothing nested.
 
 A flat schema is just a JSON Schema in that subset, not a second notation, so it keeps its per-property descriptions, goes through the same validation and coercion, and works on `full` models unchanged. The rule is therefore one-directional: every flat tool can be given to every model; a tool with nested arguments can only be given to `full` models. `flatProblems(schema)` (`harness/tool-schema.ts`) says why a schema is not flat, and `runLoop` refuses with `ToolsNotSupported`, naming each tool and the reason, when the agent's model is `flat` and the registry holds a tool that is not. The starter tools are all flat (a test keeps them so). The convention is looked up at request time, so a model change needs no setup change. `tools-nesting` in the live check sends a tool with a list of objects, scores whether the model fills it exactly right without repair, and prints the value to set. Not built, parked: a second, hand-written schema per tool for the convention, and the conventions `text` and `raw` (see the parking lot).
+
+### 3.8 Full schemas, shown per model
+
+A tool definition may carry any JSON Schema for an object, as written (an MCP server's schema is kept as it came). It is pinned and hashed as written, so a model change never looks like drift. Three things then use it differently:
+
+- **Validation** (`validateArgs`, `harness/tool-schema.ts`) is `ajv` (with `ajv-formats`) against the schema as written, draft-07 or 2020-12 by `$schema`, with its errors put in plain words ("id must match the pattern ...", "a does not match any of the shapes it may have"). So `pattern`, `format`, lengths, `anyOf` and `$ref` are enforced locally even where the model was shown less. `coerceArgs` repairs slips through local `$ref`s and nullable types. `schemaProblems` (the registry's check) refuses a schema that is not an object schema or cannot be compiled (a reference to another document).
+- **What the model is shown** is `projectSchema(schema, level)`, applied when a request is built (`harness/request.ts`), where `level` is `ModelInfo.tool_schema` (catalog, or `providers.<name>.models.<model>.tool_schema`), else the adapter's `toolSchema` (Anthropic and OpenAI Responses: `full`), else `portable`. `full` passes the schema on (without `$schema` and `$id`); `portable` narrows it to the subset below: constraints it cannot say move into the description, a free-form object or a choice between shapes is left out when optional.
+- **A tool a model cannot be shown** (a portable-only model and a required argument that cannot be narrowed) stops the loop with `ToolsNotSupported`, naming the tool and why, like the `flat` convention in 3.7; the fix is to skip the tool, use another model or set `tool_schema`.
+
+The portable subset (`checkSchema`) is still what the harness's own tools are written in (a test keeps them identical under narrowing).
 
 ## 4. Starter tools
 

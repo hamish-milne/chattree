@@ -8,6 +8,7 @@ import type { StreamEvent } from "../providers/types.ts";
 import type { Block } from "./context-builder.ts";
 import type { ToolConvention } from "../providers/registry.ts";
 import { servedModelId, type ModelSetup } from "./setup.ts";
+import { projectSchema, toolSchemaLevel } from "./schema-project.ts";
 import { flatProblems } from "./tool-schema.ts";
 import type { JobRegistry, JobStatus } from "./jobs.ts";
 import { keyProblem, permitted, untilAfter, type AllowMap } from "./approvals.ts";
@@ -136,24 +137,39 @@ export class ToolsOutOfSync extends Error {
   }
 }
 
-/** A tool the model's calling convention cannot show properly (docs/tools.md, 3.7). */
+/** A tool the model cannot be shown properly: its calling convention (docs/tools.md, 3.7) or the JSON Schema it takes cannot carry the arguments. */
 export class ToolsNotSupported extends Error {
   override name = "ToolsNotSupported";
   readonly convention: ToolConvention;
   readonly tools: { name: string; why: string[] }[];
   constructor(convention: ToolConvention, tools: { name: string; why: string[] }[]) {
-    super(`the model's tool convention is ${convention}, which cannot show: ${tools.map((t) => `${t.name} (${t.why.join(", ")})`).join("; ")}; give these tools flat arguments, remove them, or set tool_convention for this model`);
+    const what = tools.map((t) => `${t.name} (${t.why.join(", ")})`).join("; ");
+    super(
+      convention === "flat"
+        ? `the model's tool convention is ${convention}, which cannot show: ${what}; give these tools flat arguments, remove them, or set tool_convention for this model`
+        : `the model takes only the portable subset of JSON Schema for tools, which cannot show: ${what}; remove these tools (an MCP server's \`skip\`), use a model that takes full schemas, or set tool_schema for this model`,
+    );
     this.convention = convention;
     this.tools = tools;
   }
 }
 
-/** The tools in the registry that the agent's model cannot be given (none unless its convention is `flat`). */
+/**
+ * The tools in the registry that the agent's model cannot be given: with a `flat` convention those with nested arguments, and with a model that
+ * takes only the portable subset those whose schema cannot be narrowed to it (`projectSchema`).
+ */
 export function toolConventionProblems(convo: Conversation, registry: ToolRegistry, model: ModelSetup | undefined): { convention: ToolConvention; tools: { name: string; why: string[] }[] } {
   const info = model === undefined ? undefined : convo.modelInfo(model.provider, servedModelId(model));
   const convention = info?.tool_convention ?? "full";
-  if (convention === "full") return { convention, tools: [] };
-  return { convention, tools: registry.definitions().flatMap((d) => { const why = flatProblems(d.input_schema); return why.length > 0 ? [{ name: d.name, why }] : []; }) };
+  const level = toolSchemaLevel(convo, model);
+  const out: { name: string; why: string[] }[] = [];
+  for (const d of registry.definitions()) {
+    const p = projectSchema(d.input_schema, level);
+    // The flat check reads the schema the model is shown.
+    const why = !p.ok ? p.problems : convention === "flat" ? flatProblems(p.schema) : [];
+    if (why.length > 0) out.push({ name: d.name, why });
+  }
+  return { convention, tools: out };
 }
 
 /** How the agent's pinned tools differ from the registry. */

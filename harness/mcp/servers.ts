@@ -7,7 +7,8 @@ import type { AgentSetup, PinnedDefinition } from "../setup.ts";
 import type { Tool, ToolOutput } from "../tools.ts";
 import { httpTransport, McpClient, McpError, stdioTransport, type McpCallResult, type McpTool, type McpTransport } from "./client.ts";
 import type { McpPool } from "./pool.ts";
-import { toPortableSchema } from "./schema.ts";
+import { toPortableSchema } from "../schema-project.ts";
+import { schemaProblems } from "../tool-schema.ts";
 
 /**
  * MCP servers as the harness uses them (docs/context.md, section 2): a server's configuration is **accepted by the thread** (pinned in
@@ -163,6 +164,11 @@ function transportFor(host: Host, cwd: string, env: McpDeps["env"], cfg: McpServ
   return httpTransport({ url: cfg.url as string, headers, ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }) });
 }
 
+/** A server's schema for one tool as a definition's: no schema, or one that is not an object, is a tool with no arguments. */
+function rootSchema(input: unknown): Record<string, unknown> {
+  return typeof input === "object" && input !== null && !Array.isArray(input) && ((input as Record<string, unknown>)["type"] !== undefined || typeof (input as Record<string, unknown>)["properties"] === "object") ? (input as Record<string, unknown>) : { type: "object", properties: {} };
+}
+
 /** Read a connected server's tools and turn them into registry tools (also how a pooled connection is refreshed). */
 export async function listServer(client: McpClient, name: string, cfg: McpServerConfig, state: ServerStatus["state"], deps: { timeoutMs?: number }): Promise<ConnectedServer> {
   const listed = await client.listTools(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs });
@@ -172,17 +178,22 @@ export async function listServer(client: McpClient, name: string, cfg: McpServer
   for (const t of listed.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
     if (cfg.only !== undefined && !cfg.only.includes(t.name)) continue;
     if (cfg.skip?.includes(t.name) === true) continue;
-    const schema = toPortableSchema(t.inputSchema);
-    if (!schema.ok) {
-      status.skipped.push({ tool: t.name, why: schema.problems.join("; ") });
+    // The definition keeps the schema as the server wrote it; what a model is shown of it is decided per model (`projectSchema`).
+    const schema = rootSchema(t.inputSchema);
+    const problems = schemaProblems(schema);
+    if (problems.length > 0) {
+      status.skipped.push({ tool: t.name, why: problems.join("; ") });
       continue;
     }
+    // What a model that takes only the portable subset would lose, for `/mcp show`.
+    const portable = toPortableSchema(schema);
     let full = toolName(name, t.name);
     for (let n = 2; taken.has(full); n++) full = `${toolName(name, t.name).slice(0, MAX_NAME - 3)}_${n}`;
     taken.add(full);
-    tools.push(wrap(name, client, t, full, schema.schema));
+    tools.push(wrap(name, client, t, full, schema));
     status.tools.push({ name: full, tool: t.name });
-    for (const note of schema.notes) status.notes.push({ tool: t.name, note });
+    if (portable.ok) for (const note of portable.notes) status.notes.push({ tool: t.name, note });
+    else status.notes.push({ tool: t.name, note: `cannot be shown to a model that takes only the portable subset: ${portable.problems.join("; ")}` });
   }
   return { client, tools, status };
 }

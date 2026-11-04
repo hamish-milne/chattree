@@ -7,7 +7,7 @@ import { harnessConfig } from "../../harness/config.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { runLoop, syncMcpTools, syncTools, toolDrift, ToolsOutOfSync } from "../../harness/loop.ts";
 import { connectServer, McpServers, pinServer, resultText, serverOf, serverState, toolName, type McpServerConfig } from "../../harness/mcp/servers.ts";
-import { toPortableSchema } from "../../harness/mcp/schema.ts";
+import { toPortableSchema } from "../../harness/schema-project.ts";
 import { ToolRegistry } from "../../harness/tools.ts";
 import { checkSchema } from "../../harness/tool-schema.ts";
 import { parseConfig } from "../../src/config.ts";
@@ -87,23 +87,32 @@ describe("a connected server", () => {
     }
   });
 
-  test("only and skip narrow the tools; a tool whose schema cannot be narrowed is reported, not offered", async () => {
+  test("only and skip narrow the tools; a tool is kept as written, and only one whose schema cannot be used at all is reported and not offered", async () => {
     const tools: FakeTool[] = [
       { name: "a", description: "A", inputSchema: { type: "object", properties: {} } },
       { name: "b", description: "B", inputSchema: { type: "object", properties: {} } },
-      { name: "bad", description: "needs a free-form object", inputSchema: { type: "object", properties: { o: { type: "object" } }, required: ["o"] } },
+      { name: "free", description: "needs a free-form object", inputSchema: { type: "object", properties: { o: { type: "object" } }, required: ["o"] } },
+      { name: "broken", description: "refers to another document", inputSchema: { type: "object", properties: { x: { $ref: "https://elsewhere.test/x.json" } } } },
     ];
     const env = { MCP_FAKE_TOOLS: JSON.stringify(tools) };
-    const all = await connectServer("s", stdioCfg({ env }), "accepted", deps);
-    assert.deepEqual(all.status.tools.map((t) => t.tool), ["a", "b"]);
-    assert.deepEqual(all.status.skipped.map((s) => s.tool), ["bad"]);
-    await all.client.close();
-    const only = await connectServer("s", stdioCfg({ env, only: ["a", "bad"] }), "accepted", deps);
-    assert.deepEqual(only.status.tools.map((t) => t.tool), ["a"]);
-    await only.client.close();
-    const skip = await connectServer("s", stdioCfg({ env, skip: ["a"] }), "accepted", deps);
-    assert.deepEqual(skip.status.tools.map((t) => t.tool), ["b"]);
-    await skip.client.close();
+    const open: { client: { close(): Promise<void> } }[] = [];
+    const connect = async (over: Partial<McpServerConfig>) => {
+      const c = await connectServer("s", stdioCfg({ env, ...over }), "accepted", deps);
+      open.push(c);
+      return c;
+    };
+    try {
+      const all = await connect({});
+      assert.deepEqual(all.status.tools.map((t) => t.tool), ["a", "b", "free"]);
+      assert.deepEqual(all.status.skipped.map((s) => s.tool), ["broken"]);
+      // The definition has the schema as the server wrote it; what a portable-only model would lose is a note.
+      assert.deepEqual(all.tools.find((t) => t.definition.name === "mcp__s__free")?.definition.input_schema, tools[2]?.inputSchema);
+      assert.match(all.status.notes.find((n) => n.tool === "free")?.note ?? "", /portable subset: .*free-form object/);
+      assert.deepEqual((await connect({ only: ["a", "free"] })).status.tools.map((t) => t.tool), ["a", "free"]);
+      assert.deepEqual((await connect({ skip: ["a"] })).status.tools.map((t) => t.tool), ["b", "free"]);
+    } finally {
+      await Promise.all(open.map((c) => c.client.close()));
+    }
   });
 
   test("names that collide once made safe get distinct registry names", async () => {

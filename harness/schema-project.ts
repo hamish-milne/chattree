@@ -1,10 +1,14 @@
-import { checkSchema } from "../tool-schema.ts";
+import type { Conversation } from "./conversation.ts";
+import type { ToolDefinition } from "./definitions.ts";
+import { servedModelId, type ModelSetup } from "./setup.ts";
+import { checkSchema, schemaProblems } from "./tool-schema.ts";
 
 /**
- * MCP tools describe their arguments in full JSON Schema; the harness's tool definitions are the portable subset (docs/tools.md, 3.6). This
- * narrows a server's schema to the subset: constraints the subset cannot say (`pattern`, `format`, lengths) are dropped from the schema and
- * moved into the description, where the model still reads them, and the server checks the real thing anyway. What cannot be narrowed (a free-form
- * object, a choice between different types) is left out when the argument is optional; when it is required the tool cannot be offered.
+ * What a model is shown of a tool's schema. A tool definition keeps its schema as written (any JSON Schema); what goes into a request depends on
+ * what the model's endpoint takes (`ModelInfo.tool_schema`): `full` passes it on, `portable` narrows it to the subset every provider and local
+ * grammar compiler takes (docs/tools.md, 3.6). Narrowing moves the constraints the subset cannot say (`pattern`, `format`, lengths) into the
+ * description, where the model still reads them, and the validator enforces the real thing when the call arrives. What cannot be narrowed (a
+ * free-form object, a choice between different types) is left out when the argument is optional; when it is required the tool cannot be shown.
  */
 
 type Schema = Record<string, unknown>;
@@ -108,4 +112,34 @@ export function toPortableSchema(input: unknown): Converted {
     if (e instanceof Unsupported) return { ok: false, problems: [e.message] };
     throw e;
   }
+}
+
+export type SchemaLevel = "full" | "portable";
+
+/** The schema as the model's endpoint should be given it, or why this endpoint cannot be given the tool. */
+export function projectSchema(input: unknown, level: SchemaLevel): Converted {
+  if (level === "portable") return toPortableSchema(input);
+  const problems = schemaProblems(input);
+  if (problems.length > 0) return { ok: false, problems };
+  // `$schema` and `$id` name the document, not the arguments; some endpoints refuse them.
+  const { $schema: _s, $id: _i, ...rest } = input as Schema;
+  return { ok: true, schema: rest, notes: [] };
+}
+
+/** What the agent's model takes of a tool's schema: the model's own info, else what its adapter says, else the portable subset. */
+export function toolSchemaLevel(convo: Pick<Conversation, "modelInfo" | "providers">, model: ModelSetup | undefined): SchemaLevel {
+  if (model === undefined) return "portable";
+  return convo.modelInfo(model.provider, servedModelId(model))?.tool_schema ?? convo.providers.get(model.provider)?.toolSchema ?? "portable";
+}
+
+/** The definitions as a request carries them for a model that takes `level`, and the tools that cannot be shown to it (with why). */
+export function projectDefinitions(defs: readonly ToolDefinition[], level: SchemaLevel): { tools: ToolDefinition[]; refused: { name: string; why: string[] }[] } {
+  const tools: ToolDefinition[] = [];
+  const refused: { name: string; why: string[] }[] = [];
+  for (const d of defs) {
+    const p = projectSchema(d.input_schema, level);
+    if (p.ok) tools.push(p.schema === d.input_schema ? d : { ...d, input_schema: p.schema });
+    else refused.push({ name: d.name, why: p.problems });
+  }
+  return { tools, refused };
 }

@@ -91,7 +91,7 @@ const mcp: Command = {
             return;
           }
           const notes = s.notes.filter((n) => n.tool === t.tool).map((n) => `  ${n.note}`);
-          yield { type: "text", text: `${t.name}\n${tool.definition.description}\n\n${JSON.stringify(tool.definition.input_schema, null, 2)}${notes.length > 0 ? `\n\nchanged to fit:\n${notes.join("\n")}` : ""}` };
+          yield { type: "text", text: `${t.name}\n${tool.definition.description}\n\n${JSON.stringify(tool.definition.input_schema, null, 2)}${notes.length > 0 ? `\n\nfor a model that takes only the portable subset:\n${notes.join("\n")}` : ""}` };
           return;
         }
         const lines = s.tools.map((t) => `${t.tool}  ${flat((set.registry.get(t.name)?.definition.description ?? "").replace(/^\[MCP server [^\]]*\]\s*/, ""), 110)}`);
