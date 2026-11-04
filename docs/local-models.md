@@ -10,28 +10,32 @@ Status: **planned** (2026-11-04). Nothing here is built. The aim is to host loca
 - **Model id in history** is `name@hash8` (the first 8 hex digits of the GGUF's SHA-256), so a changed file under the same name shows as a model change.
 - Installing a downloaded binary is a consent step (tag, URL, size, hash) under the dependency policy (docs/dependencies.md); `-y` skips it. Hashes are recorded on first fetch in a lock file and checked at every start. No implicit "latest".
 
-## 2. What was found
+## 2. What was found (the spike, 2026-11-04)
 
-Read from the projects' own READMEs (2026-11-04) unless marked.
+Everything marked **checked** was run in the sandbox: llama-swap built with `go install github.com/mostlygeek/llama-swap@main` (`@latest` resolves to a very old pre-v1 tag: use `@main` or a commit), llama.cpp (the `vendor/llama.cpp` of the `llama-cpp-python` 0.3.36 sdist, "0.5.0-dev", Oct 2026) built from source with cmake (about 15 minutes on 2 CPUs), and `unsloth/Qwen3-0.6B-GGUF` Q4_K_M (397 MB) as the model. **Not checked:** the release asset names of either project (`github.com` and `api.github.com` are still blocked here, so the installer's asset selection is designed from the READMEs and must be confirmed against the releases page).
 
-**llama-swap** ([README](https://github.com/mostlygeek/llama-swap), [configuration](https://github.com/mostlygeek/llama-swap/wiki/Configuration)):
-- Config model keys: `cmd` (with `${PORT}`), `proxy`, `ttl`, `aliases`, `env`, `checkEndpoint`, `filters.strip_params`, `unlisted`, `useModelName`, `cmdStop`, `name`, `description`, `concurrencyLimit`; top level `healthCheckTimeout` (default 120, minimum 15), `startPort`, `macros`, `groups` (`swap`, `exclusive`, `persistent`, `members`), `unloadTimeout`, `hooks.on_startup.preload`.
-- Flags (the page mixes `-flag` and `--flag`; Go accepts both): `-config`, `-listen` (examples use `localhost:8080`; the Docker image defaults to `0.0.0.0:8080`), `-watch-config` (default **true in the Docker image**; the plain binary's default is not stated), `-config-dir`, TLS flags, `-version`.
-- Endpoints: `/v1/models`, `/running`, `POST /api/models/unload` (all) and `POST /api/models/unload/:model_id`, `POST /api/models/pause` and `/resume`, `/health` ("OK"), `/metrics`, `/upstream/:model_id`, `/ui`, and logs at `/logs`, `/logs/stream` (`?no-history`), `/logs/stream/{proxy,upstream,http}` and `/logs/stream/{model_id}`. There is no bare `/unload`.
-- Release binaries exist for Linux, Mac, Windows and FreeBSD; **the asset names are not on the page** (and the sandbox cannot reach the releases). Packaged installs exist too: Homebrew, WinGet, MacPorts (community), Docker images by backend (`unified-cuda13`, `unified-cuda`, `unified-vulkan`, `cpu`, ...).
+**llama-swap** (flags and behaviour checked on `main`):
+- Flags: `-config`, `-config-dir` (additive `*.yml`), `-listen` (default `:8080`), `-watch-config` (**default off** in the binary; on in the Docker image), `-validate` (parse the config and exit: "config is valid: 2 model(s)"), `-version`, TLS flags.
+- A request for an unloaded model starts it, and by default only one model runs (the previous one is stopped). `ttl` unloads after idle (checked). A model's alias is accepted and the request body goes through unchanged (`model: "a"` reaches the upstream as `a`) unless `useModelName` is set.
+- `-watch-config`: editing the file adds and removes models within about two seconds (checked); **an invalid file keeps the old configuration** and logs `failed to reload config: ...` (checked).
+- Endpoints (checked): `GET /v1/models` (each entry has `status.value`: `unloaded`, `ready`, ... and `meta.llamaswap.aliases`), `GET /running` (`state`, `cmd`, `proxy`, `ttl`), `POST /api/models/unload` (`{"msg":"ok"}`), `/upstream/<id>/<path>` (reaches the upstream's own `/props`), `/health`, logs at `/logs`, `/logs/stream[/{model_id}]`.
+- With llama-server as the upstream: first request including model load took 1.7 s (0.6B model). The response's `model` field is llama-server's own name for the model (its file path), not the llama-swap id.
 
-**llama-server** ([README](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md), flags as read):
-- Hosting: `--host` (default 127.0.0.1), `--port`, `--api-key` / `--api-key-file`, `--offline`; `-m`; `-hf <user>/<model>[:quant]` (default Q4_K_M, the mmproj is fetched too unless `--no-mmproj`); `-c` (0 = from the model); `-ngl` (default auto); `-fa on|off|auto`; `-ctk` / `-ctv`; `-t`; `-np`; `--embeddings`.
-- Templates: `--jinja` (**on by default**), `--chat-template-file`, `--chat-template-kwargs` (a JSON string), `--reasoning-format none|deepseek|deepseek-legacy` (default auto).
-- Sampling defaults: `--temp` 0.80, `--top-k` 40, `--top-p` 0.95, `--min-p` 0.05.
-- **Router mode is further along than the first article said:** `--models-dir`, `--models-preset` (INI), `--models-max` (default 4, 0 = unlimited), `--models-autoload`, and `--models-memory-margin N` (keeps N MiB free per device by unloading *least-recently-used* models). `GET /models` or `/v1/models` report capabilities such as `multimodal`. There is no per-model idle TTL that I could find. The preset INI keys, any load and unload endpoints, and the shape of `GET /props` are **not in the part of the README that could be read**.
-- `GET /health` is public: 503 "Loading model" while loading, then 200 `{"status":"ok"}`.
+**llama-server** (checked):
+- `GET /props`: `default_generation_settings.n_ctx` and `.params` (the sampling defaults actually in force), `total_slots`, `model_path`, `modalities` (`vision`, `video`, `audio`), `chat_template`, `chat_template_caps` (`supports_tools`, `supports_tool_calls`, `supports_parallel_tool_calls`, `supports_system_role`, `supports_preserve_reasoning`, ...), `bos_token`, `eos_token`, `build_info`, `is_sleeping`. This is the catalog's source for context size, tool support and vision.
+- `GET /v1/models` adds `meta.n_ctx`, `n_ctx_train`, `n_params`, `size`, `vocab_type`.
+- `/health` is 200 `{"status":"ok"}` once the model is ready.
+- A tool call through `/v1/chat/completions` worked (Qwen3-0.6B with the model's own template, `--jinja` on by default): `finish_reason: tool_calls`, the reasoning in `reasoning_content`, `usage` with `prompt_tokens_details.cached_tokens`, and `timings`. About 20 tokens/s on 2 CPUs.
+- **Sampling metadata is applied, under different key names than the proposal in the llama.cpp discussion:** the source reads `general.sampling.{temp,top_k,top_p,min_p,xtc_probability,xtc_threshold,penalty_last_n,sequence,...}`, not `general.default_sampling.*`. A copy of the model with `general.sampling.temp=0.123`, `top_k=7`, `top_p=0.77` and no flags showed exactly those in `/props` (checked). Flags override (`--temp 0.6 --top-k 20` showed in `/props`). The common GGUFs do not carry the keys: the Unsloth Qwen3 file has none (and no `general.base_model`).
+- **Router mode works** (`--models-preset file.ini`, checked): `[*]` is shared settings (`ctx-size`, `threads`, ...), a `[name]` section is a model (`model = /path.gguf`, any long CLI option without the dashes, `temp`, `sleep-idle-seconds`, `stop-timeout`, `load-on-startup`, `tags`, aliases); `--models-max N` evicts the least recently used model on the next request (checked with N=1); `GET /v1/models` shows `status.value` (`unloaded`, `loading`, `loaded`, `sleeping`) with each model's resolved `args` and `preset`; `POST /models/load` and `/models/unload` (`{"model": "..."}`, answers `{"success":true}`); `GET /models/sse` streams status changes; `sleep-idle-seconds` per model made an idle model go to `sleeping`. The INI is **not watched**: `GET /models?reload=1` re-reads it and adds the new models (checked). The router warns "do not expose to untrusted environments"; each model is a child process on a random port.
+- `--sleep-idle-seconds` exists for a single server too.
 
-**Sampling metadata** (from the llama.cpp discussion): `general.default_sampling.*` keys were merged in Nov 2025; a March 2026 report says llama-server ignored them and `/props` showed built-in defaults. Not relied on.
+**Hugging Face** (checked):
+- `HEAD https://huggingface.co/<repo>/resolve/main/<file>` answers a 302 with `x-linked-etag` (the file's SHA-256, equal to `sha256sum` of the download), `x-linked-size`, `x-repo-commit`, `accept-ranges: bytes`; the redirect goes to `us.aws.cdn.hf.co` (the xet bridge), which also takes ranges. A 397 MB download took seconds from here.
+- `GET /api/models/<repo>` for a GGUF repo returns `gguf` (`total`, `architecture`, `context_length`, `chat_template`), `tags` including `base_model:Qwen/Qwen3-0.6B`, `cardData.base_model` and the file list (`siblings`). A repository that does not exist answers 401, not 404.
+- The base repo's `generation_config.json` carries the recommended sampling (Qwen/Qwen3-0.6B: `temperature 0.6, top_k 20, top_p 0.95`); the GGUF repo has none. So the lookup of section 5 works through the API's `base_model`, not through the GGUF header.
 
-**Hugging Face downloads** go through `https://huggingface.co/<repo>/resolve/<rev>/<file>` (Range requests; `x-linked-etag` carries the LFS hash): from memory, to be checked.
-
-**The sandbox cannot run the spike's downloads.** From the shell, `api.github.com`, the GitHub release assets and `huggingface.co` answer 403 (the proxy allows the package registries and, through `add_repo`, git clones). The remaining spike items need either those hosts opened or a real machine.
+**Engine choice, in the light of this.** Router mode is a real alternative: one binary, status and per-model arguments visible, an SSE stream of state changes, LRU eviction and per-model idle sleep, a settings file we generate in INI. llama-swap adds backends other than llama.cpp, groups, aliases and its own proxy and logs. The decision stands (llama-swap first, an `Engine` interface), but router mode could become the default later, since it removes a download; the cost of adding it is mostly the INI writer and the status mapping.
 
 ## 3. Components
 
@@ -69,7 +73,7 @@ local_models:
 
 ## 5. Sampling, in this order, never applied silently
 
-1. `sampling` in the settings. 2. `general.default_sampling.*` read from the GGUF header with a small Range request (parsed by us). 3. `generation_config.json` of the base model's repository (found through the GGUF's `general.base_model` metadata), if there is one. 4. Nothing. `chattree models info <name>` shows the values and where each came from, and offers to write them into the settings.
+1. `sampling` in the settings. 2. `general.sampling.*` read from the GGUF header with a small Range request (parsed by us; llama-server applies these itself, so this is to show and pin them). 3. `generation_config.json` of the base model's repository, found through the Hugging Face API's `base_model` (`cardData.base_model` or the `base_model:` tag): `temperature`, `top_k`, `top_p`. 4. Nothing. `chattree models info <name>` shows the values and where each came from, and offers to write them into the settings.
 
 ## 6. Risks
 
@@ -81,7 +85,7 @@ A model entry may say `embeddings: true` (llama-server `--embeddings`); that is 
 
 ## 8. Build order
 
-0. **Spike** (needs approval for downloads): llama-swap flags, reload behaviour, release assets and `/running`; router mode as the alternative; `/props`; the sampling-metadata bug; a GGUF header parse. Update this document with the facts.
+0. **Spike: done** (section 2). Left over: the release asset names of llama-swap and llama.cpp (blocked here), and a first real GPU run.
 1. Settings schema, `data_dir`, and the pure functions: settings to download list, llama-server flags and llama-swap config (unit tests).
 2. Downloader and installer against a fake HTTP server (resume, hash mismatch, multi-part).
 3. `LocalModelHost`: state machine, supervisor, settings watcher, tested against a fake llama-swap script.
