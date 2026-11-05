@@ -31,6 +31,10 @@ export interface Download {
   url: string | undefined;
   file: string | undefined;
   sha256: string | undefined;
+  /** The size, when it is known beforehand. */
+  size?: number | undefined;
+  /** The model's directory; files are kept in it. */
+  dir: string;
   /** Where it is kept once downloaded. Undefined with `file`. */
   dest: string | undefined;
   /** What the downloader must ask Hugging Face before it can fetch: the repository and quantisation to find the file of. */
@@ -57,19 +61,19 @@ export function downloadList(config: LocalModels, path: PathApi, data: string): 
       continue;
     }
     if (source.kind === "hf-quant") {
-      downloads.push({ model, role: "model", url: undefined, file: undefined, sha256: m.sha256, dest: undefined, resolve: { repo: source.repo, revision: source.revision, quant: source.quant } });
+      downloads.push({ model, role: "model", url: undefined, file: undefined, sha256: m.sha256, dir, dest: undefined, resolve: { repo: source.repo, revision: source.revision, quant: source.quant } });
     } else {
       const url = source.kind === "url" ? source.url : hfUrl(source.repo, source.revision, source.file);
-      downloads.push({ model, role: "model", url, file: source.file, sha256: m.sha256, dest: path.join(dir, source.file.split("/").at(-1) as string) });
+      downloads.push({ model, role: "model", url, file: source.file, sha256: m.sha256, dir, dest: path.join(dir, source.file.split("/").at(-1) as string) });
     }
     const p = m.mmproj;
     if (p !== undefined) {
       if (p.url !== undefined) {
         const file = decodeURIComponent(new URL(p.url).pathname.split("/").filter((s) => s !== "").at(-1) ?? "");
-        downloads.push({ model, role: "mmproj", url: p.url, file, sha256: p.sha256, dest: path.join(dir, file) });
+        downloads.push({ model, role: "mmproj", url: p.url, file, sha256: p.sha256, dir, dest: path.join(dir, file) });
       } else if (source.kind !== "url") {
         const file = p.file as string;
-        downloads.push({ model, role: "mmproj", url: hfUrl(source.repo, source.revision, file), file, sha256: p.sha256, dest: path.join(dir, file.split("/").at(-1) as string) });
+        downloads.push({ model, role: "mmproj", url: hfUrl(source.repo, source.revision, file), file, sha256: p.sha256, dir, dest: path.join(dir, file.split("/").at(-1) as string) });
       }
     }
   }

@@ -82,6 +82,15 @@ Implemented in `localmodels/config.ts` (schema, `modelSource`), `localmodels/rel
 
 **Releases (llama.cpp).** A build tag (`b12110`) has the files, named `llama-<tag>-bin-<os>[-<backend>[-<cuda version>]]-<arch>.<tar.gz|zip>` (`os`: `win`, `ubuntu`, `macos`; macOS has no backend suffix and means Metal). A version tag (`v0.9.0`) has no files; its description links to the build (`releases/tag/bNNNN`), which the installer follows (`resolveVersionTag`, from the release's JSON; an error says to set a build tag when there is no link). The CUDA runtime is a separate file (`cudart-llama-bin-win-cuda-12.4-x64.zip`, with no tag on Windows; `cudart-llama-<tag>-bin-ubuntu-cuda-12.8-x64.tar.gz` on Linux), unpacked beside the program. GitHub shows a SHA-256 per file, which the hash lock records. `auto` means Metal on a Mac and the CPU elsewhere until the host can detect a GPU.
 
+**Fetching (implemented in `localmodels/net.ts`, `download.ts`, `hf.ts`, `lock.ts`, `store.ts`, `install.ts`).**
+
+- Redirects are followed by hand so a Hugging Face token goes only to the first host, never to the CDN it redirects to.
+- A file is written to `<name>.part`, continued with a Range request, checked for size and SHA-256 while it streams, and renamed only when right. A server that ignores Range, or a part longer than the file, restarts the download once. A cut connection is an error that says running it again continues.
+- `org/repo:QUANT` is resolved with the repository tree API (`lfs.oid` is the SHA-256). A quantisation matches as a whole word of the path (`Q4_K` is not `Q4_K_M`), a folder named for it counts, and a split model (`-00001-of-00003.gguf`) comes as all its parts, or an error if one is missing. An explicit `file:` or `url:` on Hugging Face gets its hash from the `x-linked-etag` of the redirect.
+- `lock.json` in the data directory records the hash and size of every program archive and model file at first fetch, and what each quantisation resolved to. A recorded file that is present with its recorded size is used without asking the network, so the host starts offline. A program archive whose hash differs from the recorded one is refused. Updating a model whose upstream moved is a later explicit verb (`pull --force`), never a silent re-download.
+- The llama.cpp installer reads the release from the GitHub API (the `digest` of each asset is the hash), tells the caller the tag, files, sizes and hashes before downloading (`confirm`; declining is `InstallDeclined`), unpacks with `tar` into a temporary directory, adds the CUDA runtime beside the program, runs `llama-server --version` and only then moves it to `<data>/llama.cpp/<build>-<backend>`. A program that does not start is removed and the error suggests another backend. No tag in the settings means no download.
+- `name@hash8` is `modelId(name, fetched)`.
+
 ## 5. Sampling, in this order, never applied silently
 
 1. `sampling` in the settings. 2. `general.sampling.*` read from the GGUF header with a small Range request (parsed by us; llama-server applies these itself, so this is to show and pin them). 3. `generation_config.json` of the base model's repository, found through the Hugging Face API's `base_model` (`cardData.base_model` or the `base_model:` tag): `temperature`, `top_k`, `top_p`. 4. Nothing. `chattree models info <name>` shows the values and where each came from, and offers to write them into the settings.
@@ -98,7 +107,7 @@ A model entry may say `embeddings: true` (llama-server `--embeddings`); that is 
 
 0. **Spike: done** (section 2). Left over: a first real GPU run. The llama.cpp asset names are known (section 4).
 1. Settings schema, `data_dir`, and the pure functions: settings to download list, llama-server flags and the router preset (unit tests): **done**.
-2. Downloader and installer against a fake HTTP server (resume, hash mismatch, multi-part).
+2. Downloader and installer against a fake HTTP server (resume, hash mismatch, multi-part): **done**.
 3. `LocalModelHost`: state machine, supervisor, settings watcher, tested against a fake llama-server script.
 4. Daemon, control API, discovery and lock, the verbs, Windows detached start.
 5. `local-models` adapter, catalog, `init --provider local-models`, engine hook and progress output.
