@@ -91,6 +91,15 @@ Implemented in `localmodels/config.ts` (schema, `modelSource`), `localmodels/rel
 - The llama.cpp installer reads the release from the GitHub API (the `digest` of each asset is the hash), tells the caller the tag, files, sizes and hashes before downloading (`confirm`; declining is `InstallDeclined`), unpacks with `tar` into a temporary directory, adds the CUDA runtime beside the program, runs `llama-server --version` and only then moves it to `<data>/llama.cpp/<build>-<backend>`. A program that does not start is removed and the error suggests another backend. No tag in the settings means no download.
 - `name@hash8` is `modelId(name, fetched)`.
 
+**The host (`localmodels/engine.ts`, `host.ts`).**
+
+- `Engine` is the seam: `start(spec)` gives an `EngineProcess` (`baseUrl`, `exited`, `models()`, `reload()`, `load`, `unload`, `stop`). `RouterEngine` runs llama-server in router mode through a `SpawnFn` (replaced in tests) and waits for `GET /v1/models` to answer, within `server.health_timeout` seconds (default 60); if the program ends first, the error carries the last lines it printed.
+- `LocalModelHost` takes the data directory, the settings section, platform and architecture, and gives `start()`, `stop()`, `apply(config)`, `load`, `unload`, `logs()`, `state` and `on(listener)`. Operations run one at a time. The state is `{phase, baseUrl, error, models, tag, restarts, ids}`; phases are `idle, installing, downloading, starting, ready, restarting, stopping, stopped, error`. Events: `state`, `install`, `store` (download progress), `models`, `log`. This is what the CLI will print and a GUI will show.
+- Start: install (or the configured `path`), fetch every model (a model that cannot be fetched or a url that is not a `.gguf` stops the start with the reason), write `run/preset.ini`, pick a free port for `port: auto`, start, wait for the answer. `stop()` during a slow start cancels it.
+- Supervisor: a server that exits unexpectedly is started again with exponential backoff (1 s, doubling to 30 s); one that ran a minute counts as healthy; after five failed starts in a row the phase is `error` with the reason and the last output.
+- `apply(config)`: a change to `llama_cpp`, `server` (host, port, `models_max`, webui, timeout) or `engine` restarts the server. Any other change is fetched if needed, written to the preset, and read with `GET /models?reload=1`; models whose preset section changed (all loaded ones when `defaults` changed) are unloaded so the next request loads them with the new settings, and the rest are left alone. A change that fails (a download) leaves the old settings running and puts the reason in `state.error`. While stopped, the settings are kept for the next start.
+- Model states are polled once a second while the server is up (the SSE stream, `/models/sse`, can replace the polling later).
+
 ## 5. Sampling, in this order, never applied silently
 
 1. `sampling` in the settings. 2. `general.sampling.*` read from the GGUF header with a small Range request (parsed by us; llama-server applies these itself, so this is to show and pin them). 3. `generation_config.json` of the base model's repository, found through the Hugging Face API's `base_model` (`cardData.base_model` or the `base_model:` tag): `temperature`, `top_k`, `top_p`. 4. Nothing. `chattree models info <name>` shows the values and where each came from, and offers to write them into the settings.
@@ -108,7 +117,7 @@ A model entry may say `embeddings: true` (llama-server `--embeddings`); that is 
 0. **Spike: done** (section 2). Left over: a first real GPU run. The llama.cpp asset names are known (section 4).
 1. Settings schema, `data_dir`, and the pure functions: settings to download list, llama-server flags and the router preset (unit tests): **done**.
 2. Downloader and installer against a fake HTTP server (resume, hash mismatch, multi-part): **done**.
-3. `LocalModelHost`: state machine, supervisor, settings watcher, tested against a fake llama-server script.
+3. `LocalModelHost`: state machine, supervisor, applying changed settings, tested against a fake llama-server script: **done** (watching the settings *file* belongs to the daemon, step 4).
 4. Daemon, control API, discovery and lock, the verbs, Windows detached start.
 5. `local-models` adapter, catalog, `init --provider local-models`, engine hook and progress output.
 6. Sampling resolution and `models info`.

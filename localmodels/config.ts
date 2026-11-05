@@ -102,6 +102,8 @@ const server = z.strictObject({
   models_max: nonNegative.default(1),
   /** Stop the host when it has had no request for this many minutes. Default: never. */
   idle_exit_minutes: z.number().int().positive().optional(),
+  /** How long to wait, in seconds, for llama-server to answer after it starts. */
+  health_timeout: z.number().int().positive().default(60),
   /** Serve llama-server's own web page. */
   webui: z.boolean().default(false),
 });
@@ -111,7 +113,7 @@ export const localModelsSchema = z
     /** The engine that runs the models. Only `router` (llama-server's own router mode) exists so far; the host is written against an interface so another can be added. */
     engine: z.literal("router").default("router"),
     llama_cpp: llamaCpp.default({ backend: "auto" }),
-    server: server.default({ host: "127.0.0.1", port: "auto", models_max: 1, webui: false }),
+    server: server.default({ host: "127.0.0.1", port: "auto", models_max: 1, health_timeout: 60, webui: false }),
     defaults: z.strictObject(params).default({}),
     /** The environment variable that holds a Hugging Face token, for repositories that need one. */
     hf_token_env: envName.optional(),

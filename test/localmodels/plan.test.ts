@@ -15,7 +15,7 @@ describe("the local_models section", () => {
   test("has defaults", () => {
     const c = parse({});
     assert.equal(c.engine, "router");
-    assert.deepEqual(c.server, { host: "127.0.0.1", port: "auto", models_max: 1, webui: false });
+    assert.deepEqual(c.server, { host: "127.0.0.1", port: "auto", models_max: 1, health_timeout: 60, webui: false });
     assert.equal(c.llama_cpp.backend, "auto");
     assert.deepEqual(c.models, {});
   });
