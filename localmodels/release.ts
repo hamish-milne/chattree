@@ -130,3 +130,8 @@ export function resolveVersionTag(version: string, releaseBody: string): { ok: t
 }
 
 export const releaseApiUrl = (tag: string): string => `https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/${encodeURIComponent(tag)}`;
+
+/** The platform and architecture of this process, in the release's terms. */
+export function thisMachine(): { platform: Platform; arch: Arch } {
+  return { platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux", arch: process.arch === "arm64" ? "arm64" : "x64" };
+}

@@ -140,6 +140,8 @@ export class LocalModelHost {
   start(): Promise<HostState> {
     this.#wanted = true;
     this.#abort = new AbortController();
+    // The phase changes now, not when the queue gets to it, so whoever asked sees a start in progress and not the end of the last one.
+    if (this.#proc === undefined && ["idle", "stopped", "error"].includes(this.#state.phase)) this.#set({ phase: "installing", error: undefined });
     return this.#enqueue(async () => {
       if (this.#proc !== undefined) return this.#state;
       await this.#bringUp(this.#config);
@@ -325,8 +327,8 @@ export class LocalModelHost {
     });
     this.#proc = proc;
     const startedAt = Date.now();
-    this.#set({ phase: "ready", baseUrl: proc.baseUrl, error: undefined });
-    await this.#refreshModels();
+    const models = await proc.models().catch(() => []);
+    this.#set({ phase: "ready", baseUrl: proc.baseUrl, error: undefined, models });
     this.#startPolling();
     void proc.exited.then(() => this.#died(proc, startedAt));
   }

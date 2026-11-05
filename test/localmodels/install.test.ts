@@ -9,41 +9,14 @@ import { DownloadError } from "../../localmodels/download.ts";
 import { ensureLlamaServer, InstallDeclined, InstallError, type InstallEvent, type InstallPlan } from "../../localmodels/install.ts";
 import { Lock, LockError } from "../../localmodels/lock.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
+import { fakeLlamaRelease } from "../support/llama-release.ts";
 import { tempDir } from "../support/tmp.ts";
-
-async function tarball(dir: string, name: string, files: Record<string, string>): Promise<Buffer> {
-  const src = join(dir, `src-${name}`);
-  for (const [path, text] of Object.entries(files)) {
-    await mkdir(join(src, path, ".."), { recursive: true });
-    await writeFile(join(src, path), text);
-  }
-  const out = join(dir, name);
-  execFileSync("tar", ["-czf", out, "-C", src, "."]);
-  return readFile(out);
-}
-
-const sha = (b: Buffer): string => createHash("sha256").update(b).digest("hex");
 
 async function setup(opts: { digest?: (b: Buffer) => string } = {}) {
   const server = await HttpFixture.start();
   const work = await tempDir();
   const data = await tempDir();
-  const program = await tarball(work, "program.tar.gz", { "llama-b100/llama-server": "#!/bin/sh\n", "llama-b100/libllama.so": "lib" });
-  const cudart = await tarball(work, "cudart.tar.gz", { "libcudart.so.12": "cuda" });
-  const digest = opts.digest ?? sha;
-  const asset = (name: string, b: Buffer) => ({ name, size: b.length, digest: `sha256:${digest(b)}`, browser_download_url: `${server.base}/dl/${name}` });
-  const assets = [
-    asset("llama-b100-bin-ubuntu-x64.tar.gz", program),
-    asset("llama-b100-bin-ubuntu-cuda-12.8-x64.tar.gz", program),
-    asset("cudart-llama-b100-bin-ubuntu-cuda-12.8-x64.tar.gz", cudart),
-  ];
-  server
-    .on("/repos/ggml-org/llama.cpp/releases/tags/b100", { body: JSON.stringify({ body: "", assets }) })
-    .on("/repos/ggml-org/llama.cpp/releases/tags/v0.9.0", { body: JSON.stringify({ body: "Builds https://github.com/ggml-org/llama.cpp/releases/tag/b100", assets: [] }) })
-    .on("/repos/ggml-org/llama.cpp/releases/tags/v0.1.0", { body: JSON.stringify({ body: "no link", assets: [] }) })
-    .on("/dl/llama-b100-bin-ubuntu-x64.tar.gz", { body: program })
-    .on("/dl/llama-b100-bin-ubuntu-cuda-12.8-x64.tar.gz", { body: program })
-    .on("/dl/cudart-llama-b100-bin-ubuntu-cuda-12.8-x64.tar.gz", { body: cudart });
+  await fakeLlamaRelease(server, work, opts.digest);
   const lock = await Lock.open(join(data, "lock.json"));
   const events: InstallEvent[] = [];
   const o = (config: Record<string, unknown>, extra: Partial<Parameters<typeof ensureLlamaServer>[0]> = {}) => ({

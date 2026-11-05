@@ -2,6 +2,7 @@ import { parseArgs } from "node:util";
 import { describeSettings } from "./commands/settings.ts";
 import { editorFor, ensureSettingsFile, loadSettings } from "./settings.ts";
 import { runInit } from "./init.ts";
+import { runModels } from "./models.ts";
 import { CliError, type Io } from "./io.ts";
 import { Engine } from "./engine.ts";
 import { defaultCommands } from "./commands/index.ts";
@@ -47,6 +48,7 @@ usage: chattree [-C dir] [-t thread] <verb> [arguments]
                      stopped (--once: do what can be done now and leave; status 3 means questions are waiting)
   say <text>         send a message and print the reply ("-" reads standard input; --attach <file> may repeat)
   settings [edit]    show the user settings file, or open it in the editor
+  models <verb>      the local model host (settings: local_models): start, stop, status
 
 Any session command works as a verb too (chattree status, chattree history 20, chattree threads archived,
 chattree usage, chattree verify ...). Inside a session they are /status, /history 20, and so on; /help lists them.
@@ -100,6 +102,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       throw new CliError("usage: chattree settings [edit]", "edit needs a terminal");
     }
     where.settings = await loadSettings(where);
+    if (verb === "models") return await runModels(where, args, { yes: values.yes === true });
     const registry = new Registry(defaultCommands());
     if (verb === "run") return await runRunner(where, start, { thread: values.thread ?? args[0], once: values.once === true });
     if (verb === "chat") {

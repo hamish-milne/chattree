@@ -100,6 +100,14 @@ Implemented in `localmodels/config.ts` (schema, `modelSource`), `localmodels/rel
 - `apply(config)`: a change to `llama_cpp`, `server` (host, port, `models_max`, webui, timeout) or `engine` restarts the server. Any other change is fetched if needed, written to the preset, and read with `GET /models?reload=1`; models whose preset section changed (all loaded ones when `defaults` changed) are unloaded so the next request loads them with the new settings, and the rest are left alone. A change that fails (a download) leaves the old settings running and puts the reason in `state.error`. While stopped, the settings are kept for the next start.
 - Model states are polled once a second while the server is up (the SSE stream, `/models/sse`, can replace the polling later).
 
+**The daemon (`localmodels/daemon.ts`, `control.ts`, `client.ts`, `daemon-files.ts`; `cli/models.ts`).**
+
+- `run/daemon.json` in the data directory holds the process id, the control port, a random token and the start time (mode 0600); `run/daemon.lock` is taken by the one daemon that runs (a lock of a dead process is taken over). `findDaemon` reads the file, checks the process and asks `/status`; a file whose process is gone is removed.
+- The control API listens on `127.0.0.1` on a free port and wants `Authorization: Bearer <token>` on every request. A request with an `Origin` header, or with a `Host` other than `127.0.0.1:<port>` or `localhost:<port>`, is refused, so a web page cannot drive it (including by DNS rebinding). Routes: `GET /status`, `GET /events` (server-sent events: a status first, then host events, `consent` and `settings`), `GET /logs`, `POST /start {yes}` (answers at once; progress is in the events), `POST /stop` (stops the host and the process), `POST /reload` (read the settings again and apply them), `POST /consent {accept}`, `POST /models/load|unload {model}`. The model API itself is llama-server's own port, which `state.baseUrl` gives.
+- Installing llama.cpp needs a yes. The daemon has no terminal, so it publishes the plan (`status.consent`, a `consent` event) and waits for `POST /consent`. `chattree models start` prints the plan (tag, files, sizes, URLs, hashes) and asks; `-y` answers yes in advance; without a terminal and without `-y` it declines and says to use `-y`. A GUI answers the same way.
+- `chattree models start` finds the daemon or starts one detached (`node cli/chattree.ts models serve`, output to `run/daemon.log`, settings and data directory through the environment), then asks it to start and prints what happens (installing, download progress in tenths of each file, starting, ready with the address and models). Ctrl-C detaches: the host keeps working. `status` and `stop` say so when nothing runs; `stop` ends the daemon and the server. Two sessions starting at once end up with one daemon: the second process cannot take the lock and leaves.
+- A settings file that fails to parse on a reload leaves the old settings running and shows the reason in `status.settingsError`.
+
 ## 5. Sampling, in this order, never applied silently
 
 1. `sampling` in the settings. 2. `general.sampling.*` read from the GGUF header with a small Range request (parsed by us; llama-server applies these itself, so this is to show and pin them). 3. `generation_config.json` of the base model's repository, found through the Hugging Face API's `base_model` (`cardData.base_model` or the `base_model:` tag): `temperature`, `top_k`, `top_p`. 4. Nothing. `chattree models info <name>` shows the values and where each came from, and offers to write them into the settings.
@@ -118,7 +126,7 @@ A model entry may say `embeddings: true` (llama-server `--embeddings`); that is 
 1. Settings schema, `data_dir`, and the pure functions: settings to download list, llama-server flags and the router preset (unit tests): **done**.
 2. Downloader and installer against a fake HTTP server (resume, hash mismatch, multi-part): **done**.
 3. `LocalModelHost`: state machine, supervisor, applying changed settings, tested against a fake llama-server script: **done** (watching the settings *file* belongs to the daemon, step 4).
-4. Daemon, control API, discovery and lock, the verbs, Windows detached start.
+4. Daemon, control API, discovery and lock, the verbs, Windows detached start. Split: **4a done** (daemon, control API, discovery, `models start|stop|status|serve`); 4b: the settings-file watcher, `restart|list|pull|logs|update|rm|info`, `idle_exit_minutes`, a check of the Windows detached start.
 5. `local-models` adapter, catalog, `init --provider local-models`, engine hook and progress output.
 6. Sampling resolution and `models info`.
 7. Section 9.
