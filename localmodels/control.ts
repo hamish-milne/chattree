@@ -27,7 +27,11 @@ export interface ControlTarget {
   subscribe(listener: (e: DaemonEvent) => void): () => void;
   logs(lines: number): string[];
   start(opts: { yes: boolean }): void;
+  restart(opts: { yes: boolean }): void;
   stop(): void;
+  /** Fetch models without starting the server; the `pulled` event ends it. */
+  pull(models: string[], force: boolean): void;
+  remove(model: string): Promise<{ files: number; bytes: number }>;
   reload(): Promise<DaemonStatus>;
   consent(accept: boolean): boolean;
   load(model: string): Promise<void>;
@@ -39,6 +43,23 @@ export class ControlServer {
   readonly #target: ControlTarget;
   readonly #server: Server;
   #port = 0;
+  #streams = 0;
+  #last = Date.now();
+
+  /** When a request last came that was not just a look at the status. */
+  get lastActivity(): number {
+    return this.#last;
+  }
+
+  /** Count this as use (a model in memory is use). */
+  touch(): void {
+    this.#last = Date.now();
+  }
+
+  /** How many event streams are open (a session or a GUI is attached). */
+  get streams(): number {
+    return this.#streams;
+  }
 
   constructor(target: ControlTarget) {
     this.#target = target;
@@ -81,6 +102,7 @@ export class ControlServer {
     if (!this.#authorised(req)) return json(res, 401, { error: "the token is missing or wrong" });
     const url = new URL(req.url ?? "/", "http://x");
     const route = `${req.method} ${url.pathname}`;
+    if (route !== "GET /status") this.#last = Date.now();
     const t = this.#target;
     switch (route) {
       case "GET /status":
@@ -93,13 +115,29 @@ export class ControlServer {
         send({ type: "status", status: t.status() });
         const off = t.subscribe(send);
         const beat = setInterval(() => res.write(": \n\n"), 15_000);
-        req.on("close", () => (off(), clearInterval(beat)));
+        this.#streams++;
+        req.on("close", () => (off(), clearInterval(beat), this.#streams--, (this.#last = Date.now())));
         return;
       }
       case "POST /start": {
         const body = await readBody(req);
         t.start({ yes: body["yes"] === true });
         return json(res, 202, t.status());
+      }
+      case "POST /restart": {
+        t.restart({ yes: (await readBody(req))["yes"] === true });
+        return json(res, 202, t.status());
+      }
+      case "POST /pull": {
+        const body = await readBody(req);
+        const models = Array.isArray(body["models"]) && body["models"].every((m) => typeof m === "string") ? (body["models"] as string[]) : [];
+        t.pull(models, body["force"] === true);
+        return json(res, 202, t.status());
+      }
+      case "POST /rm": {
+        const model = (await readBody(req))["model"];
+        if (typeof model !== "string") return json(res, 400, { error: "model is required" });
+        return json(res, 200, await t.remove(model));
       }
       case "POST /stop":
         json(res, 200, { stopping: true });

@@ -129,6 +129,7 @@ Agent setup and configuration
 | `/config` | Validate `harness.yml` and show issues; `chattree config edit` opens it (and approves what you saved). |
 | `/trust` | Check that `harness.yml` is the file you approved for this thread; if not, show what changed and ask to approve it (`/trust show` prints the file). Until then no provider, tool or grant from it is used. `chattree trust` does the same; `chattree -y trust` approves without asking. |
 | `/settings [edit]` | Show the user settings file and what it holds, or open it in the editor (created with a commented template). `chattree settings [edit]` does the same, and works even when the file is broken. |
+| `chattree models <verb>` | The local model host (docs/local-models.md), a verb only (not a session command): `start` and `restart` (progress; `-y` agrees to installing llama.cpp), `stop`, `status`, `list`, `info <name>`, `pull [name...]` (`--force` fetches again), `rm <name>`, `logs` (`-n`, `-f`), `update` (writes the newest llama.cpp tag into the settings), `reload`. |
 | `/search <query> [--scope thread|family|project] [--regex] [--visible] [--reasoning] [--limit n]` | Search the history (docs/tools.md, 4.4): this thread by default, what the model already sees left out unless `--visible`. Hits are `thread:id` references; `/show thread:id` opens one. No permission question: you are the user. |
 
 Housekeeping and session
@@ -156,7 +157,7 @@ Non-interactive verbs use the same engine: `chattree say "text" [--attach f]... 
 
 ### 5.2 The settings file
 
-User-level settings, which belong to the person and the machine rather than a thread, live in `settings.yml` under `~/.config/chattree/` (`$XDG_CONFIG_HOME` if set; `%APPDATA%\chattree\` on Windows); `CHATTREE_SETTINGS` names another file. It is read once at startup (`cli/settings.ts`, `Io.settings`) and a file that cannot be read or has an unknown key or a bad value stops the command with its path and the problems (`chattree settings edit` still opens it). Keys: `editor` (a command, may carry arguments; before `$VISUAL` and `$EDITOR`), `busybox` (`auto`, `off` or a path to busybox.exe; Windows, see docs/tools.md), and `display.thinking` / `display.tools` (what a new session shows; `/display` changes one session). Changes apply the next time chattree starts. Not yet: colour and width, key bindings, confirming `/undo`, the data directory.
+User-level settings, which belong to the person and the machine rather than a thread, live in `settings.yml` under `~/.config/chattree/` (`$XDG_CONFIG_HOME` if set; `%APPDATA%\chattree\` on Windows); `CHATTREE_SETTINGS` names another file. It is read once at startup (`cli/settings.ts`, `Io.settings`) and a file that cannot be read or has an unknown key or a bad value stops the command with its path and the problems (`chattree settings edit` still opens it). Keys: `editor` (a command, may carry arguments; before `$VISUAL` and `$EDITOR`), `busybox` (`auto`, `off` or a path to busybox.exe; Windows, see docs/tools.md), and `display.thinking` / `display.tools` (what a new session shows; `/display` changes one session). Changes apply the next time chattree starts. `data_dir` (where downloaded programs and models go) and `local_models` (docs/local-models.md). Not yet: colour and width, key bindings, confirming `/undo`.
 
 ## 6. Activity
 

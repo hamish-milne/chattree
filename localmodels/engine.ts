@@ -69,7 +69,9 @@ export const nodeSpawn: SpawnFn = (binary, args, o) => {
   });
   return {
     kill() {
-      child.kill();
+      // Windows has no signals: killing the router would leave the model processes it started, so the whole tree goes.
+      if (process.platform === "win32" && child.pid !== undefined) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => child.kill());
+      else child.kill();
       setTimeout(() => child.kill("SIGKILL"), 5000).unref();
     },
     exit,

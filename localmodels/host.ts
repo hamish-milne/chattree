@@ -5,6 +5,7 @@ import type { LocalModels } from "./config.ts";
 import { RouterEngine, type Engine, type EngineProcess, type ModelStatus } from "./engine.ts";
 import { ensureLlamaServer, type InstallDeps, type InstallEvent, type InstallPlan } from "./install.ts";
 import { Lock } from "./lock.ts";
+import { removeModelFiles } from "./inventory.ts";
 import { downloadList, presetIni, type ModelFiles } from "./plan.ts";
 import type { Arch, Platform } from "./release.ts";
 import { fetchDownloads, modelId, resolveDownloads, type Fetched, type StoreEvent } from "./store.ts";
@@ -37,6 +38,7 @@ export type HostEvent =
   | { type: "install"; event: InstallEvent }
   | { type: "store"; event: StoreEvent }
   | { type: "models"; models: ModelStatus[] }
+  | { type: "pulled"; models: string[]; error: string | undefined }
   | { type: "log"; line: string };
 
 export interface Backoff {
@@ -203,6 +205,46 @@ export class LocalModelHost {
         this.#set({ error: message(e) });
       }
       return this.#state;
+    });
+  }
+
+  /**
+   * Fetch models without starting the server: the named ones, or all of them. With `force` they are deleted first and fetched again
+   * (what to do when the file upstream has changed). Needs the server stopped when forcing. The `pulled` event ends it.
+   */
+  pull(names?: readonly string[], opts: { force?: boolean } = {}): Promise<void> {
+    return this.#enqueue(async () => {
+      const config = this.#config;
+      const wanted = names === undefined || names.length === 0 ? Object.keys(config.models) : [...names];
+      const unknown = wanted.filter((n) => config.models[n] === undefined);
+      const prev = this.#state;
+      try {
+        if (unknown.length > 0) throw new Error(`no model named ${unknown.join(", ")} in the settings`);
+        if (opts.force === true && this.#proc !== undefined) throw new Error("stop the model host first (`chattree models stop`): a model that is loaded cannot be fetched again");
+        this.#lock ??= await Lock.open(join(this.#o.data, "lock.json"));
+        if (opts.force === true) for (const n of wanted) await removeModelFiles(config, this.#lock, this.#o.data, n);
+        const subset = { ...config, models: Object.fromEntries(wanted.map((n) => [n, config.models[n]])) } as LocalModels;
+        const prepared = await this.#prepare(subset);
+        this.#set({ phase: prev.phase, ids: { ...prev.ids, ...prepared.ids } });
+        this.#emit({ type: "pulled", models: wanted, error: undefined });
+      } catch (e) {
+        this.#set({ phase: prev.phase });
+        this.#emit({ type: "pulled", models: wanted, error: message(e) });
+        throw e;
+      }
+    });
+  }
+
+  /** Delete a model's downloaded files (they are fetched again the next time the model is wanted). Needs the server stopped. */
+  remove(name: string): Promise<{ files: number; bytes: number }> {
+    return this.#enqueue(async () => {
+      if (this.#proc !== undefined) throw new Error("stop the model host first (`chattree models stop`): its models are in use");
+      this.#lock ??= await Lock.open(join(this.#o.data, "lock.json"));
+      if (this.#config.models[name] === undefined && this.#lock.filesUnder(`models/${name}/`).length === 0) throw new Error(`no model named ${name}`);
+      const r = await removeModelFiles(this.#config, this.#lock, this.#o.data, name);
+      const { [name]: _gone, ...ids } = this.#state.ids;
+      this.#set({ ids });
+      return r;
     });
   }
 

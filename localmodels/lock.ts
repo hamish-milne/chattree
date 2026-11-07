@@ -56,6 +56,19 @@ export class Lock {
     this.#data.files[key] = f;
   }
 
+  /** The recorded files whose key starts with this prefix. */
+  filesUnder(prefix: string): [string, LockedFile][] {
+    return Object.entries(this.#data.files).filter(([k]) => k.startsWith(prefix));
+  }
+
+  deleteFile(key: string): void {
+    delete this.#data.files[key];
+  }
+
+  deleteQuant(key: string): void {
+    delete this.#data.quants[key];
+  }
+
   quant(key: string): string[] | undefined {
     return this.#data.quants[key];
   }

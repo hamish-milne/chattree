@@ -47,6 +47,16 @@ export class DaemonClient {
   start(opts: { yes?: boolean } = {}): Promise<DaemonStatus> {
     return this.#call("POST", "/start", { yes: opts.yes === true });
   }
+  restart(opts: { yes?: boolean } = {}): Promise<DaemonStatus> {
+    return this.#call("POST", "/restart", { yes: opts.yes === true });
+  }
+  /** Begin fetching models (all when none are named); the `pulled` event ends it. */
+  pull(models: string[] = [], opts: { force?: boolean } = {}): Promise<DaemonStatus> {
+    return this.#call("POST", "/pull", { models, force: opts.force === true });
+  }
+  remove(model: string): Promise<{ files: number; bytes: number }> {
+    return this.#call("POST", "/rm", { model });
+  }
   async stop(): Promise<void> {
     await this.#call("POST", "/stop", {});
   }

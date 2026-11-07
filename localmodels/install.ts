@@ -245,3 +245,20 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
     await rm(work, { recursive: true, force: true });
   }
 }
+
+/** The newest llama.cpp release's build tag (a version release is followed to the build it links to). */
+export async function latestTag(deps: InstallDeps = {}, signal?: AbortSignal): Promise<string> {
+  const base = deps.apiBase ?? "https://api.github.com";
+  let json: unknown;
+  try {
+    json = await fetchJson(`${base}/repos/ggml-org/llama.cpp/releases/latest`, { fetch: deps.fetch, signal, headers: { "x-github-api-version": "2022-11-28" } });
+  } catch (e) {
+    throw new InstallError(`could not find the newest llama.cpp release: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  const r = json as { tag_name?: unknown; body?: unknown };
+  if (typeof r.tag_name !== "string") throw new InstallError("GitHub did not name the newest llama.cpp release");
+  if (isBuildTag(r.tag_name)) return r.tag_name;
+  const via = resolveVersionTag(r.tag_name, typeof r.body === "string" ? r.body : "");
+  if (!via.ok) throw new InstallError(via.error);
+  return via.tag;
+}
