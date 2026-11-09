@@ -2,13 +2,12 @@ import type { Conversation } from "../../harness/conversation.ts";
 import { pinDefinition, loadDefinitions } from "../../harness/definitions.ts";
 import { prefixLags, type AgentSetup, type ModelSetup } from "../../harness/setup.ts";
 import { tableHash } from "../../providers/pricing.ts";
-import { defaultRegistry } from "../../providers/index.ts";
+import type { AdapterRegistry } from "../../providers/index.ts";
+import { cliRegistry } from "../providers.ts";
 import { withConfirmation } from "../changes.ts";
 import { openThread } from "../project.ts";
 import type { Command } from "../registry.ts";
 import { failure } from "../turn.ts";
-
-const registry = defaultRegistry();
 
 const providersOf = async (convo: Conversation): Promise<Record<string, { $tag: string; [k: string]: unknown }>> => {
   const cfg = await convo.readConfig();
@@ -16,14 +15,14 @@ const providersOf = async (convo: Conversation): Promise<Record<string, { $tag: 
 };
 
 /** The adapter's own check of a settings object: the issues, or none. */
-async function settingsIssues(tag: string, settings: unknown): Promise<string[]> {
+async function settingsIssues(registry: AdapterRegistry, tag: string, settings: unknown): Promise<string[]> {
   const def = registry.get(tag);
   if (def === undefined) return [`no adapter for ${tag}`];
   const r = await def.settings["~standard"].validate(settings);
   return r.issues === undefined ? [] : r.issues.map((i) => `${(i.path ?? []).map((p) => (typeof p === "object" ? p.key : p)).join(".") || "settings"}: ${i.message}`);
 }
 
-const settingKeys = (tag: string): string[] => {
+const settingKeys = (registry: AdapterRegistry, tag: string): string[] => {
   const schema = registry.get(tag)?.jsonSchema().settings as { properties?: Record<string, unknown> } | undefined;
   return Object.keys(schema?.properties ?? {});
 };
@@ -37,6 +36,7 @@ const model: Command = {
   busy: "blocked",
   async complete(ctx, previous, partial) {
     if (previous.length > 0) return [];
+    const registry = cliRegistry(ctx.io);
     const out: string[] = [];
     for (const [name, p] of Object.entries(await providersOf(ctx.convo))) {
       const cfg = (await ctx.convo.readConfig())?.ok === true ? p : undefined;
@@ -47,6 +47,7 @@ const model: Command = {
   },
   async *run(ctx, args) {
     try {
+      const registry = cliRegistry(ctx.io);
       const setup = await ctx.convo.setup();
       const providers = await providersOf(ctx.convo);
       if (args.length === 0) {
@@ -82,7 +83,7 @@ const model: Command = {
       let settings = provider === setup.model?.provider ? setup.model?.settings : undefined;
       if (provider !== setup.model?.provider && setup.model?.settings !== undefined) {
         const max = (setup.model.settings as Record<string, unknown>)["max_output_tokens"];
-        if (max !== undefined && (await settingsIssues(conf.$tag, { max_output_tokens: max })).length === 0) {
+        if (max !== undefined && (await settingsIssues(registry, conf.$tag, { max_output_tokens: max })).length === 0) {
           settings = { max_output_tokens: max };
           yield { type: "notice", message: "other settings were not carried over (they belong to the previous provider); max_output_tokens was" };
         }
@@ -111,12 +112,14 @@ const set: Command = {
   usage: "/set  |  /set <key>  |  /set <key> <value>  |  /set <key> unset      (values are JSON, or plain text)",
   busy: "blocked",
   async complete(ctx, previous, partial) {
+    const registry = cliRegistry(ctx.io);
     const m = (await ctx.convo.setup()).model;
     const tag = m === undefined ? undefined : (await providersOf(ctx.convo))[m.provider]?.$tag;
-    return previous.length === 0 && tag !== undefined ? settingKeys(tag).filter((k) => k.startsWith(partial)) : [];
+    return previous.length === 0 && tag !== undefined ? settingKeys(registry, tag).filter((k) => k.startsWith(partial)) : [];
   },
   async *run(ctx, args, rest) {
     try {
+      const registry = cliRegistry(ctx.io);
       const m = (await ctx.convo.setup()).model;
       if (m === undefined) {
         yield { type: "error", message: "no model is set", hint: "/model <provider>/<id>" };
@@ -130,11 +133,11 @@ const set: Command = {
       const cur = (m.settings ?? {}) as Record<string, unknown>;
       const key = args[0];
       if (key === undefined) {
-        yield { type: "text", text: `${Object.keys(cur).length === 0 ? "(no settings)" : pretty(cur)}\nsettings ${tag} accepts: ${settingKeys(tag).join(", ")}` };
+        yield { type: "text", text: `${Object.keys(cur).length === 0 ? "(no settings)" : pretty(cur)}\nsettings ${tag} accepts: ${settingKeys(registry, tag).join(", ")}` };
         return;
       }
       if (args.length === 1) {
-        yield { type: "text", text: key in cur ? `${key}: ${JSON.stringify(cur[key])}` : `${key} is not set${settingKeys(tag).includes(key) ? "" : ` (and ${tag} has no such setting; known: ${settingKeys(tag).join(", ")})`}` };
+        yield { type: "text", text: key in cur ? `${key}: ${JSON.stringify(cur[key])}` : `${key} is not set${settingKeys(registry, tag).includes(key) ? "" : ` (and ${tag} has no such setting; known: ${settingKeys(registry, tag).join(", ")})`}` };
         return;
       }
       const raw = rest.replace(/^\s*\S+\s*/, "").trim();
@@ -147,9 +150,9 @@ const set: Command = {
           next[key] = raw;
         }
       }
-      const issues = await settingsIssues(tag, next);
+      const issues = await settingsIssues(registry, tag, next);
       if (issues.length > 0) {
-        yield { type: "error", message: `that setting is not valid for ${m.provider}:\n  ${issues.join("\n  ")}`, hint: `known keys: ${settingKeys(tag).join(", ")}` };
+        yield { type: "error", message: `that setting is not valid for ${m.provider}:\n  ${issues.join("\n  ")}`, hint: `known keys: ${settingKeys(registry, tag).join(", ")}` };
         return;
       }
       const r = yield* withConfirmation(ctx, (allow) => ctx.convo.setupChange({ model: { ...m, settings: next } }, { allow }));
@@ -244,6 +247,7 @@ const providers: Command = {
   usage: "/providers",
   busy: "allowed",
   async *run(ctx) {
+    const registry = cliRegistry(ctx.io);
     const cfg = await ctx.convo.readConfig();
     if (cfg === undefined) {
       yield { type: "error", message: "this thread has no harness.yml" };

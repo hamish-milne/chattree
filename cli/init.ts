@@ -2,7 +2,9 @@ import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { Conversation, ConversationError } from "../harness/conversation.ts";
 import { envSource } from "../harness/secrets.ts";
-import { defaultRegistry } from "../providers/index.ts";
+import { catalog, resolveName, samplingSettings } from "../localmodels/catalog.ts";
+import { cliRegistry } from "./providers.ts";
+import { loadSettings } from "./settings.ts";
 import { Git } from "../src/index.ts";
 import { CliError, type Io } from "./io.ts";
 
@@ -34,7 +36,7 @@ export interface InitResult {
 /** Which provider to configure: the flag, else the one whose key is in the environment, else ask (or fail saying how to choose). */
 async function chooseProvider(io: Io, o: InitOptions): Promise<string> {
   if (o.provider !== undefined) {
-    if (!["anthropic", "openai", "compatible"].includes(o.provider)) throw new CliError(`${o.provider} is not a provider this CLI sets up`, "use anthropic, openai or compatible (an OpenAI-compatible server such as Ollama or llama.cpp)");
+    if (!["anthropic", "openai", "compatible", "local-models"].includes(o.provider)) throw new CliError(`${o.provider} is not a provider this CLI sets up`, "use anthropic, openai, compatible (an OpenAI-compatible server such as Ollama or llama.cpp) or local-models (models chattree runs itself, from `local_models` in the settings file)");
     return o.provider;
   }
   const have = ["anthropic", "openai"].filter((p) => (io.env[KEY_ENV[p] as string] ?? "") !== "");
@@ -49,7 +51,10 @@ async function chooseProvider(io: Io, o: InitOptions): Promise<string> {
 function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; windows?: boolean }): { text: string; name: string } {
   const lines = ["# chattree configuration: the outside world (providers, limits). The agent's own setup (model, settings, instructions) is in the transcript.", "providers:"];
   let name = provider;
-  if (provider === "compatible") {
+  if (provider === "local-models") {
+    name = "local-models";
+    lines.push("  local-models:", "    $tag: local-models");
+  } else if (provider === "compatible") {
     name = "local";
     const local = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/.test(o.baseUrl ?? "");
     lines.push("  local:", "    $tag: openai-compatible", `    base_url: ${o.baseUrl}`);
@@ -120,7 +125,16 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
 
   const provider = await chooseProvider(io, o);
   if (provider === "compatible" && o.baseUrl === undefined) throw new CliError("an OpenAI-compatible provider needs its address", "pass --base-url http://localhost:11434/v1 (the address of the server, including /v1)");
-  const model = o.model ?? DEFAULT_MODEL[provider];
+  // The local models come from the settings file, which init does not otherwise read (a broken one must not stop the other providers).
+  const where = provider === "local-models" ? { ...io, settings: io.settings ?? (await loadSettings(io)) } : io;
+  const local = where.settings?.local_models;
+  if (provider === "local-models") {
+    if (local === undefined || Object.keys(local.models).length === 0) throw new CliError("the settings file has no models under local_models", "add some with `chattree settings edit` (docs/local-models.md shows what goes in)");
+    const names = Object.keys(catalog(local));
+    if (o.model === undefined && Object.keys(local.models).length > 1) throw new CliError(`which model? the settings have ${Object.keys(local.models).join(", ")}`, "pass --model <name>");
+    if (o.model !== undefined && !names.includes(o.model)) throw new CliError(`${o.model} is not a model in local_models (known: ${names.join(", ")})`);
+  }
+  const model = o.model ?? (provider === "local-models" ? Object.keys(local?.models ?? {})[0] : DEFAULT_MODEL[provider]);
   if (model === undefined) throw new CliError("an OpenAI-compatible provider needs a model name", "pass --model <name>, as the server calls it");
   const cfg = configText(provider, { ...(o.baseUrl === undefined ? {} : { baseUrl: o.baseUrl }), ...(o.keyEnv === undefined ? {} : { keyEnv: o.keyEnv }), windows: io.host.platform === "windows" });
 
@@ -133,7 +147,7 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
     env[keyVar] = `init-placeholder-${randomBytes(8).toString("hex")}`;
     notes.push(`${keyVar} is not set; set it before you chat`);
   }
-  const opts = { now: io.now, providers: { registry: defaultRegistry(), secrets: envSource(env) }, config: cfg.text, ...(o.branch === undefined ? {} : { branch: o.branch }) };
+  const opts = { now: io.now, providers: { registry: cliRegistry(where), secrets: envSource(env) }, config: cfg.text, ...(o.branch === undefined ? {} : { branch: o.branch }) };
   let convo: Conversation;
   try {
     convo = o.adopt === true ? await Conversation.adopt(io.host, inRepo as string, opts) : await Conversation.create(io.host, dir, opts);
@@ -141,7 +155,10 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
     if (e instanceof ConversationError) throw new CliError(e.message);
     throw e;
   }
-  await convo.setupChange({ model: { provider: cfg.name, id: model, settings: { max_output_tokens: o.maxOutput ?? 8192 } } });
+  // Sampling is pinned in the setup as well as being the server's default, so the transcript says what the model was run with (docs/local-models.md, section 7).
+  const sampling = provider === "local-models" ? samplingSettings(local?.models[resolveName(local as NonNullable<typeof local>, model)]?.sampling) : {};
+  await convo.setupChange({ model: { provider: cfg.name, id: model, settings: { max_output_tokens: o.maxOutput ?? 8192, ...sampling } } });
+  if (provider === "local-models") notes.push("the model host starts when you first chat; `chattree models start` does it now and shows the downloads");
   let pinned = false;
   try {
     await convo.pinPricing();

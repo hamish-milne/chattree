@@ -14,3 +14,4 @@ export { AdapterRegistry, ProviderSetupError, buildProviders, defineAdapter, val
 export { costOf, effectiveTable, findModel, tableHash, type ModelPrice, type PriceTable } from "./pricing.ts";
 export type { ModelInfo, ToolConvention } from "./registry.ts";
 export { TOOL_CONVENTIONS, TOOL_SCHEMAS } from "./registry.ts";
+export { localModelsDefinition, modelNameOf, type LocalModelsConnection, type LocalModelsRuntime } from "./local-models.ts";

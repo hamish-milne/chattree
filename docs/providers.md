@@ -681,3 +681,7 @@ travel with the item after it, and whether message item ids are needed for state
 `previous_response_id` works with `store: false` (the guide does not say, so the plan assumes not); that the
 response reports the service tier actually used; whether Anthropic has an allow-list equivalent to
 `allowed_tools`; every llama-server detail above (from memory).
+
+## Local models (`local-models`)
+
+A provider whose server chattree runs itself (docs/local-models.md). Its configuration has no address: `$tag: local-models` and the common fields. What the adapter needs from the application (the server's address, the catalog, the identity of the file that is loaded) is a `LocalModelsRuntime` handed to `localModelsDefinition(runtime)`; the CLI's registry (`cli/providers.ts`) adds it to the shipped ones. Requests and responses are the OpenAI-compatible adapter's; the model recorded as having served a request is `name@hash8`.

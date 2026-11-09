@@ -1,5 +1,5 @@
 // A stand-in for llama-server in router mode, for host tests: reads the preset file, answers the model list, and loads and unloads.
-import { readFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 const argv = process.argv.slice(2);
@@ -55,6 +55,23 @@ const server = createServer((req, res) => {
       } else state.set(model, "unloaded");
       console.log(`${url.pathname} ${model}`);
       json(res, { success: true });
+    });
+    return;
+  }
+  if (req.method === "POST" && url.pathname === "/v1/chat/completions") {
+    let body = "";
+    req.on("data", (c) => (body += c));
+    req.on("end", () => {
+      const request = JSON.parse(body);
+      if (process.env.FAKE_LLAMA_LOG) appendFileSync(process.env.FAKE_LLAMA_LOG, `${body}\n`);
+      if (!state.has(request.model)) return json(res, { error: { message: `no such model ${request.model}` } }, 404);
+      state.set(request.model, "loaded");
+      const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion.chunk", model: request.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write(chunk({ role: "assistant", content: `hello from ${request.model}` }));
+      res.write(chunk({}, "stop"));
+      res.write(`data: ${JSON.stringify({ id: "chatcmpl-fake", choices: [], usage: { prompt_tokens: 7, completion_tokens: 4 } })}\n\n`);
+      res.end("data: [DONE]\n\n");
     });
     return;
   }

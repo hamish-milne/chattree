@@ -29,6 +29,12 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   engine.pump()?.release(engine.thread);
   if (engine.takeStopNext()) ac.abort();
   try {
+    try {
+      await engine.ensureLocalModels();
+    } catch (e) {
+      yield failure(e);
+      return;
+    }
     let drift: ChangeKind[] = [];
     let tools: Awaited<NonNullable<ReturnType<typeof engine.toolset>>> | undefined;
     try {

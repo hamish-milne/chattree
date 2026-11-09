@@ -10,7 +10,7 @@ import { subagentTool } from "../harness/subagent.ts";
 import { searchTool } from "../harness/search-tool.ts";
 import { threadTools } from "../harness/thread-tools.ts";
 import { resolveSubagentModels } from "../harness/subagent-models.ts";
-import { defaultRegistry } from "../providers/index.ts";
+import { cliRegistry } from "./providers.ts";
 import type { McpPool } from "../harness/mcp/pool.ts";
 import { McpServers, type McpDeps } from "../harness/mcp/servers.ts";
 import { ToolRegistry } from "../harness/tools.ts";
@@ -107,7 +107,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   // The models the parent may choose for a subagent. A list that names a provider harness.yml does not have is the user's to fix.
   const chosen = resolveSubagentModels(config?.subagent.models, new Set(Object.keys(config?.providers ?? {})), (p, id) => convo.modelInfo(p, id));
   if (chosen.problems.length > 0) throw new CliError(chosen.problems.join("\n"), "fix subagent.models in harness.yml, or remove it to give subagents the parent's model");
-  const adapters = defaultRegistry();
+  const adapters = cliRegistry(io);
   const validateSettings = async (provider: string, settings: unknown): Promise<string[]> => {
     const tag = (config?.providers[provider] as { $tag?: string } | undefined)?.$tag;
     const def = tag === undefined ? undefined : adapters.get(tag);

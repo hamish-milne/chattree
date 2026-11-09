@@ -368,3 +368,16 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
   }
   throw new CliError(`models ${sub} is not a command`, USAGE);
 }
+
+/**
+ * Make sure the model host is up before a request that needs it: what `chattree models start` does, with the same progress and the same
+ * question before installing llama.cpp. Quick when the host is ready already.
+ */
+export async function ensureLocalModels(io: Io, o: Partial<ModelsOptions> = {}): Promise<void> {
+  const data = dataOf(io);
+  localConfig(io);
+  const client = await findDaemon(data, o.fetch);
+  if (client !== undefined && (await client.status()).state.phase === "ready") return;
+  const code = await runModels(io, ["start"], { yes: o.yes === true, fetch: o.fetch, launch: o.launch });
+  if (code !== 0) throw new CliError("the local model host is not running", "`chattree models status` shows why; `chattree models start -y` agrees to installing llama.cpp without asking");
+}

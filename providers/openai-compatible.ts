@@ -75,13 +75,17 @@ export interface RequestOptions {
   maxTokensParam: "max_tokens" | "max_completion_tokens";
   /** Ask for a usage chunk at the end (`stream_options.include_usage`). */
   includeUsage: boolean;
+  /** The name to put in the request for the model the setup names (default: as it is). A server with its own names for what it serves maps here. */
+  modelName?: ((setupModelId: string) => string) | undefined;
+  /** The model to record as having served the request, from the name asked for and what the server reported (default: what it reported). */
+  observe?: ((requested: string, reported: string | undefined) => string | undefined) | undefined;
 }
 
 /** The JSON body of a Chat Completions request for a context. Pure. */
 export function buildChatBody(ctx: ModelContext, setup: AgentSetup, opts: RequestOptions): Json {
   if (setup.model === undefined) throw new ProviderError({ kind: "invalid_request", message: "the agent has no model" });
   const s = parseCompatibleSettings(setup.model.settings);
-  const body: Json = { model: servedModelId(setup.model), stream: true, [opts.maxTokensParam]: s.max_output_tokens };
+  const body: Json = { model: opts.modelName?.(servedModelId(setup.model)) ?? servedModelId(setup.model), stream: true, [opts.maxTokensParam]: s.max_output_tokens };
   if (opts.includeUsage) body["stream_options"] = { include_usage: true };
   body["messages"] = toMessages(ctx, s.replay_reasoning === true);
   if (ctx.tools.length > 0) body["tools"] = ctx.tools.map(toTool);
@@ -127,6 +131,8 @@ interface State {
   provider: string;
   id: string | undefined;
   model: string | undefined;
+  /** The model the request asked for. */
+  requested: string | undefined;
   started: boolean;
   announced: boolean;
   next: number;
@@ -255,6 +261,7 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       provider: req.setup.model?.provider ?? "openai-compatible",
       id: undefined,
       model: undefined,
+      requested: req.setup.model === undefined ? undefined : (request.modelName?.(servedModelId(req.setup.model)) ?? servedModelId(req.setup.model)),
       started: false,
       announced: false,
       next: 0,
@@ -303,6 +310,7 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       }
       if (typeof d["id"] === "string" && s.id === undefined) s.id = d["id"];
       if (typeof d["model"] === "string" && s.model === undefined) s.model = d["model"];
+      if (request.observe !== undefined) s.model = request.observe(s.requested ?? "", s.model);
       if (!s.announced && (s.id !== undefined || s.model !== undefined)) {
         s.announced = true;
         events.push({ type: "observed", observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) } });
@@ -386,6 +394,9 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
 // ---- adapter --------------------------------------------------------------------------------------------------
 
 export interface CompatibleOptions {
+  /** See `RequestOptions`. */
+  modelName?: RequestOptions["modelName"];
+  observe?: RequestOptions["observe"];
   /** Where the server is, including the `/v1` its API lives under (`http://localhost:11434/v1`). */
   baseUrl: string;
   /** The API key, or a function that returns it (sent as a bearer token). Omit for local servers that need none. */
@@ -397,8 +408,8 @@ export interface CompatibleOptions {
   http?: HttpOptions;
 }
 
-export function openaiCompatibleAdapter(opts: CompatibleOptions): ProviderAdapter {
-  const mapper = chatMapper(opts.baseUrl, { maxTokensParam: opts.maxTokensParam ?? "max_tokens", includeUsage: opts.includeUsage ?? true });
+export function openaiCompatibleAdapter(opts: CompatibleOptions & { tag?: string }): ProviderAdapter {
+  const mapper = chatMapper(opts.baseUrl, { maxTokensParam: opts.maxTokensParam ?? "max_tokens", includeUsage: opts.includeUsage ?? true, modelName: opts.modelName, observe: opts.observe });
   const http: HttpOptions = {
     ...opts.http,
     auth: async (spec) => {
@@ -408,7 +419,7 @@ export function openaiCompatibleAdapter(opts: CompatibleOptions): ProviderAdapte
       return { ...base, authorization: `Bearer ${key}` };
     },
   };
-  return { $tag: "openai-compatible", stream: (req) => httpStream(mapper, req, http), classify: classifyCompatible };
+  return { $tag: opts.tag ?? "openai-compatible", stream: (req) => httpStream(mapper, req, http), classify: classifyCompatible };
 }
 
 // ---- registration -----------------------------------------------------------------------------------------------

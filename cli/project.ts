@@ -2,7 +2,7 @@ import { Conversation, ConversationError, type ConversationOptions } from "../ha
 import { ownerIsDead } from "./owner.ts";
 import { CONFIG_FILE } from "../harness/conversation.ts";
 import { envSource } from "../harness/secrets.ts";
-import { defaultRegistry } from "../providers/index.ts";
+import { cliRegistry } from "./providers.ts";
 import { Git, GitError } from "../src/index.ts";
 import { CliError, type Io } from "./io.ts";
 
@@ -48,7 +48,7 @@ export async function conversationOptions(io: Io, git: Git, opts: { providers?: 
   return {
     now: io.now,
     isOwnerDead: ownerIsDead,
-    ...(opts.providers === false ? {} : { providers: { registry: defaultRegistry(), secrets: envSource(io.env) } }),
+    ...(opts.providers === false ? {} : { providers: { registry: cliRegistry(io), secrets: envSource(io.env) } }),
     ...(name !== undefined && email !== undefined ? { user: { name, email } } : {}),
   };
 }

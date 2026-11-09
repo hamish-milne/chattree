@@ -2,6 +2,7 @@ import type { Conversation } from "../harness/conversation.ts";
 import { localOwner } from "./owner.ts";
 import type { ChangeKind } from "../harness/entries.ts";
 import { CliError, type Io } from "./io.ts";
+import { ensureLocalModels } from "./models.ts";
 import type { OpenedThread, Project } from "./project.ts";
 import { plainStyle, type Output, type Style, type Thinking, type ToolView } from "./output.ts";
 import { parseCommand, Registry, tokenize } from "./registry.ts";
@@ -279,7 +280,28 @@ export class Engine {
   }
 
   /** What the pump needs to look at a thread and run it: the current thread's own tools, or a subagent's. Other threads are left alone. */
+  #localStart: Promise<void> | undefined;
+
+  /** Before a request to a thread whose model is one of chattree's own (`local-models`), start the model host as `chattree models start` would, with its progress. */
+  async ensureLocalModels(convo: Conversation = this.convo): Promise<void> {
+    const model = (await convo.setup()).model;
+    if (model === undefined) return;
+    const cfg = await convo.readConfig();
+    const tag = cfg?.ok === true ? (cfg.value.providers[model.provider] as { $tag?: string } | undefined)?.$tag : undefined;
+    if (tag !== "local-models") return;
+    this.#localStart ??= ensureLocalModels(this.io).finally(() => {
+      this.#localStart = undefined;
+    });
+    await this.#localStart;
+  }
+
   async #loopFor(convo: Conversation): Promise<RunOptions | undefined> {
+    try {
+      await this.ensureLocalModels(convo);
+    } catch (e) {
+      this.childLine?.(`  ↳ ${convo.branch}: ${e instanceof Error ? e.message : String(e)}\n`);
+      return undefined;
+    }
     const entries: ChatEntry[] = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
     const start = entries.findLast((e) => e.$tag === "branch_start" && e.context === "fresh");
     const sub = start?.$tag === "branch_start" && start.kind === "subagent";
