@@ -144,9 +144,38 @@ A model entry may say `embeddings: true` (llama-server `--embeddings`); that is 
 2. Downloader and installer against a fake HTTP server (resume, hash mismatch, multi-part): **done**.
 3. `LocalModelHost`: state machine, supervisor, applying changed settings, tested against a fake llama-server script: **done** (watching the settings *file* belongs to the daemon, step 4).
 4. Daemon, control API, discovery and lock, the verbs, Windows detached start. Split: **4a done** (daemon, control API, discovery, `models start|stop|status|serve`); **4b done** (settings-file watcher, `restart|reload|list|info|pull|rm|logs|update`, `idle_exit_minutes`, a process-tree kill on Windows; the Windows detached start itself is written from the documented Node behaviour and not yet run on Windows).
-5. `local-models` adapter, catalog, `init --provider local-models`, engine hook and progress output.
-6. Sampling resolution and `models info`.
+5. `local-models` adapter, catalog, `init --provider local-models`, engine hook and progress output: **done**.
+6. Sampling resolution and `models info`: **done** (`localmodels/sampling.ts`). Checkpoint: the tool benchmark through the local models (section 8.1).
 7. Section 9.
+
+### 8.1 The checkpoint: the tool benchmark through `local-models`
+
+`tools/live-sample.ts --flavor local-models --model <name>` runs the benchmark tasks (`tools/tasks.ts`) through the host instead of Ollama. `--model` is a name from `local_models`; there is no `--base-url`. The host is started first (and the model downloaded, with the progress `chattree models start` shows; `--yes` agrees to installing llama.cpp), the model's sampling is looked up as `models info` does and sent with every request, and the report starts with the sampling used.
+
+Settings for the three models of the earlier Ollama runs (the Hugging Face names are as given; `models pull` says at once if one has no such quantisation):
+
+```yaml
+local_models:
+  server: { models_max: 1 }
+  defaults: { ctx_size: 16384, n_gpu_layers: all }
+  models:
+    gpt-oss-20b: { hf: "unsloth/gpt-oss-20b-GGUF:Q4_K_M" }
+    qwen3.5-9b:  { hf: "unsloth/Qwen3.5-9B-GGUF:Q6_K" }
+    gemma4-12b:  { hf: "unsloth/gemma4-12b-it-GGUF:Q4_K_M" }
+```
+
+```
+chattree models pull                       # fetch all three first
+chattree models info qwen3.5-9b            # what sampling it will run with, and where that came from
+node tools/live-sample.ts --flavor local-models --model qwen3.5-9b --repeat 10 --out qwen-local.json
+```
+
+For the numbers to be comparable, two things have to be the same as in the Ollama runs; neither can be known from here:
+
+- **Sampling.** The Ollama runs sent no sampling, so Ollama applied each model's Modelfile (for qwen3.5: `presence_penalty 1.5, temperature 1, top_k 20, top_p 0.95`; `ollama show <model> --parameters` prints them for the others). A GGUF from Unsloth carries none of that, and the base repository's `generation_config.json` gives only `temperature`, `top_p` and `top_k`, so `models info` may show nothing or something different. Copy the Ollama values into `sampling:` in the settings; the report prints what was used.
+- **Context.** Ollama's default context was used before; here it is `ctx_size`. 16384 is room for the longest task with its reasoning; a smaller one truncates silently in some servers and fails loudly in llama.cpp.
+
+What a difference would mean: the chat template (llama.cpp's own Jinja against Ollama's Go renderer, which for gpt-oss prints nested schemas as `any[]`) and the quantisation file differ between the two, so a change in gpt-oss's results is possible either way; whether llama.cpp's template shows the full nested schema is not known yet (`GET /props` has `chat_template`). Section 9 is where that gets answered.
 
 ## 9. After the host: our own templates
 

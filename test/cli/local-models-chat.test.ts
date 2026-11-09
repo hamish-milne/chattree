@@ -7,6 +7,9 @@ import { test } from "node:test";
 import { main } from "../../cli/main.ts";
 import { findDaemon } from "../../localmodels/client.ts";
 import { pidAlive } from "../../localmodels/daemon-files.ts";
+import { Conversation } from "../../harness/conversation.ts";
+import { nodeHost } from "../../hosts/node.ts";
+import { gguf, SAMPLING } from "../support/gguf.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
 import { testIo } from "./support.ts";
@@ -89,4 +92,33 @@ test("init with local-models needs the model to be in the settings", async () =>
   const empty = testIo(dir, { env: { CHATTREE_SETTINGS: join(dir, "missing.yml"), CHATTREE_ENVIRONMENT: "off" } });
   assert.equal(await main(["init", join(dir, "p3"), "--provider", "local-models"], empty), 1);
   assert.match(empty.stderr, /no models under local_models/);
+});
+
+test("init pins the sampling a model's own header carries, and says so; the settings win when they have values", async () => {
+  const server = await HttpFixture.start();
+  const dir = await tempDir();
+  try {
+    server.on("/m.gguf", { body: gguf(SAMPLING) });
+    const settings = join(dir, "settings.yml");
+    await writeFile(settings, `local_models:\n  models:\n    plain: { url: "${server.base}/m.gguf" }\n    set: { url: "${server.base}/m.gguf", sampling: { temperature: 0.1 } }\n`);
+    const env = { CHATTREE_SETTINGS: settings, CHATTREE_ENVIRONMENT: "off" };
+    const settingsOf = async (project: string) => {
+      const entries = (await (await Conversation.open(nodeHost(), project)).readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+      return JSON.stringify(entries);
+    };
+
+    const a = testIo(dir, { env });
+    assert.equal(await main(["init", join(dir, "a"), "--provider", "local-models", "--model", "plain"], a), 0, a.stderr);
+    assert.match(a.stderr, /note: sampling pinned from general\.sampling in .*m\.gguf: temperature 0\.6, top_p 0\.95, top_k 20, repeat_penalty 1\.1/);
+    const pinned = await settingsOf(join(dir, "a"));
+    assert.match(pinned, /"temperature":0\.6/);
+    assert.match(pinned, /"top_k":20/);
+
+    const b = testIo(dir, { env });
+    assert.equal(await main(["init", join(dir, "b"), "--provider", "local-models", "--model", "set"], b), 0, b.stderr);
+    assert.doesNotMatch(b.stderr, /sampling pinned/);
+    assert.match(await settingsOf(join(dir, "b")), /"temperature":0\.1/);
+  } finally {
+    await server.close();
+  }
 });

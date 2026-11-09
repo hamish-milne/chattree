@@ -90,3 +90,33 @@ describe("parseArgs", () => {
     for (const [argv, re] of [[[], /required/], [["--base-url", "u", "--model", "m", "--repeat", "0"], /whole number/], [["--base-url", "u", "--model", "m", "--group", "zz"], /--group/], [["--bogus", "1"], /unknown flag/]] as const) assert.throws(() => parseArgs(argv, {}), re, JSON.stringify(argv));
   });
 });
+
+describe("the local-models flavor", () => {
+  test("takes a settings name and no address, and says what is wrong otherwise", () => {
+    const ok = parseArgs(["--flavor", "local-models", "--model", "gpt-oss-20b", "--yes", "--repeat", "3"], {});
+    assert.deepEqual([ok.options.flavor, ok.options.model, ok.options.yes, ok.options.repeat], ["local-models", "gpt-oss-20b", true, 3]);
+    assert.throws(() => parseArgs(["--flavor", "local-models"], {}), /--model is required: a name from local_models/);
+    assert.throws(() => parseArgs(["--flavor", "local-models", "--model", "m", "--base-url", "http://x/v1"], {}), /chooses its address/);
+    assert.throws(() => parseArgs(["--flavor", "openai-compatible", "--model", "m", "--base-url", "http://x/v1", "--yes"], {}), /--yes is for --flavor local-models/);
+    assert.throws(() => parseArgs(["--flavor", "local-models", "--model", "m", "--oops", "1"], {}), /unknown flag --oops/);
+  });
+
+  test("the sampling is sent with every request and printed in the report", async () => {
+    const seen: unknown[] = [];
+    const adapter = {
+      $tag: "pretend",
+      // eslint-disable-next-line require-yield
+      async *stream(req: { setup: { model?: { settings?: unknown } } }) {
+        seen.push(req.setup.model?.settings);
+        return text("nothing to do");
+      },
+      retrieve: async () => undefined,
+    } as unknown as ProviderAdapter;
+    const sampling = { temperature: 0.6, top_p: 0.95, extra: { top_k: 20 } };
+    const report = await runSamples({ flavor: "local-models", baseUrl: "", model: "qwen", repeat: 1, tasks: ["one line"], adapter, sampling });
+    assert.ok(seen.length > 0);
+    assert.deepEqual(seen[0], { max_output_tokens: 4096, ...sampling });
+    assert.match(formatReport(report, { flavor: "local-models", model: "qwen", repeat: 1, sampling }), /^local-models qwen: .*\nsampling: \{"temperature":0\.6,"top_p":0\.95,"extra":\{"top_k":20\}\}/);
+    await assert.rejects(runSamples({ flavor: "local-models", baseUrl: "", model: "qwen", repeat: 1 }), /needs its adapter/);
+  });
+});

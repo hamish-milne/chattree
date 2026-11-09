@@ -9,6 +9,7 @@ import { loadSettings } from "../../cli/settings.ts";
 import { localModelsSchema } from "../../localmodels/config.ts";
 import { Daemon } from "../../localmodels/daemon.ts";
 import { nodeSpawn, RouterEngine } from "../../localmodels/engine.ts";
+import { gguf, SAMPLING } from "../support/gguf.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
 import { testIo } from "./support.ts";
@@ -177,6 +178,33 @@ describe("models restart, reload and logs (host running)", () => {
     try {
       assert.match((await run(["logs"])).out, /no log: the model host has not run/);
       assert.match((await run(["reload"])).out, /not running/);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("models info and sampling", () => {
+  test("shows the sampling and where it came from: the settings, the model's header, or none", async () => {
+    const { server, settings, run } = await setup();
+    try {
+      server.on("/gamma.gguf", { body: gguf(SAMPLING) });
+      const text = await readFile(settings, "utf8");
+      await writeFile(settings, `${text}    gamma: { url: "${server.base}/gamma.gguf" }\n    delta: { url: "${server.base}/beta.gguf", sampling: { temperature: 0.2 } }\n`);
+
+      const gamma = await run(["info", "gamma"]);
+      assert.match(gamma.out, /sampling: temperature 0\.6, top_p 0\.95, top_k 20, repeat_penalty 1\.1\n\s+from general\.sampling in .*gamma\.gguf/);
+      assert.match(gamma.out, /not in the settings yet/);
+      assert.match(gamma.out, /sampling: \{ temperature: 0\.6, top_p: 0\.95/);
+
+      const delta = await run(["info", "delta"]);
+      assert.match(delta.out, /sampling: temperature 0\.2\n\s+from the settings file/);
+      assert.doesNotMatch(delta.out, /not in the settings yet/);
+
+      // alpha's file is not a GGUF: nothing to find, and it says so.
+      const alpha = await run(["info", "alpha"]);
+      assert.match(alpha.out, /sampling: none set/);
+      assert.match(alpha.out, /note: could not read the GGUF header \(not a GGUF file\)/);
     } finally {
       await server.close();
     }

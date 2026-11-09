@@ -10,8 +10,10 @@ import { inventory, type ModelInfo } from "../localmodels/inventory.ts";
 import { Lock } from "../localmodels/lock.ts";
 import { dataDir } from "../localmodels/plan.ts";
 import type { DaemonStatus } from "../localmodels/control.ts";
+import { samplingYaml } from "../localmodels/sampling.ts";
 import { thisMachine } from "../localmodels/release.ts";
 import { CliError, type Io } from "./io.ts";
+import { lookupSampling } from "./providers.ts";
 import { loadSettings, settingsPath } from "./settings.ts";
 
 /** `chattree models ...` (docs/local-models.md, section 3): the local model host, which runs as a daemon of its own. */
@@ -201,6 +203,8 @@ export interface ModelsOptions {
   launch?: (() => Promise<void>) | undefined;
   /** Another GitHub API address (tests). */
   apiBase?: string | undefined;
+  /** Another Hugging Face address (tests). */
+  hfBase?: string | undefined;
 }
 
 async function readInventory(io: Io, data: string): Promise<ModelInfo[]> {
@@ -280,7 +284,14 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
         const lines = [`${m.name}${m.id === undefined ? "" : `   ${m.id}`}`, `  source:   ${m.source}`, `  state:    ${state ?? (m.complete ? "downloaded" : "not downloaded")}`];
         for (const f of m.files) lines.push(`  ${f.role === "mmproj" ? "projector" : "file"}:     ${f.dest} (${bytes(f.size)})\n            sha256 ${f.sha256}`);
         const settings = Object.entries(cfg).filter(([k, v]) => v !== undefined && !["url", "hf", "file", "revision", "mmproj", "sha256"].includes(k));
-        for (const [k, v] of settings) lines.push(`  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
+        for (const [k, v] of settings.filter(([k]) => k !== "sampling")) lines.push(`  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
+        const found = await lookupSampling(io, name, { fetch: o.fetch, hfBase: o.hfBase, localFile: m.files.find((f) => f.role === "model")?.dest });
+        if (found.source === undefined) lines.push("  sampling: none set (the server's own defaults apply)");
+        else {
+          lines.push(`  sampling: ${Object.entries(found.values).map(([k, v]) => `${k} ${v}`).join(", ")}`, `            from ${found.detail}`);
+          if (found.source !== "settings") lines.push("            not in the settings yet: `chattree init` pins it; to fix it here, add", ...samplingYaml(name, found.values).split("\n").map((l) => `              ${l}`));
+        }
+        for (const n of found.notes) lines.push(`  note: ${n}`);
         io.out(`${lines.join("\n")}\n`);
         return 0;
       }

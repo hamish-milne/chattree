@@ -2,8 +2,8 @@ import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { Conversation, ConversationError } from "../harness/conversation.ts";
 import { envSource } from "../harness/secrets.ts";
-import { catalog, resolveName, samplingSettings } from "../localmodels/catalog.ts";
-import { cliRegistry } from "./providers.ts";
+import { catalog, samplingSettings } from "../localmodels/catalog.ts";
+import { cliRegistry, lookupSampling } from "./providers.ts";
 import { loadSettings } from "./settings.ts";
 import { Git } from "../src/index.ts";
 import { CliError, type Io } from "./io.ts";
@@ -156,7 +156,13 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
     throw e;
   }
   // Sampling is pinned in the setup as well as being the server's default, so the transcript says what the model was run with (docs/local-models.md, section 7).
-  const sampling = provider === "local-models" ? samplingSettings(local?.models[resolveName(local as NonNullable<typeof local>, model)]?.sampling) : {};
+  let sampling: ReturnType<typeof samplingSettings> = {};
+  if (provider === "local-models") {
+    const found = await lookupSampling(where, model);
+    sampling = samplingSettings(found.values);
+    if (found.source !== undefined && found.source !== "settings") notes.push(`sampling pinned from ${found.detail}: ${Object.entries(found.values).map(([k, v]) => `${k} ${v}`).join(", ")}`);
+    for (const n of found.notes) notes.push(n);
+  }
   await convo.setupChange({ model: { provider: cfg.name, id: model, settings: { max_output_tokens: o.maxOutput ?? 8192, ...sampling } } });
   if (provider === "local-models") notes.push("the model host starts when you first chat; `chattree models start` does it now and shows the downloads");
   let pinned = false;

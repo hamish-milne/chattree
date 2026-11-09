@@ -4,6 +4,12 @@
  *
  *   node tools/live-sample.ts --flavor openai-compatible --base-url http://localhost:11434/v1 --model gemma4:12b --repeat 10
  *   node tools/live-sample.ts ... --group edit --repeat 20 --out edit-run.json --record ./samples/
+ *   node tools/live-sample.ts --flavor local-models --model gpt-oss-20b --repeat 10 --yes
+ *
+ * `--flavor local-models` runs the model through chattree's own model host (docs/local-models.md): --model is a name from `local_models`
+ * in the settings file, --base-url is not used. The host is started (and the model downloaded) first, with the progress `chattree models
+ * start` shows; --yes agrees to installing llama.cpp without asking. The model's sampling is looked up as `chattree models info` does
+ * (settings, then the GGUF header, then the base model's generation_config.json), sent with every request, and printed with the report.
  *
  * Flags: --flavor, --base-url, --model, --max-tokens (default 4096), --api-key-env NAME, --repeat N (default 10),
  * --task TEXT (repeatable; a substring of the task name), --group edit|read|write|run|mixed (repeatable), --busybox PATH
@@ -20,10 +26,16 @@ import type { ProviderAdapter } from "../providers/types.ts";
 import { runAgentTask, type ToolStep } from "./agent-task.ts";
 import { findBusybox } from "../hosts/node.ts";
 import { FLAVORS, makeAdapter, type Flavor } from "./live-check.ts";
+import { nodeIo } from "../cli/io.ts";
+import { ensureLocalModels } from "../cli/models.ts";
+import { lookupSampling } from "../cli/providers.ts";
+import { loadSettings } from "../cli/settings.ts";
+import { samplingSettings } from "../localmodels/catalog.ts";
+import { localModelsAdapter } from "./local-adapter.ts";
 import { available, TASKS, type Task } from "./tasks.ts";
 
 export interface SampleOptions {
-  flavor: Flavor;
+  flavor: Flavor | "local-models";
   baseUrl: string;
   model: string;
   maxTokens?: number;
@@ -36,6 +48,10 @@ export interface SampleOptions {
   timeoutSeconds?: number;
   /** For tests: use this instead of the flavor's adapter. */
   adapter?: ProviderAdapter;
+  /** Sent with every request as model settings (temperature, top_p, and under `extra` the rest). */
+  sampling?: Record<string, unknown>;
+  /** local-models: agree to installing llama.cpp without asking. */
+  yes?: boolean;
   onSample?: (s: Sample, done: number, total: number) => void;
 }
 
@@ -94,8 +110,9 @@ export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "busybox
 }
 
 export async function runSamples(o: SampleOptions): Promise<SampleReport> {
-  const adapter = o.adapter ?? makeAdapter(o);
-  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens ?? 4096 } } as NonNullable<AgentSetup["model"]>;
+  if (o.adapter === undefined && o.flavor === "local-models") throw new Error("the local-models flavor needs its adapter (see main)");
+  const adapter = o.adapter ?? makeAdapter({ ...o, flavor: o.flavor as Flavor });
+  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens ?? 4096, ...(o.sampling ?? {}) } } as NonNullable<AgentSetup["model"]>;
   const repeat = o.repeat ?? 10;
   const { run, skipped } = selectTasks(o);
   const samples: Sample[] = [];
@@ -133,9 +150,10 @@ export async function runSamples(o: SampleOptions): Promise<SampleReport> {
 
 const pct = (a: number, b: number): string => (b === 0 ? "-" : `${a}/${b}`);
 
-export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavor" | "model" | "repeat">): string {
+export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavor" | "model" | "repeat" | "sampling">): string {
   const lines: string[] = [];
   lines.push(`${o.flavor} ${o.model}: ${o.repeat ?? 10} samples per task, ${report.stats.length} tasks${report.skipped.length > 0 ? ` (skipped: ${report.skipped.map((s) => `${s.task} (${s.why})`).join(", ")})` : ""}`);
+  if (o.sampling !== undefined) lines.push(`sampling: ${JSON.stringify(o.sampling)}`);
   lines.push("");
   const w = Math.max(4, ...report.stats.map((s) => s.task.length));
   lines.push(`${"task".padEnd(w)}  ${"correct".padStart(8)}  ${"first-try".padStart(9)}  ${"requests".padStart(8)}  ${"errors".padStart(6)}  no-tool`);
@@ -162,9 +180,11 @@ export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavo
 export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: SampleOptions; out?: string; record?: string; list: boolean } {
   const flags = new Map<string, string[]>();
   let list = false;
+  let yes = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
     if (a === "--list") list = true;
+    else if (a === "--yes") yes = true;
     else if (a.startsWith("--")) {
       const v = argv[++i];
       if (v === undefined) throw new Error(`${a} needs a value`);
@@ -175,10 +195,13 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
   const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--repeat", "--task", "--group", "--timeout-seconds", "--out", "--record", "--busybox"]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = one("--flavor") ?? "anthropic";
-  if (!(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${FLAVORS.join(", ")}`);
+  const local = flavor === "local-models";
+  if (!local && !(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${[...FLAVORS, "local-models"].join(", ")}`);
   const baseUrl = one("--base-url");
   const model = one("--model");
-  if (!list && (baseUrl === undefined || model === undefined)) throw new Error("--base-url and --model are required");
+  if (local && baseUrl !== undefined) throw new Error("--base-url does not go with --flavor local-models: the model host chooses its address");
+  if (yes && !local) throw new Error("--yes is for --flavor local-models");
+  if (!list && (model === undefined || (!local && baseUrl === undefined))) throw new Error(local ? "--model is required: a name from local_models in the settings file" : "--base-url and --model are required");
   const keyEnv = one("--api-key-env");
   let apiKey: string | undefined;
   if (keyEnv !== undefined) {
@@ -203,8 +226,9 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
   const busybox = one("--busybox");
   return {
     options: {
-      flavor: flavor as Flavor,
+      flavor: flavor as SampleOptions["flavor"],
       baseUrl: baseUrl ?? "",
+      ...(yes ? { yes } : {}),
       model: model ?? "",
       ...(maxTokens === undefined ? {} : { maxTokens }),
       ...(apiKey === undefined ? {} : { apiKey }),
@@ -227,6 +251,16 @@ async function main(): Promise<void> {
     return;
   }
   const busybox = options.busybox ?? (await findBusybox());
+  if (options.flavor === "local-models") {
+    const io = nodeIo();
+    io.settings = await loadSettings(io);
+    await ensureLocalModels(io, { yes: options.yes === true });
+    const found = await lookupSampling(io, options.model);
+    for (const n of found.notes) console.error(`note: ${n}`);
+    console.error(found.source === undefined ? "sampling: none set; the server's defaults apply" : `sampling from ${found.detail}: ${JSON.stringify(found.values)}`);
+    options.adapter = localModelsAdapter(io);
+    options.sampling = samplingSettings(found.values);
+  }
   const secrets = options.apiKey === undefined ? [] : [options.apiKey];
   const scrub = (text: string): string => secrets.reduce((t, s) => t.split(s).join("[redacted]"), text);
   if (record !== undefined) await mkdir(record, { recursive: true });

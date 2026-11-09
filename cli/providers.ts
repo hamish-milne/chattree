@@ -2,6 +2,7 @@ import { defaultRegistry, localModelsDefinition, type AdapterRegistry, type Loca
 import { catalog, resolveName } from "../localmodels/catalog.ts";
 import { findDaemon } from "../localmodels/client.ts";
 import { dataDir } from "../localmodels/plan.ts";
+import { resolveSampling, type ResolvedSampling } from "../localmodels/sampling.ts";
 import type { Io } from "./io.ts";
 
 /** The local models as a provider sees them (docs/local-models.md, section 6): the catalog from the settings, the address from the running host. */
@@ -33,4 +34,14 @@ export function localRuntime(io: Pick<Io, "host" | "env" | "settings">): LocalMo
 /** The adapters that ship with chattree, and `local-models`, which needs this machine's settings and host. */
 export function cliRegistry(io: Pick<Io, "host" | "env" | "settings">): AdapterRegistry {
   return defaultRegistry().register(localModelsDefinition(localRuntime(io)));
+}
+
+/** The sampling for one of the settings' models, looking through the model's own metadata when the settings have none (docs/local-models.md, section 5). Never throws. */
+export async function lookupSampling(io: Pick<Io, "env" | "settings">, name: string, o: { fetch?: typeof fetch | undefined; hfBase?: string | undefined; localFile?: string | undefined } = {}): Promise<ResolvedSampling> {
+  const config = io.settings?.local_models;
+  const entry = config?.models[resolveName(config, name)];
+  if (config === undefined || entry === undefined) return { values: {}, source: undefined, detail: undefined, notes: [`${name} is not in local_models`] };
+  const tokenVar = config.hf_token_env;
+  const token = tokenVar === undefined ? undefined : io.env[tokenVar];
+  return resolveSampling(entry, { fetch: o.fetch, hfBase: o.hfBase, localFile: o.localFile, token: token === "" ? undefined : token, signal: AbortSignal.timeout(15_000) });
 }
