@@ -80,7 +80,7 @@ local_models:
 
 Implemented in `localmodels/config.ts` (schema, `modelSource`), `localmodels/release.ts` (assets, tags) and `localmodels/plan.ts` (`dataDir`, `downloadList`, `presetIni`, `routerArgs`). Aliases are resolved by the provider and are not written to the preset. `jinja: false` is written as `jinja = false`, which is not yet checked against a real server.
 
-**Releases (llama.cpp).** A build tag (`b12110`) has the files, named `llama-<tag>-bin-<os>[-<backend>[-<cuda version>]]-<arch>.<tar.gz|zip>` (`os`: `win`, `ubuntu`, `macos`; macOS has no backend suffix and means Metal). A version tag (`v0.9.0`) has no files; its description links to the build (`releases/tag/bNNNN`), which the installer follows (`resolveVersionTag`, from the release's JSON; an error says to set a build tag when there is no link). The CUDA runtime is a separate file (`cudart-llama-bin-win-cuda-12.4-x64.zip`, with no tag on Windows; `cudart-llama-<tag>-bin-ubuntu-cuda-12.8-x64.tar.gz` on Linux), unpacked beside the program. GitHub shows a SHA-256 per file, which the hash lock records. `auto` means Metal on a Mac and the CPU elsewhere until the host can detect a GPU.
+**Releases (llama.cpp).** A build tag (`b12110`) has the files, named `llama-<tag>-bin-<os>[-<backend>[-<cuda version>]]-<arch>.<tar.gz|zip>` (`os`: `win`, `ubuntu`, `macos`; macOS has no backend suffix and means Metal). A version tag (`v0.9.0`) has no files; its description links to the build (`releases/tag/bNNNN`), which the installer follows (`resolveVersionTag`, from the release's JSON; an error says to set a build tag when there is no link). The CUDA runtime is a separate file (`cudart-llama-bin-win-cuda-12.4-x64.zip`, with no tag on Windows; `cudart-llama-<tag>-bin-ubuntu-cuda-12.8-x64.tar.gz` on Linux), unpacked beside the program. GitHub shows a SHA-256 per file, which the hash lock records. `auto` means Metal on a Mac; elsewhere it runs `nvidia-smi -L` (`localmodels/gpu.ts`) and picks `cuda` if it lists a GPU, otherwise the CPU. Only NVIDIA is recognised: for an AMD or Intel card set `backend: vulkan` (guessing it would pick an integrated GPU slower than the CPU). The choice is never silent: `models start` and `models status` print the backend and why, and the CPU case says it is slow and loads every core. (Until this was added `auto` was the CPU on Windows and Linux whatever the machine had; a first real run on a GPU machine ran gpt-oss on the CPU.)
 
 **Fetching (implemented in `localmodels/net.ts`, `download.ts`, `hf.ts`, `lock.ts`, `store.ts`, `install.ts`).**
 
@@ -131,7 +131,7 @@ Implemented in `localmodels/config.ts` (schema, `modelSource`), `localmodels/rel
 
 ## 6. Risks
 
-Disk space; gated repositories; GPU backend detection (`auto` falls back to CPU, visibly); model swapping when subagents use different local models (`groups` and `ttl` per model entry); nothing here has run on a real GPU machine.
+Disk space; gated repositories; GPU backends other than NVIDIA in `auto`; model swapping when subagents use different local models (`groups` and `ttl` per model entry); nothing here has run on a real GPU machine.
 
 ## 7. Embeddings
 

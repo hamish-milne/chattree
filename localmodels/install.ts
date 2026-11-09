@@ -6,6 +6,7 @@ import type { LocalModels } from "./config.ts";
 import { downloadFile } from "./download.ts";
 import { Lock, LockError } from "./lock.ts";
 import { fetchJson, type FetchFn } from "./net.ts";
+import { findGpu, type GpuFinding } from "./gpu.ts";
 import { isBuildTag, resolveBackend, resolveVersionTag, selectAsset, type Arch, type Platform, type ReleaseAsset } from "./release.ts";
 
 /**
@@ -70,12 +71,17 @@ export interface InstallOptions {
   onEvent?: ((e: InstallEvent) => void) | undefined;
   signal?: AbortSignal | undefined;
   deps?: InstallDeps | undefined;
+  /** Look for a GPU when the backend is `auto` (default: `nvidia-smi`). */
+  findGpu?: (() => Promise<GpuFinding>) | undefined;
 }
 
 export interface Installed {
   binary: string;
   tag: string;
   dir: string;
+  /** The backend of this build, and for `auto` what led to it. */
+  backend: string;
+  backendNote: string | undefined;
 }
 
 const run = promisify(execFile);
@@ -152,10 +158,13 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
   const deps = o.deps ?? {};
   if (c.path !== undefined) {
     if ((await stat(c.path).catch(() => undefined))?.isFile() !== true) throw new InstallError(`llama_cpp.path ${c.path} is not a file`, "point it at a llama-server binary, or remove it to have chattree fetch one");
-    return { binary: c.path, tag: "custom", dir: join(c.path, "..") };
+    return { binary: c.path, tag: "custom", dir: join(c.path, ".."), backend: "custom", backendNote: undefined };
   }
   if (c.tag === undefined) throw new InstallError("local_models.llama_cpp.tag is not set, so there is no llama.cpp to run", "set it to a release such as b12110 or v0.9.0 (chattree never picks the latest on its own), or set llama_cpp.path");
-  const backend = resolveBackend(c.backend, o.platform);
+  let gpu: GpuFinding | undefined;
+  if (c.backend === "auto" && o.platform !== "macos") gpu = await (o.findGpu ?? findGpu)();
+  const backend = resolveBackend(c.backend, o.platform, gpu?.backend);
+  const backendNote = c.backend === "auto" ? (o.platform === "macos" ? "Metal, the Mac's GPU" : gpu?.note) : undefined;
 
   // already installed? then the network is not needed (a version tag is remembered as the build it led to)
   const known = isBuildTag(c.tag) ? c.tag : o.lock.quant(`llama-tag:${c.tag}`)?.[0];
@@ -164,7 +173,7 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
     const rel = (await readFile(join(dir, "binary.txt"), "utf8").catch(() => undefined))?.trim();
     if (rel !== undefined) {
       const binary = join(dir, rel);
-      if ((await stat(binary).catch(() => undefined))?.isFile() === true) return { binary, tag: known, dir };
+      if ((await stat(binary).catch(() => undefined))?.isFile() === true) return { binary, tag: known, dir, backend, backendNote };
     }
   }
 
@@ -180,7 +189,7 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
     release = await getRelease(tag, deps, o.signal);
   }
   o.onEvent?.({ type: "release", tag });
-  const sel = selectAsset(release.assets, { platform: o.platform, arch: o.arch, backend: c.backend, cuda: c.cuda });
+  const sel = selectAsset(release.assets, { platform: o.platform, arch: o.arch, backend: c.backend, cuda: c.cuda, gpu: gpu?.backend });
   if (!sel.ok) throw new InstallError(`llama.cpp ${tag}: ${sel.error}`, "choose another backend or tag in local_models.llama_cpp");
   const { program, runtime } = sel.selection;
   const dir = installDir(o.data, tag, backend, c.cuda);
@@ -240,7 +249,7 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
     await o.lock.save();
     for (const f of fetched) await rm(f, { force: true });
     o.onEvent?.({ type: "installed", binary });
-    return { binary, tag, dir };
+    return { binary, tag, dir, backend, backendNote };
   } finally {
     await rm(work, { recursive: true, force: true });
   }

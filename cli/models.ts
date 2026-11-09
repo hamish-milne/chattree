@@ -42,7 +42,8 @@ export function describePlan(p: InstallPlan): string {
 function describeStatus(s: DaemonStatus): string {
   const st = s.state;
   const lines = [`model host: ${st.phase}${st.baseUrl === undefined ? "" : ` at ${st.baseUrl}`} (process ${s.pid})`];
-  if (st.tag !== undefined) lines.push(`llama.cpp:  ${st.tag}`);
+  if (st.tag !== undefined) lines.push(`llama.cpp:  ${st.tag}${st.backend === undefined || st.backend === "custom" ? "" : ` (${st.backend})`}`);
+  if (st.backendNote !== undefined) lines.push(`backend:    ${st.backendNote}`);
   if (st.restarts > 0) lines.push(`restarts:   ${st.restarts}`);
   for (const m of st.models) lines.push(`  ${m.name.padEnd(24)} ${m.state}${st.ids[m.name] === undefined ? "" : `   ${st.ids[m.name]}`}`);
   if (st.error !== undefined) lines.push(`error: ${st.error}`);
@@ -109,7 +110,11 @@ async function follow(io: Io, client: DaemonClient, action: Action): Promise<num
     if (action.kind === "pull") return;
     const state = e.type === "status" ? e.status.state : e.type === "state" ? e.state : undefined;
     if (state === undefined) return;
-    if (state.phase === "starting" && !phaseShown) (phaseShown = true, say("starting llama-server"));
+    if (state.phase === "starting" && !phaseShown) {
+      phaseShown = true;
+      if (state.backend !== undefined && state.backend !== "custom") say(`backend: ${state.backend}${state.backendNote === undefined ? "" : ` (${state.backendNote})`}`);
+      say("starting llama-server");
+    }
     if (state.phase !== "ready" && e.type !== "status") leftReady = true;
     // a restart is over when the host is ready again, not when the status we opened with says it is
     if (state.phase === "ready" && (action.kind !== "restart" || leftReady)) {

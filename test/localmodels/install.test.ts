@@ -32,6 +32,46 @@ async function setup(opts: { digest?: (b: Buffer) => string } = {}) {
   return { server, data, lock, events, o };
 }
 
+describe("backend auto", () => {
+  test("installs the CUDA build, and says why, when an NVIDIA GPU is found", async () => {
+    const { server, data, o } = await setup();
+    try {
+      const r = await ensureLlamaServer(o({ tag: "b100" }, { findGpu: async () => ({ backend: "cuda", note: "found GPU 0: NVIDIA GeForce RTX 4080" }) }));
+      assert.equal(r.backend, "cuda");
+      assert.equal(r.backendNote, "found GPU 0: NVIDIA GeForce RTX 4080");
+      assert.match(r.binary, /b100-cuda/);
+      assert.ok(data.length > 0);
+      // the next start needs no GPU question answered again to find the same build
+      const again = await ensureLlamaServer(o({ tag: "b100" }, { findGpu: async () => ({ backend: "cuda", note: "found" }) }));
+      assert.equal(again.binary, r.binary);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("with no GPU found it runs on the CPU and says so in plain words", async () => {
+    const { server, o } = await setup();
+    try {
+      const r = await ensureLlamaServer(o({ tag: "b100" }, { findGpu: async () => ({ backend: undefined, note: "no NVIDIA GPU found, so llama.cpp runs on the CPU" }) }));
+      assert.equal(r.backend, "cpu");
+      assert.match(r.backendNote ?? "", /runs on the CPU/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("an explicit backend never looks for a GPU", async () => {
+    const { server, o } = await setup();
+    try {
+      const r = await ensureLlamaServer(o({ tag: "b100", backend: "cpu" }, { findGpu: async () => assert.fail("looked for a GPU") }));
+      assert.equal(r.backend, "cpu");
+      assert.equal(r.backendNote, undefined);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("installing llama.cpp", () => {
   test("a build tag is downloaded, checked, unpacked and recorded", async () => {
     const { server, data, lock, events, o } = await setup();

@@ -38,6 +38,7 @@ async function setup(llama: Record<string, unknown> | "path" = "path") {
       engine: new RouterEngine({ spawn: (_b, args, o) => nodeSpawn(process.execPath, [script, ...args], o), pollMs: 20 }),
       installDeps: { apiBase: server.base, verify: async () => undefined },
       pollMs: 50,
+      findGpu: async () => ({ backend: "cuda", note: "found GPU 0: Fake 4080" }),
     },
   });
   const { port } = await daemon.open();
@@ -127,10 +128,13 @@ describe("the daemon", () => {
       await until(() => daemon.status().consent !== undefined);
       const plan = daemon.status().consent!;
       assert.equal(plan.tag, "b100");
+      assert.equal(plan.backend, "cuda");
       assert.ok(events.some((e) => e.type === "consent" && e.plan !== undefined));
       await client.consent(true);
       await until(() => daemon.status().state.phase === "ready");
       assert.equal(daemon.status().consent, undefined);
+      assert.equal(daemon.status().state.backend, "cuda");
+      assert.equal(daemon.status().state.backendNote, "found GPU 0: Fake 4080");
     } finally {
       await close();
     }

@@ -48,6 +48,15 @@ describe("choosing the file", () => {
   test("auto is Metal on a Mac and the CPU elsewhere", () => {
     assert.equal(resolveBackend("auto", "macos"), "metal");
     assert.equal(resolveBackend("auto", "linux"), "cpu");
+    assert.equal(resolveBackend("auto", "windows", undefined), "cpu");
+  });
+
+  test("auto takes the GPU backend that was found, but never over a Mac's Metal or an explicit choice", () => {
+    assert.equal(resolveBackend("auto", "windows", "cuda"), "cuda");
+    assert.equal(resolveBackend("auto", "linux", "cuda"), "cuda");
+    assert.equal(resolveBackend("auto", "macos", "cuda"), "metal");
+    assert.equal(resolveBackend("cpu", "linux", "cuda"), "cpu");
+    assert.equal(resolveBackend("vulkan", "windows", "cuda"), "vulkan");
     assert.deepEqual(pick({ platform: "macos", arch: "arm64", backend: "auto" }), { program: "llama-b12110-bin-macos-arm64.tar.gz", runtime: undefined });
     assert.deepEqual(pick({ platform: "windows", arch: "x64", backend: "auto" }), { program: "llama-b12110-bin-win-cpu-x64.zip", runtime: undefined });
     assert.deepEqual(pick({ platform: "linux", arch: "x64", backend: "auto" }), { program: "llama-b12110-bin-ubuntu-x64.tar.gz", runtime: undefined });

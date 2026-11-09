@@ -73,6 +73,7 @@ describe("chattree models", () => {
       assert.match(first.stderr, /starting the model host/);
       assert.match(first.stderr, /alpha: alpha\.gguf done/);
       assert.match(first.stderr, /ready at http:\/\/127\.0\.0\.1:\d+\nmodels: alpha/);
+      assert.doesNotMatch(first.stderr, /backend:/, "a llama_cpp.path is the person's own build: nothing to explain");
 
       const status = testIo(dir, { env });
       assert.equal(await main(["models", "status"], status), 0);

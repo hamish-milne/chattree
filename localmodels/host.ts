@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import type { LocalModels } from "./config.ts";
 import { RouterEngine, type Engine, type EngineProcess, type ModelStatus } from "./engine.ts";
+import type { GpuFinding } from "./gpu.ts";
 import { ensureLlamaServer, type InstallDeps, type InstallEvent, type InstallPlan } from "./install.ts";
 import { Lock } from "./lock.ts";
 import { removeModelFiles } from "./inventory.ts";
@@ -27,6 +28,9 @@ export interface HostState {
   models: ModelStatus[];
   /** The llama.cpp build in use. */
   tag: string | undefined;
+  /** Its backend (`cuda`, `cpu`, `metal`...), and for `backend: auto` what was found and so chosen. */
+  backend: string | undefined;
+  backendNote: string | undefined;
   /** How many times the supervisor has restarted the server since it was started. */
   restarts: number;
   /** Model ids (`name@hash8`) of what is fetched. */
@@ -61,6 +65,8 @@ export interface HostOptions {
   env?: Readonly<Record<string, string | undefined>> | undefined;
   fetch?: typeof fetch | undefined;
   installDeps?: InstallDeps | undefined;
+  /** Look for a GPU when the backend is `auto` (tests). */
+  findGpu?: (() => Promise<GpuFinding>) | undefined;
   confirm?: ((plan: InstallPlan) => Promise<boolean>) | undefined;
   freePort?: ((host: string) => Promise<number>) | undefined;
   backoff?: Partial<Backoff> | undefined;
@@ -103,7 +109,7 @@ export class LocalModelHost {
   readonly #listeners = new Set<(e: HostEvent) => void>();
   readonly #log: string[] = [];
   #config: LocalModels;
-  #state: HostState = { phase: "idle", baseUrl: undefined, error: undefined, models: [], tag: undefined, restarts: 0, ids: {} };
+  #state: HostState = { phase: "idle", baseUrl: undefined, error: undefined, models: [], tag: undefined, backend: undefined, backendNote: undefined, restarts: 0, ids: {} };
   #proc: EngineProcess | undefined;
   #binary: string | undefined;
   #port: number | undefined;
@@ -332,10 +338,11 @@ export class LocalModelHost {
         confirm: this.#o.confirm,
         signal: this.#abort.signal,
         onEvent: (event) => this.#emit({ type: "install", event }),
+        findGpu: this.#o.findGpu,
         deps: { fetch: this.#o.fetch, ...this.#o.installDeps },
       });
       this.#binary = installed.binary;
-      this.#set({ tag: installed.tag });
+      this.#set({ tag: installed.tag, backend: installed.backend, backendNote: installed.backendNote });
       const prepared = await this.#prepare(config);
       this.#files = prepared.files;
       this.#preset = presetIni(config, prepared.files);

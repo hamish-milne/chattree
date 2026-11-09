@@ -52,10 +52,10 @@ export function parseAssetName(name: string): ParsedAsset | undefined {
 
 const OS_NAME: Record<Platform, string> = { windows: "win", linux: "ubuntu", macos: "macos" };
 
-/** `auto` is the backend that needs nothing from the machine: Metal on a Mac, the CPU elsewhere. (Finding a GPU is the host's job, and it passes what it found.) */
-export function resolveBackend(requested: Backend, platform: Platform): Exclude<Backend, "auto"> {
+/** `auto` is Metal on a Mac, else the GPU backend the host found (localmodels/gpu.ts), else the CPU. */
+export function resolveBackend(requested: Backend, platform: Platform, gpu?: Exclude<Backend, "auto" | "cpu"> | undefined): Exclude<Backend, "auto"> {
   if (requested !== "auto") return requested;
-  return platform === "macos" ? "metal" : "cpu";
+  return platform === "macos" ? "metal" : (gpu ?? "cpu");
 }
 
 const versionParts = (v: string): number[] => v.split(".").map(Number);
@@ -81,13 +81,15 @@ export interface SelectOptions {
   backend: Backend;
   /** The CUDA version to prefer; default the newest. */
   cuda?: string | undefined;
+  /** What `auto` should pick when it is not a Mac: the GPU backend that was found. */
+  gpu?: Exclude<Backend, "auto" | "cpu"> | undefined;
 }
 
 export type SelectResult = { ok: true; selection: Selection } | { ok: false; error: string };
 
 /** The release's file for this platform, architecture and backend. A cuda backend takes the requested or newest CUDA version, and the runtime file of that version. */
 export function selectAsset(assets: readonly ReleaseAsset[], opts: SelectOptions): SelectResult {
-  const backend = resolveBackend(opts.backend, opts.platform);
+  const backend = resolveBackend(opts.backend, opts.platform, opts.gpu);
   const os = OS_NAME[opts.platform];
   const parsed = assets.flatMap((asset) => {
     const p = parseAssetName(asset.name);
