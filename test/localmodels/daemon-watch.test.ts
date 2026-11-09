@@ -86,7 +86,7 @@ describe("the settings file", () => {
 
       await t.save(t.yaml(t.alpha + t.beta));
       await t.until(() => t.daemon.status().state.models.length === 2);
-      assert.equal(reloads(), 1);
+      await t.until(() => reloads() === 1); // the event follows the state change
 
       await t.save(t.yaml(t.alpha + t.beta)); // the same again
       await new Promise((r) => setTimeout(r, 400));
