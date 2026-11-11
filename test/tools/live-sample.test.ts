@@ -124,3 +124,15 @@ describe("the local-models flavor", () => {
 test("--wire-log is a flag of its own", () => {
   assert.equal(parseArgs(["--flavor", "local-models", "--model", "m", "--wire-log", "wire.jsonl"], {}).wireLog, "wire.jsonl");
 });
+
+test("--setting KEY=VALUE is a model setting, a JSON value when it parses, and is sent and printed", async () => {
+  const p = parseArgs(["--flavor", "local-models", "--model", "m", "--setting", "replay_reasoning=true", "--setting", "reasoning_effort=low", "--setting", "top_k=20"], {});
+  assert.deepEqual(p.options.settings, { replay_reasoning: true, reasoning_effort: "low", top_k: 20 });
+  assert.throws(() => parseArgs(["--flavor", "local-models", "--model", "m", "--setting", "oops"], {}), /KEY=VALUE/);
+  const seen: unknown[] = [];
+  const adapter = { $tag: "pretend", async *stream(req: { setup: { model?: { settings?: unknown } } }) { seen.push(req.setup.model?.settings); return text("nothing to do"); }, retrieve: async () => undefined } as unknown as ProviderAdapter;
+  const settings = { replay_reasoning: true };
+  const report = await runSamples({ flavor: "local-models", baseUrl: "", model: "m", repeat: 1, tasks: ["one line"], adapter, sampling: { temperature: 1 }, settings });
+  assert.deepEqual(seen[0], { max_output_tokens: 4096, temperature: 1, replay_reasoning: true });
+  assert.match(formatReport(report, { flavor: "local-models", model: "m", repeat: 1, settings }), /\nsettings: \{"replay_reasoning":true\}/);
+});

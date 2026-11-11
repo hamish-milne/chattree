@@ -211,6 +211,21 @@ Status: **planned**. Nothing here is built. It follows from 8.2: llama-server's 
 
 (Qwen3.5-9B's template read directly; Gemma from the 26B-A4B template and Google's function-calling page, assumed the same for 12B; gpt-oss from the Harmony specification and the template in the Unsloth file. Not checked against llama.cpp's source.)
 
+### 9.1a What the template run showed (2026-11-11, b12110, patched gpt-oss template, Qwen3.5-9B Q6_K, Gemma 4 12B Q4_K_M)
+
+All three templates now give clean prompts: every model's first tokens after the generation prompt are at probability 1.00 or close (headers, channels, `<|tool_call>`), no junk.
+
+- **Reasoning kept between calls, dropped after a final answer:** the same in all three. llama.cpp maps `reasoning_content` onto the template's own field, so sending it works (`MARK-ALPHA` and `MARK-BETA` reached all three prompts, `MARK-GAMMA` after a final answer reached none). Our adapter does not send it by default (`replay_reasoning`, default false), so the benchmark's gpt-oss, Qwen and Gemma never saw their own earlier reasoning. `supports_preserve_reasoning` is false for all three, which is about keeping reasoning past the last user message, not about this.
+- **Models imitate the reasoning in their history:** with `MARK-ALPHA` and `MARK-BETA` in the history, Qwen and Gemma began their next reasoning with `MARK-GAMMA`. What is kept in the history shapes what is thought next.
+- **Nested schemas:** gpt-oss is shown `items: any[]`, the fields inside dropped (the stock macro does not recurse), and its call omitted the required `quantity` and repeated a SKU instead. Qwen shows the full JSON schema, Gemma the whole structure in its brace syntax; both reasoned `quantity: 2` correctly. The benchmark's tools are all flat, so this does not explain the gap to the Ollama results.
+- **Two calls in one assistant message:** gpt-oss's template renders only the first call and keeps both results (`supports_parallel_tool_calls` false), so the history shows one call and two results. Qwen and Gemma render both.
+- **Multi-line arguments:** gpt-oss writes JSON, so newlines and quotes are escaped (`\n`, `\"`, and `\\n` for a backslash-n in code). Qwen writes the raw text between `<parameter=content>` tags, with a newline added before the closing tag, so a value's trailing newline cannot be told from the template's own (a parser must define it). Gemma writes the raw text between `<|"|>` quotes, exact.
+- **Gemma:** `<|think|>` is in the system block (thinking on by default), a tool result is wrapped as `response:read{value:<|"|>…<|"|>}`, and results sit inside the model turn.
+- **Errors:** no format has an error flag on a result; the text has to say it.
+- **Stop on the wrong thing:** after a finished answer plus a new question, gpt-oss wrote the answer to a file with `write` instead of replying (1 of 1 samples; not a pattern yet).
+
+Cheap tests that need no dialect: `tools/live-sample.ts ... --setting replay_reasoning=true` against the same model without it.
+
 ### 9.2 The idea
 
 By default a model entry keeps today's path: `--jinja`, the model's own template or `chat_template` (a patched copy, `templates/`), chat completions. In addition a model entry may name a **dialect**: a narrow component that turns a folded `ModelContext` into the raw prompt string and turns the raw response string back into the assistant entry. With it the harness decides what the model sees (reasoning kept between calls, flat or nested schemas, channels, a `raw` tool convention) and how it is read (leniently), and llama-server is only a token generator behind `/completion`.

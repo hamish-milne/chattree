@@ -14,7 +14,7 @@
  * Flags: --flavor, --base-url, --model, --max-tokens (default 4096), --api-key-env NAME, --repeat N (default 10),
  * --task TEXT (repeatable; a substring of the task name), --group edit|read|write|run|mixed (repeatable), --busybox PATH
  * (busybox.exe for the everyday utilities on Windows; default: CHATTREE_BUSYBOX or vendor/busybox, see tools/fetch-busybox.ts), --timeout-seconds (per sample, default 180), --out FILE (every
- * sample as JSON), --record DIR (the steps of every sample, secrets scrubbed), --wire-log FILE (every request and the raw response, as JSON lines, for tools/llama-replay.ts), --list.
+ * sample as JSON), --record DIR (the steps of every sample, secrets scrubbed), --setting KEY=VALUE (a model setting, repeatable: replay_reasoning=true), --wire-log FILE (every request and the raw response, as JSON lines, for tools/llama-replay.ts), --list.
  *
  * "first-try" counts samples that were right with no tool error on the way; the gap to "correct" is what the model
  * recovered from. The error table shows what the tools said to the model most often, with ids and numbers blurred.
@@ -51,6 +51,8 @@ export interface SampleOptions {
   adapter?: ProviderAdapter;
   /** Sent with every request as model settings (temperature, top_p, and under `extra` the rest). */
   sampling?: Record<string, unknown>;
+  /** Model settings given with --setting KEY=VALUE (the value as JSON, else text), sent over the sampling: `replay_reasoning=true`, `reasoning_effort=low`. */
+  settings?: Record<string, unknown>;
   /** local-models: agree to installing llama.cpp without asking. */
   yes?: boolean;
   onSample?: (s: Sample, done: number, total: number) => void;
@@ -113,7 +115,7 @@ export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "busybox
 export async function runSamples(o: SampleOptions): Promise<SampleReport> {
   if (o.adapter === undefined && o.flavor === "local-models") throw new Error("the local-models flavor needs its adapter (see main)");
   const adapter = o.adapter ?? makeAdapter({ ...o, flavor: o.flavor as Flavor });
-  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens ?? 4096, ...(o.sampling ?? {}) } } as NonNullable<AgentSetup["model"]>;
+  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens ?? 4096, ...(o.sampling ?? {}), ...(o.settings ?? {}) } } as NonNullable<AgentSetup["model"]>;
   const repeat = o.repeat ?? 10;
   const { run, skipped } = selectTasks(o);
   const samples: Sample[] = [];
@@ -151,10 +153,11 @@ export async function runSamples(o: SampleOptions): Promise<SampleReport> {
 
 const pct = (a: number, b: number): string => (b === 0 ? "-" : `${a}/${b}`);
 
-export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavor" | "model" | "repeat" | "sampling">): string {
+export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavor" | "model" | "repeat" | "sampling" | "settings">): string {
   const lines: string[] = [];
   lines.push(`${o.flavor} ${o.model}: ${o.repeat ?? 10} samples per task, ${report.stats.length} tasks${report.skipped.length > 0 ? ` (skipped: ${report.skipped.map((s) => `${s.task} (${s.why})`).join(", ")})` : ""}`);
   if (o.sampling !== undefined) lines.push(`sampling: ${JSON.stringify(o.sampling)}`);
+  if (o.settings !== undefined) lines.push(`settings: ${JSON.stringify(o.settings)}`);
   lines.push("");
   const w = Math.max(4, ...report.stats.map((s) => s.task.length));
   lines.push(`${"task".padEnd(w)}  ${"correct".padStart(8)}  ${"first-try".padStart(9)}  ${"requests".padStart(8)}  ${"errors".padStart(6)}  no-tool`);
@@ -193,7 +196,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     } else throw new Error(`unexpected argument ${a}`);
   }
   const one = (name: string): string | undefined => flags.get(name)?.[0];
-  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--repeat", "--task", "--group", "--timeout-seconds", "--out", "--record", "--busybox", "--wire-log"]);
+  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--repeat", "--task", "--group", "--timeout-seconds", "--out", "--record", "--busybox", "--wire-log", "--setting"]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = one("--flavor") ?? "anthropic";
   const local = flavor === "local-models";
@@ -208,6 +211,19 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
   if (keyEnv !== undefined) {
     apiKey = env[keyEnv];
     if (apiKey === undefined || apiKey === "") throw new Error(`the environment variable ${keyEnv} is not set`);
+  }
+  const settings: Record<string, unknown> = {};
+  for (const kv of flags.get("--setting") ?? []) {
+    const at = kv.indexOf("=");
+    if (at < 1) throw new Error(`--setting takes KEY=VALUE, not ${kv}`);
+    const raw = kv.slice(at + 1);
+    let value: unknown = raw;
+    try {
+      value = JSON.parse(raw);
+    } catch {
+      // text
+    }
+    settings[kv.slice(0, at)] = value;
   }
   const num = (name: string): number | undefined => {
     const v = one(name);
@@ -231,6 +247,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
       flavor: flavor as SampleOptions["flavor"],
       baseUrl: baseUrl ?? "",
       ...(yes ? { yes } : {}),
+      ...(Object.keys(settings).length > 0 ? { settings } : {}),
       model: model ?? "",
       ...(maxTokens === undefined ? {} : { maxTokens }),
       ...(apiKey === undefined ? {} : { apiKey }),
