@@ -1,0 +1,34 @@
+<|start|>system<|message|>You are ChatGPT, a large language model trained by OpenAI.
+Knowledge cutoff: 2024-06
+Current date: 2026-11-11
+
+Reasoning: medium
+
+# Valid channels: analysis, commentary, final. Channel must be included for every message.
+Calls to these tools must go to the commentary channel: 'functions'.<|end|><|start|>developer<|message|># Instructions
+
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.
+
+# Tools
+
+## functions
+
+namespace functions {
+
+// Read a file. Returns its lines, numbered, and its version.
+type read = (_: {
+// Path of the file, relative to the workspace root.
+path: string,
+// At most this many lines.
+limit?: number,
+}) => any;
+
+// Create a file, or replace one whole. Give the complete new content.
+type write = (_: {
+// Path of the file.
+path: string,
+// The complete new content of the file.
+content: string,
+}) => any;
+
+} // namespace functions<|end|><|start|>user<|message|>What is 2 + 2?<|end|><|start|>assistant<|channel|>analysis<|message|>4.<|end|><|start|>user<|message|>And 9 / 2?<|end|><|start|>assistant

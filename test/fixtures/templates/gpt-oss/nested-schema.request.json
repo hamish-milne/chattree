@@ -1,0 +1,65 @@
+{
+  "model": "gpt-oss-20b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents."
+    },
+    {
+      "role": "user",
+      "content": "Record an order for Ada: two of SKU-1 with options gift and rush, and one SKU-9."
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "record_items",
+        "description": "Record the items of an order.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "customer": {
+              "type": "string",
+              "description": "Who the order is for."
+            },
+            "items": {
+              "type": "array",
+              "description": "The items ordered.",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "sku": {
+                    "type": "string",
+                    "description": "The product code."
+                  },
+                  "quantity": {
+                    "type": "integer",
+                    "description": "How many."
+                  },
+                  "options": {
+                    "type": "array",
+                    "description": "Chosen options.",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                },
+                "required": [
+                  "sku",
+                  "quantity"
+                ]
+              }
+            }
+          },
+          "required": [
+            "customer",
+            "items"
+          ]
+        }
+      }
+    }
+  ]
+}

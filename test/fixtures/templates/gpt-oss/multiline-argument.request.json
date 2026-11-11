@@ -1,0 +1,87 @@
+{
+  "model": "gpt-oss-20b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents."
+    },
+    {
+      "role": "user",
+      "content": "Write hello.py"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "write",
+            "arguments": "{\"path\":\"hello.py\",\"content\":\"def greet(name):\\n    \\\"\\\"\\\"Say \\\"hello\\\" to name.\\\"\\\"\\\"\\n    print(f\\\"hello, {name}!\\\\n\\\")\\n\\nif __name__ == \\\"__main__\\\":\\n    greet(\\\"world\\\")\\n\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "c1",
+      "content": "wrote hello.py (6 lines)"
+    },
+    {
+      "role": "user",
+      "content": "Now read it back."
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file. Returns its lines, numbered, and its version.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path of the file, relative to the workspace root."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "At most this many lines."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create a file, or replace one whole. Give the complete new content.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path of the file."
+            },
+            "content": {
+              "type": "string",
+              "description": "The complete new content of the file."
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      }
+    }
+  ]
+}

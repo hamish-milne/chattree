@@ -1,0 +1,26 @@
+<|start|>system<|message|>You are ChatGPT, a large language model trained by OpenAI.
+Knowledge cutoff: 2024-06
+Current date: 2026-11-11
+
+Reasoning: medium
+
+# Valid channels: analysis, commentary, final. Channel must be included for every message.
+Calls to these tools must go to the commentary channel: 'functions'.<|end|><|start|>developer<|message|># Instructions
+
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.
+
+# Tools
+
+## functions
+
+namespace functions {
+
+// Record the items of an order.
+type record_items = (_: {
+// Who the order is for.
+customer: string,
+// The items ordered.
+items: any[],
+}) => any;
+
+} // namespace functions<|end|><|start|>user<|message|>Record an order for Ada: two of SKU-1 with options gift and rush, and one SKU-9.<|end|><|start|>assistant
