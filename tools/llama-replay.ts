@@ -13,9 +13,9 @@
  * Everything is written to --out (default ./replay), and a summary printed. The model host must be running (`chattree models start`).
  *
  * `--request FILE` replays a request.json saved by an earlier run instead of a wire log, so the same request can be tried again after a
- * change to the settings. Step 4 is run with three samplers (as sent, greedy, and OpenAI's recommendation for gpt-oss: temperature 1,
- * top_k 0, top_p 1, min_p 0) and counts how many answers start as a well-formed harmony message; the first tokens of the greedy answer
- * are printed with the model's top candidates, which shows whether the model is unsure or the sampler is picking from a flat tail.
+ * change to the settings. Step 4 is run on three prompts (as rendered; with past calls written in harmony's own form; with no tools or
+ * history) and two samplers (as sent, greedy), and counts how many answers start as a well-formed harmony message; the first tokens of
+ * each greedy answer are printed with the model's top candidates.
  */
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -114,42 +114,51 @@ async function main(): Promise<void> {
   await writeFile(join(a.out, "prompt.txt"), prompt);
   console.log(`\nthe prompt as the model sees it: ${prompt.length} characters, saved; it ends:\n${prompt.slice(-700).replace(/^/gm, "    ")}`);
 
-  // 4. what the model writes, under three samplers
+  // 4. what the model writes: the prompt as rendered, with the history in the form harmony defines, and with no history or tools at all;
+  //    each with the request's sampler and greedy
   const asSent = Object.fromEntries(SAMPLING.filter((k) => body[k] !== undefined).map((k) => [k, body[k]]));
-  const variants: [string, Record<string, unknown>][] = [
-    ["as sent", asSent],
-    ["greedy", { temperature: 0 }],
-    ["temperature 1, top_k 0, top_p 1, min_p 0", { temperature: 1, top_k: 0, top_p: 1, min_p: 0 }],
-  ];
+  // The template renders a past call as `assistant to=functions.x<|channel|>commentary json<|message|>`; the model writes (and harmony
+  // defines) `assistant<|channel|>commentary to=functions.x <|constrain|>json<|message|>`.
+  const harmonyForm = prompt.replace(/<\|start\|>assistant to=(functions\.\w+)<\|channel\|>commentary json<\|message\|>/g, "<|start|>assistant<|channel|>commentary to=$1 <|constrain|>json<|message|>");
+  const bare = await post(`${baseUrl}/apply-template`, { model, messages: (body["messages"] as { role: string }[]).filter((m) => m.role === "system" || m.role === "user").slice(0, 2) });
+  const barePrompt = (bare.json as { prompt?: string } | undefined)?.prompt;
+  const prompts: [string, string][] = [["the prompt as rendered", prompt]];
+  if (harmonyForm !== prompt) prompts.push(["history calls written in harmony's form (to= after the channel, <|constrain|>json)", harmonyForm]);
+  if (barePrompt !== undefined) prompts.push(["only the system and user messages, no tools, no history", barePrompt]);
+  const variants: [string, Record<string, unknown>][] = [["as sent", asSent], ["greedy", { temperature: 0 }]];
   // a well-formed harmony message starts with a channel name, and a call names its function
   const wellFormed = /^<\|channel\|>(analysis|commentary|final)( to=functions\.\w+)?\s*(<\|constrain\|>json)?<\|message\|>/;
-  for (const [vi, [label, sampling]] of variants.entries()) {
-    console.log(`\nthe raw completion of that prompt, ${a.repeat} times, sampler: ${label}`);
-    let clean = 0;
-    const stops = new Map<string, number>();
-    for (let i = 0; i < a.repeat; i++) {
-      const probs = vi === 1 && i === 0 ? 5 : 0;
-      const r = await post(`${baseUrl}/completion`, { model, prompt, n_predict: maxTokens, cache_prompt: false, stream: false, special: true, ...(probs > 0 ? { n_probs: probs } : {}), ...sampling });
-      const j = r.json as { content?: string; stop_type?: string; tokens_predicted?: number; completion_probabilities?: unknown[] } | undefined;
-      const text = j?.content ?? r.text;
-      await writeFile(join(a.out, `raw-${vi}-${i}.txt`), text);
-      const ok = wellFormed.test(text);
-      if (ok) clean++;
-      stops.set(j?.stop_type ?? `HTTP ${r.status}`, (stops.get(j?.stop_type ?? `HTTP ${r.status}`) ?? 0) + 1);
-      console.log(`  #${i}: ${ok ? "well-formed start" : "MALFORMED start"}, ${j?.stop_type ?? `HTTP ${r.status}`}, ${j?.tokens_predicted ?? "?"} tokens; starts ${JSON.stringify(text.slice(0, 110))}`);
-      if (probs > 0 && j?.completion_probabilities !== undefined) {
-        await writeFile(join(a.out, "probs.json"), JSON.stringify(j.completion_probabilities, null, 2));
-        console.log("  the first tokens of that greedy answer, and what else the model had in mind:");
-        for (const [k, c] of (j.completion_probabilities as Record<string, unknown>[]).slice(0, 8).entries()) {
-          const top = ((c["top_logprobs"] ?? c["probs"]) as Record<string, unknown>[] | undefined) ?? [];
-          const show = (t: Record<string, unknown>): string => `${JSON.stringify(t["token"] ?? t["tok_str"])} ${typeof t["logprob"] === "number" ? Math.exp(t["logprob"]).toFixed(2) : typeof t["prob"] === "number" ? t["prob"].toFixed(2) : "?"}`;
-          console.log(`    ${k}: ${JSON.stringify(c["token"] ?? c["content"])}   ← ${top.slice(0, 5).map(show).join(", ")}`);
+  for (const [pi, [plabel, text0]] of prompts.entries()) {
+    await writeFile(join(a.out, `prompt-${pi}.txt`), text0);
+    console.log(`\n=== ${plabel}`);
+    for (const [vi, [label, sampling]] of variants.entries()) {
+      console.log(`sampler: ${label}, ${a.repeat} times`);
+      let clean = 0;
+      const stops = new Map<string, number>();
+      for (let i = 0; i < a.repeat; i++) {
+        const probs = vi === 1 && i === 0 ? 5 : 0;
+        const r = await post(`${baseUrl}/completion`, { model, prompt: text0, n_predict: maxTokens, cache_prompt: false, stream: false, special: true, ...(probs > 0 ? { n_probs: probs } : {}), ...sampling });
+        const j = r.json as { content?: string; stop_type?: string; tokens_predicted?: number; completion_probabilities?: unknown[] } | undefined;
+        const text = j?.content ?? r.text;
+        await writeFile(join(a.out, `raw-${pi}-${vi}-${i}.txt`), text);
+        const ok = wellFormed.test(text);
+        if (ok) clean++;
+        stops.set(j?.stop_type ?? `HTTP ${r.status}`, (stops.get(j?.stop_type ?? `HTTP ${r.status}`) ?? 0) + 1);
+        if (!(vi === 1 && i > 0)) console.log(`  #${i}: ${ok ? "well-formed start" : "MALFORMED start"}, ${j?.stop_type ?? `HTTP ${r.status}`}, ${j?.tokens_predicted ?? "?"} tokens; starts ${JSON.stringify(text.slice(0, 110))}`);
+        if (probs > 0 && j?.completion_probabilities !== undefined) {
+          await writeFile(join(a.out, `probs-${pi}.json`), JSON.stringify(j.completion_probabilities, null, 2));
+          console.log("  the first tokens of that greedy answer, and what else the model had in mind:");
+          for (const [k, c] of (j.completion_probabilities as Record<string, unknown>[]).slice(0, 8).entries()) {
+            const top = ((c["top_logprobs"] ?? c["probs"]) as Record<string, unknown>[] | undefined) ?? [];
+            const show = (t: Record<string, unknown>): string => `${JSON.stringify(t["token"] ?? t["tok_str"])} ${typeof t["logprob"] === "number" ? Math.exp(t["logprob"]).toFixed(2) : typeof t["prob"] === "number" ? t["prob"].toFixed(2) : "?"}`;
+            console.log(`    ${k}: ${JSON.stringify(c["token"] ?? c["content"])}   ← ${top.slice(0, 5).map(show).join(", ")}`);
+          }
         }
       }
+      console.log(`  ${clean} of ${a.repeat} well-formed; stop types: ${[...stops].map(([k, v]) => `${k} ×${v}`).join(", ")}${vi === 1 ? " (greedy: the same every time, so only the first is shown)" : ""}`);
     }
-    console.log(`  ${clean} of ${a.repeat} well-formed; stop types: ${[...stops].map(([k, v]) => `${k} ×${v}`).join(", ")} (limit means the token limit cut it off)`);
   }
-  console.log(`\nfiles are in ${a.out}/: request.json, props.json, chat-template.jinja, prompt.txt, chat-N.json, raw-<sampler>-<n>.txt, probs.json`);
+  console.log(`\nfiles are in ${a.out}/: request.json, props.json, chat-template.jinja, prompt.txt, chat-N.json, prompt-N.txt, raw-<prompt>-<sampler>-<n>.txt, probs-N.json`);
 }
 
 main().catch((err: unknown) => {
