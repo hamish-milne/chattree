@@ -177,6 +177,17 @@ For the numbers to be comparable, two things have to be the same as in the Ollam
 
 What a difference would mean: the chat template (llama.cpp's own Jinja against Ollama's Go renderer, which for gpt-oss prints nested schemas as `any[]`) and the quantisation file differ between the two, so a change in gpt-oss's results is possible either way; whether llama.cpp's template shows the full nested schema is not known yet (`GET /props` has `chat_template`). Section 9 is where that gets answered.
 
+### 8.2 When the server rejects what the model wrote
+
+llama-server parses a model's tool calls itself, and answers `server_error: The model produced output that does not match the expected peg-native format` (HTTP 500, or an error event in the stream) when the text is not in the model's own format. Ollama was more forgiving, so a model can look worse here than it did there. To see what the model wrote:
+
+```
+node tools/live-sample.ts --flavor local-models --model gpt-oss-20b --task "one line" --repeat 20 --wire-log wire.jsonl
+node tools/llama-replay.ts --wire wire.jsonl --repeat 10 --out replay/
+```
+
+`--wire-log` records every chat request with the raw response. `llama-replay` takes the last failed one (or `--entry N`) and prints how often the same request fails when sent again, the template (`/props`), the prompt as the model sees it (`/apply-template`), and the raw text of the same prompt sent to `/completion`, with `stop_type` (`limit` means the token limit cut the model off mid-call; `--max-tokens` raises it). Unverified: that this llama-server build has these endpoints under these names, and that `/completion` shows special tokens (`special: true`); if the markers are missing from `raw-N.txt`, say so.
+
 ## 9. After the host: our own templates
 
 With the server ours, a model entry can carry a `chat_template` (llama-server `--chat-template-file`), and the reserved `text` and `raw` tool conventions (docs/tools.md, 3.7) become buildable: our own rendering of tool schemas, either through a template of ours or a pre-rendered prompt sent to the completion endpoint. That gets its own plan once step 5 works.

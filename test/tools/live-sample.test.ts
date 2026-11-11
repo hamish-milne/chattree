@@ -120,3 +120,7 @@ describe("the local-models flavor", () => {
     await assert.rejects(runSamples({ flavor: "local-models", baseUrl: "", model: "qwen", repeat: 1 }), /needs its adapter/);
   });
 });
+
+test("--wire-log is a flag of its own", () => {
+  assert.equal(parseArgs(["--flavor", "local-models", "--model", "m", "--wire-log", "wire.jsonl"], {}).wireLog, "wire.jsonl");
+});

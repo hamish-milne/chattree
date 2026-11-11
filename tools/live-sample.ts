@@ -14,7 +14,7 @@
  * Flags: --flavor, --base-url, --model, --max-tokens (default 4096), --api-key-env NAME, --repeat N (default 10),
  * --task TEXT (repeatable; a substring of the task name), --group edit|read|write|run|mixed (repeatable), --busybox PATH
  * (busybox.exe for the everyday utilities on Windows; default: CHATTREE_BUSYBOX or vendor/busybox, see tools/fetch-busybox.ts), --timeout-seconds (per sample, default 180), --out FILE (every
- * sample as JSON), --record DIR (the steps of every sample, secrets scrubbed), --list.
+ * sample as JSON), --record DIR (the steps of every sample, secrets scrubbed), --wire-log FILE (every request and the raw response, as JSON lines, for tools/llama-replay.ts), --list.
  *
  * "first-try" counts samples that were right with no tool error on the way; the gap to "correct" is what the model
  * recovered from. The error table shows what the tools said to the model most often, with ids and numbers blurred.
@@ -31,6 +31,7 @@ import { ensureLocalModels } from "../cli/models.ts";
 import { lookupSampling } from "../cli/providers.ts";
 import { loadSettings } from "../cli/settings.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
+import { installWireLog } from "./wire-log.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
 import { available, TASKS, type Task } from "./tasks.ts";
 
@@ -177,7 +178,7 @@ export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavo
   return lines.join("\n");
 }
 
-export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: SampleOptions; out?: string; record?: string; list: boolean } {
+export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: SampleOptions; out?: string; record?: string; wireLog?: string; list: boolean } {
   const flags = new Map<string, string[]>();
   let list = false;
   let yes = false;
@@ -192,7 +193,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     } else throw new Error(`unexpected argument ${a}`);
   }
   const one = (name: string): string | undefined => flags.get(name)?.[0];
-  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--repeat", "--task", "--group", "--timeout-seconds", "--out", "--record", "--busybox"]);
+  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--repeat", "--task", "--group", "--timeout-seconds", "--out", "--record", "--busybox", "--wire-log"]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = one("--flavor") ?? "anthropic";
   const local = flavor === "local-models";
@@ -219,6 +220,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
   for (const g of groups ?? []) if (!["edit", "read", "write", "run", "mixed"].includes(g)) throw new Error(`--group must be edit, read, write, run or mixed`);
   const out = one("--out");
   const record = one("--record");
+  const wireLog = one("--wire-log");
   const repeat = num("--repeat");
   const maxTokens = num("--max-tokens");
   const timeout = num("--timeout-seconds");
@@ -240,12 +242,14 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     },
     ...(out === undefined ? {} : { out }),
     ...(record === undefined ? {} : { record }),
+    ...(wireLog === undefined ? {} : { wireLog }),
     list,
   };
 }
 
 async function main(): Promise<void> {
-  const { options, out, record, list } = parseArgs(process.argv.slice(2), process.env);
+  const { options, out, record, wireLog, list } = parseArgs(process.argv.slice(2), process.env);
+  const flushWire = wireLog === undefined ? async () => {} : installWireLog(wireLog);
   if (list) {
     for (const t of TASKS) console.log(`${t.group.padEnd(6)} ${t.name}${t.needs === undefined ? "" : `  (needs ${t.needs.join(", ")})`}`);
     return;
@@ -272,6 +276,7 @@ async function main(): Promise<void> {
       if (record !== undefined) void writeFile(join(record, `${options.flavor}-${s.task.replaceAll(" ", "-")}-${String(s.n).padStart(2, "0")}.json`), scrub(JSON.stringify(s, null, 2)));
     },
   });
+  await flushWire();
   console.log(`\n${scrub(formatReport(report, options))}`);
   if (out !== undefined) await writeFile(out, scrub(JSON.stringify({ options: { ...options, apiKey: undefined }, ...report }, null, 2)));
 }
