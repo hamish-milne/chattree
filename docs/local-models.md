@@ -241,7 +241,7 @@ Built-in dialects are registered by id and chosen per model: `models.gpt-oss-20b
 
 ### 9.4 Build order
 
-1. **`tools/template-compare.ts`** (no dialect yet). For each model on the running host it renders fixed scenarios through the server (`/apply-template`): one call; two calls with reasoning between; a tool with a nested array of objects; a tool result that is an error; a long multi-line `write`. It saves the template, the prompts and, with `--live`, the first tokens the model writes after each (greedy, with `n_probs`), under `templates-run/<model>/`. These are the fixtures the dialects are tested against, and show how each template treats each scenario.
+1. **`tools/template-compare.ts`** (no dialect yet; built, `node tools/template-compare.ts [--model NAME] [--live]`; the scenarios are `one-call`, `reasoning-between-calls`, `after-final-answer`, `nested-schema`, `multiline-argument`, `error-result`, `two-calls-at-once`). Rendering them by hand through the stock gpt-oss template with Jinja2 already shows that a list of objects is declared as `items: any[]`, the fields inside dropped, as Ollama did (docs/tools.md, 4f); llama.cpp's own run is what counts. For each model on the running host it renders fixed scenarios through the server (`/apply-template`): one call; two calls with reasoning between; a tool with a nested array of objects; a tool result that is an error; a long multi-line `write`. It saves the template, the prompts and, with `--live`, the first tokens the model writes after each (greedy, with `n_probs`), under `templates-run/<model>/`. These are the fixtures the dialects are tested against, and show how each template treats each scenario.
 2. **The seam**: `Dialect`, the registry, the adapter dispatch in `local-models` (chat endpoint or completion endpoint by the entry), the `/completion` stream, the setup change for a dialect (`dialect_changed`).
 3. **`harmony`**: first reproducing the patched template's prompt byte for byte (a parity test against the step-1 fixtures, so the starting point is known), then the streaming parser. Then the levers one at a time: `keep_reasoning`, flat or full schemas.
 4. **`qwen-xml`** and **`gemma`**, each starting with parity.
@@ -250,7 +250,7 @@ Built-in dialects are registered by id and chosen per model: `models.gpt-oss-20b
 
 ### 9.5 Open questions
 
-- The name: `dialect` (since `renderer` is taken).
-- Streaming parser from the start, or buffered first? Recommended: streaming; the markers are simple and the adapter contract is deltas.
-- Where dialects live: built-in, chosen by id (recommended), or also loaded from a file named in the settings (code from a settings file; later).
+Decided (2026-11-11): the name is `dialect`; the parser streams from the start; dialects are built-in and chosen by id. A plugin system, which would let any component type (dialects included) be registered from outside, is in the parking lot (docs/parking-lot.md, "A plugin API").
+
+Open:
 - Unverified: the exact `/completion` fields in this build (`special`, `n_probs`, usage names), and whether a hand-built prompt and the server's template agree token for token (the parity test is how we find out).
