@@ -1,0 +1,83 @@
+{
+  "model": "qwen3.5-9b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents."
+    },
+    {
+      "role": "user",
+      "content": "Read missing.txt"
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"missing.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "c1",
+      "content": "error: missing.txt does not exist"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file. Returns its lines, numbered, and its version.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path of the file, relative to the workspace root."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "At most this many lines."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create a file, or replace one whole. Give the complete new content.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path of the file."
+            },
+            "content": {
+              "type": "string",
+              "description": "The complete new content of the file."
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      }
+    }
+  ]
+}

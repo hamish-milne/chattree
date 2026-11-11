@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Block, ModelContext } from "../harness/context-builder.ts";
+import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId } from "../harness/setup.ts";
 import type { HttpMapper, HttpRequestSpec } from "./http.ts";
 import { ProviderError, type Completed, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
@@ -50,7 +51,8 @@ export interface Dialect {
   /** Recorded in the setup; never changes meaning once released, like a renderer's id. */
   id: string;
   render(input: RenderInput): Rendered;
-  parser(options: Record<string, unknown>): Parser;
+  /** `tools` give the types of arguments a format writes as text; `prompt` is what was rendered, whose ending says whether the model starts inside its thinking. */
+  parser(options: Record<string, unknown>, tools: readonly ToolDefinition[], prompt: string): Parser;
 }
 
 export class DialectRegistry {
@@ -195,6 +197,11 @@ export interface DialectSettings {
 }
 
 export function completionMapper(opts: CompletionOptions, settings: (req: StreamRequest) => DialectSettings): HttpMapper<State> {
+  const rendered = new WeakMap<StreamRequest, Rendered>();
+  const renderFor = (req: StreamRequest, s: DialectSettings): Rendered => {
+    const served = servedModelId(req.setup.model!);
+    return opts.dialects.get(s.dialect).render({ context: req.context, options: s.dialect_options ?? {}, effort: s.reasoning_effort, date: opts.today(), provider: req.setup.model!.provider, model: served });
+  };
   return {
     request(req: StreamRequest): HttpRequestSpec {
       const s = settings(req);
@@ -203,10 +210,10 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
         if (t.role === "user" && t.parts.some((p) => p.type === "attachment")) throw new ProviderError({ kind: "invalid_request", message: `dialect "${s.dialect}" takes text only: attachments cannot be sent` });
       }
       const served = servedModelId(req.setup.model);
-      const dialect = opts.dialects.get(s.dialect);
-      const rendered = dialect.render({ context: req.context, options: s.dialect_options ?? {}, effort: s.reasoning_effort, date: opts.today(), provider: req.setup.model.provider, model: served });
-      const body: Json = { model: opts.modelName(served), prompt: rendered.prompt, stream: true, cache_prompt: true, special: true, n_predict: s.max_output_tokens };
-      const stop = [...(s.stop ?? []), ...rendered.stop];
+      const r = renderFor(req, s);
+      rendered.set(req, r);
+      const body: Json = { model: opts.modelName(served), prompt: r.prompt, stream: true, cache_prompt: true, special: true, n_predict: s.max_output_tokens };
+      const stop = [...(s.stop ?? []), ...r.stop];
       if (stop.length > 0) body["stop"] = stop;
       for (const k of ["temperature", "top_p", "seed"] as const) if (s[k] !== undefined) body[k] = s[k];
       for (const [k, v] of Object.entries(s.extra ?? {})) if (!OWNED.has(k)) body[k] = v;
@@ -216,7 +223,7 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       const s = settings(req);
       const served = servedModelId(req.setup.model!);
       return {
-        parser: opts.dialects.get(s.dialect).parser(s.dialect_options ?? {}),
+        parser: opts.dialects.get(s.dialect).parser(s.dialect_options ?? {}, req.context.tools, (rendered.get(req) ?? renderFor(req, s)).prompt),
         assembler: new Assembler(req.setup.model!.provider, opts.newId),
         started: false,
         requested: opts.modelName(served),

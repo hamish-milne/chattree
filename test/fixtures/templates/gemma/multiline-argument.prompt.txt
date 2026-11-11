@@ -1,0 +1,16 @@
+<|turn>system
+<|think|>
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|tool>declaration:read{description:<|"|>Read a file. Returns its lines, numbered, and its version.<|"|>,parameters:{properties:{limit:{description:<|"|>At most this many lines.<|"|>,type:<|"|>INTEGER<|"|>},path:{description:<|"|>Path of the file, relative to the workspace root.<|"|>,type:<|"|>STRING<|"|>}},required:[<|"|>path<|"|>],type:<|"|>OBJECT<|"|>}}<tool|><|tool>declaration:write{description:<|"|>Create a file, or replace one whole. Give the complete new content.<|"|>,parameters:{properties:{content:{description:<|"|>The complete new content of the file.<|"|>,type:<|"|>STRING<|"|>},path:{description:<|"|>Path of the file.<|"|>,type:<|"|>STRING<|"|>}},required:[<|"|>path<|"|>,<|"|>content<|"|>],type:<|"|>OBJECT<|"|>}}<tool|><turn|>
+<|turn>user
+Write hello.py<turn|>
+<|turn>model
+<|tool_call>call:write{content:<|"|>def greet(name):
+    """Say "hello" to name."""
+    print(f"hello, {name}!\n")
+
+if __name__ == "__main__":
+    greet("world")
+<|"|>,path:<|"|>hello.py<|"|>}<tool_call|><|tool_response>response:write{value:<|"|>wrote hello.py (6 lines)<|"|>}<tool_response|><turn|>
+<|turn>user
+Now read it back.<turn|>
+<|turn>model

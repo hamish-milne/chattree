@@ -1,0 +1,96 @@
+{
+  "model": "gemma-4-12b",
+  "messages": [
+    {
+      "role": "system",
+      "content": "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents."
+    },
+    {
+      "role": "user",
+      "content": "Read a.txt and b.txt."
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {
+          "id": "c1",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"a.txt\"}"
+          }
+        },
+        {
+          "id": "c2",
+          "type": "function",
+          "function": {
+            "name": "read",
+            "arguments": "{\"path\":\"b.txt\"}"
+          }
+        }
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "c1",
+      "content": "=== a.txt (1 line, version 11111111) ===\n1\talpha"
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "c2",
+      "content": "=== b.txt (1 line, version 22222222) ===\n1\tbeta"
+    }
+  ],
+  "tools": [
+    {
+      "type": "function",
+      "function": {
+        "name": "read",
+        "description": "Read a file. Returns its lines, numbered, and its version.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path of the file, relative to the workspace root."
+            },
+            "limit": {
+              "type": "integer",
+              "description": "At most this many lines."
+            }
+          },
+          "required": [
+            "path"
+          ]
+        }
+      }
+    },
+    {
+      "type": "function",
+      "function": {
+        "name": "write",
+        "description": "Create a file, or replace one whole. Give the complete new content.",
+        "parameters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": {
+              "type": "string",
+              "description": "Path of the file."
+            },
+            "content": {
+              "type": "string",
+              "description": "The complete new content of the file."
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ]
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+<|turn>system
+<|think|>
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|tool>declaration:read{description:<|"|>Read a file. Returns its lines, numbered, and its version.<|"|>,parameters:{properties:{limit:{description:<|"|>At most this many lines.<|"|>,type:<|"|>INTEGER<|"|>},path:{description:<|"|>Path of the file, relative to the workspace root.<|"|>,type:<|"|>STRING<|"|>}},required:[<|"|>path<|"|>],type:<|"|>OBJECT<|"|>}}<tool|><|tool>declaration:write{description:<|"|>Create a file, or replace one whole. Give the complete new content.<|"|>,parameters:{properties:{content:{description:<|"|>The complete new content of the file.<|"|>,type:<|"|>STRING<|"|>},path:{description:<|"|>Path of the file.<|"|>,type:<|"|>STRING<|"|>}},required:[<|"|>path<|"|>,<|"|>content<|"|>],type:<|"|>OBJECT<|"|>}}<tool|><turn|>
+<|turn>user
+Copy a.txt to b.txt.<turn|>
+<|turn>model
+<|channel>thought
+MARK-ALPHA I should read a.txt first, to know what to copy.
+<channel|><|tool_call>call:read{path:<|"|>a.txt<|"|>}<tool_call|><|tool_response>response:read{value:<|"|>=== a.txt (1 line, version 11111111) ===
+1	hello<|"|>}<tool_response|><|channel>thought
+MARK-BETA The file says hello, so b.txt gets the same line.
+<channel|><|tool_call>call:write{content:<|"|>hello
+<|"|>,path:<|"|>b.txt<|"|>}<tool_call|><|tool_response>response:write{value:<|"|>wrote b.txt (1 line)<|"|>}<tool_response|><|channel>thought

@@ -1,0 +1,6 @@
+<|turn>system
+<|think|>
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|tool>declaration:record_items{description:<|"|>Record the items of an order.<|"|>,parameters:{properties:{customer:{description:<|"|>Who the order is for.<|"|>,type:<|"|>STRING<|"|>},items:{description:<|"|>The items ordered.<|"|>,items:{additionalProperties:false,properties:{options:{description:<|"|>Chosen options.<|"|>,items:{type:<|"|>STRING<|"|>},type:<|"|>ARRAY<|"|>},quantity:{description:<|"|>How many.<|"|>,type:<|"|>INTEGER<|"|>},sku:{description:<|"|>The product code.<|"|>,type:<|"|>STRING<|"|>}},required:[<|"|>sku<|"|>,<|"|>quantity<|"|>],type:<|"|>OBJECT<|"|>},type:<|"|>ARRAY<|"|>}},required:[<|"|>customer<|"|>,<|"|>items<|"|>],type:<|"|>OBJECT<|"|>}}<tool|><turn|>
+<|turn>user
+Record an order for Ada: two of SKU-1 with options gift and rush, and one SKU-9.<turn|>
+<|turn>model

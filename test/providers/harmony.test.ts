@@ -1,41 +1,11 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { describe, test } from "node:test";
-import type { Block, ModelContext, Turn } from "../../harness/context-builder.ts";
+import type { ModelContext } from "../../harness/context-builder.ts";
 import type { Emit } from "../../providers/dialect.ts";
 import { harmonyParser, renderHarmony } from "../../providers/dialects/harmony.ts";
 
-const dir = new URL("../fixtures/templates/gpt-oss/", import.meta.url);
-const fixture = (name: string) => ({ request: JSON.parse(readFileSync(new URL(`${name}.request.json`, dir), "utf8")) as Request, prompt: readFileSync(new URL(`${name}.prompt.txt`, dir), "utf8") });
-
-interface Request {
-  messages: { role: string; content: string | null; reasoning_content?: string; tool_calls?: { id: string; function: { name: string; arguments: string } }[]; tool_call_id?: string }[];
-  tools: { function: { name: string; description: string; parameters: Record<string, unknown> } }[];
-}
-
-/** The chat-completions request of a fixture, as the context the harness would fold. */
-function contextOf(r: Request): ModelContext {
-  const turns: Turn[] = [];
-  let system = "";
-  for (const m of r.messages) {
-    if (m.role === "system") system = m.content ?? "";
-    else if (m.role === "user") turns.push({ role: "user", parts: [{ type: "text", text: m.content ?? "" }] });
-    else if (m.role === "assistant") {
-      const blocks: Block[] = [];
-      if (m.reasoning_content !== undefined) blocks.push({ type: "reasoning", provider: "local-models", visible: m.reasoning_content });
-      if (m.content !== null && m.content !== "") blocks.push({ type: "text", text: m.content });
-      for (const c of m.tool_calls ?? []) blocks.push({ type: "tool_call", call_id: c.id, name: c.function.name, args: JSON.parse(c.function.arguments) as Record<string, unknown> });
-      turns.push({ role: "assistant", provider: "local-models", model: "gpt-oss@abcd1234", blocks });
-    } else {
-      const last = turns[turns.length - 1];
-      const result = { call_id: m.tool_call_id as string, is_error: false, content: m.content ?? "", truncated: false };
-      if (last?.role === "tool_results") last.results.push(result);
-      else turns.push({ role: "tool_results", results: [result] });
-    }
-  }
-  return { system, instructions: undefined, turns, tools: r.tools.map((t) => ({ name: t.function.name, description: t.function.description, input_schema: t.function.parameters })), cacheHints: [] };
-}
-
+import { contextOf, fixture as fixtureOf } from "../support/templates.ts";
+const fixture = (name: string) => fixtureOf("gpt-oss", name);
 const render = (name: string, options: Record<string, unknown> = {}) => renderHarmony({ context: contextOf(fixture(name).request), options, effort: undefined, date: "2026-11-11", provider: "local-models", model: "gpt-oss" }).prompt;
 
 describe("harmony rendering matches the model's own template where they agree", () => {
