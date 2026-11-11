@@ -190,6 +190,67 @@ node tools/llama-replay.ts --wire wire.jsonl --repeat 10 --out replay/
 
 First finding (gpt-oss-20b Q4_K_M, build b12110): the raw completion of a ~1800-token prompt began `<|channel|>comment` followed by junk tokens (`!`, `?`, `…`) in 10 of 10 samples, then recovered; the parser's 500 is the consequence. Not truncation (`--max-tokens` made no difference), and qwen3.5 on the same host was fine. Greedy gave the same junk every time (`<|channel|>comment?commentary?`, with `?` at 0.37 where `ary` should be near 1), and `parallel: 1` and `flash_attn: off` changed nothing, so it is deterministic, not the sampler, not hardware noise, not those flags. The template renders past calls as `commentary json<|message|>` without `<|constrain|>`, which is what the model was not trained on (openai/gpt-oss-20b discussion 215); the replay now also tries the history in harmony's own form, and a prompt with no tools or history. **Result:** with the history written in harmony's form (`<|start|>assistant<|channel|>commentary to=functions.x <|constrain|>json<|message|>`) 5 of 5 answers were well-formed under both samplers, and greedy gave `<|channel|>commentary to=functions.edit <|constrain|>json<|message|>{…}` with every token at probability 1.00; with no tools or history it was clean too. So the stock template's rendering of past calls is the cause. The fix is `templates/gpt-oss.jinja`, set as the model's `chat_template` (`templates/README.md`); this is the first use of section 9's `chat_template`. Unverified: that this llama-server build has these endpoints under these names, and that `/completion` shows special tokens (`special: true`); if the markers are missing from `raw-N.txt`, say so.
 
-## 9. After the host: our own templates
+## 9. Dialects: our own prompts and parsing (planned, 2026-11-11)
 
-With the server ours, a model entry can carry a `chat_template` (llama-server `--chat-template-file`), and the reserved `text` and `raw` tool conventions (docs/tools.md, 3.7) become buildable: our own rendering of tool schemas, either through a template of ours or a pre-rendered prompt sent to the completion endpoint. That gets its own plan once step 5 works.
+Status: **planned**. Nothing here is built. It follows from 8.2: llama-server's template and its tool-call parser stand between the harness and the model, and for gpt-oss one detail of the template (how past calls are written) was enough to make the model emit junk and the server answer 500.
+
+### 9.1 What the layers do today
+
+- The model's **trained format** is a contract: Harmony (gpt-oss), the XML-like `<tool_call><function=…><parameter=…>` (Qwen3.5), special-token blocks (Gemma 4). Nothing negotiates it.
+- The **Jinja chat template** only renders: `messages` + `tools` to the prompt string. It decides how tools are declared, how past calls and results look, which old reasoning is kept, and what the generation prompt opens with. It does not read output.
+- **llama.cpp** runs the template (`--jinja`) and has to read the output back into `tool_calls` and `reasoning_content`: a hand-written handler for some families (gpt-oss is named), otherwise an auto-parser that derives the format from the template by rendering it twice with one difference and diffing (JSON-native, tag-with-JSON, tag-with-tagged), then a PEG parser and, with tools, a grammar with trigger markers. Text that does not match is a 500 (8.2).
+- **Harmony** is more than a template: roles (system, developer, user, assistant, tool), channels (`analysis`, `commentary`, `final`), `<|constrain|>`, `<|call|>` as a stop token, functions declared as a TypeScript-like `namespace functions`, and a rule to keep `analysis` in the history across tool calls within a turn.
+
+| | gpt-oss | Qwen3.5 | Gemma 4 |
+|---|---|---|---|
+| tools declared | developer message, `namespace functions { type x = (_: {…}) => any; }` | full JSON schemas in `<tools>` in the system prompt, with plain-English instructions | `<|tool>declaration:x{description:<|"|>…<|"|>,parameters:{…}}<tool|>`, sorted keys, upper-case types |
+| a call | `<|channel|>commentary to=functions.x <|constrain|>json<|message|>{json}<|call|>` | `<tool_call><function=x><parameter=a>value</parameter></function></tool_call>` | `<|tool_call>call:x{a:<|"|>v<|"|>}<tool_call|>` |
+| argument values | JSON (strings escaped) | raw text; objects and arrays as JSON | strings in `<|"|>`, no escaping |
+| a result | `<|start|>functions.x to=assistant<|channel|>commentary<|message|>…<|end|>` | a user turn with `<tool_response>` | `<|tool_response>response:x{…}<tool_response|>` |
+| reasoning | `analysis` channel; kept across calls within a turn | `<think>`, on by default; kept after the last user message only | `<|channel>thought…<channel|>`; kept for the current turn |
+
+(Qwen3.5-9B's template read directly; Gemma from the 26B-A4B template and Google's function-calling page, assumed the same for 12B; gpt-oss from the Harmony specification and the template in the Unsloth file. Not checked against llama.cpp's source.)
+
+### 9.2 The idea
+
+By default a model entry keeps today's path: `--jinja`, the model's own template or `chat_template` (a patched copy, `templates/`), chat completions. In addition a model entry may name a **dialect**: a narrow component that turns a folded `ModelContext` into the raw prompt string and turns the raw response string back into the assistant entry. With it the harness decides what the model sees (reasoning kept between calls, flat or nested schemas, channels, a `raw` tool convention) and how it is read (leniently), and llama-server is only a token generator behind `/completion`.
+
+Not to be confused with a **renderer** (`harness/renderer.ts`, `agent_setup.renderer`), which turns entries that have no provider equivalent (a compaction, a fork's result) into text. A dialect is below that: it receives turns that are already text and blocks.
+
+```ts
+interface Dialect {
+  /** Immutable, like a renderer id: a better prompt is a new id, and moving an agent to it is a setup change. */
+  id: string;
+  /** Pure: the same context gives the same string, so the server's prompt cache (a token prefix) keeps working. */
+  render(input: { context: ModelContext; model: ModelInfo; options: DialectOptions }): { prompt: string; stop: string[] /* and later: grammar */ };
+  /** One per response: fed the text as it streams, emits the same StreamEvents any adapter does. */
+  parser(options: DialectOptions): { push(text: string): StreamEvent[]; end(why: "stop" | "limit"): { blocks: Block[]; stop_reason: string } };
+}
+```
+
+Built-in dialects are registered by id and chosen per model: `models.gpt-oss-20b.dialect: harmony`. Options per dialect (`schema: flat | full`, `keep_reasoning: true`, `call_syntax: …`) are in the entry too, and are recorded with the id in the setup.
+
+### 9.3 Decisions this rests on
+
+- **Input is `ModelContext`**, which has the tools as canonical JSON Schema (the portable subset, `harness/tool-schema.ts`; `toPortableSchema` and `flatProblems` already narrow and check it) and turns whose assistant blocks keep `reasoning` with its `visible` text. Zod is where tools are authored; the dialect sees the schema tree, so TypeScript-like (Harmony), brace (Gemma) and JSON (Qwen) declarations are three small functions over one tree.
+- **Reasoning travels only to the model that produced it** (`BuildInput.target`); a dialect may render it back (Harmony's `analysis` before a call) only for the same served model, as the context builder already enforces.
+- **Parsing never fails the request.** A call whose arguments do not parse becomes a `tool_call` block with `args_raw` (the block type already has it) and the loop returns an error to the model, as for any invalid call. Text before and after is kept. This replaces the server's 500.
+- **Stop strings belong to the dialect** (`<|call|>`, `<|return|>`, `<|im_end|>`, `<tool_call|>` and so on). Seen in 8.2: `/completion` with `special: true` returns the special tokens in the text, and stops by itself at the model's end-of-generation tokens.
+- **The transport is `/completion`** (`stream: true`, `cache_prompt: true`, `n_predict`, the pinned sampling). `usage` comes from `tokens_evaluated`, `tokens_predicted` and `tokens_cached`. Text only to begin with: attachments (media markers and `multimodal_data`) are refused with a clear error.
+- **The default path stays.** `jinja` and `chat_template` apply only to models without a dialect.
+
+### 9.4 Build order
+
+1. **`tools/template-compare.ts`** (no dialect yet). For each model on the running host it renders fixed scenarios through the server (`/apply-template`): one call; two calls with reasoning between; a tool with a nested array of objects; a tool result that is an error; a long multi-line `write`. It saves the template, the prompts and, with `--live`, the first tokens the model writes after each (greedy, with `n_probs`), under `templates-run/<model>/`. These are the fixtures the dialects are tested against, and show how each template treats each scenario.
+2. **The seam**: `Dialect`, the registry, the adapter dispatch in `local-models` (chat endpoint or completion endpoint by the entry), the `/completion` stream, the setup change for a dialect (`dialect_changed`).
+3. **`harmony`**: first reproducing the patched template's prompt byte for byte (a parity test against the step-1 fixtures, so the starting point is known), then the streaming parser. Then the levers one at a time: `keep_reasoning`, flat or full schemas.
+4. **`qwen-xml`** and **`gemma`**, each starting with parity.
+5. **Arms in the sampler**: `tools/live-sample.ts --dialect harmony --option keep_reasoning=true`, so the benchmark can compare a lever against the baseline on the same model and tasks.
+6. **`raw` and `text` tool conventions** (docs/tools.md, 3.7): a tool called by a single raw string, no escaping, as a dialect option.
+
+### 9.5 Open questions
+
+- The name: `dialect` (since `renderer` is taken).
+- Streaming parser from the start, or buffered first? Recommended: streaming; the markers are simple and the adapter contract is deltas.
+- Where dialects live: built-in, chosen by id (recommended), or also loaded from a file named in the settings (code from a settings file; later).
+- Unverified: the exact `/completion` fields in this build (`special`, `n_probs`, usage names), and whether a hand-built prompt and the server's template agree token for token (the parity test is how we find out).
