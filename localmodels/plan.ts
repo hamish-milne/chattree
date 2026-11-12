@@ -111,7 +111,29 @@ const PARAM_KEYS = {
   sleep_idle_seconds: "sleep-idle-seconds",
 } as const;
 
-const SPEC_KEYS = { draft_max: "spec-draft-n-max", draft_min: "spec-draft-n-min", ngram_n: "spec-ngram-size-n", ngram_m: "spec-ngram-size-m", min_hits: "spec-ngram-min-hits" } as const;
+/**
+ * llama-server names the n-gram options for each type (builds from about b9000 on; the unsuffixed `--spec-ngram-size-n` and
+ * `--draft-max` were removed): `draft_max` and `draft_min` are the draft's own length for the map types, and for ngram-mod the
+ * `n-max` and `n-min` of its own options, whose `n-match` is the length of the n-gram looked up.
+ */
+function specLines(sp: Speculative): [string, number | string][] {
+  const out: [string, number | string][] = [["spec-type", sp.type]];
+  const add = (flag: string, v: number | undefined): void => void (v === undefined ? undefined : out.push([flag, v]));
+  if (sp.type === "ngram-mod") {
+    add("spec-ngram-mod-n-match", sp.ngram_n);
+    add("spec-ngram-mod-n-min", sp.draft_min);
+    add("spec-ngram-mod-n-max", sp.draft_max);
+  } else {
+    add("spec-draft-n-max", sp.draft_max);
+    add("spec-draft-n-min", sp.draft_min);
+    if (sp.type === "ngram-simple" || sp.type === "ngram-map-k" || sp.type === "ngram-map-k4v") {
+      add(`spec-${sp.type}-size-n`, sp.ngram_n);
+      add(`spec-${sp.type}-size-m`, sp.ngram_m);
+      add(`spec-${sp.type}-min-hits`, sp.min_hits);
+    }
+  }
+  return out;
+}
 
 type Params = Partial<Record<keyof typeof PARAM_KEYS, string | number | boolean>> & { speculative?: Speculative | undefined } & { options?: Record<string, string | number | boolean> | undefined };
 
@@ -121,10 +143,7 @@ function paramLines(p: Params): [string, string | number | boolean][] {
     const v = p[k];
     if (v !== undefined) out.push([PARAM_KEYS[k], v]);
   }
-  if (p.speculative !== undefined) {
-    out.push(["spec-type", p.speculative.type]);
-    for (const k of Object.keys(SPEC_KEYS) as (keyof typeof SPEC_KEYS)[]) if (p.speculative[k] !== undefined) out.push([SPEC_KEYS[k], p.speculative[k] as number]);
-  }
+  if (p.speculative !== undefined) out.push(...specLines(p.speculative));
   for (const k of Object.keys(p.options ?? {}).sort()) out.push([k, (p.options as Record<string, string | number | boolean>)[k] as string | number | boolean]);
   return out;
 }

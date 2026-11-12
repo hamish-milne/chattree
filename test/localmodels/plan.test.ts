@@ -146,8 +146,11 @@ top-k = 20
     });
     const ini = presetIni(c, { a: { file: "/a.gguf" }, b: { file: "/b.gguf" } });
     assert.match(ini, /\[\*\]\nspec-type = ngram-mod\n/);
-    assert.match(ini, /\[a\]\nmodel = \/a\.gguf\nspec-type = ngram-map-k\nspec-draft-n-max = 64\nspec-draft-n-min = 4\nspec-ngram-size-n = 8\nspec-ngram-size-m = 16\nspec-ngram-min-hits = 2\n/);
+    assert.match(ini, /\[a\]\nmodel = \/a\.gguf\nspec-type = ngram-map-k\nspec-draft-n-max = 64\nspec-draft-n-min = 4\nspec-ngram-map-k-size-n = 8\nspec-ngram-map-k-size-m = 16\nspec-ngram-map-k-min-hits = 2\n/);
     assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", speculative: "ngram-fast" } } }), /speculative/);
+    const mod = parse({ models: { a: { url: "https://x.test/a.gguf", speculative: { type: "ngram-mod", ngram_n: 24, draft_min: 48, draft_max: 64 } } } });
+    assert.match(presetIni(mod, { a: { file: "/a.gguf" } }), /spec-type = ngram-mod\nspec-ngram-mod-n-match = 24\nspec-ngram-mod-n-min = 48\nspec-ngram-mod-n-max = 64\n/);
+    assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", speculative: { type: "ngram-mod", min_hits: 2 } } } }), /ngram-mod has no/);
   });
 
 });

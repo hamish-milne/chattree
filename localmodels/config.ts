@@ -22,16 +22,20 @@ const optionValue = z.union([z.string(), z.number(), z.boolean()]);
 
 /** The types of speculative decoding that need no second model (docs/local-models.md, 9.8), named as llama-server's `--spec-type` does. */
 export const SPEC_TYPES = ["none", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache"] as const;
-const speculativeObject = z.strictObject({
-  type: z.enum(SPEC_TYPES),
-  /** The longest draft, and the shortest one worth making. */
-  draft_max: z.number().int().positive().optional(),
-  draft_min: nonNegative.optional(),
-  /** The length of the n-gram looked up in the history (`spec-ngram-size-n`), and of the run drafted after a match (`spec-ngram-size-m`; not used by ngram-mod). */
-  ngram_n: z.number().int().positive().optional(),
-  ngram_m: z.number().int().positive().optional(),
-  /** How many times a key must have been seen before it drafts (ngram-map types). */
-  min_hits: z.number().int().positive().optional(),
+const speculativeObject = z
+  .strictObject({
+    type: z.enum(SPEC_TYPES),
+    /** The longest draft, and the shortest one worth making (for ngram-mod, its `n-max` and `n-min`). */
+    draft_max: z.number().int().positive().optional(),
+    draft_min: nonNegative.optional(),
+    /** The length of the n-gram looked up in the history (for ngram-mod, `n-match`), and of the run drafted after a match (not used by ngram-mod). */
+    ngram_n: z.number().int().positive().optional(),
+    ngram_m: z.number().int().positive().optional(),
+    /** How many times a key must have been seen before it drafts (ngram-map types). */
+    min_hits: z.number().int().positive().optional(),
+}).superRefine((v, ctx) => {
+  if (v.type === "ngram-mod" && (v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: "ngram-mod has no ngram_m or min_hits" });
+  if (v.type === "ngram-cache" && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: "ngram-cache has no n-gram options" });
 });
 export type Speculative = z.infer<typeof speculativeObject>;
 
