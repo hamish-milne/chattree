@@ -261,7 +261,9 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
         s.done = true;
         s.stopType = typeof d["stop_type"] === "string" ? d["stop_type"] : undefined;
         s.prompt = num(d["tokens_evaluated"]) ?? 0;
-        s.cached = num(d["tokens_cached"]);
+        // `tokens_cached` is the whole of the slot's cache (the generated tokens too), so it says nothing of the prompt; the part of the prompt that was reused is `timings.cache_n`.
+        const timings = typeof d["timings"] === "object" && d["timings"] !== null ? (d["timings"] as Json) : {};
+        s.cached = num(timings["cache_n"]);
         s.completion = num(d["tokens_predicted"]) ?? 0;
         events.push(...s.assembler.feed(s.parser.end(s.stopType === "limit" ? "length" : "stop")), ...s.assembler.end());
         const cachedRead = Math.min(s.cached ?? 0, s.prompt);
@@ -293,7 +295,7 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
 
 const pick = (d: Json): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
-  for (const k of ["tokens_evaluated", "tokens_predicted", "tokens_cached", "stop_type", "truncated"]) if (d[k] !== undefined) out[k] = d[k];
+  for (const k of ["tokens_evaluated", "tokens_predicted", "tokens_cached", "stop_type", "truncated", "timings"]) if (d[k] !== undefined) out[k] = d[k];
   return out;
 };
 

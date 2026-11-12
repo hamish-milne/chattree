@@ -60,7 +60,7 @@ const toy: Dialect = {
 };
 
 const chunk = (o: object) => `data: ${JSON.stringify(o)}\n\n`;
-const last = (extra: object = {}) => chunk({ content: "", stop: true, stop_type: "eos", tokens_evaluated: 50, tokens_cached: 30, tokens_predicted: 7, ...extra });
+const last = (extra: object = {}) => chunk({ content: "", stop: true, stop_type: "eos", tokens_evaluated: 50, tokens_cached: 57, tokens_predicted: 7, timings: { cache_n: 30, prompt_n: 20 }, ...extra });
 
 const rt = (server: FakeServer): LocalModelsRuntime => ({ connect: async () => ({ baseUrl: server.url, ids: { qwen: "qwen@1a2b3c4d" } }), catalog: () => ({ qwen: { context_window: 16384 } }), resolve: (id) => id });
 const setup = (settings: object): AgentSetup => ({ ...emptySetup(), model: { provider: "local-models", id: "qwen", settings: { max_output_tokens: 99, ...settings } } });
