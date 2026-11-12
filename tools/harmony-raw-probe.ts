@@ -22,7 +22,7 @@ import { loadSettings } from "../cli/settings.ts";
 import type { Tool } from "../harness/tools.ts";
 import type { AgentSetup } from "../harness/setup.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
-import type { Dialect } from "../providers/dialect.ts";
+import type { Dialect, Emit } from "../providers/dialect.ts";
 import { harmony, renderHarmony } from "../providers/dialects/harmony.ts";
 import { localModelsDefinition } from "../providers/index.ts";
 import { requireBusybox, runAgentTask } from "./agent-task.ts";
@@ -38,8 +38,22 @@ const PROSE: Record<string, string> = { python: PYTHON, bash: BASH };
 const FUNCTIONS_LINE = "\nCalls to these tools must go to the commentary channel: 'functions'.";
 
 /** What the developer block says about how to call the tools, when an arm gives guidance. */
+const EXAMPLES: Record<string, { what: string; example: string }> = {
+  python: { what: "Python code", example: "print(6 * 7)" },
+  bash: { what: "shell command", example: "ls -l" },
+};
+
+/** The same, as strongly as it can be put, with an example of each call and an error for a call that breaks the rules (`strict`). */
+const strictGuidance = (names: string[]): string => `IMPORTANT. You MUST follow these rules exactly for the built-in tools ${names.join(" and ")}. They are not functions.
+1. You MUST call a built-in tool on the analysis channel, with the recipient set to the tool's name (${names.map((n) => `to=${n}`).join(", ")}). You MUST NOT use the commentary channel or the functions. prefix for them.
+2. The message MUST be only the ${names.map((n) => EXAMPLES[n]?.what).join(" or ")} itself, as bare text. You MUST NOT wrap it in JSON, you MUST NOT use argument names such as "code", "cmd" or "command", and you MUST NOT use quotes or arrays.
+${names.map((n) => `Example call to ${n}:\n  channel: analysis\n  recipient: ${n}\n  message: ${EXAMPLES[n]?.example}`).join("\n")}
+A call that breaks these rules is NOT run and is answered with an error. Every other tool is a function: call it on the commentary channel with to=functions.NAME and JSON-encoded arguments.`;
+
 const guidance = (kind: string, names: string[]): string =>
-  kind === "builtin"
+  kind === "strict"
+    ? strictGuidance(names)
+    : kind === "builtin"
     ? `Built-in tools: ${names.join(", ")}. Call a built-in tool on the analysis channel with the recipient set to its name (to=${names[0]}), and send the code or command itself as the message: bare text, no JSON, no quotes around it. Call every other tool on the commentary channel with to=functions.NAME and JSON-encoded arguments.`
     : `Call every tool, including ${names.join(" and ")}, on the commentary channel with to=functions.NAME and JSON-encoded arguments, as its declaration says.`;
 
@@ -60,11 +74,36 @@ const bashTool: Tool = {
   },
 };
 
+/**
+ * A built-in whose calls are checked against the convention (see the parser below): its schema takes anything, so that the clear error
+ * comes from here and not from a validator that talks about arguments.
+ */
+const strictTool = (tool: Tool, arg: string): Tool => ({
+  definition: { ...tool.definition, input_schema: { type: "object", additionalProperties: true, properties: { [arg]: { type: "string" } } } },
+  execute: (args, ctx) => (typeof args["__violation"] === "string" ? Promise.resolve({ content: args["__violation"], is_error: true }) : tool.execute(args, ctx)),
+});
+export const strictPython = strictTool(pythonTool, "code");
+const strictBash = strictTool(bashTool, "command");
+const ARG: Record<string, string> = { python: "code", bash: "command" };
+
+/** Why a call to a built-in broke the convention, if it did. */
+function violation(name: string, m: Message | undefined): string | undefined {
+  if (m === undefined) return undefined;
+  const wrong: string[] = [];
+  if (m.channel !== "analysis") wrong.push(`you used the ${m.channel} channel`);
+  if (m.recipient?.startsWith("functions.") === true) wrong.push(`you addressed functions.${name}`);
+  if (m.body !== "bare") wrong.push("the message was JSON");
+  if (wrong.length === 0) return undefined;
+  return `You called ${name} the wrong way (${wrong.join("; ")}), so it was NOT run. ${name} is a built-in tool: call it on the analysis channel with the recipient ${name}, and make the message only the ${EXAMPLES[name]?.what ?? "input"}, as bare text, with no JSON and no argument names. Example: channel analysis, recipient ${name}, message: ${EXAMPLES[name]?.example ?? ""}. Call it again exactly like this.`;
+}
+
 /** The single string value of a JSON body, else the body as it is. */
 const bare = (body: string): string => {
   try {
     const v = JSON.parse(body) as unknown;
     if (typeof v === "object" && v !== null) {
+      const raw = (v as Record<string, unknown>)["__raw"];
+      if (typeof raw === "string") return raw; // a call that broke the rules: what the model sent
       const vals = Object.values(v);
       if (vals.length === 1 && typeof vals[0] === "string") return vals[0];
     }
@@ -84,7 +123,7 @@ export const probeDialect: Dialect = {
     const strings = (input.options["strings"] ?? []) as string[];
     const visible = input.context.tools.filter((t) => !builtins.includes(t.name));
     const kind = input.options["guidance"];
-    const told = typeof kind === "string" ? guidance(kind, kind === "builtin" ? builtins : (input.context.tools.map((t) => t.name).filter((n) => n === "python" || n === "bash"))) : undefined;
+    const told = typeof kind === "string" ? guidance(kind, kind === "builtin" || kind === "strict" ? builtins : (input.context.tools.map((t) => t.name).filter((n) => n === "python" || n === "bash"))) : undefined;
     const instructions = [input.context.instructions ?? "", told ?? ""].filter((x) => x !== "").join("\n\n");
     let { prompt, stop } = renderHarmony({ ...input, context: { ...input.context, instructions: instructions === "" ? undefined : instructions, tools: visible }, options: {} });
     if (input.options["no_functions_line"] === true) prompt = prompt.replace(FUNCTIONS_LINE, "");
@@ -105,12 +144,29 @@ export const probeDialect: Dialect = {
   parser(options, tools, prompt) {
     const inner = harmony.parser(options, tools, prompt);
     const i = raws.push("") - 1;
+    const strict = options["strict"] === true;
+    let name = "";
+    let calls = 0;
+    // In a strict arm a call to a built-in that breaks the convention is turned into one whose arguments say so (answered with the error above).
+    const check = (es: Emit[]): Emit[] =>
+      !strict
+        ? es
+        : es.map((e) => {
+            if (e.kind === "call.start") name = e.name;
+            if (e.kind !== "call.end") return e;
+            const at = calls++;
+            if (!(name in ARG)) return e;
+            const m = callsIn(raws[i] as string)[at];
+            const why = violation(name, m);
+            const text = m?.text ?? "";
+            return { kind: "call.end", args: why === undefined ? { [ARG[name] as string]: text } : { __violation: why, __raw: text } };
+          });
     return {
       push: (t) => {
         raws[i] += t;
-        return inner.push(t);
+        return check(inner.push(t));
       },
-      end: (w) => inner.end(w),
+      end: (w) => check(inner.end(w)),
     };
   },
 };
@@ -154,6 +210,13 @@ const ARMS: Arm[] = [
   { label: "python and bash as built-ins, told", options: { builtins: { python: true, bash: true }, guidance: "builtin" }, tools: [pythonTool, bashTool], tasks: ["python", "bash"] },
   { label: "python as function, told JSON", options: { guidance: "functions" }, tools: [pythonTool], tasks: ["python"] },
   { label: "bash as function, told JSON", options: { guidance: "functions" }, tools: [bashTool], tasks: ["bash"] },
+  // As strongly as it can be put, with an example, and a clear error for a call that breaks the convention.
+  { label: "python as built-in, strict", options: { builtins: { python: true }, guidance: "strict", strict: true }, tools: [strictPython], tasks: ["python"] },
+  { label: "bash as built-in, strict", options: { builtins: { bash: true }, guidance: "strict", strict: true }, tools: [strictBash], tasks: ["bash"] },
+  { label: "python and bash as built-ins, strict", options: { builtins: { python: true, bash: true }, guidance: "strict", strict: true }, tools: [strictPython, strictBash], tasks: ["python", "bash"] },
+  { label: "python as built-in, strict, no functions line", options: { builtins: { python: true }, guidance: "strict", strict: true, no_functions_line: true }, tools: [strictPython], tasks: ["python"] },
+  { label: "bash as built-in, strict, no functions line", options: { builtins: { bash: true }, guidance: "strict", strict: true, no_functions_line: true }, tools: [strictBash], tasks: ["bash"] },
+  { label: "python and bash as built-ins, strict, no functions line", options: { builtins: { python: true, bash: true }, guidance: "strict", strict: true, no_functions_line: true }, tools: [strictPython, strictBash], tasks: ["python", "bash"] },
 ];
 
 export interface Message {
@@ -163,6 +226,8 @@ export interface Message {
   /** What stood between the recipient and `<|message|>` besides the constrain token (the guide's python calls may have a word there). */
   tail: string;
   body: "json object" | "other json" | "bare";
+  /** The message itself. */
+  text: string;
 }
 
 /** The messages in one request's raw output that went to a recipient. */
@@ -182,7 +247,7 @@ export function callsIn(raw: string): Message[] {
     } catch {
       /* bare */
     }
-    out.push({ channel: m[1] as string, recipient: to, constrain: m[3], tail, body: kind });
+    out.push({ channel: m[1] as string, recipient: to, constrain: m[3], tail, body: kind, text: body });
   }
   return out;
 }
