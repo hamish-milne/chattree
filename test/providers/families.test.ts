@@ -81,6 +81,7 @@ describe("the options of a family", () => {
     assert.equal(dialectForModel("GLM-4.6"), "glm");
     assert.equal(dialectForModel("MiniMax-M2"), "minimax");
     assert.equal(dialectForModel("qwen3.5-9b"), "qwen-xml");
+    for (const old of ["deepseek-moe-16b", "DeepSeek-R1-Distill-Qwen-7B".replace("Qwen", "Llama"), "chatglm3-6b", "Mistral-7B-Instruct-v0.3", "kimi-vl"]) assert.equal(dialectForModel(old), undefined, old);
   });
 });
 
