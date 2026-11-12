@@ -16,7 +16,7 @@ test("an error is listed and not counted in the means", () => {
   assert.match(text, /error: no server/);
 });
 test("a task that should end in a call and has none is said so, even when the baseline has none too", () => {
-  const text = report([s("a", 1, "write{}", { task: "call", calls_expected: true }), s("b", 1, "write{}", { task: "call", calls_expected: true })], ["a", "b"]);
-  assert.match(text, /\*\*call a: no tool call in 1 of its runs/);
-  assert.match(text, /\*\*call b: no tool call/);
+  const text = report([s("a", 1, "write{}", { task: "call", calls_expected: 1 }), s("b", 1, "write{}", { task: "call", calls_expected: 1 })], ["a", "b"]);
+  assert.match(text, /\*\*call a: fewer tool calls than expected in 1 of its runs/);
+  assert.match(text, /\*\*call b: fewer tool calls/);
 });

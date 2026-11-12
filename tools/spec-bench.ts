@@ -59,18 +59,18 @@ if __name__ == "__main__":
 interface Task {
   name: string;
   context: ModelContext;
-  /** The task is meant to end in a tool call: an arm with none has failed, whatever the baseline did. */
-  calls?: boolean;
+  /** How many tool calls the task is meant to end in: an arm with fewer has failed, whatever the baseline did. */
+  calls?: number;
 }
 const ctx = (text: string, tools: ModelContext["tools"] = []): ModelContext => ({ system: "You are terse. Follow instructions exactly.", instructions: undefined, turns: [{ role: "user", parts: [{ type: "text", text }] }], tools, cacheHints: [] });
 const WRITE: ModelContext["tools"] = [{ name: "write", description: "Write a file.", input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] } }];
 const TASKS: Task[] = [
   { name: "copy", context: ctx(`Here is a Python file:\n\n${CODE}\nWrite it out again in full, with the function total_by_name renamed to sum_by_name everywhere. Output only the code.`) },
-  { name: "call", calls: true, context: ctx(`Create the file util.py with exactly this content, using the write tool:\n\n${CODE}`, WRITE) },
+  { name: "call", calls: 1, context: ctx(`Create the file util.py with exactly this content, using the write tool:\n\n${CODE}`, WRITE) },
   {
     // An earlier call is in the context, so a draft can copy its special tokens (a call marker inside a chunk of several tokens).
     name: "followup",
-    calls: true,
+    calls: 1,
     context: {
       ...ctx(`Create the file util.py with exactly this content, using the write tool:\n\n${CODE}`, WRITE),
       turns: [
@@ -81,14 +81,28 @@ const TASKS: Task[] = [
       ],
     },
   },
+  {
+    // Two calls in one turn are in the history, so after the first call of the new turn a draft can copy the marker that opens the second.
+    name: "parallel",
+    calls: 2,
+    context: {
+      ...ctx("x", WRITE),
+      turns: [
+        { role: "user", parts: [{ type: "text", text: `Create util.py with exactly this content and notes.txt containing "todo: tests", using the write tool for both in one turn:\n\n${CODE}` }] },
+        { role: "assistant", provider: "local-models", model: "bench", blocks: [{ type: "tool_call", call_id: "c1", name: "write", args: { path: "util.py", content: CODE } }, { type: "tool_call", call_id: "c2", name: "write", args: { path: "notes.txt", content: "todo: tests" } }] },
+        { role: "tool_results", results: [{ call_id: "c1", is_error: false, content: "wrote util.py", truncated: false }, { call_id: "c2", is_error: false, content: "wrote notes.txt", truncated: false }] },
+        { role: "user", parts: [{ type: "text", text: 'Do the same again for util2.py (the same content) and notes2.txt (containing "todo: docs"): both writes together, in one turn.' }] },
+      ],
+    },
+  },
   { name: "prose", context: ctx("Describe, in about 120 words, what a lighthouse keeper does on an ordinary day.") },
 ];
 
 interface Sample {
   model: string;
   task: string;
-  /** The task is meant to end in a call. */
-  calls_expected?: boolean;
+  /** How many calls the task is meant to end in. */
+  calls_expected?: number;
   n: number;
   ms: number;
   output_tokens: number;
@@ -136,8 +150,8 @@ export function report(samples: readonly Sample[], models: readonly string[]): s
       for (const s of rs) if (s.error !== undefined) notes.push(`- ${task} ${m} #${s.n}: error: ${s.error}`);
     }
   }
-  const missed = samples.filter((s) => s.calls_expected === true && s.error === undefined && s.calls === 0);
-  const warn = [...new Set(missed.map((s) => `${s.task} ${s.model}`))].map((k) => `**${k}: no tool call in ${missed.filter((s) => `${s.task} ${s.model}` === k).length} of its runs, so this task shows nothing about calls**`);
+  const missed = samples.filter((s) => s.calls_expected !== undefined && s.error === undefined && s.calls < s.calls_expected);
+  const warn = [...new Set(missed.map((s) => `${s.task} ${s.model}`))].map((k) => `**${k}: fewer tool calls than expected in ${missed.filter((s) => `${s.task} ${s.model}` === k).length} of its runs, so this task shows nothing about calls it was meant to make**`);
   const head = warn.length === 0 ? "" : `${warn.join("\n")}\n\n`;
   return `${head}${notes.length === 0 ? lines.join("\n") : `${lines.join("\n")}\n\nNotes:\n\n${notes.join("\n")}`}`;
 }
@@ -164,7 +178,7 @@ async function main(): Promise<void> {
         const raw = run.completed?.usage.raw as Record<string, unknown> | undefined;
         const timings = (raw?.["timings"] ?? {}) as Record<string, unknown>;
         const s: Sample = {
-          model, task: task.name, ...(task.calls === true ? { calls_expected: true } : {}), n, ms: Date.now() - t0,
+          model, task: task.name, ...(task.calls === undefined ? {} : { calls_expected: task.calls }), n, ms: Date.now() - t0,
           output_tokens: run.completed?.usage.output_tokens ?? 0,
           drafted: num(timings["draft_n"]), accepted: num(timings["draft_n_accepted"]),
           result: blocks.flatMap((b) => (b.type === "text" ? [b.text] : b.type === "tool_call" ? [`CALL ${b.name} ${JSON.stringify(b.args)}`] : [])).join("\n"),

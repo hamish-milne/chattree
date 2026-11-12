@@ -96,6 +96,33 @@ export const TASKS: Task[] = [
     },
   },
   {
+    // Several calls in one turn: a model that writes one call and then its end-of-turn marker, or drops the separator between calls, fails here.
+    name: "three files at once",
+    group: "write",
+    files: { "seed.txt": "x\n" },
+    prompt: "Create three files: a.txt containing exactly `alpha`, b.txt containing exactly `beta`, and c.txt containing exactly `gamma`. Make the three write calls together, in one turn.",
+    check: async (r) => {
+      for (const [f, want] of [["a.txt", "alpha"], ["b.txt", "beta"], ["c.txt", "gamma"]] as const) {
+        const t = await r.read(f);
+        if (t?.trim() !== want) return `${f} is ${JSON.stringify(t)}`;
+      }
+      return undefined;
+    },
+  },
+  {
+    // The answer is mostly the text of the file just read, which is what n-gram speculation drafts from.
+    name: "copy with a rename",
+    group: "write",
+    files: { "util.py": "import json\n\n\ndef load_records(path):\n    with open(path) as f:\n        return [json.loads(line) for line in f if line.strip()]\n\n\ndef total_by_name(records):\n    totals = {}\n    for r in records:\n        totals[r[\"name\"]] = totals.get(r[\"name\"], 0) + r[\"amount\"]\n    return totals\n\n\ndef main():\n    print(total_by_name(load_records(\"data.jsonl\")))\n" },
+    prompt: "Read util.py, then create util2.py with the same content, except that the function total_by_name is renamed sum_by_name everywhere. Leave util.py as it is.",
+    check: async (r) => {
+      const t = await r.read("util2.py");
+      if (t === undefined) return "util2.py was not created";
+      if (/total_by_name/.test(t) || (t.match(/sum_by_name/g) ?? []).length !== 2) return `util2.py is ${JSON.stringify(t.slice(0, 200))}`;
+      return t.replaceAll("sum_by_name", "total_by_name").trimEnd() === (r.after["util.py"] ?? "").trimEnd() ? undefined : "util2.py differs from util.py in more than the name";
+    },
+  },
+  {
     name: "run a program",
     group: "run",
     files: {},
