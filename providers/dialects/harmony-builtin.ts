@@ -19,7 +19,15 @@ export interface BuiltinSpec {
   what: string;
   /** A short message that is correct. */
   example: string;
+  /**
+   * For a built-in that is not a chattree tool of its own: the `run` command it stands for, with `$message` where the message goes (quoted as
+   * one argument). The model's call is made as a call of `run`, so it is approved and recorded as one.
+   */
+  run?: string;
 }
+
+/** The tool a built-in with a `run` template is made through. */
+export const RUN_TOOL = "run";
 
 const PYTHON = `## python
 
@@ -37,9 +45,21 @@ const KNOWN: Record<string, BuiltinSpec> = {
   bash: { arg: "command", prose: BASH, what: "shell command", example: "ls -l" },
 };
 
+const PLACEHOLDER = /\$\{message\}|\$message(?![A-Za-z0-9_])/;
+
+/** The `run` command for a message: the template with `$message` replaced by the message as one single-quoted word (a `'` inside it is `'"'"'`). */
+export function commandFor(template: string, message: string): string {
+  const word = `'${message.replaceAll("'", `'"'"'`)}'`;
+  return template.replace(new RegExp(PLACEHOLDER.source, "g"), () => word);
+}
+
 const isMap = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** `{python: true, bash: {arg: "cmd"}}` from the options: a name alone takes what is known of it, and a name that is not known needs its `arg`. */
+/**
+ * `{python: true, bash: {arg: "cmd"}, powershell: {run: "powershell -NoProfile -Command $message", description: "…"}}` from the options: a name
+ * alone takes what is known of it; a name with `run` is a built-in made of the `run` tool (its `description` is the system-block text); any
+ * other name needs its `arg`.
+ */
 export function builtinSpecs(option: unknown): Map<string, BuiltinSpec> {
   const out = new Map<string, BuiltinSpec>();
   if (!isMap(option)) return out;
@@ -49,7 +69,16 @@ export function builtinSpecs(option: unknown): Map<string, BuiltinSpec> {
     const known = KNOWN[name];
     const arg = typeof given["arg"] === "string" ? given["arg"] : (known?.arg ?? "command");
     const text = (k: string, fallback: string): string => (typeof given[k] === "string" ? (given[k] as string) : fallback);
-    out.set(name, { arg, prose: text("prose", known?.prose ?? `## ${name}\n\nUse this tool by sending its input as the message.`), what: text("what", known?.what ?? "input"), example: text("example", known?.example ?? "") });
+    const run = typeof given["run"] === "string" ? given["run"] : undefined;
+    if (run !== undefined && !PLACEHOLDER.test(run)) throw new Error(`builtin_tools.${name}.run must contain $message, where the model's message goes: ${run}`);
+    const described = typeof given["description"] === "string" ? `## ${name}\n\n${given["description"]}` : undefined;
+    out.set(name, {
+      arg,
+      prose: text("prose", described ?? known?.prose ?? `## ${name}\n\nUse this tool by sending its input as the message.`),
+      what: text("what", known?.what ?? "input"),
+      example: text("example", known?.example ?? ""),
+      ...(run === undefined ? {} : { run }),
+    });
   }
   return out;
 }
@@ -61,7 +90,7 @@ export function builtinPreamble(offered: readonly (readonly [string, BuiltinSpec
   return `IMPORTANT. You MUST follow these rules exactly for the built-in tools ${names.join(" and ")}. They are not functions.
 1. You MUST call a built-in tool on the analysis channel, with the recipient set to the tool's name (${names.map((n) => `to=${n}`).join(", ")}). You MUST NOT use the commentary channel or the functions. prefix for them.
 2. The message MUST be only the ${offered.map(([, s]) => s.what).join(" or ")} itself, as bare text. You MUST NOT wrap it in JSON, you MUST NOT use argument names such as "code", "cmd" or "command", and you MUST NOT use quotes or arrays.
-${offered.map(([n, s]) => `Example call to ${n}:\n  channel: analysis\n  recipient: ${n}\n  message: ${s.example}`).join("\n")}
+${offered.flatMap(([n, s]) => (s.example === "" ? [] : [`Example call to ${n}:\n  channel: analysis\n  recipient: ${n}\n  message: ${s.example}`])).join("\n")}
 A call that cannot be understood is NOT run and is answered with an error.${rest}`;
 }
 
@@ -80,7 +109,7 @@ export function messageOf(name: string, spec: BuiltinSpec, body: string): { text
     if (typeof only === "string") return { text: only };
     if (Array.isArray(only) && only.length > 0 && only.every((x) => typeof x === "string")) return { text: (only as string[]).join(" ") };
     return {
-      error: `${name} was NOT run: its message was JSON that cannot be read as one ${spec.what}. ${name} is a built-in tool: call it on the analysis channel with the recipient ${name}, and make the message only the ${spec.what}, as bare text, with no JSON and no argument names. Example: channel analysis, recipient ${name}, message: ${spec.example}. Call it again exactly like this.`,
+      error: `${name} was NOT run: its message was JSON that cannot be read as one ${spec.what}. ${name} is a built-in tool: call it on the analysis channel with the recipient ${name}, and make the message only the ${spec.what}, as bare text, with no JSON and no argument names. ${spec.example === "" ? "" : `Example: channel analysis, recipient ${name}, message: ${spec.example}. `}Call it again exactly like this.`,
     };
   }
   return { text }; // a number, a string or a list on its own: bare text that happens to parse

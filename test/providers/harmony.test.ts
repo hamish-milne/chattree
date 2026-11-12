@@ -3,7 +3,8 @@ import { describe, test } from "node:test";
 import type { ModelContext } from "../../harness/context-builder.ts";
 import type { Emit } from "../../providers/dialect.ts";
 import { harmonyParser, renderHarmony } from "../../providers/dialects/harmony.ts";
-import { builtinSpecs } from "../../providers/dialects/harmony-builtin.ts";
+import { parseCommand } from "../../harness/starter/command.ts";
+import { builtinSpecs, commandFor } from "../../providers/dialects/harmony-builtin.ts";
 
 import { contextOf, fixture as fixtureOf } from "../support/templates.ts";
 const fixture = (name: string) => fixtureOf("gpt-oss", name);
@@ -240,5 +241,64 @@ describe("built-in tools", () => {
     const own = builtinSpecs({ sh: { arg: "script", what: "shell script", example: "echo hi", prose: "## sh\n\nRuns scripts." } });
     assert.deepEqual(own.get("sh"), { arg: "script", prose: "## sh\n\nRuns scripts.", what: "shell script", example: "echo hi" });
     assert.equal(builtinSpecs({ bash: false }).size, 0);
+  });
+
+  describe("built-ins made of run", () => {
+    const run = { name: "run", description: "Run a command.", input_schema: { type: "object", required: ["command"], properties: { command: { type: "string" } } } };
+    const perl = { run: "perl -e $message", description: "Run Perl code. It has no state between calls.", what: "Perl code", example: "print 6 * 7" };
+    const made = { builtin_tools: { perl } };
+    const specs = builtinSpecs(made.builtin_tools);
+    const rendered = (tools: ModelContext["tools"], turns: ModelContext["turns"] = []) => renderHarmony({ context: { system: "S", instructions: undefined, tools, cacheHints: [], turns }, options: made, effort: undefined, date: "d", provider: "p", model: "m" }).prompt;
+
+    test("the command is the template with the message as one quoted word that run reads back exactly", () => {
+      for (const message of ["print 1", "print 'it\\'s'", "line one\nline two", 'say "hi" $HOME `x` $(y) \\ | > ;']) {
+        const command = commandFor("perl -e $message", message);
+        const parsed = parseCommand(command, () => "");
+        assert.deepEqual(parsed.stages.map((st) => st.map((w) => w.text)), [["perl", "-e", message]], message);
+      }
+      assert.equal(commandFor("a ${message} b $message", "x"), "a 'x' b 'x'");
+      assert.equal(commandFor("p $message$", "$&"), "p '$&'$");
+    });
+    test("a template without $message is refused when the options are read", () => assert.throws(() => builtinSpecs({ perl: { run: "perl -e" } }), /must contain \$message/));
+    test("is described in the system block when run is offered, and not otherwise", () => {
+      assert.ok(rendered([run]).includes("## perl\n\nRun Perl code. It has no state between calls."));
+      assert.ok(rendered([run]).includes("Example call to perl:\n  channel: analysis\n  recipient: perl\n  message: print 6 * 7"));
+      assert.ok(rendered([run]).includes("type run ="), "run stays a function");
+      assert.ok(!rendered([write]).includes("## perl"));
+    });
+    test("a call is a call of run with the quoted message, and keeps the built-in's name and message for the next prompt", () => {
+      const p = harmonyParser([run], specs);
+      const out = [...p.push("<|channel|>analysis to=perl code<|message|>print 'a'<|call|>"), ...p.end("stop")];
+      assert.deepEqual(out.filter((e) => e.kind === "call.start" || e.kind === "call.end"), [
+        { kind: "call.start", name: "run" },
+        { kind: "call.end", args: { command: `perl -e 'print '"'"'a'"'"''` }, ext: { builtin: { name: "perl", message: "print 'a'" } } },
+      ]);
+    });
+    test("an ambiguous call is refused, and keeps the built-in's name for the next prompt", () => {
+      const p = harmonyParser([run], specs);
+      const out = [...p.push('<|channel|>analysis to=perl code<|message|>{"a": 1, "b": 2}<|call|>'), ...p.end("stop")];
+      const end = out.find((e) => e.kind === "call.end") as Extract<Emit, { kind: "call.end" }>;
+      assert.equal(end.raw, '{"a": 1, "b": 2}');
+      assert.match(end.error ?? "", /perl was NOT run/);
+      assert.deepEqual(end.ext, { builtin: { name: "perl" } });
+    });
+    test("an earlier call is written back as a call to the built-in, with its result from it", () => {
+      const turns: ModelContext["turns"] = [
+        { role: "user", parts: [{ type: "text", text: "go" }] },
+        { role: "assistant", provider: "p", model: "m", blocks: [{ type: "tool_call", call_id: "1", name: "run", args: { command: "perl -e 'print 42'" }, ext: { builtin: { name: "perl", message: "print 42" } } }, { type: "tool_call", call_id: "2", name: "run", args: { command: "ls" } }] },
+        { role: "tool_results", results: [{ call_id: "1", content: "42", is_error: false, truncated: false }, { call_id: "2", content: "a.txt", is_error: false, truncated: false }] },
+      ];
+      const p = rendered([run], turns);
+      assert.ok(p.includes("<|start|>assistant<|channel|>analysis to=perl code<|message|>print 42<|call|><|start|>perl to=assistant<|channel|>analysis<|message|>42<|end|>"));
+      assert.ok(p.includes('<|start|>assistant<|channel|>commentary to=functions.run <|constrain|>json<|message|>{"command": "ls"}<|call|>'), "an ordinary call of run is still a function call");
+    });
+    test("a refused call is written back as the model sent it", () => {
+      const turns: ModelContext["turns"] = [
+        { role: "user", parts: [{ type: "text", text: "go" }] },
+        { role: "assistant", provider: "p", model: "m", blocks: [{ type: "tool_call", call_id: "1", name: "run", args: {}, args_raw: '{"a": 1, "b": 2}', ext: { builtin: { name: "perl" }, call_error: "x" } }] },
+        { role: "tool_results", results: [{ call_id: "1", content: "perl was NOT run", is_error: true, truncated: false }] },
+      ];
+      assert.ok(rendered([run], turns).includes('analysis to=perl code<|message|>{"a": 1, "b": 2}<|call|><|start|>perl to=assistant'));
+    });
   });
 });

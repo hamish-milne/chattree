@@ -1,7 +1,7 @@
 import type { Block, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
-import { builtinPreamble, builtinSpecs, messageOf, type BuiltinSpec } from "./harmony-builtin.ts";
+import { builtinPreamble, builtinSpecs, commandFor, messageOf, RUN_TOOL, type BuiltinSpec } from "./harmony-builtin.ts";
 import { parseSchema, toolSchema, type SchemaNode } from "./schema-tree.ts";
 
 /**
@@ -138,8 +138,11 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
   const o = harmonyOptions(input.options);
   const turns = input.context.turns;
   const lastUser = turns.map((t) => t.role).lastIndexOf("user");
-  const functions = input.context.tools.filter((t) => !o.builtin.has(t.name));
-  const builtins = input.context.tools.flatMap((t) => (o.builtin.has(t.name) ? [[t.name, o.builtin.get(t.name) as BuiltinSpec] as const] : []));
+  const have = new Set(input.context.tools.map((t) => t.name));
+  const own = (n: string): boolean => o.builtin.get(n)?.run === undefined;
+  const functions = input.context.tools.filter((t) => !(o.builtin.has(t.name) && own(t.name)));
+  // A built-in made of `run` is offered when `run` is; one that is a tool of its own, when that tool is.
+  const builtins = [...o.builtin].filter(([n, b]) => have.has(b.run === undefined ? n : RUN_TOOL));
   let out = systemBlock(input, o, functions.length > 0, builtins) + developerBlock(input, o, functions, builtins);
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i] as Turn;
@@ -156,13 +159,15 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
         } else if (b.type === "text") {
           if (b.text !== "") out += message(hasCalls ? "commentary" : "final", b.text);
         } else if (b.type === "tool_call") {
-          const spec = o.builtin.get(b.name);
+          const made = (b.ext as { builtin?: { name?: unknown; message?: unknown } } | undefined)?.builtin;
+          const name = typeof made?.name === "string" && o.builtin.has(made.name) ? made.name : own(b.name) && o.builtin.has(b.name) ? b.name : undefined;
+          const spec = name === undefined ? undefined : o.builtin.get(name);
           const r = results.get(b.call_id);
-          if (spec !== undefined) {
+          if (name !== undefined && spec !== undefined) {
             // A built-in: on analysis, the recipient its name, the message the bare text, and the result from the tool on analysis.
-            const given = b.args[spec.arg];
-            out += message(`analysis to=${b.name} code`, typeof given === "string" ? given : (b.args_raw ?? spacedJson(b.args)), CALL);
-            if (r !== undefined) out += `${START}${b.name} to=assistant${CHANNEL}analysis${MESSAGE}${r.content}${END}`;
+            const given = typeof made?.message === "string" ? made.message : b.args[spec.arg];
+            out += message(`analysis to=${name} code`, typeof given === "string" ? given : (b.args_raw ?? spacedJson(b.args)), CALL);
+            if (r !== undefined) out += `${START}${name} to=assistant${CHANNEL}analysis${MESSAGE}${r.content}${END}`;
             continue;
           }
           out += message(`commentary to=functions.${b.name} ${CONSTRAIN}json`, b.args_raw ?? spacedJson(b.args), CALL);
@@ -229,7 +234,10 @@ export function harmonyParser(tools: readonly { name: string; input_schema: Reco
     const spec = mode === "call" ? builtin.get(callName) : undefined;
     if (mode === "call" && spec !== undefined) {
       const m = messageOf(callName, spec, args);
-      out.push("text" in m ? { kind: "call.end", args: { [spec.arg]: m.text } } : { kind: "call.end", raw: args, error: m.error });
+      const made = spec.run === undefined ? undefined : { builtin: { name: callName, ...("text" in m ? { message: m.text } : {}) } };
+      if ("error" in m) out.push({ kind: "call.end", raw: args, error: m.error, ...(made === undefined ? {} : { ext: made }) });
+      else if (spec.run === undefined) out.push({ kind: "call.end", args: { [spec.arg]: m.text } });
+      else out.push({ kind: "call.end", args: { command: commandFor(spec.run, m.text) }, ext: made as Record<string, unknown> });
     } else if (mode === "call") {
       const key = isObjectJson(args) ? undefined : bareArgument(callName);
       out.push(key === undefined ? { kind: "call.end", raw: args } : { kind: "call.end", args: { [key]: args } });
@@ -244,7 +252,7 @@ export function harmonyParser(tools: readonly { name: string; input_schema: Reco
       mode = "call";
       args = "";
       callName = recipient.startsWith("functions.") ? recipient.slice("functions.".length) : recipient;
-      out.push({ kind: "call.start", name: callName });
+      out.push({ kind: "call.start", name: builtin.get(callName)?.run === undefined ? callName : RUN_TOOL });
     } else mode = channel === "analysis" ? "reasoning" : "text";
   };
 
