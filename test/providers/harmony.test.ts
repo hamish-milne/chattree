@@ -138,3 +138,26 @@ describe("the harmony parser", () => {
     assert.deepEqual(merged(parse("<|channel|>final<|message|>a < b <|not a token|> c<|return|>", 3)), [{ kind: "text", text: "a < b <|not a token|> c" }]);
   });
 });
+
+describe("a bare body for a tool with one required string argument", () => {
+  const python = { name: "python", input_schema: { type: "object", required: ["code"], properties: { code: { type: "string" }, note: { type: "string" } } } };
+  const write = { name: "write", input_schema: { type: "object", required: ["path", "content"], properties: { path: { type: "string" }, content: { type: "string" } } } };
+  const run = (text: string, tools: Parameters<typeof harmonyParser>[0], size: number): Emit[] => {
+    const p = harmonyParser(tools);
+    const out: Emit[] = [];
+    for (let i = 0; i < text.length; i += size) out.push(...p.push(text.slice(i, i + size)));
+    out.push(...p.end("stop"));
+    return out;
+  };
+  const end = (e: Emit[]) => e.find((x) => x.kind === "call.end");
+  const call = (name: string, body: string) => `<|channel|>analysis to=functions.${name} <|constrain|>json<|message|>${body}<|call|>`;
+  for (const size of [1, 7, 1000]) {
+    test(`is taken as that argument (pieces of ${size})`, () => assert.deepEqual(end(run(call("python", "print(1 * 2)\n"), [python], size)), { kind: "call.end", args: { code: "print(1 * 2)\n" } }));
+  }
+  test("a body that is a JSON object is left as it is", () => assert.deepEqual(end(run(call("python", '{"code": "x"}'), [python], 5)), { kind: "call.end", raw: '{"code": "x"}' }));
+  test("a body that is a bare number is still a bare body", () => assert.deepEqual(end(run(call("python", "42"), [python], 5)), { kind: "call.end", args: { code: "42" } }));
+  test("a tool with more required arguments, or an unknown one, is left alone", () => {
+    assert.deepEqual(end(run(call("write", "hello"), [write], 5)), { kind: "call.end", raw: "hello" });
+    assert.deepEqual(end(run(call("other", "hello"), [python], 5)), { kind: "call.end", raw: "hello" });
+  });
+});

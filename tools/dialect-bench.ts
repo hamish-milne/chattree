@@ -33,8 +33,7 @@ import type { AgentSetup } from "../harness/setup.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
 import { dialectForModel } from "../providers/dialects/index.ts";
 import { ProviderError, type ProviderAdapter } from "../providers/types.ts";
-import { findBusybox } from "../hosts/node.ts";
-import { benchEnvironment, runAgentTask, type ToolStep } from "./agent-task.ts";
+import { benchEnvironment, requireBusybox, runAgentTask, type ToolStep } from "./agent-task.ts";
 import { blur, selectTasks } from "./live-sample.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
 import type { Task } from "./tasks.ts";
@@ -368,7 +367,7 @@ async function main(): Promise<void> {
   io.settings = await loadSettings(io);
   await ensureLocalModels(io, { yes: plan.yes });
   const adapter = localModelsAdapter(io);
-  const busybox = plan.busybox ?? (await findBusybox());
+  const busybox = await requireBusybox(plan.busybox);
   const { run: tasks } = selectTasks({ tasks: plan.tasks, groups: plan.groups, busybox });
   let wireBuf: WireRecord[] = [];
   const tap = tapFetch((u) => u.endsWith("/chat/completions") || u.endsWith("/completion"), (r) => void wireBuf.push(r));

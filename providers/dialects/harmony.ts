@@ -1,7 +1,7 @@
 import type { Block, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
-import { parseSchema, type SchemaNode } from "./schema-tree.ts";
+import { parseSchema, toolSchema, type SchemaNode } from "./schema-tree.ts";
 
 /**
  * Harmony, the format gpt-oss was trained on (docs/local-models.md, section 9.1). Rendering reproduces what the model's own chat
@@ -12,6 +12,7 @@ import { parseSchema, type SchemaNode } from "./schema-tree.ts";
  *   D2  several calls in one assistant turn are rendered as call/result pairs in order (the template renders only the first);
  *   D3  nested object and array schemas are declared in full (the template says `any[]`); `schema: "flat"` restores that;
  *   D4  text written before a call (a preamble) is in the `commentary` channel, as the format's own guide has it.
+ * The parser also reads a bare body as the argument of a tool with one required string argument (see `harmonyParser`).
  * Options: `keep_reasoning` (default true): reasoning of the unfinished exchange is replayed in `analysis`;
  * `schema`: `"full"` (default) or `"flat"`; and the wording of the system block, which differs between checkpoints and variants:
  * `identity` (the first line; `false` leaves it out), `knowledge_cutoff` (`"2024-06"`; `false` leaves it out) and `date`: `"none"` (default:
@@ -165,17 +166,21 @@ const TERMINATORS = new Set([END, CALL, RETURN, START]);
 type Mode = "header" | "text" | "reasoning" | "call" | "done";
 
 /**
+ * A call whose body is not JSON, to a tool whose only required argument is a string, takes the whole body as that argument: the model was
+ * trained to send code to its `python` tool as the bare message, and does so for any tool that is called that (`python` with a `code` argument).
+ *
  * Reads the model's output after `<|start|>assistant`: messages of `<|channel|>NAME[ to=RECIPIENT][ <|constrain|>json]<|message|>BODY`
  * ended by `<|end|>`, `<|call|>` or `<|return|>`. A message with a `functions.` recipient is a call whatever its channel (the model
  * sometimes calls from `analysis`); `analysis` is reasoning; everything else is text. Output that does not start like a message at all
  * is taken as plain text, so a model that ignores the format still answers.
  */
-export function harmonyParser(): Parser {
+export function harmonyParser(tools: readonly { name: string; input_schema: Record<string, unknown> }[] = []): Parser {
   let buf = "";
   let mode: Mode = "header";
   let header = "";
   let args = "";
   let sawStart = false;
+  let callName = "";
 
   const emitBody = (text: string, out: Emit[]): void => {
     if (text === "") return;
@@ -185,8 +190,29 @@ export function harmonyParser(): Parser {
     } else out.push({ kind: mode === "reasoning" ? "reasoning" : "text", text });
   };
 
+  /** The one argument that a bare (non-JSON) body belongs to, if the tool has just one required argument and it is a string. */
+  const bareArgument = (name: string): string | undefined => {
+    const tool = tools.find((t) => t.name === name);
+    if (tool === undefined) return undefined;
+    const schema = toolSchema(tool);
+    const only = schema.required.length === 1 ? schema.required[0] : undefined;
+    return only !== undefined && schema.properties?.find(([k]) => k === only)?.[1].types.includes("string") === true ? only : undefined;
+  };
+
+  const isObjectJson = (text: string): boolean => {
+    try {
+      const v = JSON.parse(text) as unknown;
+      return typeof v === "object" && v !== null && !Array.isArray(v);
+    } catch {
+      return false;
+    }
+  };
+
   const closeMessage = (out: Emit[]): void => {
-    if (mode === "call") out.push({ kind: "call.end", raw: args });
+    if (mode === "call") {
+      const key = isObjectJson(args) ? undefined : bareArgument(callName);
+      out.push(key === undefined ? { kind: "call.end", raw: args } : { kind: "call.end", args: { [key]: args } });
+    }
     args = "";
   };
 
@@ -196,7 +222,8 @@ export function harmonyParser(): Parser {
     if (recipient !== undefined && recipient !== "assistant" && recipient !== "user") {
       mode = "call";
       args = "";
-      out.push({ kind: "call.start", name: recipient.startsWith("functions.") ? recipient.slice("functions.".length) : recipient });
+      callName = recipient.startsWith("functions.") ? recipient.slice("functions.".length) : recipient;
+      out.push({ kind: "call.start", name: callName });
     } else mode = channel === "analysis" ? "reasoning" : "text";
   };
 
@@ -270,4 +297,4 @@ export function harmonyParser(): Parser {
   };
 }
 
-export const harmony: Dialect = { id: "harmony", render: renderHarmony, parser: () => harmonyParser() };
+export const harmony: Dialect = { id: "harmony", render: renderHarmony, parser: (_options, tools) => harmonyParser(tools) };

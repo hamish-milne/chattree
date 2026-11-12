@@ -6,6 +6,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
+import { BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
 import { nodeHost } from "../hosts/node.ts";
 import type { ModelContext } from "../harness/context-builder.ts";
 import type { HostEnvironment } from "../harness/environment.ts";
@@ -166,4 +167,20 @@ export function benchEnvironment(busybox?: string): HostEnvironment {
     utilities: windows && busybox !== undefined ? "`run` takes one command or pipeline in a bash-like syntax, with busybox utilities and the programs on the PATH; `script` runs a POSIX sh script with busybox." : "`run` takes one command or pipeline in a bash-like syntax, using this machine's own utilities and programs; `script` runs a POSIX sh script.",
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
+}
+
+/**
+ * The busybox.exe the `run` tool needs on Windows (undefined elsewhere): the one given, else the one that is there, else the pinned release,
+ * fetched as chattree does on first use. A sampler that went on without it would measure the missing utilities, not the model, so failing
+ * to get one ends the run at once.
+ */
+export async function requireBusybox(given?: string): Promise<string | undefined> {
+  if (process.platform !== "win32") return undefined;
+  if (given !== undefined) return given;
+  try {
+    return await ensureBusybox({ say: (m) => console.error(m) });
+  } catch (e) {
+    if (e instanceof BusyboxError) throw new Error(`${e.message}\n${e.hint ?? ""}`.trim());
+    throw e;
+  }
 }

@@ -11,7 +11,7 @@
  * Each task is run through the real loop with the harmony dialect, once per arm and repeat; the report counts the first tool the model
  * called, and keeps every sample's steps in probe.json.
  *
- *   node tools/builtin-probe.ts --model gpt-oss [--repeat 10] [--out DIR] [--yes]
+ *   node tools/builtin-probe.ts --model gpt-oss [--repeat 10] [--out DIR] [--busybox PATH] [--yes]
  */
 import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -26,7 +26,7 @@ import { samplingSettings } from "../localmodels/catalog.ts";
 import type { Dialect } from "../providers/dialect.ts";
 import { harmony, renderHarmony } from "../providers/dialects/harmony.ts";
 import { localModelsDefinition } from "../providers/index.ts";
-import { runAgentTask, type ToolStep } from "./agent-task.ts";
+import { requireBusybox, runAgentTask, type ToolStep } from "./agent-task.ts";
 
 // What the format's guide gives for the two built-in tools (written out here from its description, not copied from a template).
 const PYTHON = `## python
@@ -122,11 +122,11 @@ interface Sample {
   right: boolean;
 }
 
-function parse(argv: readonly string[]): { model: string; repeat: number; out: string | undefined; yes: boolean } {
+function parse(argv: readonly string[]): { model: string; repeat: number; out: string | undefined; yes: boolean; busybox: string | undefined } {
   const v = (f: string): string | undefined => argv[argv.indexOf(f) + 1];
   const model = argv.includes("--model") ? v("--model") : undefined;
   if (model === undefined) throw new Error("--model is required: a gpt-oss name from local_models in the settings file");
-  return { model, repeat: argv.includes("--repeat") ? Number(v("--repeat")) : 10, out: argv.includes("--out") ? v("--out") : undefined, yes: argv.includes("--yes") };
+  return { model, repeat: argv.includes("--repeat") ? Number(v("--repeat")) : 10, out: argv.includes("--out") ? v("--out") : undefined, yes: argv.includes("--yes"), busybox: argv.includes("--busybox") ? v("--busybox") : undefined };
 }
 
 async function main(): Promise<void> {
@@ -134,6 +134,7 @@ async function main(): Promise<void> {
   const io = nodeIo();
   io.settings = await loadSettings(io);
   await ensureLocalModels(io, { yes: o.yes });
+  const busybox = await requireBusybox(o.busybox);
   const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, withBuiltins] }).create({ $tag: "local-models" }, { get: () => undefined });
   const found = await lookupSampling(io, o.model);
   const sampling = samplingSettings(found.values) as Record<string, unknown>;
@@ -142,7 +143,7 @@ async function main(): Promise<void> {
     for (const probe of PROBES) {
       for (const arm of ARMS) {
         const model = { provider: "live", id: o.model, settings: { max_output_tokens: 4096, ...sampling, ...arm.settings } } as NonNullable<AgentSetup["model"]>;
-        const r = await runAgentTask({ adapter, model, files: {}, prompt: probe.prompt, timeoutMs: 120_000, extraTools: arm.tools });
+        const r = await runAgentTask({ adapter, model, files: {}, prompt: probe.prompt, busybox, timeoutMs: 120_000, extraTools: arm.tools });
         const right = probe.wants.test((await r.read("answer.txt")) ?? "");
         samples.push({ arm: arm.label, probe: probe.name, n, steps: r.steps, right });
         console.error(`#${n} ${probe.name} / ${arm.label}: ${r.steps.map((s) => `${s.name}${s.is_error === true ? "!" : ""}`).join(", ") || "(no call)"} ${right ? "right" : "wrong"}`);
