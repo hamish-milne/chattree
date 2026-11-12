@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { Dialect, Emit } from "../../providers/dialect.ts";
-import { deepseekDialect, glmDialect, glm46Dialect, hermesDialect, kimiDialect, minimaxDialect, mistralDialect } from "../../providers/dialects/families.ts";
+import { glmDialect, glm46Dialect, hermesDialect, mistralDialect } from "../../providers/dialects/families.ts";
 import { dialectForModel } from "../../providers/dialects/index.ts";
 import { contextOf, fixture } from "../support/templates.ts";
 
@@ -20,45 +20,17 @@ const opening = (d: Dialect, family: string, options: Record<string, unknown> = 
 const render = (d: Dialect, family: string, name: string, options: Record<string, unknown> = {}, tools = true) => d.render(input(family, name, options, tools)).prompt;
 
 describe("each family renders what its model's own template does", () => {
-  const plain: [string, Dialect][] = [["hermes", hermesDialect], ["mistral", mistralDialect], ["glm46", glm46Dialect], ["glm", glmDialect], ["minimax", minimaxDialect]];
+  const plain: [string, Dialect][] = [["hermes", hermesDialect], ["mistral", mistralDialect], ["glm46", glm46Dialect], ["glm", glmDialect]];
   for (const [family, d] of plain) {
     describe(family, () => {
       for (const s of SCENARIOS) test(s, () => assert.equal(render(d, family, s), fixture(family, s).prompt));
     });
   }
-
-  describe("kimi (its call ids are numbered as Moonshot's API does)", () => {
-    for (const s of SCENARIOS) {
-      test(s, () => {
-        const f = fixture("kimi", s);
-        let want = f.prompt;
-        let n = 0;
-        for (const m of f.request.messages) {
-          for (const c of m.tool_calls ?? []) {
-            const id = `functions.${c.function.name}:${n++}`;
-            want = want.replace(`<|tool_call_begin|>${c.id}<|`, `<|tool_call_begin|>${id}<|`).replace(`## Return of ${c.id}\n`, `## Return of ${id}\n`);
-          }
-        }
-        assert.equal(render(kimiDialect, "kimi", s), want);
-      });
-    }
-  });
-
-  describe("deepseek (its template does not render the tools, so the rest is compared)", () => {
-    for (const s of SCENARIOS) test(s, () => assert.equal(render(deepseekDialect, "deepseek", s, {}, false), fixture("deepseek", s).prompt));
-    test("the tools are described as the model card says, after the system text", () => {
-      const p = render(deepseekDialect, "deepseek", "one-call");
-      assert.match(p, /^You are a terse coding agent[^]*?\n\n## Tools\nYou have access to the following tools:\n\n### read\nDescription: Read a file\./);
-      assert.ok(p.includes("<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>tool_call_name<｜tool▁sep｜>tool_call_arguments<｜tool▁call▁end｜>{additional_tool_calls}<｜tool▁calls▁end｜>"));
-      assert.ok(p.indexOf("## Tools") < p.indexOf("<｜User｜>"));
-    });
-  });
 });
 
 describe("the markers a family reads", () => {
   test("a family lists its special tokens, the separator in a call's body too", () => {
     assert.deepEqual(mistralDialect.markers, ["[TOOL_CALLS]", "[ARGS]"]);
-    assert.ok(kimiDialect.markers?.includes("<|tool_call_argument_begin|>") && kimiDialect.markers.includes("<|tool_calls_section_begin|>"));
     assert.ok(glmDialect.markers?.includes("</think>"));
   });
 });
@@ -69,28 +41,17 @@ describe("the options of a family", () => {
     assert.ok(opening(glm46Dialect, "glm46", { thinking: false }).endsWith("<|assistant|>\n<think></think>"));
     assert.ok(opening(glmDialect, "glm", { thinking: false }).endsWith("<|assistant|></think>"));
     assert.ok(opening(glmDialect, "glm").endsWith("<|assistant|><think>"));
-    assert.ok(opening(deepseekDialect, "deepseek", { thinking: true }).endsWith("<｜Assistant｜><think>"));
-    assert.ok(opening(deepseekDialect, "deepseek").endsWith("<｜Assistant｜></think>"));
   });
-  test("a model that always thinks is asked to start inside it", () => assert.ok(opening(minimaxDialect, "minimax").endsWith("]~b]ai\n<think>\n")));
-  test("DeepSeek carries on after tool output with no turn marker of its own", () => assert.ok(render(deepseekDialect, "deepseek", "one-call").endsWith("<｜tool▁output▁end｜>")));
   test("keep_reasoning off leaves the replayed thinking out", () => {
-    for (const [family, d] of [["hermes", hermesDialect], ["minimax", minimaxDialect], ["glm", glmDialect], ["glm46", glm46Dialect]] as const) {
+    for (const [family, d] of [["hermes", hermesDialect], ["glm", glmDialect], ["glm46", glm46Dialect]] as const) {
       assert.ok(render(d, family, "reasoning-between-calls").includes("MARK-BETA"), family);
       assert.ok(!render(d, family, "reasoning-between-calls", { keep_reasoning: false }).includes("MARK-BETA"), family);
     }
   });
-  test("a model without a place for reasoning never has it replayed", () => {
-    assert.ok(!render(deepseekDialect, "deepseek", "reasoning-between-calls", { keep_reasoning: true }).includes("MARK-BETA"));
-    assert.ok(!render(kimiDialect, "kimi", "reasoning-between-calls").includes("MARK-BETA"));
-  });
   test("the tools of a model are found by its name", () => {
-    assert.equal(dialectForModel("Kimi-K2-Instruct-Q4"), "kimi");
     assert.equal(dialectForModel("unsloth/Devstral-Small-2507"), "mistral");
-    assert.equal(dialectForModel("DeepSeek-V3.1"), "deepseek");
     assert.equal(dialectForModel("GLM-4.6"), "glm46");
     assert.equal(dialectForModel("glm-4.7-flash"), "glm");
-    assert.equal(dialectForModel("MiniMax-M2"), "minimax");
     assert.equal(dialectForModel("qwen3.5-9b"), "qwen-xml");
     for (const old of ["deepseek-moe-16b", "DeepSeek-R1-Distill-Qwen-7B".replace("Qwen", "Llama"), "chatglm3-6b", "Mistral-7B-Instruct-v0.3", "kimi-vl"]) assert.equal(dialectForModel(old), undefined, old);
   });
@@ -136,20 +97,6 @@ const CASES: { family: string; d: Dialect; prompt: string; raw: string; want: Em
     want: [{ kind: "text", text: "Writing." }, ...two],
   },
   {
-    family: "kimi (a section of calls, named by id)",
-    d: kimiDialect,
-    prompt: "…<|im_assistant|>assistant<|im_middle|>",
-    raw: 'Writing.<|tool_calls_section_begin|><|tool_call_begin|>functions.write:0<|tool_call_argument_begin|>{"path": "hello.py", "n": 3}<|tool_call_end|><|tool_call_begin|>functions.read:1<|tool_call_argument_begin|>{"path": "a.txt"}<|tool_call_end|><|tool_calls_section_end|>',
-    want: [{ kind: "text", text: "Writing." }, ...two],
-  },
-  {
-    family: "deepseek",
-    d: deepseekDialect,
-    prompt: "…<｜Assistant｜></think>",
-    raw: 'Writing.<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>write<｜tool▁sep｜>{"path": "hello.py", "n": 3}<｜tool▁call▁end｜><｜tool▁call▁begin｜>read<｜tool▁sep｜>{"path": "a.txt"}<｜tool▁call▁end｜><｜tool▁calls▁end｜>',
-    want: [{ kind: "text", text: "Writing." }, ...two],
-  },
-  {
     family: "glm46 (thinking starts in the text)",
     d: glm46Dialect,
     prompt: "…<|assistant|>",
@@ -163,13 +110,6 @@ const CASES: { family: string; d: Dialect; prompt: string; raw: string; want: Em
     raw: "Plan.</think>Writing.<tool_call>write<arg_key>path</arg_key><arg_value>hello.py</arg_value><arg_key>n</arg_key><arg_value>3</arg_value></tool_call><tool_call>read<arg_key>path</arg_key><arg_value>a.txt</arg_value></tool_call>",
     want: [{ kind: "reasoning", text: "Plan." }, { kind: "text", text: "Writing." }, ...two],
   },
-  {
-    family: "minimax (invokes in a section; the prompt ends inside the thinking)",
-    d: minimaxDialect,
-    prompt: "…]~b]ai\n<think>\n",
-    raw: 'Plan.\n</think>\n\nWriting.\n\n<minimax:tool_call>\n<invoke name="write">\n<parameter name="path">hello.py</parameter>\n<parameter name="n">3</parameter>\n</invoke>\n<invoke name="read">\n<parameter name="path">a.txt</parameter>\n</invoke>\n</minimax:tool_call>',
-    want: [{ kind: "reasoning", text: "Plan." }, { kind: "text", text: "Writing." }, ...two],
-  },
 ];
 
 describe("each family's output is read, whatever the pieces", () => {
@@ -179,11 +119,10 @@ describe("each family's output is read, whatever the pieces", () => {
 describe("a family's calls that go wrong", () => {
   test("a call whose JSON cannot be read is kept as text, with its name", () => {
     assert.deepEqual(read(mistralDialect, "x", "[TOOL_CALLS]read[ARGS]{not json}", 4), [{ kind: "call.start", name: "read" }, { kind: "call.end", raw: "{not json}" }]);
-    assert.deepEqual(read(kimiDialect, "x", "<|tool_call_begin|>functions.read:0<|tool_call_argument_begin|>{oops<|tool_call_end|>", 5), [{ kind: "call.start", name: "read" }, { kind: "call.end", raw: "{oops" }]);
   });
   test("a call cut off inside its arguments is kept as the text the model wrote", () => {
-    const e = read(minimaxDialect, "x", '<invoke name="write">\n<parameter name="path">hel', 7);
-    assert.deepEqual(e, [{ kind: "call.start", name: "write" }, { kind: "call.end", raw: 'write">\n<parameter name="path">hel' }]);
+    const e = read(glm46Dialect, "x", "<tool_call>write\n<arg_key>path</arg_key>\n<arg_value>hel", 7);
+    assert.deepEqual(e, [{ kind: "call.start", name: "write" }, { kind: "call.end", raw: "write\n<arg_key>path</arg_key>\n<arg_value>hel" }]);
   });
   test("a call that is not in the format is plain text", () => assert.deepEqual(read(hermesDialect, "x", "<tool_call>\nnot a call\n</tool_call>", 6), [{ kind: "text", text: "<tool_call>\nnot a call\n</tool_call>" }]));
   test("the name of a call is known as soon as it has been written", () => {

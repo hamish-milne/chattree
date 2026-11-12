@@ -1,2 +1,0 @@
-You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<｜User｜>In notes.txt change the word draft to final.<｜Assistant｜></think><｜tool▁calls▁begin｜><｜tool▁call▁begin｜>read<｜tool▁sep｜>{"path": "notes.txt"}<｜tool▁call▁end｜><｜tool▁calls▁end｜><｜end▁of▁sentence｜><｜tool▁output▁begin｜>=== notes.txt (1 line, version 1f08cd1f) ===
-1	status: draft<｜tool▁output▁end｜>

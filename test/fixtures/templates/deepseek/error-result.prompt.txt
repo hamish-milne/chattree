@@ -1,1 +1,0 @@
-You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<｜User｜>Read missing.txt<｜Assistant｜></think><｜tool▁calls▁begin｜><｜tool▁call▁begin｜>read<｜tool▁sep｜>{"path": "missing.txt"}<｜tool▁call▁end｜><｜tool▁calls▁end｜><｜end▁of▁sentence｜><｜tool▁output▁begin｜>error: missing.txt does not exist<｜tool▁output▁end｜>

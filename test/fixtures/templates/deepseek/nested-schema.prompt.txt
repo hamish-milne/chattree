@@ -1,1 +1,0 @@
-You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<｜User｜>Record an order for Ada: two of SKU-1 with options gift and rush, and one SKU-9.<｜Assistant｜></think>

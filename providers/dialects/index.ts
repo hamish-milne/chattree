@@ -16,6 +16,6 @@ export function builtinDialects(): Dialect[] {
 export function dialectForModel(name: string): string | undefined {
   const m = name.toLowerCase();
   // Only the generations whose format a dialect reproduces: older models of the same makers (DeepSeek-MoE-16B, ChatGLM, Mistral 7B) were not trained for these calls.
-  const by: [RegExp, string][] = [[/gpt-oss/, "harmony"], [/qwen/, "qwen-xml"], [/gemma/, "gemma"], [/kimi-k2/, "kimi"], [/deepseek-?v3\.[12]/, "deepseek"], [/glm-?4\.[56]/, "glm46"], [/glm-?4\.[789]|glm-?[5-9]/, "glm"], [/minimax-?m2/, "minimax"], [/devstral|mistral-small-3/, "mistral"]];
+  const by: [RegExp, string][] = [[/gpt-oss/, "harmony"], [/qwen/, "qwen-xml"], [/gemma/, "gemma"], [/glm-?4\.[56]/, "glm46"], [/glm-?4\.[789]|glm-?[5-9]/, "glm"], [/devstral|mistral-small-3/, "mistral"]];
   return by.find(([re]) => re.test(m))?.[1];
 }
