@@ -106,7 +106,7 @@ function pattern(template: string, flags = ""): RegExp {
     .map((p, i) => {
       if (p === "{name}" || p === "{key}") return `(${NAME})`;
       if (p === "{value}") return "([\\s\\S]*?)";
-      const afterName = parts[i - 1] === "{name}" && /^\n+$/.test(p);
+      const afterName = parts[i - 1] === "{name}" && /^\n*$/.test(p);
       // The newline that ends a name may be missing when a tag follows straight away (GLM-4.7 writes `read<arg_key>`).
       return afterName ? "(?:\\n|(?=<))" : esc(p).replace(/\n/g, "\\n?");
     })

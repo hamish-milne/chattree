@@ -14,6 +14,7 @@ import { spacedJson } from "./scan.ts";
  *   kimi      Kimi K2: calls carry ids `functions.NAME:N`, which we number as Moonshot's API does; results are headed by them;
  *   deepseek  DeepSeek V3.1, non-thinking (the only mode its calls are defined for): its template does not render the tools, so the
  *             list is written as the model card says; the model carries on after tool outputs with no turn marker of its own;
+ *   glm47     GLM-4.7 (and Flash): the same tags with no newlines, and the prompt ends inside `<think>`;
  *   glm       GLM-4.5 and 4.6: a tag for each argument, `<think></think>` stands for reasoning that is not replayed;
  *   minimax   MiniMax-M2: `<invoke>` calls in a `<minimax:tool_call>` section; always thinks.
  */
@@ -102,6 +103,20 @@ const glm: FamilySpec = {
   think: { open: "\n<think>", close: "</think>", skip: "\n<think></think>", absent: "\n<think></think>" },
 };
 
+// ---- GLM-4.7 ------------------------------------------------------------------------------------------------------------
+
+/** GLM-4.7's template drops every newline of 4.5/4.6's: `<|user|>text`, `<tool_call>name<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>`, `<tool_response>…</tool_response>`. */
+const glm47: FamilySpec = {
+  id: "glm47",
+  head: ({ system, tools }) =>
+    `[gMASK]<sop>${tools.length === 0 ? "" : `<|system|>\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n${tools.map((t) => `${spacedJson(tool(t))}\n`).join("")}</tools>\n\nFor each function call, output the function name and arguments within the following XML format:\n<tool_call>{function-name}<arg_key>{arg-key-1}</arg_key><arg_value>{arg-value-1}</arg_value><arg_key>{arg-key-2}</arg_key><arg_value>{arg-value-2}</arg_value>...</tool_call>`}${system === "" ? "" : `<|system|>${system}`}`,
+  user: { open: "<|user|>", close: "" },
+  assistant: { open: "<|assistant|>", close: "" },
+  results: { open: "<|observation|>", item: "<tool_response>{content}</tool_response>" },
+  call: { start: "<tool_call>", end: "</tool_call>", codec: tagParams({ head: "{name}", param: "<arg_key>{key}</arg_key><arg_value>{value}</arg_value>" }) },
+  think: { open: "<think>", close: "</think>", start: "<think>", skip: "</think>", absent: "</think>" },
+};
+
 // ---- MiniMax-M2 ----------------------------------------------------------------------------------------------------------
 
 const MINIMAX_IDENTITY = "You are MiniMax-M2, a helpful AI assistant built by MiniMax. Knowledge cutoff: 2025-06.";
@@ -128,6 +143,7 @@ export const mistralDialect: Dialect = defineFamily(mistral);
 export const kimiDialect: Dialect = defineFamily(kimi);
 export const deepseekDialect: Dialect = defineFamily(deepseek);
 export const glmDialect: Dialect = defineFamily(glm);
+export const glm47Dialect: Dialect = defineFamily(glm47);
 export const minimaxDialect: Dialect = defineFamily(minimax);
 
-export const familyDialects = (): Dialect[] => [hermesDialect, mistralDialect, kimiDialect, deepseekDialect, glmDialect, minimaxDialect];
+export const familyDialects = (): Dialect[] => [hermesDialect, mistralDialect, kimiDialect, deepseekDialect, glmDialect, glm47Dialect, minimaxDialect];

@@ -1,0 +1,15 @@
+[gMASK]<sop><|system|>
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{"type": "function", "function": {"name": "read", "description": "Read a file. Returns its lines, numbered, and its version.", "parameters": {"type": "object", "additionalProperties": false, "properties": {"path": {"type": "string", "description": "Path of the file, relative to the workspace root."}, "limit": {"type": "integer", "description": "At most this many lines."}}, "required": ["path"]}}}
+{"type": "function", "function": {"name": "write", "description": "Create a file, or replace one whole. Give the complete new content.", "parameters": {"type": "object", "additionalProperties": false, "properties": {"path": {"type": "string", "description": "Path of the file."}, "content": {"type": "string", "description": "The complete new content of the file."}}, "required": ["path", "content"]}}}
+</tools>
+
+For each function call, output the function name and arguments within the following XML format:
+<tool_call>{function-name}<arg_key>{arg-key-1}</arg_key><arg_value>{arg-value-1}</arg_value><arg_key>{arg-key-2}</arg_key><arg_value>{arg-value-2}</arg_value>...</tool_call><|system|>You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|user|>Read a.txt and b.txt.<|assistant|></think><tool_call>read<arg_key>path</arg_key><arg_value>a.txt</arg_value></tool_call><tool_call>read<arg_key>path</arg_key><arg_value>b.txt</arg_value></tool_call><|observation|><tool_response>=== a.txt (1 line, version 11111111) ===
+1	alpha</tool_response><tool_response>=== b.txt (1 line, version 22222222) ===
+1	beta</tool_response><|assistant|><think>
