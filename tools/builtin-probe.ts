@@ -23,7 +23,7 @@ import { loadSettings } from "../cli/settings.ts";
 import type { Tool } from "../harness/tools.ts";
 import type { AgentSetup } from "../harness/setup.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
-import type { Dialect } from "../providers/dialect.ts";
+import type { Dialect, Emit } from "../providers/dialect.ts";
 import { harmony, renderHarmony } from "../providers/dialects/harmony.ts";
 import { localModelsDefinition } from "../providers/index.ts";
 import { requireBusybox, runAgentTask, type ToolStep } from "./agent-task.ts";
@@ -56,14 +56,23 @@ loc?: number,
 
 } // namespace browser`;
 
-/** Harmony with the built-in tools declared in the system block, as the model's own template does when it is told to. */
+/**
+ * Harmony with the built-in tools declared in the system block, as the model's own template does when it is told to, and answered by the
+ * same two tools as the other arm (offered in `functions` as well, so a call to either spelling works). The control for "does declaring them
+ * as built-ins make the model use them better than ordinary tools?".
+ */
 const withBuiltins: Dialect = {
   id: "harmony-builtins",
   render(input) {
     const r = renderHarmony({ ...input, options: { ...input.options, date: "today" } });
     return { ...r, prompt: r.prompt.replace("\n\n# Valid channels:", `\n\n# Tools\n\n${BROWSER}\n\n${PYTHON}\n\n# Valid channels:`) };
   },
-  parser: harmony.parser,
+  // The model addresses `browser.search`; chattree's tool names cannot hold a dot, so the probe answers it with `browser_search`.
+  parser(options, tools, prompt) {
+    const inner = harmony.parser(options, tools, prompt);
+    const rename = (es: Emit[]): Emit[] => es.map((e) => (e.kind === "call.start" && e.name.startsWith("browser.") ? { ...e, name: e.name.replace(".", "_") } : e));
+    return { push: (t) => rename(inner.push(t)), end: (w) => rename(inner.end(w)) };
+  },
 };
 
 /** `python` and `browser_search` as chattree would offer them: ordinary tools. */
@@ -109,7 +118,7 @@ const PROBES: Probe[] = [
 
 const ARMS: { label: string; settings: Record<string, unknown>; tools?: Tool[] }[] = [
   { label: "ordinary python/browser tools", settings: { dialect: "harmony" }, tools: ordinaryTools },
-  { label: "builtins declared (control)", settings: { dialect: "harmony-builtins" } },
+  { label: "builtins declared (control)", settings: { dialect: "harmony-builtins" }, tools: ordinaryTools },
   { label: "only chattree tools", settings: { dialect: "harmony" } },
 ];
 
