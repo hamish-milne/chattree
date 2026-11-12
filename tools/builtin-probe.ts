@@ -29,7 +29,7 @@ import { localModelsDefinition } from "../providers/index.ts";
 import { requireBusybox, runAgentTask, type ToolStep } from "./agent-task.ts";
 
 // What the format's guide gives for the two built-in tools (written out here from its description, not copied from a template).
-const PYTHON = `## python
+export const PYTHON = `## python
 
 Use this tool to execute Python code in your chain of thought. The code will not be shown to the user. This tool should be used for internal reasoning, but not for code that is intended to be visible to the user (e.g. when creating plots, tables, or files).
 
@@ -76,7 +76,7 @@ const withBuiltins: Dialect = {
 };
 
 /** `python` and `browser_search` as chattree would offer them: ordinary tools. */
-const ordinaryTools: Tool[] = [
+export const ordinaryTools: Tool[] = [
   {
     definition: {
       name: "python",
