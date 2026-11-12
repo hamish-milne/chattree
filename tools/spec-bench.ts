@@ -59,13 +59,27 @@ if __name__ == "__main__":
 interface Task {
   name: string;
   context: ModelContext;
+  /** The task is meant to end in a tool call: an arm with none has failed, whatever the baseline did. */
+  calls?: boolean;
 }
 const ctx = (text: string, tools: ModelContext["tools"] = []): ModelContext => ({ system: "You are terse. Follow instructions exactly.", instructions: undefined, turns: [{ role: "user", parts: [{ type: "text", text }] }], tools, cacheHints: [] });
+const WRITE: ModelContext["tools"] = [{ name: "write", description: "Write a file.", input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] } }];
 const TASKS: Task[] = [
   { name: "copy", context: ctx(`Here is a Python file:\n\n${CODE}\nWrite it out again in full, with the function total_by_name renamed to sum_by_name everywhere. Output only the code.`) },
+  { name: "call", calls: true, context: ctx(`Create the file util.py with exactly this content, using the write tool:\n\n${CODE}`, WRITE) },
   {
-    name: "call",
-    context: ctx(`Create the file util.py with exactly this content, using the write tool:\n\n${CODE}`, [{ name: "write", description: "Write a file.", input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] } }]),
+    // An earlier call is in the context, so a draft can copy its special tokens (a call marker inside a chunk of several tokens).
+    name: "followup",
+    calls: true,
+    context: {
+      ...ctx(`Create the file util.py with exactly this content, using the write tool:\n\n${CODE}`, WRITE),
+      turns: [
+        { role: "user", parts: [{ type: "text", text: `Create the file util.py with exactly this content, using the write tool:\n\n${CODE}` }] },
+        { role: "assistant", provider: "local-models", model: "bench", blocks: [{ type: "tool_call", call_id: "c1", name: "write", args: { path: "util.py", content: CODE } }] },
+        { role: "tool_results", results: [{ call_id: "c1", is_error: false, content: "wrote util.py", truncated: false }] },
+        { role: "user", parts: [{ type: "text", text: "Now create util2.py with the same content, using the write tool again." }] },
+      ],
+    },
   },
   { name: "prose", context: ctx("Describe, in about 120 words, what a lighthouse keeper does on an ordinary day.") },
 ];
@@ -73,6 +87,8 @@ const TASKS: Task[] = [
 interface Sample {
   model: string;
   task: string;
+  /** The task is meant to end in a call. */
+  calls_expected?: boolean;
   n: number;
   ms: number;
   output_tokens: number;
@@ -120,7 +136,10 @@ export function report(samples: readonly Sample[], models: readonly string[]): s
       for (const s of rs) if (s.error !== undefined) notes.push(`- ${task} ${m} #${s.n}: error: ${s.error}`);
     }
   }
-  return notes.length === 0 ? lines.join("\n") : `${lines.join("\n")}\n\nNotes:\n\n${notes.join("\n")}`;
+  const missed = samples.filter((s) => s.calls_expected === true && s.error === undefined && s.calls === 0);
+  const warn = [...new Set(missed.map((s) => `${s.task} ${s.model}`))].map((k) => `**${k}: no tool call in ${missed.filter((s) => `${s.task} ${s.model}` === k).length} of its runs, so this task shows nothing about calls**`);
+  const head = warn.length === 0 ? "" : `${warn.join("\n")}\n\n`;
+  return `${head}${notes.length === 0 ? lines.join("\n") : `${lines.join("\n")}\n\nNotes:\n\n${notes.join("\n")}`}`;
 }
 
 async function main(): Promise<void> {
@@ -145,7 +164,7 @@ async function main(): Promise<void> {
         const raw = run.completed?.usage.raw as Record<string, unknown> | undefined;
         const timings = (raw?.["timings"] ?? {}) as Record<string, unknown>;
         const s: Sample = {
-          model, task: task.name, n, ms: Date.now() - t0,
+          model, task: task.name, ...(task.calls === true ? { calls_expected: true } : {}), n, ms: Date.now() - t0,
           output_tokens: run.completed?.usage.output_tokens ?? 0,
           drafted: num(timings["draft_n"]), accepted: num(timings["draft_n_accepted"]),
           result: blocks.flatMap((b) => (b.type === "text" ? [b.text] : b.type === "tool_call" ? [`CALL ${b.name} ${JSON.stringify(b.args)}`] : [])).join("\n"),

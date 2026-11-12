@@ -214,25 +214,34 @@ export interface DialectSettings {
 
 const markerCache = new Map<string, Promise<Map<number, string>>>();
 
-/** The ids of the markers that are single tokens, by `/tokenize`; a marker the server cannot say is left out, and nothing here fails a request. */
+/**
+ * The ids of the markers that are single tokens, by `/tokenize`; a marker the server cannot say is left out, and nothing here fails a request.
+ * An answer is kept for the run only when every marker was answered: the router may be loading the model when the first request comes (the
+ * lookup then fails or times out), and a failure kept would leave every later request without its markers.
+ */
 async function markerTokens(base: string, model: string, markers: readonly string[], doFetch: typeof fetch): Promise<Map<number, string>> {
   const key = `${base}\u0000${model}\u0000${markers.join("\u0000")}`;
   const known = markerCache.get(key);
   if (known !== undefined) return known;
   const found = (async () => {
     const out = new Map<number, string>();
+    let failed = false;
     await Promise.all(
       markers.map(async (m) => {
         try {
-          const res = await doFetch(`${base.replace(/\/$/, "")}/tokenize`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, content: m, add_special: false, parse_special: true }), signal: AbortSignal.timeout(5000) });
-          if (!res.ok) return;
+          const res = await doFetch(`${base.replace(/\/$/, "")}/tokenize`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, content: m, add_special: false, parse_special: true }), signal: AbortSignal.timeout(60_000) });
+          if (!res.ok) {
+            failed = true;
+            return;
+          }
           const tokens = ((await res.json()) as { tokens?: unknown }).tokens;
           if (Array.isArray(tokens) && tokens.length === 1 && typeof tokens[0] === "number") out.set(tokens[0], m);
         } catch {
-          /* the marker's text is then only what the server sends */
+          failed = true; // the marker's text is then only what the server sends
         }
       }),
     );
+    if (failed) markerCache.delete(key);
     return out;
   })();
   markerCache.set(key, found);

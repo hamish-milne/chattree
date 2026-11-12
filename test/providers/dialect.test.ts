@@ -226,6 +226,30 @@ describe("a special token the server gives no text", () => {
       await server.close();
     }
   });
+  test("a lookup that failed (the model was still loading) is made again by the next request", async () => {
+    let tokenizeCalls = 0;
+    const server = await FakeServer.start((_n, req) => {
+      if (req.url === "/tokenize") {
+        tokenizeCalls++;
+        if (tokenizeCalls <= 2) return { status: 503, acts: ["loading"] };
+        return { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ tokens: [(JSON.parse(req.body) as { content: string }).content === "[[" ? 9 : 32] })] };
+      }
+      return sse([chunk({ content: "", tokens: [9], stop: false }), chunk({ content: "read ", tokens: [5], stop: false }), chunk({ content: '{"path": "a"}', tokens: [6], stop: false }), chunk({ content: "", tokens: [32], stop: false }), last()]);
+    });
+    try {
+      const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" })).get("local-models")!;
+      const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+      const ask = () => collectStream(adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }));
+      const first = await ask();
+      assert.deepEqual(first.completed!.blocks.map((b) => b.type), ["text"]); // no markers yet: the call is plain text
+      const second = await ask();
+      assert.deepEqual(second.completed!.blocks.map((b) => b.type), ["tool_call"]);
+      await ask();
+      assert.equal(tokenizeCalls, 4); // answered once, and then remembered
+    } finally {
+      await server.close();
+    }
+  });
   test("a server that cannot tokenize leaves the stream as it is", async () => {
     const server = await FakeServer.start((_n, req) => (req.url === "/tokenize" ? { status: 404, acts: ["no"] } : sse([chunk({ content: "plain", tokens: [5], stop: false }), last()])));
     try {
