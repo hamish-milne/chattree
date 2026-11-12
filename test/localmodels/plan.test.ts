@@ -131,4 +131,16 @@ top-k = 20
     assert.deepEqual(routerArgs(config, "/data/preset.ini", 8089), ["--models-preset", "/data/preset.ini", "--host", "127.0.0.1", "--port", "8089", "--models-max", "2", "--no-webui"]);
     assert.ok(!routerArgs(parse({ server: { webui: true } }), "/p.ini", 1).includes("--no-webui"));
   });
+
+  test("speculative decoding is written as the server's own options", () => {
+    const c = parse({
+      defaults: { speculative: "ngram-mod" },
+      models: { a: { url: "https://x.test/a.gguf", speculative: { type: "ngram-map-k", ngram_n: 8, ngram_m: 16, min_hits: 2, draft_max: 64, draft_min: 4 } }, b: { url: "https://x.test/b.gguf" } },
+    });
+    const ini = presetIni(c, { a: { file: "/a.gguf" }, b: { file: "/b.gguf" } });
+    assert.match(ini, /\[\*\]\nspec-type = ngram-mod\n/);
+    assert.match(ini, /\[a\]\nmodel = \/a\.gguf\nspec-type = ngram-map-k\nspec-draft-n-max = 64\nspec-draft-n-min = 4\nspec-ngram-size-n = 8\nspec-ngram-size-m = 16\nspec-ngram-min-hits = 2\n/);
+    assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", speculative: "ngram-fast" } } }), /speculative/);
+  });
+
 });

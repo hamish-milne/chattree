@@ -20,6 +20,21 @@ const nonNegative = z.number().int().min(0);
 /** What a llama-server option may be given in the preset file: the long option name without dashes. */
 const optionValue = z.union([z.string(), z.number(), z.boolean()]);
 
+/** The types of speculative decoding that need no second model (docs/local-models.md, 9.8), named as llama-server's `--spec-type` does. */
+export const SPEC_TYPES = ["none", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache"] as const;
+const speculativeObject = z.strictObject({
+  type: z.enum(SPEC_TYPES),
+  /** The longest draft, and the shortest one worth making. */
+  draft_max: z.number().int().positive().optional(),
+  draft_min: nonNegative.optional(),
+  /** The length of the n-gram looked up in the history (`spec-ngram-size-n`), and of the run drafted after a match (`spec-ngram-size-m`; not used by ngram-mod). */
+  ngram_n: z.number().int().positive().optional(),
+  ngram_m: z.number().int().positive().optional(),
+  /** How many times a key must have been seen before it drafts (ngram-map types). */
+  min_hits: z.number().int().positive().optional(),
+});
+export type Speculative = z.infer<typeof speculativeObject>;
+
 /** Settings that apply to every model (`defaults`) or to one. */
 const params = {
   ctx_size: z.number().int().positive().optional(),
@@ -34,6 +49,8 @@ const params = {
   cache_type_v: z.string().min(1).optional(),
   /** Seconds idle before the model is unloaded from memory (it is loaded again by the next request). */
   sleep_idle_seconds: nonNegative.optional(),
+  /** Speculative decoding: a type (`ngram-mod`) or an object with its tuning. Outputs are the same with it on or off; only speed changes. */
+  speculative: z.union([z.enum(SPEC_TYPES).transform((type): Speculative => ({ type })), speculativeObject]).optional(),
   /** Any other llama-server option, by its long name without the dashes (`rope-scale: 2`). Written to the preset file as it is. */
   options: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/, "a long option name without dashes, in lower case"), optionValue).optional(),
 } as const;

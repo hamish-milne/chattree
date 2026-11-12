@@ -1,5 +1,5 @@
 import type { Host } from "../src/host.ts";
-import { hfUrl, modelSource, type LocalModels, type ModelEntry, type Sampling } from "./config.ts";
+import { hfUrl, modelSource, type LocalModels, type ModelEntry, type Sampling, type Speculative } from "./config.ts";
 
 /**
  * From settings to what the host has to do (docs/local-models.md, section 6): the files to have, the preset file and the arguments
@@ -104,13 +104,19 @@ const PARAM_KEYS = {
   sleep_idle_seconds: "sleep-idle-seconds",
 } as const;
 
-type Params = Partial<Record<keyof typeof PARAM_KEYS, string | number | boolean>> & { options?: Record<string, string | number | boolean> | undefined };
+const SPEC_KEYS = { draft_max: "spec-draft-n-max", draft_min: "spec-draft-n-min", ngram_n: "spec-ngram-size-n", ngram_m: "spec-ngram-size-m", min_hits: "spec-ngram-min-hits" } as const;
+
+type Params = Partial<Record<keyof typeof PARAM_KEYS, string | number | boolean>> & { speculative?: Speculative | undefined } & { options?: Record<string, string | number | boolean> | undefined };
 
 function paramLines(p: Params): [string, string | number | boolean][] {
   const out: [string, string | number | boolean][] = [];
   for (const k of Object.keys(PARAM_KEYS) as (keyof typeof PARAM_KEYS)[]) {
     const v = p[k];
     if (v !== undefined) out.push([PARAM_KEYS[k], v]);
+  }
+  if (p.speculative !== undefined) {
+    out.push(["spec-type", p.speculative.type]);
+    for (const k of Object.keys(SPEC_KEYS) as (keyof typeof SPEC_KEYS)[]) if (p.speculative[k] !== undefined) out.push([SPEC_KEYS[k], p.speculative[k] as number]);
   }
   for (const k of Object.keys(p.options ?? {}).sort()) out.push([k, (p.options as Record<string, string | number | boolean>)[k] as string | number | boolean]);
   return out;
