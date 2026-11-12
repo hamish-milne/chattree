@@ -173,6 +173,10 @@ describe("a family's calls that go wrong", () => {
     assert.deepEqual(p.push("<tool_call>wri"), []);
     assert.deepEqual(p.push("te\n<arg_key>pa"), [{ kind: "call.start", name: "write" }]);
   });
+  test("GLM may write its first tag straight after the name, as GLM-4.7 does", () => {
+    const raw = "<tool_call>read<arg_key>path</arg_key><arg_value>notes.txt</arg_value></tool_call>";
+    for (const size of [1, 4, 1000]) assert.deepEqual(read(glmDialect, "x", raw, size), [{ kind: "call.start", name: "read" }, { kind: "call.end", args: { path: "notes.txt" } }]);
+  });
   test("a JSON argument string is also accepted in the Hermes format, and `parameters` for `arguments`", () => {
     assert.deepEqual(read(hermesDialect, "x", '<tool_call>{"name": "read", "arguments": "{\\"path\\": \\"a\\"}"}</tool_call><tool_call>{"name": "read", "parameters": {"path": "b"}}</tool_call>', 9), [
       { kind: "call.start", name: "read" }, { kind: "call.end", args: { path: "a" } }, { kind: "call.start", name: "read" }, { kind: "call.end", args: { path: "b" } },

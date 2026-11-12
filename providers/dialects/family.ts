@@ -98,7 +98,7 @@ const NAME = "[\\w.:-]+";
 const esc = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /**
  * A template with `{name}`, `{key}` and `{value}` in it, as a pattern. A newline in it may be missing (one is dropped from each side of a
- * value), except one straight after a name: there it is what says the name is complete.
+ * value), except one straight after a name: there it, or a tag straight after the name, is what says the name is complete.
  */
 function pattern(template: string, flags = ""): RegExp {
   const parts = template.split(/(\{name\}|\{key\}|\{value\})/);
@@ -107,7 +107,8 @@ function pattern(template: string, flags = ""): RegExp {
       if (p === "{name}" || p === "{key}") return `(${NAME})`;
       if (p === "{value}") return "([\\s\\S]*?)";
       const afterName = parts[i - 1] === "{name}" && /^\n+$/.test(p);
-      return afterName ? esc(p) : esc(p).replace(/\n/g, "\\n?");
+      // The newline that ends a name may be missing when a tag follows straight away (GLM-4.7 writes `read<arg_key>`).
+      return afterName ? "(?:\\n|(?=<))" : esc(p).replace(/\n/g, "\\n?");
     })
     .join("");
   return new RegExp(src, flags);
