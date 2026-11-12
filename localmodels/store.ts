@@ -2,9 +2,9 @@ import { mkdir, rename, stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { hfUrl } from "./config.ts";
 import { downloadFile, DownloadError } from "./download.ts";
-import { linkedInfo, listRepoFiles, pickGguf } from "./hf.ts";
+import { linkedInfo, listRepoFiles, pickGguf, pickSidecar } from "./hf.ts";
 import { Lock } from "./lock.ts";
-import { sourceHash, type Download } from "./plan.ts";
+import { resolveKey, sourceHash, type Download } from "./plan.ts";
 import type { FetchFn } from "./net.ts";
 
 /** The model files: pending Hugging Face quantisations turned into files, then every file fetched and recorded (docs/local-models.md, section 3). */
@@ -38,13 +38,14 @@ export async function resolveDownloads(downloads: readonly Download[], o: StoreO
       out.push(d);
       continue;
     }
-    const { repo, revision, quant } = d.resolve;
-    const qkey = `${repo}@${revision}:${quant ?? ""}`;
+    const { repo, revision, quant, pick } = d.resolve;
+    const qkey = resolveKey(d.resolve);
     let paths = o.lock.quant(qkey);
     let sizes = new Map<string, { size: number; sha256: string | undefined }>();
     if (paths === undefined) {
       o.onEvent?.({ type: "resolve", model: d.model, what: `${repo}${quant === undefined ? "" : `:${quant}`}` });
-      const files = pickGguf(await listRepoFiles(repo, revision, { fetch: o.fetch, token: o.token, base: o.hfBase }), quant, repo);
+      const listed = await listRepoFiles(repo, revision, { fetch: o.fetch, token: o.token, base: o.hfBase });
+      const files = pick === undefined ? pickGguf(listed, quant, repo) : [pickSidecar(listed, pick, quant, repo)];
       paths = files.map((f) => f.path);
       sizes = new Map(files.map((f) => [f.path, { size: f.size, sha256: f.sha256 }]));
       o.lock.setQuant(qkey, paths);

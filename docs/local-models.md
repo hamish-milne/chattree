@@ -67,7 +67,7 @@ local_models:
     qwen3-4b:
       hf: unsloth/Qwen3-4B-GGUF:Q4_K_M   # or url: https://.../x-Q4_K_M.gguf, or hf + file
       sha256:
-      mmproj: { file: mmproj-F16.gguf }  # or url
+      mmproj: auto                       # or { file: mmproj-F16.gguf }, { url: ... }, { hf: org/repo[:QUANT], file: ... } (9.8)
       ctx_size: 16384
       sampling: { temperature: 0.6, top_p: 0.95, top_k: 20 }
       aliases: []
@@ -325,3 +325,9 @@ A model entry (or `defaults`) takes `speculative: ngram-mod`, or an object `{typ
 The types that need no second model: `ngram-simple` (the last match of the current n tokens in the history, and the m tokens that followed it), `ngram-map-k` (the same, but only after the key has been followed by the same run `min_hits` times), `ngram-map-k4v` (experimental: up to four candidate runs per key, the clearly most frequent one drafts), `ngram-mod` (a hash from each n-gram to its next token, constant memory of about 16 MB, drafts of variable length, one pool shared by every slot), `ngram-cache` (statistics, which can be loaded from files). They help where the output repeats what is already in the context: copying code with a change, edit calls, quoting tool results; they do little on new prose.
 
 Not checked: that the flag names are all those of the pinned build (the unsuffixed ones were seen refused; an unknown option stops the server with a message naming it, which the host shows); the interaction with `parallel > 1`, with `mmproj`, and with the special-token restoration of 9.7 (a chunk may carry several tokens, so a marker with no text cannot be lined up: Devstral is the case to run).
+
+**Files that go with a model, and draft models.** The projector (`mmproj`) and the draft model of a draft type (`speculative.draft`) are *sidecars*, written the same way: `auto`; `url`; `file` (a file of the model's own repository); or `hf: org/repo[:QUANT]` (another repository; with a `file` that file, without one the repository's fitting file, with `revision:` to pin it). Each is fetched, hashed, shared and removed like the model file (`role: draft` in `models info`), and the preset gets `mmproj = …` and `model-draft = …`.
+
+`auto` looks in the model's own repository and never guesses: a projector is a `.gguf` with `mmproj` in its name; a draft model one with `mtp` or `assistant` as a word of its path (Gemma 4's `mtp-…` and `…-assistant`). Neither is ever picked as the model. Among several, the precision decides: F16, then BF16, then Q8_0 for a projector; Q8_0, then BF16, then F16 for a draft model (it is small, and a low precision costs acceptance); a file whose name says no precision ranks last (unsloth's root-level `mtp-…gguf` is a copy of the Q8_0 one). Files of the same rank are an error that lists them. What was chosen is remembered in `lock.json` apart from the model's quantisation, so the choice does not move between runs.
+
+Draft types: `draft-simple` (a small model with the target's vocabulary), `draft-mtp` (Gemma 4's assistant models; shares the target's KV cache), `draft-eagle3`. They take `draft` (required), `draft_max`, `draft_min`, `p_min` (`spec-draft-n-max`, `-n-min`, `-p-min`), not the n-gram options; `draft` is set on a model, not in `defaults`. MTP needs a build from after 2026-06-07 (llama.cpp PR 23398). Reported but not measured here: a quantised KV cache (`cache_type_k/v`) once gave 0% acceptance with MTP, while unsloth's page says it works: the bench's acceptance column is the check. Also unchecked: drafters with `mmproj`, and with `parallel > 1`.

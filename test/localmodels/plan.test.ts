@@ -24,7 +24,7 @@ describe("the local_models section", () => {
     assert.match(bad({ models: { a: {} } }), /either url or hf/);
     assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", hf: "o/r" } } }), /either url or hf/);
     assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", file: "b.gguf" } } }), /file goes with hf/);
-    assert.match(bad({ models: { a: { hf: "o/r", mmproj: { url: "https://x.test/p.gguf", file: "p.gguf" } } } }), /url or file/);
+    assert.match(bad({ models: { a: { hf: "o/r", mmproj: { url: "https://x.test/p.gguf", file: "p.gguf" } } } }), /not both/);
     assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", mmproj: { file: "p.gguf" } } } }), /belongs to a Hugging Face/);
   });
 
@@ -85,6 +85,43 @@ describe("the plan", () => {
       ],
     );
     assert.deepEqual(downloads.at(-1)?.resolve, { repo: "o/z", revision: "main", quant: "Q4_K_M" });
+  });
+
+  test("a projector or draft model is auto, a url, a file of the model's repository, or another repository", () => {
+    const c = parse({
+      models: {
+        a: { hf: "o/m:Q4_K_M", mmproj: "auto", speculative: { type: "draft-mtp", draft: "auto", draft_max: 4 } },
+        b: { hf: "o/m:Q4_K_M", mmproj: { file: "mm/p.gguf" }, speculative: { type: "draft-simple", draft: { hf: "o/small:Q8_0" } } },
+        c: { url: "https://x.test/c.gguf", mmproj: { url: "https://x.test/p.gguf" }, speculative: { type: "draft-simple", draft: { hf: "o/small", file: "s.gguf", revision: "v1" } } },
+      },
+    });
+    const d = downloadList(c, posix, "/data").downloads.map((x) => [x.model, x.role, x.url, x.resolve]);
+    assert.deepEqual(d, [
+      ["a", "model", undefined, { repo: "o/m", revision: "main", quant: "Q4_K_M" }],
+      ["a", "mmproj", undefined, { repo: "o/m", revision: "main", quant: undefined, pick: "mmproj" }],
+      ["a", "draft", undefined, { repo: "o/m", revision: "main", quant: undefined, pick: "draft" }],
+      ["b", "model", undefined, { repo: "o/m", revision: "main", quant: "Q4_K_M" }],
+      ["b", "mmproj", "https://huggingface.co/o/m/resolve/main/mm/p.gguf", undefined],
+      ["b", "draft", undefined, { repo: "o/small", revision: "main", quant: "Q8_0", pick: "draft" }],
+      ["c", "model", "https://x.test/c.gguf", undefined],
+      ["c", "mmproj", "https://x.test/p.gguf", undefined],
+      ["c", "draft", "https://huggingface.co/o/small/resolve/v1/s.gguf", undefined],
+    ]);
+  });
+
+  test("what a projector or draft model needs is checked", () => {
+    assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", mmproj: "auto" } } }), /auto looks in the model's Hugging Face repository/);
+    assert.match(bad({ models: { a: { hf: "o/m", speculative: { type: "draft-mtp" } } } }), /needs a draft/);
+    assert.match(bad({ models: { a: { hf: "o/m", speculative: { type: "ngram-mod", draft: "auto" } } } }), /has no draft model/);
+    assert.match(bad({ models: { a: { hf: "o/m", speculative: { type: "draft-mtp", draft: "auto", ngram_n: 4 } } } }), /no n-gram options/);
+    assert.match(bad({ models: { a: { hf: "o/m", mmproj: {} } } }), /give a url, a file, an hf repository, or auto/);
+    assert.match(bad({ defaults: { speculative: { type: "draft-mtp", draft: "auto" } }, models: {} }), /belongs to one model/);
+  });
+
+  test("the draft model and its options are written to the preset", () => {
+    const c = parse({ models: { a: { hf: "o/m:Q4_K_M", speculative: { type: "draft-mtp", draft: "auto", draft_max: 4, p_min: 0.5 } } } });
+    const ini = presetIni(c, { a: { file: "/a.gguf", draft: "/mtp.gguf" } });
+    assert.match(ini, /\[a\]\nmodel = \/a\.gguf\nmodel-draft = \/mtp\.gguf\nspec-type = draft-mtp\nspec-draft-n-max = 4\nspec-draft-p-min = 0\.5\n/);
   });
 
   test("models with the same source keep one file", () => {

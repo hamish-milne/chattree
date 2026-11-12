@@ -317,8 +317,9 @@ export class LocalModelHost {
       const model = fetched.filter((f: Fetched) => f.model === name && f.role === "model").sort((a, b) => a.dest.localeCompare(b.dest))[0];
       if (model === undefined) continue;
       const mm = fetched.find((f) => f.model === name && f.role === "mmproj");
+      const dr = fetched.find((f) => f.model === name && f.role === "draft");
       const template = config.models[name]?.chat_template;
-      files[name] = { file: model.dest, ...(mm === undefined ? {} : { mmproj: mm.dest }), ...(template === undefined ? {} : { template: resolve(base, template) }) };
+      files[name] = { file: model.dest, ...(mm === undefined ? {} : { mmproj: mm.dest }), ...(dr === undefined ? {} : { draft: dr.dest }), ...(template === undefined ? {} : { template: resolve(base, template) }) };
       const id = modelId(name, fetched);
       if (id !== undefined) ids[name] = id;
     }

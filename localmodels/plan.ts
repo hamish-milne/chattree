@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Host } from "../src/host.ts";
-import { hfUrl, modelSource, type LocalModels, type ModelEntry, type Sampling, type Speculative } from "./config.ts";
+import { hfUrl, isDraftType, modelSource, type LocalModels, type ModelEntry, type ModelSource, type Sampling, type Sidecar, type Speculative } from "./config.ts";
 
 /**
  * From settings to what the host has to do (docs/local-models.md, section 6): the files to have, the preset file and the arguments
@@ -24,10 +24,20 @@ export function dataDir(
   return base === undefined || base === "" ? undefined : host.path.join(base, "chattree");
 }
 
+/** What is asked of Hugging Face to find a file: the quantisation of a model, or (with `pick`) the projector or draft model of a repository. */
+export interface Resolve {
+  repo: string;
+  revision: string;
+  quant: string | undefined;
+  pick?: "mmproj" | "draft";
+}
+/** The key a resolution is remembered by in the lock. */
+export const resolveKey = (r: Resolve): string => `${r.repo}@${r.revision}:${r.quant ?? ""}${r.pick === undefined ? "" : `#${r.pick}`}`;
+
 export interface Download {
   /** The model's name in the settings. */
   model: string;
-  role: "model" | "mmproj";
+  role: "model" | "mmproj" | "draft";
   /** The address to fetch from; undefined while a Hugging Face quantisation has still to be resolved to a file. */
   url: string | undefined;
   file: string | undefined;
@@ -39,7 +49,7 @@ export interface Download {
   /** Where it is kept once downloaded. Undefined with `file`. */
   dest: string | undefined;
   /** What the downloader must ask Hugging Face before it can fetch: the repository and quantisation to find the file of. */
-  resolve?: { repo: string; revision: string; quant: string | undefined };
+  resolve?: Resolve;
 }
 
 export interface PlanIssue {
@@ -72,19 +82,29 @@ export function downloadList(config: LocalModels, path: PathApi, data: string): 
       const url = source.kind === "url" ? source.url : hfUrl(source.repo, source.revision, source.file);
       downloads.push({ model, role: "model", url, file: source.file, sha256: m.sha256, dir, dest: fileDest(path, data, url, source.file.split("/").at(-1) as string) });
     }
-    const p = m.mmproj;
-    if (p !== undefined) {
-      if (p.url !== undefined) {
-        const file = decodeURIComponent(new URL(p.url).pathname.split("/").filter((s) => s !== "").at(-1) ?? "");
-        downloads.push({ model, role: "mmproj", url: p.url, file, sha256: p.sha256, dir, dest: fileDest(path, data, p.url, file) });
-      } else if (source.kind !== "url") {
-        const file = p.file as string;
-        const url = hfUrl(source.repo, source.revision, file);
-        downloads.push({ model, role: "mmproj", url, file, sha256: p.sha256, dir, dest: fileDest(path, data, url, file.split("/").at(-1) as string) });
-      }
+    for (const [role, spec] of [["mmproj", m.mmproj], ["draft", m.speculative !== undefined && isDraftType(m.speculative.type) ? m.speculative.draft : undefined]] as const) {
+      if (spec !== undefined) downloads.push(sidecarDownload(model, role, spec, source, dir, path, data));
     }
   }
   return { downloads, issues };
+}
+
+/** The download of a file that goes with a model (`Sidecar`): fetched from where the settings say, or looked for in a repository. */
+function sidecarDownload(model: string, role: "mmproj" | "draft", spec: Sidecar, source: ModelSource, dir: string, path: PathApi, data: string): Download {
+  const direct = (url: string, file: string, sha256: string | undefined): Download => ({ model, role, url, file, sha256, dir, dest: fileDest(path, data, url, file.split("/").at(-1) as string) });
+  const lookup = (resolve: Resolve, sha256: string | undefined): Download => ({ model, role, url: undefined, file: undefined, sha256, dir, dest: undefined, resolve });
+  const own = source.kind === "url" ? undefined : { repo: source.repo, revision: source.revision };
+  if (spec === "auto") return lookup({ ...(own as { repo: string; revision: string }), quant: undefined, pick: role }, undefined);
+  if (spec.url !== undefined) return direct(spec.url, decodeURIComponent(new URL(spec.url).pathname.split("/").filter((s) => s !== "").at(-1) ?? ""), spec.sha256);
+  if (spec.hf === undefined) {
+    const o = own as { repo: string; revision: string };
+    return direct(hfUrl(o.repo, o.revision, spec.file as string), spec.file as string, spec.sha256);
+  }
+  const at = spec.hf.indexOf(":");
+  const repo = at < 0 ? spec.hf : spec.hf.slice(0, at);
+  const revision = spec.revision ?? (own?.repo === repo ? own.revision : "main");
+  if (spec.file !== undefined) return direct(hfUrl(repo, revision, spec.file), spec.file, spec.sha256);
+  return lookup({ repo, revision, quant: at < 0 ? undefined : spec.hf.slice(at + 1), pick: role }, spec.sha256);
 }
 
 // ---- the preset file -------------------------------------------------------------------------------------------
@@ -126,6 +146,7 @@ function specLines(sp: Speculative): [string, number | string][] {
   } else {
     add("spec-draft-n-max", sp.draft_max);
     add("spec-draft-n-min", sp.draft_min);
+    add("spec-draft-p-min", sp.p_min);
     if (sp.type === "ngram-simple" || sp.type === "ngram-map-k" || sp.type === "ngram-map-k4v") {
       add(`spec-${sp.type}-size-n`, sp.ngram_n);
       add(`spec-${sp.type}-size-m`, sp.ngram_m);
@@ -152,6 +173,8 @@ export interface ModelFiles {
   /** The model file's path. */
   file: string;
   mmproj?: string;
+  /** The draft model's path. */
+  draft?: string;
   /** The chat template file, as a path. */
   template?: string;
 }
@@ -178,6 +201,7 @@ export function presetIni(config: LocalModels, files: Readonly<Record<string, Mo
     if (f === undefined) continue;
     lines.push("", `[${model}]`, `model = ${ini(f.file)}`);
     if (f.mmproj !== undefined) lines.push(`mmproj = ${ini(f.mmproj)}`);
+    if (f.draft !== undefined) lines.push(`model-draft = ${ini(f.draft)}`);
     if (f.template !== undefined) lines.push(`chat-template-file = ${ini(f.template)}`);
     for (const [k, v] of paramLines(m as Params)) lines.push(`${k} = ${ini(v)}`);
     const s = (m.sampling ?? {}) as Sampling;

@@ -20,8 +20,41 @@ const nonNegative = z.number().int().min(0);
 /** What a llama-server option may be given in the preset file: the long option name without dashes. */
 const optionValue = z.union([z.string(), z.number(), z.boolean()]);
 
-/** The types of speculative decoding that need no second model (docs/local-models.md, 9.8), named as llama-server's `--spec-type` does. */
-export const SPEC_TYPES = ["none", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache"] as const;
+/** The types of speculative decoding (docs/local-models.md, 9.8), named as llama-server's `--spec-type` does. */
+export const SPEC_TYPES = ["none", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache", "draft-simple", "draft-mtp", "draft-eagle3"] as const;
+/** The types that run a second model. */
+export const DRAFT_TYPES = ["draft-simple", "draft-mtp", "draft-eagle3"] as const;
+export const isDraftType = (t: string): boolean => (DRAFT_TYPES as readonly string[]).includes(t);
+/** `org/repo` or `org/repo:QUANT` on Hugging Face. */
+const hfRef = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9_.-]+)?$/, "org/repo or org/repo:QUANT");
+
+/**
+ * A file that goes with a model and is fetched like it (the multimodal projector, the draft model): `auto`, or one of `url` (a direct
+ * address), `file` (a file of the model's own Hugging Face repository), `hf` (another repository, `org/repo` or `org/repo:QUANT`; with a
+ * `file` that file, without one the repository's only fitting file). `auto` looks in the model's own repository by the usual names.
+ */
+const sidecarFields = {
+  url: z.url({ protocol: /^https?$/ }).optional(),
+  hf: hfRef.optional(),
+  file: z.string().min(1).optional(),
+  /** For `hf`: the revision of that repository (default `main`). */
+  revision: z.string().min(1).optional(),
+  sha256: sha256.optional(),
+};
+const sidecarObject = z.strictObject(sidecarFields);
+const sidecar = z.union([z.literal("auto"), sidecarObject]);
+export type Sidecar = z.infer<typeof sidecar>;
+const sidecarIssues = (what: string, v: Sidecar | undefined, modelHf: boolean, path: (string | number)[], ctx: z.RefinementCtx): void => {
+  if (v === undefined || v === "auto") {
+    if (v === "auto" && !modelHf) ctx.addIssue({ code: "custom", path, message: `${what}: auto looks in the model's Hugging Face repository; this model has a url` });
+    return;
+  }
+  if (v.url !== undefined && (v.hf !== undefined || v.file !== undefined)) ctx.addIssue({ code: "custom", path, message: `${what}: give a url, or hf and file, not both` });
+  if (v.url === undefined && v.hf === undefined && v.file === undefined) ctx.addIssue({ code: "custom", path, message: `${what}: give a url, a file, an hf repository, or auto` });
+  if (v.file !== undefined && v.hf === undefined && !modelHf) ctx.addIssue({ code: "custom", path: [...path, "file"], message: `${what}: a file belongs to a Hugging Face repository: give hf, or use a url` });
+  if (v.revision !== undefined && v.hf === undefined) ctx.addIssue({ code: "custom", path: [...path, "revision"], message: `${what}: revision goes with hf` });
+};
+
 const speculativeObject = z
   .strictObject({
     type: z.enum(SPEC_TYPES),
@@ -33,10 +66,18 @@ const speculativeObject = z
     ngram_m: z.number().int().positive().optional(),
     /** How many times a key must have been seen before it drafts (ngram-map types). */
     min_hits: z.number().int().positive().optional(),
-}).superRefine((v, ctx) => {
-  if (v.type === "ngram-mod" && (v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: "ngram-mod has no ngram_m or min_hits" });
-  if (v.type === "ngram-cache" && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: "ngram-cache has no n-gram options" });
-});
+    /** The second model of a draft type: where its file is (a sidecar, as `mmproj`). */
+    draft: sidecar.optional(),
+    /** The least probability a drafted token needs to be kept (draft types). */
+    p_min: z.number().min(0).max(1).optional(),
+  })
+  .superRefine((v, ctx) => {
+    if (v.type === "ngram-mod" && (v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: "ngram-mod has no ngram_m or min_hits" });
+    if (isDraftType(v.type) && v.draft === undefined) ctx.addIssue({ code: "custom", message: `${v.type} needs a draft: auto, a url, a file, or an hf repository` });
+    if (!isDraftType(v.type) && (v.draft !== undefined || v.p_min !== undefined)) ctx.addIssue({ code: "custom", message: `${v.type} has no draft model or p_min` });
+    if (isDraftType(v.type) && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: `${v.type} has no n-gram options` });
+    if (v.type === "ngram-cache" && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: "ngram-cache has no n-gram options" });
+  });
 export type Speculative = z.infer<typeof speculativeObject>;
 
 /** Settings that apply to every model (`defaults`) or to one. */
@@ -70,8 +111,6 @@ const sampling = z.strictObject({
 });
 export type Sampling = z.infer<typeof sampling>;
 
-/** `org/repo` or `org/repo:QUANT` on Hugging Face. */
-const hfRef = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9_.-]+)?$/, "org/repo or org/repo:QUANT");
 
 const modelEntry = z
   .strictObject({
@@ -84,7 +123,7 @@ const modelEntry = z
     /** The SHA-256 the file must have. Hugging Face tells it, so it is optional there. */
     sha256: sha256.optional(),
     /** The multimodal projector for a vision model: a URL, or a file of the same Hugging Face repository. */
-    mmproj: z.strictObject({ url: z.url({ protocol: /^https?$/ }).optional(), file: z.string().min(1).optional(), sha256: sha256.optional() }).optional(),
+    mmproj: sidecar.optional(),
     description: z.string().min(1).optional(),
     aliases: z.array(name).optional(),
     /** Start it when the server starts, rather than at the first request. */
@@ -100,8 +139,8 @@ const modelEntry = z
   .superRefine((m, ctx) => {
     if ((m.url === undefined) === (m.hf === undefined)) ctx.addIssue({ code: "custom", message: "give either url or hf, not both and not neither" });
     if (m.url !== undefined && m.file !== undefined) ctx.addIssue({ code: "custom", path: ["file"], message: "file goes with hf; a url already names the file" });
-    if (m.mmproj !== undefined && (m.mmproj.url === undefined) === (m.mmproj.file === undefined)) ctx.addIssue({ code: "custom", path: ["mmproj"], message: "give either url or file for the projector" });
-    if (m.mmproj?.file !== undefined && m.hf === undefined) ctx.addIssue({ code: "custom", path: ["mmproj", "file"], message: "a projector file belongs to a Hugging Face repository: give hf, or use a url" });
+    sidecarIssues("the projector", m.mmproj, m.hf !== undefined, ["mmproj"], ctx);
+    sidecarIssues("the draft model", m.speculative?.draft, m.hf !== undefined, ["speculative", "draft"], ctx);
   });
 export type ModelEntry = z.infer<typeof modelEntry>;
 
@@ -141,6 +180,7 @@ export const localModelsSchema = z
     models: z.record(name, modelEntry).default({}),
   })
   .superRefine((c, ctx) => {
+    if (c.defaults.speculative?.draft !== undefined) ctx.addIssue({ code: "custom", path: ["defaults", "speculative", "draft"], message: "a draft model belongs to one model: set speculative on the model" });
     const seen = new Map<string, string>();
     for (const [model, m] of Object.entries(c.models)) {
       for (const n of [model, ...(m.aliases ?? [])]) {

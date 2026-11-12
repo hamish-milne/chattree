@@ -287,7 +287,7 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
         if (m === undefined || cfg === undefined) throw new CliError(`no model named ${name} in the settings`, "`chattree models list` shows them");
         const state = (await states()).get(name);
         const lines = [`${m.name}${m.id === undefined ? "" : `   ${m.id}`}`, `  source:   ${m.source}`, `  state:    ${state ?? (m.complete ? "downloaded" : "not downloaded")}`];
-        for (const f of m.files) lines.push(`  ${f.role === "mmproj" ? "projector" : "file"}:     ${f.dest} (${bytes(f.size)})\n            sha256 ${f.sha256}`);
+        for (const f of m.files) lines.push(`  ${f.role === "mmproj" ? "projector" : f.role === "draft" ? "draft" : "file"}:     ${f.dest} (${bytes(f.size)})\n            sha256 ${f.sha256}`);
         const settings = Object.entries(cfg).filter(([k, v]) => v !== undefined && !["url", "hf", "file", "revision", "mmproj", "sha256"].includes(k));
         for (const [k, v] of settings.filter(([k]) => k !== "sampling")) lines.push(`  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
         const found = await lookupSampling(io, name, { fetch: o.fetch, hfBase: o.hfBase, localFile: m.files.find((f) => f.role === "model")?.dest });

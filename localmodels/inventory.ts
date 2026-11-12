@@ -1,15 +1,15 @@
 import { readdir, rm, rmdir, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
-import { modelSource, type LocalModels } from "./config.ts";
+import type { LocalModels } from "./config.ts";
 import type { Lock } from "./lock.ts";
-import { downloadList, sourceHash } from "./plan.ts";
+import { downloadList, resolveKey, sourceHash } from "./plan.ts";
 import { hfUrl } from "./config.ts";
 
 /** What is on disk for each configured model, from the settings and the lock alone: no network, no running host (docs/local-models.md, section 3). */
 
 export interface ModelFile {
   file: string;
-  role: "model" | "mmproj";
+  role: "model" | "mmproj" | "draft";
   dest: string;
   size: number;
   sha256: string;
@@ -32,22 +32,24 @@ const sourceText = (m: LocalModels["models"][string]): string => (m.url ?? `hf:$
 const keyOf = (data: string, dest: string): string => dest.slice(data.length).replaceAll("\\", "/").replace(/^\/+/, "");
 
 interface Wanted {
-  role: "model" | "mmproj";
+  role: "model" | "mmproj" | "draft";
   file: string;
   dest: string;
   key: string;
 }
 
 /** The files each configured model calls for, from the settings and the lock (a quantisation not looked up yet has none, and `looked` is false). */
-function wantedFiles(config: LocalModels, lock: Lock, data: string): Map<string, { files: Wanted[]; looked: boolean }> {
+function wantedFiles(config: LocalModels, lock: Lock, data: string): Map<string, { files: Wanted[]; looked: boolean; resolved: string[] }> {
   const { downloads } = downloadList(config, { join }, data);
-  const out = new Map<string, { files: Wanted[]; looked: boolean }>();
+  const out = new Map<string, { files: Wanted[]; looked: boolean; resolved: string[] }>();
   for (const name of Object.keys(config.models)) {
     const files: Wanted[] = [];
+    const resolved: string[] = [];
     let looked = true;
     for (const d of downloads.filter((x) => x.model === name)) {
       if (d.resolve !== undefined) {
-        const paths = lock.quant(`${d.resolve.repo}@${d.resolve.revision}:${d.resolve.quant ?? ""}`);
+        resolved.push(resolveKey(d.resolve));
+        const paths = lock.quant(resolveKey(d.resolve));
         if (paths === undefined) looked = false;
         for (const p of paths ?? []) {
           const dest = join(d.dir, sourceHash(hfUrl(d.resolve.repo, d.resolve.revision, p)), basename(p));
@@ -55,7 +57,7 @@ function wantedFiles(config: LocalModels, lock: Lock, data: string): Map<string,
         }
       } else files.push({ role: d.role, file: d.file as string, dest: d.dest as string, key: keyOf(data, d.dest as string) });
     }
-    out.set(name, { files, looked });
+    out.set(name, { files, looked, resolved });
   }
   return out;
 }
@@ -110,9 +112,8 @@ export async function removeModelFiles(config: LocalModels, lock: Lock, data: st
       lock.deleteFile(key);
     }
   }
-  const m = config.models[name];
-  const src = m === undefined ? undefined : modelSource(m);
-  if (src?.kind === "hf-quant" && ![...wanted].some(([n, w]) => n !== name && w.files.some((f) => mine.includes(f.key)))) lock.deleteQuant(`${src.repo}@${src.revision}:${src.quant ?? ""}`);
+  const otherKeys = new Set([...wanted].filter(([n]) => n !== name).flatMap(([, w]) => w.resolved));
+  for (const k of wanted.get(name)?.resolved ?? []) if (!otherKeys.has(k)) lock.deleteQuant(k);
   await lock.save();
   return { files, bytes, kept };
 }

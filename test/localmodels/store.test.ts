@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { localModelsSchema } from "../../localmodels/config.ts";
-import { pickGguf, type RepoFile } from "../../localmodels/hf.ts";
+import { pickGguf, pickSidecar, type RepoFile } from "../../localmodels/hf.ts";
 import { pruneFiles, removeModelFiles } from "../../localmodels/inventory.ts";
 import { Lock, LockError } from "../../localmodels/lock.ts";
 import { hfUrl } from "../../localmodels/config.ts";
@@ -34,6 +34,28 @@ describe("picking a quantisation", () => {
     const split = [f("Q4_K_M/m-00002-of-00002.gguf"), f("Q4_K_M/m-00001-of-00002.gguf"), f("Q8_0/m-00001-of-00003.gguf")];
     assert.deepEqual(pickGguf(split, "Q4_K_M").map((x) => x.path), ["Q4_K_M/m-00001-of-00002.gguf", "Q4_K_M/m-00002-of-00002.gguf"]);
     assert.throws(() => pickGguf(split, "Q8_0"), /split into 3 parts and only 1/);
+  });
+});
+
+describe("the projector and draft files of a repository", () => {
+  const f = (path: string): RepoFile => ({ path, size: 1, sha256: undefined });
+  const unsloth = [f("gemma-4-12b-it-Q4_K_M.gguf"), f("gemma-4-12b-it-Q8_0.gguf"), f("mmproj-F16.gguf"), f("mmproj-BF16.gguf"), f("mtp-gemma-4-12b-it.gguf"), f("MTP/mtp-gemma-4-12b-it-Q8_0.gguf"), f("MTP/mtp-gemma-4-12b-it-BF16.gguf"), f("MTP/mtp-gemma-4-12b-it-F16.gguf")];
+
+  test("neither is ever taken for the model", () => {
+    assert.throws(() => pickGguf(unsloth, undefined, "o/r"), /more than one file \(gemma-4-12b-it-Q4_K_M.gguf, gemma-4-12b-it-Q8_0.gguf\)/);
+    assert.deepEqual(pickGguf(unsloth, "Q4_K_M").map((x) => x.path), ["gemma-4-12b-it-Q4_K_M.gguf"]);
+    assert.deepEqual(pickGguf([f("a-assistant-Q4_0.gguf"), f("a-Q4_0.gguf")], undefined).map((x) => x.path), ["a-Q4_0.gguf"]);
+  });
+  test("the preferred precision wins: a draft model in 8 bits, a projector in half precision", () => {
+    assert.equal(pickSidecar(unsloth, "draft", undefined).path, "MTP/mtp-gemma-4-12b-it-Q8_0.gguf");
+    assert.equal(pickSidecar(unsloth, "mmproj", undefined).path, "mmproj-F16.gguf");
+    assert.equal(pickSidecar(unsloth, "draft", "BF16").path, "MTP/mtp-gemma-4-12b-it-BF16.gguf");
+  });
+  test("a lone file is taken, whatever it is called, and several of one rank are listed", () => {
+    assert.equal(pickSidecar([f("m.gguf"), f("gemma-4-31b-it-qat-q4_0-assistant.gguf")], "draft", undefined).path, "gemma-4-31b-it-qat-q4_0-assistant.gguf");
+    assert.throws(() => pickSidecar([f("a-assistant-Q4_0.gguf"), f("b-assistant-Q4_0.gguf")], "draft", undefined, "o/r"), /more than one draft model file \(a-assistant-Q4_0.gguf, b-assistant-Q4_0.gguf\)/);
+    assert.throws(() => pickSidecar([f("m.gguf")], "draft", undefined, "o/r"), /o\/r has no draft model file/);
+    assert.throws(() => pickSidecar(unsloth, "draft", "Q2_K", "o/r"), /no Q2_K draft model file/);
   });
 });
 
@@ -72,6 +94,22 @@ describe("the model store", () => {
       assert.equal(lock.file(`files/${sourceHash(hfUrl("org/repo", "main", "Model-Q4_K_M.gguf"))}/Model-Q4_K_M.gguf`)?.sha256, sha);
       assert.ok(events.some((e) => e.type === "download" && e.model === "small"));
       assert.ok(events.some((e) => e.type === "done" && e.model === "plain"));
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("an auto projector and draft model are found in the model's repository and remembered separately", async () => {
+    const { server, data, lock, opts } = await setup();
+    try {
+      const tree = (path: string) => ({ type: "file", path, size: 5 });
+      server.on("/api/models/org/side/tree/main", { body: JSON.stringify([tree("M-Q4_K_M.gguf"), tree("mmproj-F16.gguf"), tree("mmproj-Q8_0.gguf"), tree("MTP/mtp-M-Q8_0.gguf"), tree("MTP/mtp-M-BF16.gguf")]) });
+      const c = localModelsSchema.parse({ models: { m: { hf: "org/side:Q4_K_M", mmproj: "auto", speculative: { type: "draft-mtp", draft: "auto" } } } });
+      const resolved = await resolveDownloads(downloadList(c, { join }, data).downloads, opts);
+      assert.deepEqual(resolved.map((d) => [d.role, d.file]), [["model", "M-Q4_K_M.gguf"], ["mmproj", "mmproj-F16.gguf"], ["draft", "mtp-M-Q8_0.gguf"]]);
+      assert.deepEqual(lock.quant("org/side@main:#mmproj"), ["mmproj-F16.gguf"]);
+      assert.deepEqual(lock.quant("org/side@main:#draft"), ["MTP/mtp-M-Q8_0.gguf"]);
+      assert.deepEqual(lock.quant("org/side@main:Q4_K_M"), ["M-Q4_K_M.gguf"]);
     } finally {
       await server.close();
     }
