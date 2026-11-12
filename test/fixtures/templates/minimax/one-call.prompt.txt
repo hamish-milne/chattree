@@ -1,0 +1,35 @@
+]~!b[]~b]system
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.
+
+# Tools
+You may call one or more tools to assist with the user query.
+Here are the tools available in JSONSchema format:
+
+<tools>
+<tool>{"name": "read", "description": "Read a file. Returns its lines, numbered, and its version.", "parameters": {"type": "object", "additionalProperties": false, "properties": {"path": {"type": "string", "description": "Path of the file, relative to the workspace root."}, "limit": {"type": "integer", "description": "At most this many lines."}}, "required": ["path"]}}</tool>
+<tool>{"name": "write", "description": "Create a file, or replace one whole. Give the complete new content.", "parameters": {"type": "object", "additionalProperties": false, "properties": {"path": {"type": "string", "description": "Path of the file."}, "content": {"type": "string", "description": "The complete new content of the file."}}, "required": ["path", "content"]}}</tool>
+</tools>
+
+When making tool calls, use XML format to invoke tools and pass parameters:
+
+<minimax:tool_call>
+<invoke name="tool-name-1">
+<parameter name="param-key-1">param-value-1</parameter>
+<parameter name="param-key-2">param-value-2</parameter>
+...
+</invoke>
+</minimax:tool_call>[e~[
+]~b]user
+In notes.txt change the word draft to final.[e~[
+]~b]ai
+
+<minimax:tool_call>
+<invoke name="read">
+<parameter name="path">notes.txt</parameter>
+</invoke>
+</minimax:tool_call>[e~[
+]~b]tool
+<response>=== notes.txt (1 line, version 1f08cd1f) ===
+1	status: draft</response>[e~[
+]~b]ai
+<think>

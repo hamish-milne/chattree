@@ -1,0 +1,19 @@
+<|im_start|>system
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.
+
+# Tools
+
+You may call one or more functions to assist with the user query.
+
+You are provided with function signatures within <tools></tools> XML tags:
+<tools>
+{"type": "function", "function": {"name": "record_items", "description": "Record the items of an order.", "parameters": {"type": "object", "additionalProperties": false, "properties": {"customer": {"type": "string", "description": "Who the order is for."}, "items": {"type": "array", "description": "The items ordered.", "items": {"type": "object", "additionalProperties": false, "properties": {"sku": {"type": "string", "description": "The product code."}, "quantity": {"type": "integer", "description": "How many."}, "options": {"type": "array", "description": "Chosen options.", "items": {"type": "string"}}}, "required": ["sku", "quantity"]}}}, "required": ["customer", "items"]}}}
+</tools>
+
+For each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:
+<tool_call>
+{"name": <function-name>, "arguments": <args-json-object>}
+</tool_call><|im_end|>
+<|im_start|>user
+Record an order for Ada: two of SKU-1 with options gift and rush, and one SKU-9.<|im_end|>
+<|im_start|>assistant

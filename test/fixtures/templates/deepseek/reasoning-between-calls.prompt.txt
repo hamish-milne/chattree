@@ -1,0 +1,2 @@
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<｜User｜>Copy a.txt to b.txt.<｜Assistant｜></think><｜tool▁calls▁begin｜><｜tool▁call▁begin｜>read<｜tool▁sep｜>{"path": "a.txt"}<｜tool▁call▁end｜><｜tool▁calls▁end｜><｜end▁of▁sentence｜><｜tool▁output▁begin｜>=== a.txt (1 line, version 11111111) ===
+1	hello<｜tool▁output▁end｜><｜tool▁calls▁begin｜><｜tool▁call▁begin｜>write<｜tool▁sep｜>{"path": "b.txt", "content": "hello\n"}<｜tool▁call▁end｜><｜tool▁calls▁end｜><｜end▁of▁sentence｜><｜tool▁output▁begin｜>wrote b.txt (1 line)<｜tool▁output▁end｜>

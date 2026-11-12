@@ -3,6 +3,7 @@ import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
 import { builtinPreamble, builtinSpecs, commandFor, messageOf, RUN_TOOL, type BuiltinSpec } from "./harmony-builtin.ts";
 import { parseSchema, toolSchema, type SchemaNode } from "./schema-tree.ts";
+import { spacedJson } from "./scan.ts";
 
 /**
  * Harmony, the format gpt-oss was trained on (docs/local-models.md, section 9.1). Rendering reproduces what the model's own chat
@@ -62,12 +63,7 @@ export function harmonyOptions(o: Record<string, unknown>): HarmonyOptions {
 
 // ---- rendering --------------------------------------------------------------------------------------------------
 
-/** JSON as the template writes it: a space after `,` and `:`. */
-export function spacedJson(v: unknown): string {
-  if (Array.isArray(v)) return `[${v.map(spacedJson).join(", ")}]`;
-  if (typeof v === "object" && v !== null) return `{${Object.entries(v).map(([k, x]) => `${JSON.stringify(k)}: ${spacedJson(x)}`).join(", ")}}`;
-  return JSON.stringify(v) ?? "null";
-}
+export { spacedJson } from "./scan.ts";
 
 const comment = (text: string): string => text.split("\n").map((l) => `// ${l}`.trimEnd()).join("\n");
 

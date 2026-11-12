@@ -1,0 +1,3 @@
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<｜User｜>Read a.txt and b.txt.<｜Assistant｜></think><｜tool▁calls▁begin｜><｜tool▁call▁begin｜>read<｜tool▁sep｜>{"path": "a.txt"}<｜tool▁call▁end｜><｜tool▁call▁begin｜>read<｜tool▁sep｜>{"path": "b.txt"}<｜tool▁call▁end｜><｜tool▁calls▁end｜><｜end▁of▁sentence｜><｜tool▁output▁begin｜>=== a.txt (1 line, version 11111111) ===
+1	alpha<｜tool▁output▁end｜><｜tool▁output▁begin｜>=== b.txt (1 line, version 22222222) ===
+1	beta<｜tool▁output▁end｜>

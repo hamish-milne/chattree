@@ -63,3 +63,10 @@ export function coerce(text: string, schema: SchemaNode | undefined): unknown {
   if (schema === undefined) return /^\s*[[{]/.test(text) ? asJson() : text;
   return text;
 }
+
+/** JSON as the models' templates write it: a space after `,` and `:`. */
+export function spacedJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(spacedJson).join(", ")}]`;
+  if (typeof v === "object" && v !== null) return `{${Object.entries(v).map(([k, x]) => `${JSON.stringify(k)}: ${spacedJson(x)}`).join(", ")}}`;
+  return JSON.stringify(v) ?? "null";
+}
