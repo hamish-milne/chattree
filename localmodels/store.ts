@@ -1,10 +1,10 @@
-import { stat } from "node:fs/promises";
-import { basename } from "node:path";
+import { mkdir, rename, stat } from "node:fs/promises";
+import { basename, dirname } from "node:path";
 import { hfUrl } from "./config.ts";
 import { downloadFile, DownloadError } from "./download.ts";
 import { linkedInfo, listRepoFiles, pickGguf } from "./hf.ts";
 import { Lock } from "./lock.ts";
-import type { Download } from "./plan.ts";
+import { sourceHash, type Download } from "./plan.ts";
 import type { FetchFn } from "./net.ts";
 
 /** The model files: pending Hugging Face quantisations turned into files, then every file fetched and recorded (docs/local-models.md, section 3). */
@@ -53,17 +53,37 @@ export async function resolveDownloads(downloads: readonly Download[], o: StoreO
     for (const path of paths) {
       const file = basename(path);
       const known = sizes.get(path);
+      const url = hfUrl(repo, revision, path);
       out.push({
         ...rest,
-        url: hfUrl(repo, revision, path),
+        url,
         file,
-        dest: `${d.dir}/${file}`,
+        dest: `${d.dir}/${sourceHash(url)}/${file}`,
         sha256: paths.length === 1 ? (d.sha256 ?? known?.sha256) : known?.sha256,
         size: known?.size,
       });
     }
   }
   return out;
+}
+
+/**
+ * Files used to be kept in `models/<name>/`. One that is recorded there, present at the recorded size, and not yet in its place is moved
+ * there, so nothing is fetched again. A second model with the same file finds it already moved and has nothing to do (its copy under
+ * `models/` is left for `pruneFiles`).
+ */
+async function bringAcross(d: Download, key: string, o: StoreOptions): Promise<void> {
+  if (o.lock.file(key) !== undefined || d.file === undefined || d.dest === undefined) return;
+  const legacyKey = `models/${d.model}/${basename(d.dest)}`;
+  const old = o.lock.file(legacyKey);
+  if (old === undefined) return;
+  const from = `${o.data}/${legacyKey}`;
+  if ((await stat(from).catch(() => undefined))?.size !== old.size) return;
+  await mkdir(dirname(d.dest), { recursive: true });
+  await rename(from, d.dest);
+  o.lock.setFile(key, old);
+  o.lock.deleteFile(legacyKey);
+  await o.lock.save();
 }
 
 export interface Fetched {
@@ -80,6 +100,7 @@ export async function fetchDownloads(downloads: readonly Download[], o: StoreOpt
   for (const d of downloads) {
     if (d.url === undefined || d.dest === undefined || d.file === undefined) throw new Error(`${d.model}: the download was not resolved`);
     const key = keyOf(o.data, d.dest);
+    await bringAcross(d, key, o);
     const locked = o.lock.file(key);
     const present = (await stat(d.dest).catch(() => undefined))?.size;
     const pinned = d.sha256?.toLowerCase();

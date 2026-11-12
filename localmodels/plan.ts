@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { Host } from "../src/host.ts";
 import { hfUrl, modelSource, type LocalModels, type ModelEntry, type Sampling, type Speculative } from "./config.ts";
 
@@ -33,7 +34,7 @@ export interface Download {
   sha256: string | undefined;
   /** The size, when it is known beforehand. */
   size?: number | undefined;
-  /** The model's directory; files are kept in it. */
+  /** The directory all files are kept in (`filesDir`). */
   dir: string;
   /** Where it is kept once downloaded. Undefined with `file`. */
   dest: string | undefined;
@@ -46,7 +47,12 @@ export interface PlanIssue {
   message: string;
 }
 
-export const modelDir = (path: PathApi, data: string, model: string): string => path.join(data, "models", model);
+/** Where every downloaded file is kept: `files/<16 hex digits of the SHA-256 of its address>/<file name>`, so models that name the same file share it. */
+export const filesDir = (path: PathApi, data: string): string => path.join(data, "files");
+export const sourceHash = (url: string): string => createHash("sha256").update(url).digest("hex").slice(0, 16);
+export const fileDest = (path: PathApi, data: string, url: string, file: string): string => path.join(filesDir(path, data), sourceHash(url), file);
+/** The directory the files of a model were kept in before they were shared (`models/<name>/`); only read, to bring them across. */
+export const legacyDir = (path: PathApi, data: string, model: string): string => path.join(data, "models", model);
 
 /** The files the settings call for, in model order. A model that cannot be fetched (a URL that is not a GGUF file) is an issue, not a download. */
 export function downloadList(config: LocalModels, path: PathApi, data: string): { downloads: Download[]; issues: PlanIssue[] } {
@@ -54,7 +60,7 @@ export function downloadList(config: LocalModels, path: PathApi, data: string): 
   const issues: PlanIssue[] = [];
   for (const model of Object.keys(config.models).sort()) {
     const m = config.models[model] as ModelEntry;
-    const dir = modelDir(path, data, model);
+    const dir = filesDir(path, data);
     const source = modelSource(m);
     if (source === undefined) {
       issues.push({ model, message: "the url does not end in a .gguf file name; use hf, or a url that names the file" });
@@ -64,16 +70,17 @@ export function downloadList(config: LocalModels, path: PathApi, data: string): 
       downloads.push({ model, role: "model", url: undefined, file: undefined, sha256: m.sha256, dir, dest: undefined, resolve: { repo: source.repo, revision: source.revision, quant: source.quant } });
     } else {
       const url = source.kind === "url" ? source.url : hfUrl(source.repo, source.revision, source.file);
-      downloads.push({ model, role: "model", url, file: source.file, sha256: m.sha256, dir, dest: path.join(dir, source.file.split("/").at(-1) as string) });
+      downloads.push({ model, role: "model", url, file: source.file, sha256: m.sha256, dir, dest: fileDest(path, data, url, source.file.split("/").at(-1) as string) });
     }
     const p = m.mmproj;
     if (p !== undefined) {
       if (p.url !== undefined) {
         const file = decodeURIComponent(new URL(p.url).pathname.split("/").filter((s) => s !== "").at(-1) ?? "");
-        downloads.push({ model, role: "mmproj", url: p.url, file, sha256: p.sha256, dir, dest: path.join(dir, file) });
+        downloads.push({ model, role: "mmproj", url: p.url, file, sha256: p.sha256, dir, dest: fileDest(path, data, p.url, file) });
       } else if (source.kind !== "url") {
         const file = p.file as string;
-        downloads.push({ model, role: "mmproj", url: hfUrl(source.repo, source.revision, file), file, sha256: p.sha256, dir, dest: path.join(dir, file.split("/").at(-1) as string) });
+        const url = hfUrl(source.repo, source.revision, file);
+        downloads.push({ model, role: "mmproj", url, file, sha256: p.sha256, dir, dest: fileDest(path, data, url, file.split("/").at(-1) as string) });
       }
     }
   }

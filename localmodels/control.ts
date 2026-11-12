@@ -31,7 +31,7 @@ export interface ControlTarget {
   stop(): void;
   /** Fetch models without starting the server; the `pulled` event ends it. */
   pull(models: string[], force: boolean): void;
-  remove(model: string): Promise<{ files: number; bytes: number }>;
+  remove(model: string): Promise<{ files: number; bytes: number; kept: number }>;
   reload(): Promise<DaemonStatus>;
   consent(accept: boolean): boolean;
   load(model: string): Promise<void>;

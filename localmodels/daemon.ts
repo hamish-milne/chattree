@@ -110,7 +110,7 @@ export class Daemon implements ControlTarget {
     void (this.#host as LocalModelHost).pull(models, { force }).catch(() => undefined);
   }
 
-  remove(model: string): Promise<{ files: number; bytes: number }> {
+  remove(model: string): Promise<{ files: number; bytes: number; kept: number }> {
     return (this.#host as LocalModelHost).remove(model);
   }
 

@@ -4,8 +4,10 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { localModelsSchema } from "../../localmodels/config.ts";
 import { pickGguf, type RepoFile } from "../../localmodels/hf.ts";
+import { pruneFiles, removeModelFiles } from "../../localmodels/inventory.ts";
 import { Lock, LockError } from "../../localmodels/lock.ts";
-import { downloadList } from "../../localmodels/plan.ts";
+import { hfUrl } from "../../localmodels/config.ts";
+import { downloadList, sourceHash } from "../../localmodels/plan.ts";
 import { fetchDownloads, modelId, resolveDownloads, type StoreEvent } from "../../localmodels/store.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
@@ -67,7 +69,7 @@ describe("the model store", () => {
       const fetched = await fetchDownloads(resolved, opts);
       assert.equal(fetched.length, 2);
       assert.equal(modelId("small", fetched), `small@${sha.slice(0, 8)}`);
-      assert.equal(lock.file("models/small/Model-Q4_K_M.gguf")?.sha256, sha);
+      assert.equal(lock.file(`files/${sourceHash(hfUrl("org/repo", "main", "Model-Q4_K_M.gguf"))}/Model-Q4_K_M.gguf`)?.sha256, sha);
       assert.ok(events.some((e) => e.type === "download" && e.model === "small"));
       assert.ok(events.some((e) => e.type === "done" && e.model === "plain"));
     } finally {
@@ -118,4 +120,82 @@ describe("the model store", () => {
       await server.close();
     }
   });
+
+  test("two models with one source download it once", async () => {
+    const { server, data, lock, opts } = await setup();
+    try {
+      const two = localModelsSchema.parse({ models: { a: { url: "https://files.test/plain.gguf" }, b: { url: "https://files.test/plain.gguf", speculative: "ngram-mod" } } });
+      const fetched = await fetchDownloads(downloadList(two, { join }, data).downloads, opts);
+      assert.equal(fetched[0]?.dest, fetched[1]?.dest);
+      assert.equal(server.seen.filter((r) => r.method === "GET" && r.path.includes("plain.gguf")).length, 1);
+      assert.equal(lock.filesUnder("files/").length, 1);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("a file kept under models/<name>/ is moved to its place, not fetched again", async () => {
+    const { server, data, lock, opts } = await setup();
+    try {
+      const { mkdir, writeFile, stat } = await import("node:fs/promises");
+      await mkdir(join(data, "models", "plain"), { recursive: true });
+      await writeFile(join(data, "models", "plain", "plain.gguf"), body);
+      lock.setFile("models/plain/plain.gguf", { sha256: sha, size: body.length });
+      const one = localModelsSchema.parse({ models: { plain: { url: "https://files.test/plain.gguf" } } });
+      const fetched = await fetchDownloads(downloadList(one, { join }, data).downloads, opts);
+      assert.equal(server.seen.length, 0);
+      assert.equal((await stat(fetched[0]?.dest as string)).size, body.length);
+      assert.equal(await stat(join(data, "models", "plain", "plain.gguf")).catch(() => undefined), undefined);
+      assert.equal(lock.file("models/plain/plain.gguf"), undefined);
+      assert.equal(lock.filesUnder("files/").length, 1);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
+describe("removing and pruning shared files", () => {
+  const body = Buffer.from("x".repeat(100));
+  const sha = createHash("sha256").update(body).digest("hex");
+
+  async function two() {
+    const { writeFile, mkdir } = await import("node:fs/promises");
+    const data = await tempDir();
+    const lock = await Lock.open(join(data, "lock.json"));
+    const config = localModelsSchema.parse({ models: { a: { url: "https://files.test/m.gguf" }, b: { url: "https://files.test/m.gguf" }, c: { url: "https://files.test/c.gguf" } } });
+    for (const d of downloadList(config, { join }, data).downloads) {
+      await mkdir(join(d.dest as string, ".."), { recursive: true });
+      await writeFile(d.dest as string, body);
+      lock.setFile(`files/${sourceHash(d.url as string)}/${d.file}`, { sha256: sha, size: body.length });
+    }
+    return { data, lock, config };
+  }
+
+  test("a model's removal leaves a file another model uses, and takes it when it is the last", async () => {
+    const { data, lock, config } = await two();
+    const r = await removeModelFiles(config, lock, data, "a");
+    assert.deepEqual(r, { files: 0, bytes: 0, kept: 1 });
+    assert.equal(lock.filesUnder("files/").length, 2);
+    const alone = await removeModelFiles(config, lock, data, "c");
+    assert.deepEqual(alone, { files: 1, bytes: 100, kept: 0 });
+    const forced = await removeModelFiles(config, lock, data, "b", { shared: true });
+    assert.equal(forced.files, 1);
+    assert.equal(lock.filesUnder("files/").length, 0);
+  });
+
+  test("prune deletes recorded files no model uses, including copies left under models/", async () => {
+    const { data, lock, config } = await two();
+    const { writeFile, mkdir, stat } = await import("node:fs/promises");
+    await mkdir(join(data, "models", "b"), { recursive: true });
+    await writeFile(join(data, "models", "b", "m.gguf"), body);
+    lock.setFile("models/b/m.gguf", { sha256: sha, size: body.length });
+    const { models: _all, ...rest } = config;
+    const fewer = { ...rest, models: { a: config.models["a"] } } as typeof config;
+    const r = await pruneFiles(fewer, lock, data);
+    assert.deepEqual(r, { files: 2, bytes: 200 });
+    assert.equal(lock.filesUnder("models/").length, 0);
+    assert.equal(lock.filesUnder("files/").length, 1);
+    assert.equal(await stat(join(data, "models", "b", "m.gguf")).catch(() => undefined), undefined);
+  });
+
 });

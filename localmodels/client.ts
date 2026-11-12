@@ -54,7 +54,7 @@ export class DaemonClient {
   pull(models: string[] = [], opts: { force?: boolean } = {}): Promise<DaemonStatus> {
     return this.#call("POST", "/pull", { models, force: opts.force === true });
   }
-  remove(model: string): Promise<{ files: number; bytes: number }> {
+  remove(model: string): Promise<{ files: number; bytes: number; kept: number }> {
     return this.#call("POST", "/rm", { model });
   }
   async stop(): Promise<void> {

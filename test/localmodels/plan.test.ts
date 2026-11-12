@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { posix, win32 } from "node:path";
 import { describe, test } from "node:test";
 import { localModelsSchema, modelSource } from "../../localmodels/config.ts";
-import { dataDir, downloadList, presetIni, routerArgs } from "../../localmodels/plan.ts";
+import { dataDir, downloadList, presetIni, routerArgs, sourceHash } from "../../localmodels/plan.ts";
 
 const parse = (v: unknown) => localModelsSchema.parse(v);
 const bad = (v: unknown) => {
@@ -77,14 +77,21 @@ describe("the plan", () => {
     assert.deepEqual(
       downloads.map((d) => [d.model, d.role, d.url, d.dest, d.sha256]),
       [
-        ["alpha", "model", "https://x.test/a/alpha-q8.gguf", "/data/models/alpha/alpha-q8.gguf", "a".repeat(64)],
-        ["alpha", "mmproj", "https://x.test/a/mm.gguf", "/data/models/alpha/mm.gguf", undefined],
-        ["vision", "model", "https://huggingface.co/o/v/resolve/main/dir/v-q4.gguf", "/data/models/vision/v-q4.gguf", undefined],
-        ["vision", "mmproj", "https://huggingface.co/o/v/resolve/main/dir/mm.gguf", "/data/models/vision/mm.gguf", undefined],
+        ["alpha", "model", "https://x.test/a/alpha-q8.gguf", `/data/files/${sourceHash("https://x.test/a/alpha-q8.gguf")}/alpha-q8.gguf`, "a".repeat(64)],
+        ["alpha", "mmproj", "https://x.test/a/mm.gguf", `/data/files/${sourceHash("https://x.test/a/mm.gguf")}/mm.gguf`, undefined],
+        ["vision", "model", "https://huggingface.co/o/v/resolve/main/dir/v-q4.gguf", `/data/files/${sourceHash("https://huggingface.co/o/v/resolve/main/dir/v-q4.gguf")}/v-q4.gguf`, undefined],
+        ["vision", "mmproj", "https://huggingface.co/o/v/resolve/main/dir/mm.gguf", `/data/files/${sourceHash("https://huggingface.co/o/v/resolve/main/dir/mm.gguf")}/mm.gguf`, undefined],
         ["zeta", "model", undefined, undefined, undefined],
       ],
     );
     assert.deepEqual(downloads.at(-1)?.resolve, { repo: "o/z", revision: "main", quant: "Q4_K_M" });
+  });
+
+  test("models with the same source keep one file", () => {
+    const c = parse({ models: { a: { url: "https://x.test/m/same.gguf" }, b: { url: "https://x.test/m/same.gguf", speculative: "ngram-mod" }, c: { url: "https://x.test/other/same.gguf" } } });
+    const dests = downloadList(c, posix, "/data").downloads.map((d) => d.dest);
+    assert.equal(dests[0], dests[1]);
+    assert.notEqual(dests[0], dests[2]);
   });
 
   test("writes the same preset every time, in name order", () => {

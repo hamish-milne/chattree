@@ -228,7 +228,7 @@ export class LocalModelHost {
         if (unknown.length > 0) throw new Error(`no model named ${unknown.join(", ")} in the settings`);
         if (opts.force === true && this.#proc !== undefined) throw new Error("stop the model host first (`chattree models stop`): a model that is loaded cannot be fetched again");
         this.#lock ??= await Lock.open(join(this.#o.data, "lock.json"));
-        if (opts.force === true) for (const n of wanted) await removeModelFiles(config, this.#lock, this.#o.data, n);
+        if (opts.force === true) for (const n of wanted) await removeModelFiles(config, this.#lock, this.#o.data, n, { shared: true });
         const subset = { ...config, models: Object.fromEntries(wanted.map((n) => [n, config.models[n]])) } as LocalModels;
         const prepared = await this.#prepare(subset);
         this.#set({ phase: prev.phase, ids: { ...prev.ids, ...prepared.ids } });
@@ -242,7 +242,7 @@ export class LocalModelHost {
   }
 
   /** Delete a model's downloaded files (they are fetched again the next time the model is wanted). Needs the server stopped. */
-  remove(name: string): Promise<{ files: number; bytes: number }> {
+  remove(name: string): Promise<{ files: number; bytes: number; kept: number }> {
     return this.#enqueue(async () => {
       if (this.#proc !== undefined) throw new Error("stop the model host first (`chattree models stop`): its models are in use");
       this.#lock ??= await Lock.open(join(this.#o.data, "lock.json"));

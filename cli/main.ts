@@ -50,7 +50,7 @@ usage: chattree [-C dir] [-t thread] <verb> [arguments]
                      stopped (--once: do what can be done now and leave; status 3 means questions are waiting)
   say <text>         send a message and print the reply ("-" reads standard input; --attach <file> may repeat)
   settings [edit]    show the user settings file, or open it in the editor
-  models <verb>      the local model host (settings: local_models): start, restart, stop, status, list, info, pull, rm, logs, update
+  models <verb>      the local model host (settings: local_models): start, restart, stop, status, list, info, pull, rm, prune, logs, update
 
 Any session command works as a verb too (chattree status, chattree history 20, chattree threads archived,
 chattree usage, chattree verify ...). Inside a session they are /status, /history 20, and so on; /help lists them.

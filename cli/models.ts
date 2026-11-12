@@ -6,7 +6,7 @@ import { ensureDaemon, findDaemon, launchDetached, DaemonError, type ClientEvent
 import { logFile } from "../localmodels/daemon-files.ts";
 import { LocalModelHost } from "../localmodels/host.ts";
 import { latestTag, type InstallPlan } from "../localmodels/install.ts";
-import { inventory, type ModelInfo } from "../localmodels/inventory.ts";
+import { inventory, pruneFiles, type ModelInfo } from "../localmodels/inventory.ts";
 import { Lock } from "../localmodels/lock.ts";
 import { dataDir } from "../localmodels/plan.ts";
 import type { DaemonStatus } from "../localmodels/control.ts";
@@ -18,7 +18,7 @@ import { loadSettings, settingsPath } from "./settings.ts";
 
 /** `chattree models ...` (docs/local-models.md, section 3): the local model host, which runs as a daemon of its own. */
 
-const USAGE = "usage: chattree models start|restart|stop|status|list|info <name>|pull [name...]|rm <name>|logs|update|reload";
+const USAGE = "usage: chattree models start|restart|stop|status|list|info <name>|pull [name...]|rm <name>|prune|logs|update|reload";
 
 export const bytes = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} kB` : `${n} B`);
 
@@ -319,14 +319,22 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
         need(1);
         const name = rest[0] as string;
         const client = await running();
-        let r: { files: number; bytes: number };
+        let r: { files: number; bytes: number; kept: number };
         try {
           r = client !== undefined ? await client.remove(name) : await idleHost(io, data, o).remove(name);
         } catch (e) {
           if (e instanceof DaemonError) throw new CliError(e.message);
           throw new CliError(e instanceof Error ? e.message : String(e));
         }
-        io.out(`deleted ${r.files} file${r.files === 1 ? "" : "s"} (${bytes(r.bytes)}) of ${name}; it is fetched again when the host starts, while it is in the settings\n`);
+        io.out(`deleted ${r.files} file${r.files === 1 ? "" : "s"} (${bytes(r.bytes)}) of ${name}${r.kept > 0 ? `; ${r.kept} more stay, since another model uses them` : ""}; it is fetched again when the host starts, while it is in the settings\n`);
+        return 0;
+      }
+      case "prune": {
+        need(0);
+        if ((await running()) !== undefined) throw new CliError("stop the model host first (`chattree models stop`)");
+        const lock = await Lock.open(join(data, "lock.json"));
+        const r = await pruneFiles(localConfig(io), lock, data);
+        io.out(`deleted ${r.files} file${r.files === 1 ? "" : "s"} (${bytes(r.bytes)}) that no model in the settings uses\n`);
         return 0;
       }
       case "logs": {
