@@ -69,6 +69,8 @@ export interface AgentTaskOptions {
   busybox?: string | undefined;
   /** Wall-clock limit for the whole task. Default 180 s. */
   timeoutMs?: number;
+  /** Starter tools to leave out, by name. */
+  without?: readonly string[] | undefined;
   /** Tools offered besides the starter ones. */
   extraTools?: readonly Tool[] | undefined;
   /** Tells the model the date and where it is, as a session does (the `environment` injection). */
@@ -100,7 +102,7 @@ export interface AgentTaskResult {
 export const AGENT_SYSTEM = "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.";
 
 export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult> {
-  const registry = new ToolRegistry([...leafTools({ busybox: o.busybox }), ...(o.extraTools ?? [])]);
+  const registry = new ToolRegistry([...leafTools({ busybox: o.busybox }).filter((t) => !(o.without ?? []).includes(t.definition.name)), ...(o.extraTools ?? [])]);
   const live = new AdapterRegistry().register(
     defineAdapter({
       $tag: "live",

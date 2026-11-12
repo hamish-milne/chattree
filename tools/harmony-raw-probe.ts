@@ -7,7 +7,7 @@
  *   - given `python` as a built-in, does it always call `analysis to=python`, and is the body always bare (never JSON)?
  *   - given a built-in of our own (`bash`), described the same way, does it use it in the same manner?
  *   - given the tool as a function whose argument is declared as a string (`_: string`), or as the usual object, what does it send?
- * Nothing here is part of chattree's dialects: the probe's own dialect renders the built-ins (and writes earlier calls to them the same
+ * `run` and `script` are not offered, so the shell and Python can only be reached through the tools under test. Nothing here is part of chattree's dialects: the probe's own dialect renders the built-ins (and writes earlier calls to them the same
  * way, which is a guess at the format, so judge the first request of each sample first).
  *
  *   node tools/harmony-raw-probe.ts --model gpt-oss [--repeat 10] [--out DIR] [--busybox PATH] [--yes]
@@ -201,7 +201,7 @@ async function main(): Promise<void> {
         const task = TASKS[key] as Task;
         raws.length = 0;
         const model = { provider: "live", id: o.model, settings: { max_output_tokens: 4096, ...sampling, dialect: "harmony-probe", dialect_options: arm.options } } as NonNullable<AgentSetup["model"]>;
-        const r = await runAgentTask({ adapter, model, files: task.files, prompt: task.prompt, busybox, timeoutMs: 120_000, extraTools: arm.tools });
+        const r = await runAgentTask({ adapter, model, files: task.files, prompt: task.prompt, busybox, timeoutMs: 120_000, extraTools: arm.tools, without: ["run", "script"] });
         const right = task.wants.test((await r.read("answer.txt")) ?? "");
         const mine = [...raws];
         samples.push({ arm: arm.label, task: task.name, n, right, steps: r.steps.map((s) => `${s.name}${s.is_error === true ? "!" : ""}`), raws: mine, calls: mine.flatMap(callsIn) });
