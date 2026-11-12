@@ -41,6 +41,8 @@ describe("selecting tasks", () => {
   test("by name part and group; tasks that need a missing program are skipped with the reason", () => {
     assert.deepEqual(selectTasks({ tasks: ["one line", "read two"] }).run.map((t) => t.name), ["one line", "read two files"]);
     assert.ok(selectTasks({ groups: ["edit"] }).run.every((t) => t.group === "edit"));
+    assert.deepEqual(selectTasks({ groups: ["context"] }).run.map((t) => t.name), ["month in a week", "riddle with a twist"]);
+    assert.ok(selectTasks({}).run.every((t) => t.group !== "context"), "the context tasks are asked for, not run by default");
     const all = selectTasks({ groups: ["run"], busybox: "C:\\bb\\busybox.exe" });
     const without = selectTasks({ groups: ["run"] });
     assert.equal(all.run.length + all.skipped.length, without.run.length + without.skipped.length);

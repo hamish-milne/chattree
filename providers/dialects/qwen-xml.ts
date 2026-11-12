@@ -1,7 +1,8 @@
 import type { Block, Turn } from "../../harness/context-builder.ts";
 import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
 import { spacedJson } from "./harmony.ts";
-import { argSchema, coerce, nextMarker, safeLength, Trimmer } from "./scan.ts";
+import { argNode } from "./schema-tree.ts";
+import { coerce, nextMarker, safeLength, Trimmer } from "./scan.ts";
 
 /**
  * The format of Qwen3.5 (and the Qwen3-Coder family): tools as JSON lines in the system turn with a plain-English instruction, calls as
@@ -10,22 +11,47 @@ import { argSchema, coerce, nextMarker, safeLength, Trimmer } from "./scan.ts";
  *   Q1  a tool result is not trimmed (its trailing newline is meaningful, and the harness formats results itself);
  *   Q2  a boolean argument is written `true`/`false` and null as `null`, not as the template's Python `True`/`None`.
  * Options: `thinking` (default true): the prompt ends inside `<think>`, so the model thinks first; false asks for no thinking;
- * `keep_reasoning` (default true): the reasoning of the unfinished exchange is replayed, as the template does (earlier exchanges never are).
+ * `keep_reasoning` (default true): the reasoning of the unfinished exchange is replayed, as the template does (earlier exchanges never are);
+ * `instructions`: the text after the tool list that restates the call format (a string, or `false` for none; default the template's).
  */
 
-const INSTRUCTIONS =
-  "\n\nIf you choose to call a function ONLY reply in the following format with NO suffix:\n\n<tool_call>\n<function=example_function_name>\n<parameter=example_parameter_1>\nvalue_1\n</parameter>\n<parameter=example_parameter_2>\nThis is the value for the second parameter\nthat can span\nmultiple lines\n</parameter>\n</function>\n</tool_call>\n\n<IMPORTANT>\nReminder:\n- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags\n- Required parameters MUST be specified\n- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after\n- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls\n</IMPORTANT>";
+const INSTRUCTIONS = `
+
+If you choose to call a function ONLY reply in the following format with NO suffix:
+
+<tool_call>
+<function=example_function_name>
+<parameter=example_parameter_1>
+value_1
+</parameter>
+<parameter=example_parameter_2>
+This is the value for the second parameter
+that can span
+multiple lines
+</parameter>
+</function>
+</tool_call>
+
+<IMPORTANT>
+Reminder:
+- Function calls MUST follow the specified format: an inner <function=...></function> block must be nested within <tool_call></tool_call> XML tags
+- Required parameters MUST be specified
+- You may provide optional reasoning for your function call in natural language BEFORE the function call, but NOT after
+- If there is no function call available, answer the question like normal with your current knowledge and do not tell the user about function calls
+</IMPORTANT>`;
 
 const argText = (v: unknown): string => (typeof v === "string" ? v : typeof v === "object" && v !== null ? spacedJson(v) : v === null || v === undefined ? "null" : String(v));
 
 export function renderQwen(input: RenderInput): { prompt: string; stop: string[] } {
   const keep = input.options["keep_reasoning"] !== false;
   const thinking = input.options["thinking"] !== false;
+  const given = input.options["instructions"];
+  const instructions = given === false ? "" : typeof given === "string" ? `\n\n${given}` : INSTRUCTIONS;
   const { context } = input;
   const system = [context.system, context.instructions ?? ""].filter((x) => x !== "").join("\n\n").trim();
   let out = "";
   if (context.tools.length > 0) {
-    out += `<|im_start|>system\n# Tools\n\nYou have access to the following functions:\n\n<tools>${context.tools.map((t) => `\n${spacedJson({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } })}`).join("")}\n</tools>${INSTRUCTIONS}${system === "" ? "" : `\n\n${system}`}<|im_end|>\n`;
+    out += `<|im_start|>system\n# Tools\n\nYou have access to the following functions:\n\n<tools>${context.tools.map((t) => `\n${spacedJson({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } })}`).join("")}\n</tools>${instructions}${system === "" ? "" : `\n\n${system}`}<|im_end|>\n`;
   } else if (system !== "") out += `<|im_start|>system\n${system}<|im_end|>\n`;
   const turns = context.turns;
   const lastUser = turns.map((t) => t.role).lastIndexOf("user");
@@ -57,7 +83,7 @@ const THINK_END = ["</think>"];
 const TEXT_MARKS = ["<tool_call>", "<think>"];
 
 /** One call's text (between `<tool_call>` and `</tool_call>`) read into a name and arguments. */
-export function parseQwenCall(body: string, tools: Parameters<typeof argSchema>[0]): { name: string; args: Record<string, unknown> } | undefined {
+export function parseQwenCall(body: string, tools: Parameters<typeof argNode>[0]): { name: string; args: Record<string, unknown> } | undefined {
   const fn = /<function=([^>\n]+)>/.exec(body);
   if (fn === null) {
     try {
@@ -73,12 +99,12 @@ export function parseQwenCall(body: string, tools: Parameters<typeof argSchema>[
   for (const m of body.slice(fn.index + fn[0].length).matchAll(/<parameter=([^>\n]+)>([\s\S]*?)<\/parameter>/g)) {
     const key = (m[1] as string).trim();
     const text = (m[2] as string).replace(/^\n/, "").replace(/\n$/, "");
-    args[key] = coerce(text, argSchema(tools, name, key));
+    args[key] = coerce(text, argNode(tools, name, key));
   }
   return { name, args };
 }
 
-export function qwenParser(options: Record<string, unknown>, tools: Parameters<typeof argSchema>[0], prompt: string): Parser {
+export function qwenParser(options: Record<string, unknown>, tools: Parameters<typeof argNode>[0], prompt: string): Parser {
   void options;
   let mode: Mode = prompt.endsWith("<think>\n") ? "reasoning" : "text";
   let buf = "";

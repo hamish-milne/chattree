@@ -1,6 +1,7 @@
 import type { Block, Turn } from "../../harness/context-builder.ts";
 import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
-import { argSchema, nextMarker, safeLength, Trimmer } from "./scan.ts";
+import { nextMarker, safeLength, Trimmer } from "./scan.ts";
+import { argNode, concreteTypes, isNullable, parseSchema, type SchemaNode } from "./schema-tree.ts";
 
 /**
  * The format of Gemma 4: roles `user` and `model` in `<|turn>…<turn|>`, tools declared in the system turn in a compact notation with
@@ -31,29 +32,34 @@ export function gemmaValue(v: unknown, escapeKeys: boolean): string {
 }
 
 const list = (xs: unknown[]): string => `[${xs.map((x) => `${Q}${String(x)}${Q}`).join(",")}]`;
-const typeName = (t: unknown): string => upper(Array.isArray(t) ? ((t as unknown[]).find((x) => x !== "null") ?? "null") : t);
+/** The type as the format names it: the first one that is not null, in capitals. */
+const typeName = (n: SchemaNode): string => upper(concreteTypes(n)[0] ?? (n.types.length > 0 ? "null" : undefined));
 
-function properties(props: Schema): string {
-  return sorted(props)
-    .map(([key, v]) => {
-      const value = isMap(v) ? v : {};
-      const type = typeName(value["type"]);
+/** The members of an array's `items`, which the format writes key by key (sorted) in the schema's own words, with types in capitals. */
+function items(n: SchemaNode): string {
+  const entries = sorted(n.raw).filter(([, x]) => x !== null && x !== undefined).map(([k, x]) => {
+    if (k === "properties") return `properties:{${properties(n.properties ?? [])}}`;
+    if (k === "required") return `required:${list(x as unknown[])}`;
+    if (k === "type") return `type:${Array.isArray(x) ? gemmaValue((x as unknown[]).map(upper), true) : gemmaValue(upper(x), true)}`;
+    return `${k}:${gemmaValue(x, true)}`;
+  });
+  return `items:{${entries.join(",")}}`;
+}
+
+function properties(props: [string, SchemaNode][]): string {
+  return props
+    .slice()
+    .sort(([a], [b]) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : a < b ? -1 : a > b ? 1 : 0))
+    .map(([key, n]) => {
+      const type = typeName(n);
       const parts: string[] = [];
-      if (typeof value["description"] === "string" && value["description"] !== "") parts.push(`description:${Q}${value["description"]}${Q}`);
-      if (type === "STRING" && Array.isArray(value["enum"]) && value["enum"].length > 0) parts.push(`enum:${gemmaValue(value["enum"], true)}`);
-      if (type === "ARRAY" && isMap(value["items"]) && Object.keys(value["items"]).length > 0) {
-        const items = sorted(value["items"]).filter(([, x]) => x !== null && x !== undefined).map(([k, x]) => {
-          if (k === "properties") return `properties:{${isMap(x) ? properties(x) : ""}}`;
-          if (k === "required") return `required:${list(x as unknown[])}`;
-          if (k === "type") return `type:${Array.isArray(x) ? gemmaValue((x as unknown[]).map(upper), true) : gemmaValue(upper(x), true)}`;
-          return `${k}:${gemmaValue(x, true)}`;
-        });
-        parts.push(`items:{${items.join(",")}}`);
-      }
-      if (value["nullable"] === true || (Array.isArray(value["type"]) && (value["type"] as unknown[]).includes("null"))) parts.push("nullable:true");
+      if (n.description !== undefined && n.description !== "") parts.push(`description:${Q}${n.description}${Q}`);
+      if (type === "STRING" && n.enum !== undefined && n.enum.length > 0) parts.push(`enum:${gemmaValue(n.enum, true)}`);
+      if (type === "ARRAY" && n.items !== undefined && Object.keys(n.items.raw).length > 0) parts.push(items(n.items));
+      if (isNullable(n)) parts.push("nullable:true");
       if (type === "OBJECT") {
-        if (isMap(value["properties"])) parts.push(`properties:{${properties(value["properties"])}}`);
-        if (Array.isArray(value["required"]) && value["required"].length > 0) parts.push(`required:${list(value["required"])}`);
+        if (n.properties !== undefined) parts.push(`properties:{${properties(n.properties)}}`);
+        if (n.required.length > 0) parts.push(`required:${list(n.required)}`);
       }
       parts.push(`type:${Q}${type}${Q}`);
       return `${key}:{${parts.join(",")}}`;
@@ -63,12 +69,12 @@ function properties(props: Schema): string {
 
 function declaration(t: { name: string; description: string; input_schema: Schema }): string {
   let out = `declaration:${t.name}{description:${Q}${t.description}${Q}`;
-  const p = t.input_schema;
-  if (Object.keys(p).length > 0) {
+  const p = parseSchema(t.input_schema);
+  if (Object.keys(t.input_schema).length > 0) {
     out += ",parameters:{";
-    if (isMap(p["properties"]) && Object.keys(p["properties"]).length > 0) out += `properties:{${properties(p["properties"])}},`;
-    if (Array.isArray(p["required"]) && p["required"].length > 0) out += `required:${list(p["required"])},`;
-    if (typeof p["type"] === "string") out += `type:${Q}${upper(p["type"])}${Q}}`;
+    if (p.properties !== undefined && p.properties.length > 0) out += `properties:{${properties(p.properties)}},`;
+    if (p.required.length > 0) out += `required:${list(p.required)},`;
+    if (p.types.length > 0) out += `type:${Q}${upper(p.types[0])}${Q}}`;
   }
   return `${out}}`;
 }
@@ -232,7 +238,7 @@ type Mode = "reasoning" | "text" | "call";
 const TEXT_MARKS = ["<|channel>", "<|tool_call>", "<turn|>", "<|tool_response>"];
 const END_THOUGHT = ["<channel|>"];
 
-export function gemmaParser(options: Record<string, unknown>, tools: Parameters<typeof argSchema>[0], prompt: string): Parser {
+export function gemmaParser(options: Record<string, unknown>, tools: Parameters<typeof argNode>[0], prompt: string): Parser {
   void options;
   let mode: Mode = prompt.endsWith("<|channel>thought\n") ? "reasoning" : "text";
   let buf = "";

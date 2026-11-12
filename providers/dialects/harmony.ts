@@ -1,6 +1,7 @@
 import type { Block, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
+import { parseSchema, type SchemaNode } from "./schema-tree.ts";
 
 /**
  * Harmony, the format gpt-oss was trained on (docs/local-models.md, section 9.1). Rendering reproduces what the model's own chat
@@ -12,7 +13,10 @@ import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
  *   D3  nested object and array schemas are declared in full (the template says `any[]`); `schema: "flat"` restores that;
  *   D4  text written before a call (a preamble) is in the `commentary` channel, as the format's own guide has it.
  * Options: `keep_reasoning` (default true): reasoning of the unfinished exchange is replayed in `analysis`;
- * `schema`: `"full"` (default) or `"flat"`.
+ * `schema`: `"full"` (default) or `"flat"`; and the wording of the system block, which differs between checkpoints and variants:
+ * `identity` (the first line; `false` leaves it out), `knowledge_cutoff` (`"2024-06"`; `false` leaves it out) and `date`: `"none"` (default:
+ * the date is given in the `environment` injection instead, which keeps the start of the prompt, and so its cache, the same from day to
+ * day), `"today"` (the date the request is made on, as the model's own template does) or any text, written as `Current date: TEXT`.
  */
 
 const START = "<|start|>";
@@ -26,15 +30,31 @@ const CONSTRAIN = "<|constrain|>";
 export interface HarmonyOptions {
   keepReasoning: boolean;
   full: boolean;
+  /** The first line of the system block, or undefined for none. */
+  identity: string | undefined;
+  /** The knowledge cutoff, or undefined for none. */
+  cutoff: string | undefined;
+  /** What follows `Current date: `: `"today"` stands for the request's date; undefined for no date line. */
+  date: string | undefined;
 }
 
+const IDENTITY = "You are ChatGPT, a large language model trained by OpenAI.";
+
+/** An option that is a string, `false` for nothing, or absent for the default. */
+const text = (v: unknown, fallback: string | undefined): string | undefined => (v === false ? undefined : typeof v === "string" ? v : fallback);
+
 export function harmonyOptions(o: Record<string, unknown>): HarmonyOptions {
-  return { keepReasoning: o["keep_reasoning"] !== false, full: o["schema"] !== "flat" };
+  const date = typeof o["date"] === "string" ? o["date"] : "none";
+  return {
+    keepReasoning: o["keep_reasoning"] !== false,
+    full: o["schema"] !== "flat",
+    identity: text(o["identity"], IDENTITY),
+    cutoff: text(o["knowledge_cutoff"], "2024-06"),
+    date: date === "none" ? undefined : date,
+  };
 }
 
 // ---- rendering --------------------------------------------------------------------------------------------------
-
-type Schema = Record<string, unknown>;
 
 /** JSON as the template writes it: a space after `,` and `:`. */
 export function spacedJson(v: unknown): string {
@@ -45,64 +65,52 @@ export function spacedJson(v: unknown): string {
 
 const comment = (text: string): string => text.split("\n").map((l) => `// ${l}`.trimEnd()).join("\n");
 
-function typeOf(s: unknown, full: boolean): string {
-  if (typeof s !== "object" || s === null) return "any";
-  const sc = s as Schema;
-  if (Array.isArray(sc["enum"])) return (sc["enum"] as unknown[]).map((v) => JSON.stringify(v)).join(" | ");
-  if ("const" in sc) return JSON.stringify(sc["const"]);
-  const alt = sc["anyOf"] ?? sc["oneOf"];
-  if (Array.isArray(alt)) return unique((alt as unknown[]).map((a) => typeOf(a, full))).join(" | ");
-  const t = sc["type"];
-  if (Array.isArray(t)) return unique((t as string[]).map((x) => typeOf({ ...sc, type: x }, full))).join(" | ");
-  switch (t) {
-    case "string":
-      return "string";
-    case "integer":
-    case "number":
-      return "number";
-    case "boolean":
-      return "boolean";
-    case "null":
-      return "null";
-    case "array": {
-      const items = sc["items"];
-      const inner = typeOf(items, full);
-      if (!full && inner !== "string" && inner !== "number" && inner !== "boolean") return "any[]";
-      return inner.includes(" | ") ? `(${inner})[]` : `${inner}[]`;
-    }
-    case "object":
-      return full && typeof sc["properties"] === "object" && sc["properties"] !== null ? `{\n${properties(sc, full)}\n}` : "object";
-    default:
-      return "any";
+const TYPE_NAMES: Record<string, string> = { string: "string", integer: "number", number: "number", boolean: "boolean", null: "null" };
+
+/** A schema as the TypeScript type that the format declares it with. */
+function typeOf(n: SchemaNode, full: boolean): string {
+  if (n.enum !== undefined) return n.enum.map((v) => JSON.stringify(v)).join(" | ");
+  if (n.const !== undefined) return JSON.stringify(n.const.value);
+  if (n.union !== undefined) return unique(n.union.map((a) => typeOf(a, full))).join(" | ");
+  if (n.types.length === 0) return "any";
+  return unique(n.types.map((t) => single(n, t, full))).join(" | ");
+}
+
+/** One of a schema's types. */
+function single(n: SchemaNode, type: string, full: boolean): string {
+  if (type === "array") {
+    const inner = n.items === undefined ? "any" : typeOf(n.items, full);
+    if (!full && inner !== "string" && inner !== "number" && inner !== "boolean") return "any[]";
+    return inner.includes(" | ") ? `(${inner})[]` : `${inner}[]`;
   }
+  if (type === "object") return full && n.properties !== undefined ? `{\n${properties(n, full)}\n}` : "object";
+  return TYPE_NAMES[type] ?? "any";
 }
 
 const unique = (xs: string[]): string[] => [...new Set(xs)];
 
 /** The lines of an object's properties: a comment for each description, then `name?: type,`. */
-function properties(s: Schema, full: boolean): string {
-  const props = Object.entries((s["properties"] ?? {}) as Record<string, unknown>);
-  const required = new Set(Array.isArray(s["required"]) ? (s["required"] as string[]) : []);
-  return props
-    .map(([name, p]) => {
-      const desc = typeof p === "object" && p !== null && typeof (p as Schema)["description"] === "string" ? `${comment((p as Schema)["description"] as string)}\n` : "";
-      return `${desc}${name}${required.has(name) ? "" : "?"}: ${typeOf(p, full)},`;
-    })
+function properties(n: SchemaNode, full: boolean): string {
+  const required = new Set(n.required);
+  return (n.properties ?? [])
+    .map(([name, p]) => `${p.description === undefined ? "" : `${comment(p.description)}\n`}${name}${required.has(name) ? "" : "?"}: ${typeOf(p, full)},`)
     .join("\n");
 }
 
 function declaration(t: ToolDefinition, full: boolean): string {
   const desc = t.description === "" ? "" : `${comment(t.description)}\n`;
-  const props = (t.input_schema["properties"] ?? {}) as Record<string, unknown>;
-  if (Object.keys(props).length === 0) return `${desc}type ${t.name} = () => any;`;
-  return `${desc}type ${t.name} = (_: {\n${properties(t.input_schema, full)}\n}) => any;`;
+  const root = parseSchema(t.input_schema);
+  if ((root.properties ?? []).length === 0) return `${desc}type ${t.name} = () => any;`;
+  return `${desc}type ${t.name} = (_: {\n${properties(root, full)}\n}) => any;`;
 }
 
-function systemBlock(input: RenderInput, hasTools: boolean): string {
+function systemBlock(input: RenderInput, o: HarmonyOptions, hasTools: boolean): string {
   const effort = input.effort === "low" || input.effort === "high" ? input.effort : "medium";
-  const lines = ["You are ChatGPT, a large language model trained by OpenAI.", "Knowledge cutoff: 2024-06", `Current date: ${input.date}`, "", `Reasoning: ${effort}`, "", "# Valid channels: analysis, commentary, final. Channel must be included for every message."];
-  if (hasTools) lines.push("Calls to these tools must go to the commentary channel: 'functions'.");
-  return `${START}system${MESSAGE}${lines.join("\n")}${END}`;
+  const head = [o.identity, o.cutoff === undefined ? undefined : `Knowledge cutoff: ${o.cutoff}`, o.date === undefined ? undefined : `Current date: ${o.date === "today" ? input.date : o.date}`].filter((l) => l !== undefined).join("\n");
+  const calls = hasTools ? "\nCalls to these tools must go to the commentary channel: 'functions'." : "";
+  return `${START}system${MESSAGE}${head === "" ? "" : `${head}\n\n`}Reasoning: ${effort}
+
+# Valid channels: analysis, commentary, final. Channel must be included for every message.${calls}${END}`;
 }
 
 function developerBlock(input: RenderInput, o: HarmonyOptions): string {
@@ -122,7 +130,7 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
   const o = harmonyOptions(input.options);
   const turns = input.context.turns;
   const lastUser = turns.map((t) => t.role).lastIndexOf("user");
-  let out = systemBlock(input, input.context.tools.length > 0) + developerBlock(input, o);
+  let out = systemBlock(input, o, input.context.tools.length > 0) + developerBlock(input, o);
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i] as Turn;
     if (t.role === "user") {

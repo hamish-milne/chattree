@@ -6,7 +6,7 @@ import { harmonyParser, renderHarmony } from "../../providers/dialects/harmony.t
 
 import { contextOf, fixture as fixtureOf } from "../support/templates.ts";
 const fixture = (name: string) => fixtureOf("gpt-oss", name);
-const render = (name: string, options: Record<string, unknown> = {}) => renderHarmony({ context: contextOf(fixture(name).request), options, effort: undefined, date: "2026-11-11", provider: "local-models", model: "gpt-oss" }).prompt;
+const render = (name: string, options: Record<string, unknown> = {}) => renderHarmony({ context: contextOf(fixture(name).request), options: { date: "today", ...options }, effort: undefined, date: "2026-11-11", provider: "local-models", model: "gpt-oss" }).prompt;
 
 describe("harmony rendering matches the model's own template where they agree", () => {
   for (const name of ["one-call", "reasoning-between-calls", "error-result", "multiline-argument"]) {
@@ -51,6 +51,20 @@ describe("harmony rendering departs from the template on purpose", () => {
     assert.ok(!p.includes("Calls to these tools"));
     assert.ok(p.includes("<|start|>developer<|message|># Instructions\n\nS\n\nI<|end|>"));
     assert.ok(p.includes("<|start|>assistant<|channel|>commentary<|message|>Looking.<|end|><|start|>assistant<|channel|>commentary to=functions.t <|constrain|>json<|message|>{}<|call|>"));
+  });
+});
+
+describe("the wording of the system block", () => {
+  const ctx: ModelContext = { system: "", instructions: undefined, turns: [], tools: [], cacheHints: [] };
+  const sys = (options: Record<string, unknown>) => /<\|start\|>system<\|message\|>([\s\S]*?)<\|end\|>/.exec(renderHarmony({ context: ctx, options, effort: undefined, date: "2026-11-11", provider: "p", model: "m" }).prompt)?.[1];
+  test("by default it has no date, so the start of the prompt does not change from day to day", () => {
+    assert.equal(sys({}), "You are ChatGPT, a large language model trained by OpenAI.\nKnowledge cutoff: 2024-06\n\nReasoning: medium\n\n# Valid channels: analysis, commentary, final. Channel must be included for every message.");
+  });
+  test("the date, identity and cutoff can be given, changed or left out", () => {
+    assert.ok(sys({ date: "today" })?.includes("\nCurrent date: 2026-11-11\n"));
+    assert.ok(sys({ date: "Friday" })?.includes("\nCurrent date: Friday\n"));
+    assert.equal(sys({ identity: false, knowledge_cutoff: false }), "Reasoning: medium\n\n# Valid channels: analysis, commentary, final. Channel must be included for every message.");
+    assert.ok(sys({ identity: "You are a model.", knowledge_cutoff: "2025-01" })?.startsWith("You are a model.\nKnowledge cutoff: 2025-01\n"));
   });
 });
 

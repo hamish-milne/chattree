@@ -14,6 +14,10 @@
  * --setting KEY=VALUE applies to every arm. Also --repeat N (default 10), --task TEXT, --group NAME, --max-tokens, --timeout-seconds,
  * --out DIR (default bench-runs/<time>), --yes (agree to installing llama.cpp), --busybox PATH.
  *
+ * `--group context` runs tasks about what the prompt tells the model instead of how it calls tools (they are not in the default set): the
+ * date reaching the model only through the `environment` injection, and a riddle whose thinking should grow with `reasoning_effort`
+ * (compare output tokens across arms such as 'low={"dialect":"harmony","reasoning_effort":"low"}' and the same with high).
+ *
  * Output, in the run's directory: samples.jsonl (one line per sample, written as it finishes, so nothing is lost if the run stops),
  * summary.md and summary.json (pass rates, time, requests and tokens per model and arm; the tool errors each arm met; the requests
  * that failed). A sample that was wrong, hit a tool error, or ended in anything but `completed` keeps everything about it: the steps,
@@ -30,7 +34,7 @@ import { samplingSettings } from "../localmodels/catalog.ts";
 import { dialectForModel } from "../providers/dialects/index.ts";
 import { ProviderError, type ProviderAdapter } from "../providers/types.ts";
 import { findBusybox } from "../hosts/node.ts";
-import { runAgentTask, type ToolStep } from "./agent-task.ts";
+import { benchEnvironment, runAgentTask, type ToolStep } from "./agent-task.ts";
 import { blur, selectTasks } from "./live-sample.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
 import type { Task } from "./tasks.ts";
@@ -122,6 +126,7 @@ export async function runOne(o: BenchOptions, task: Task, n: number): Promise<Be
     adapter: o.adapter,
     model,
     busybox: o.busybox,
+    environment: task.environment === true ? benchEnvironment(o.busybox) : undefined,
     files: task.files,
     prompt: task.prompt,
     timeoutMs: o.timeoutSeconds * 1000,

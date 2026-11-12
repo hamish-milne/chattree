@@ -11,6 +11,12 @@ const render = (d: typeof gemma, family: string, name: string, options: Record<s
 describe("qwen-xml rendering matches the model's own template", () => {
   for (const s of SCENARIOS) test(s, () => assert.equal(render(qwenXml, "qwen", s), fixture("qwen", s).prompt));
   test("thinking off asks for an empty think block", () => assert.ok(render(qwenXml, "qwen", "one-call", { thinking: false }).endsWith("<|im_start|>assistant\n<think>\n\n</think>\n\n")));
+  test("the instructions after the tool list can be replaced or left out", () => {
+    const given = render(qwenXml, "qwen", "one-call", { instructions: "Call like so." });
+    assert.ok(given.includes("</tools>\n\nCall like so."));
+    assert.ok(!given.includes("<IMPORTANT>"));
+    assert.ok(!render(qwenXml, "qwen", "one-call", { instructions: false }).includes("<IMPORTANT>"));
+  });
   test("keep_reasoning off leaves the replayed thinking empty", () => assert.ok(!render(qwenXml, "qwen", "reasoning-between-calls", { keep_reasoning: false }).includes("MARK-ALPHA")));
 });
 

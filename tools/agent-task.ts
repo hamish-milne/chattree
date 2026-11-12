@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { z } from "zod";
 import { nodeHost } from "../hosts/node.ts";
 import type { ModelContext } from "../harness/context-builder.ts";
+import type { HostEnvironment } from "../harness/environment.ts";
 import { Conversation } from "../harness/conversation.ts";
 import { runLoop, syncTools } from "../harness/loop.ts";
 import { envSource } from "../harness/secrets.ts";
@@ -67,6 +68,8 @@ export interface AgentTaskOptions {
   busybox?: string | undefined;
   /** Wall-clock limit for the whole task. Default 180 s. */
   timeoutMs?: number;
+  /** Tells the model the date and where it is, as a session does (the `environment` injection). */
+  environment?: HostEnvironment | undefined;
   /** Called with each request's raw run, for recording. */
   onRequest?: (run: StreamRun, context: ModelContext) => void | Promise<void>;
 }
@@ -118,7 +121,7 @@ export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult
   let status = "";
   let requests = 0;
   try {
-    const gen = runLoop(convo, { system: o.system ?? AGENT_SYSTEM, cost: false, registry, signal: AbortSignal.timeout(o.timeoutMs ?? 180_000) });
+    const gen = runLoop(convo, { system: o.system ?? AGENT_SYSTEM, cost: false, registry, environment: o.environment, signal: AbortSignal.timeout(o.timeoutMs ?? 180_000) });
     for (;;) {
       const n = await gen.next();
       if (n.done === true) {
@@ -150,4 +153,15 @@ export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult
   const answer = lastAssistant?.$tag === "assistant" ? lastAssistant.blocks.flatMap((b) => (b.$tag === "text" ? [b.text] : [])).join("") : "";
   const problems = await verifyHistory(convo).catch((e: unknown) => [String(e)]);
   return { dir, status, requests, steps, used, errors, after, read, answer, problems };
+}
+
+/** The facts a session would give the model about this machine, for tasks that depend on them. */
+export function benchEnvironment(busybox?: string): HostEnvironment {
+  const windows = process.platform === "win32";
+  return {
+    os: windows ? "Windows" : process.platform === "darwin" ? "macOS" : "Linux",
+    platform: windows ? "windows" : "posix",
+    utilities: windows && busybox !== undefined ? "`run` takes one command or pipeline in a bash-like syntax, with busybox utilities and the programs on the PATH; `script` runs a POSIX sh script with busybox." : "`run` takes one command or pipeline in a bash-like syntax, using this machine's own utilities and programs; `script` runs a POSIX sh script.",
+    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  };
 }

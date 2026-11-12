@@ -1,4 +1,5 @@
 /** Helpers for parsers that read a stream in arbitrary pieces and look for markers in it. */
+import type { SchemaNode } from "./schema-tree.ts";
 
 /** The earliest of the markers in the text, and where. */
 export function nextMarker(buf: string, markers: readonly string[]): { at: number; marker: string } | undefined {
@@ -42,19 +43,9 @@ export class Trimmer {
   }
 }
 
-type Schema = Record<string, unknown>;
-
-/** The schema of one argument of a tool, if the tool and the argument are known. */
-export function argSchema(tools: readonly { name: string; input_schema: Schema }[], tool: string, arg: string): Schema | undefined {
-  const props = tools.find((t) => t.name === tool)?.input_schema["properties"];
-  const s = typeof props === "object" && props !== null ? (props as Record<string, unknown>)[arg] : undefined;
-  return typeof s === "object" && s !== null ? (s as Schema) : undefined;
-}
-
 /** An argument written as text, as the schema says it should be: numbers, booleans and JSON structures are read; anything else stays text. */
-export function coerce(text: string, schema: Schema | undefined): unknown {
-  const t = schema?.["type"];
-  const types = Array.isArray(t) ? (t as string[]) : t === undefined ? [] : [t as string];
+export function coerce(text: string, schema: SchemaNode | undefined): unknown {
+  const types = schema?.types ?? [];
   const asJson = (): unknown => {
     try {
       return JSON.parse(text) as unknown;
@@ -62,7 +53,7 @@ export function coerce(text: string, schema: Schema | undefined): unknown {
       return text;
     }
   };
-  if (types.includes("string") || types.length === 0 && schema !== undefined) return text;
+  if (types.includes("string") || (types.length === 0 && schema !== undefined)) return text;
   if (types.includes("integer") || types.includes("number")) {
     const n = Number(text.trim());
     return text.trim() !== "" && Number.isFinite(n) ? n : text;

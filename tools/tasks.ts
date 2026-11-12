@@ -8,13 +8,15 @@ import type { AgentTaskResult } from "./agent-task.ts";
 
 export interface Task {
   name: string;
-  group: "edit" | "read" | "write" | "run" | "mixed";
+  group: "edit" | "read" | "write" | "run" | "mixed" | "context";
   files: Record<string, string>;
   prompt: string;
   /** What is wrong with the outcome, or undefined when it is right. */
   check(r: AgentTaskResult): string | undefined | Promise<string | undefined>;
   /** What the task needs besides Node and Git (`utils`: cat, grep, wc, sh and friends, which Windows has through busybox); the sampler skips it when missing. */
   needs?: "utils"[];
+  /** The model is told the date and where it is (the `environment` injection), as a session would; only tasks that depend on it say so. */
+  environment?: true;
 }
 
 const noIndent = (t: string | undefined): string | undefined => t?.split("\n").map((l) => l.trim()).join("\n");
@@ -166,3 +168,32 @@ export function available(need: "utils", busybox: string | undefined): boolean {
   void need;
   return process.platform === "win32" ? busybox !== undefined : has("sh");
 }
+
+/**
+ * Tasks that test what a dialect tells the model rather than how it calls tools (docs/local-models.md, section 9). They are not in `TASKS`:
+ * ask for them with `--group context`. They need a model's own thinking to vary with its settings, so compare arms by output tokens too.
+ */
+const monthAfter = (days: number): string => new Date(Date.now() + days * 86_400_000).toLocaleString("en-US", { month: "long" });
+export const CONTEXT_TASKS: Task[] = [
+  {
+    name: "month in a week",
+    group: "context",
+    environment: true,
+    files: {},
+    prompt: "Write the name of the month it will be one week from today into month.txt (just the name).",
+    check: async (r) => {
+      const t = (await r.read("month.txt"))?.trim();
+      return t?.toLowerCase() === monthAfter(7).toLowerCase() ? undefined : `month.txt is ${JSON.stringify(t)}, wanted ${monthAfter(7)}`;
+    },
+  },
+  {
+    name: "riddle with a twist",
+    group: "context",
+    files: {},
+    prompt: "A farmer has 17 sheep. All but 9 die, and then he buys 3 more. Write how many sheep he has now into answer.txt (just the number).",
+    check: async (r) => {
+      const t = (await r.read("answer.txt"))?.trim();
+      return t === "12" ? undefined : `answer.txt is ${JSON.stringify(t)}, wanted 12`;
+    },
+  },
+];

@@ -33,7 +33,7 @@ import { loadSettings } from "../cli/settings.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
 import { installWireLog } from "./wire-log.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
-import { available, TASKS, type Task } from "./tasks.ts";
+import { available, CONTEXT_TASKS, TASKS, type Task } from "./tasks.ts";
 
 export interface SampleOptions {
   flavor: Flavor | "local-models";
@@ -102,7 +102,7 @@ export function blur(tool: string, result: string): string {
 export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "busybox">): { run: Task[]; skipped: { task: string; why: string }[] } {
   const run: Task[] = [];
   const skipped: { task: string; why: string }[] = [];
-  for (const t of TASKS) {
+  for (const t of o.groups?.includes("context") === true ? [...TASKS, ...CONTEXT_TASKS] : TASKS) {
     if (o.tasks !== undefined && o.tasks.length > 0 && !o.tasks.some((x) => t.name.includes(x))) continue;
     if (o.groups !== undefined && o.groups.length > 0 && !o.groups.includes(t.group)) continue;
     const missing = (t.needs ?? []).filter((n) => !available(n, o.busybox));
