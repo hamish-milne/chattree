@@ -9,7 +9,9 @@ import { argNode, concreteTypes, isNullable, parseSchema, type SchemaNode } from
  * `<|tool_response>response:NAME{value:…}<tool_response|>` inside the same model turn, thinking in `<|channel>thought\n…<channel|>`.
  * Rendering reproduces the model's own template (parity tests); it departs from it in:
  *   G1  text written before a call stays before it (the template moves it after the results);
- *   G2  an object with no declared properties is declared without any (the template would list its other keys as properties).
+ *   G2  an object with no declared properties is declared without any (the template would list its other keys as properties);
+ *   G3  an array's `items` is described exactly as a property is, at any depth, and keywords the format has no word for are left out (the
+ *       template copies every key of `items` as written: `additionalProperties`, `pattern`, ... with nested types in lower case).
  * The start-of-sequence token is left to the server. Options: `thinking` (default true: `<|think|>` in the system turn);
  * `keep_reasoning` (default true): reasoning of the unfinished exchange is replayed.
  */
@@ -32,38 +34,38 @@ export function gemmaValue(v: unknown, escapeKeys: boolean): string {
 }
 
 const list = (xs: unknown[]): string => `[${xs.map((x) => `${Q}${String(x)}${Q}`).join(",")}]`;
-/** The type as the format names it: the first one that is not null, in capitals. */
-const typeName = (n: SchemaNode): string => upper(concreteTypes(n)[0] ?? (n.types.length > 0 ? "null" : undefined));
+/** The type as the format names it: the first one that is not null, in capitals; undefined when the schema names none. */
+const typeName = (n: SchemaNode): string | undefined => {
+  const t = concreteTypes(n)[0] ?? (n.types.length > 0 ? "null" : undefined);
+  return t === undefined ? undefined : upper(t);
+};
 
-/** The members of an array's `items`, which the format writes key by key (sorted) in the schema's own words, with types in capitals. */
-function items(n: SchemaNode): string {
-  const entries = sorted(n.raw).filter(([, x]) => x !== null && x !== undefined).map(([k, x]) => {
-    if (k === "properties") return `properties:{${properties(n.properties ?? [])}}`;
-    if (k === "required") return `required:${list(x as unknown[])}`;
-    if (k === "type") return `type:${Array.isArray(x) ? gemmaValue((x as unknown[]).map(upper), true) : gemmaValue(upper(x), true)}`;
-    return `${k}:${gemmaValue(x, true)}`;
-  });
-  return `items:{${entries.join(",")}}`;
+/**
+ * What the format says of one schema, between the braces: the parts it knows, in its (alphabetical) order. The same for a property and for
+ * the `items` of an array, at any depth, so nested arrays and objects read alike. Keywords the format has no word for (`pattern`, `minimum`,
+ * `additionalProperties`, ...) are left out rather than passed through: the model was not taught them, and the schema projection already
+ * puts the constraints that matter into the description.
+ */
+function describe(n: SchemaNode): string {
+  const type = typeName(n);
+  const parts: string[] = [];
+  if (n.description !== undefined && n.description !== "") parts.push(`description:${Q}${n.description}${Q}`);
+  if (n.enum !== undefined && n.enum.length > 0) parts.push(`enum:${gemmaValue(n.enum, true)}`);
+  if (n.items !== undefined && (n.items.types.length > 0 || n.items.properties !== undefined || n.items.description !== undefined || n.items.enum !== undefined)) parts.push(`items:{${describe(n.items)}}`);
+  if (isNullable(n)) parts.push("nullable:true");
+  if (type === "OBJECT") {
+    if (n.properties !== undefined) parts.push(`properties:{${properties(n.properties)}}`);
+    if (n.required.length > 0) parts.push(`required:${list(n.required)}`);
+  }
+  if (type !== undefined) parts.push(`type:${Q}${type}${Q}`);
+  return parts.join(",");
 }
 
 function properties(props: [string, SchemaNode][]): string {
   return props
     .slice()
     .sort(([a], [b]) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : a < b ? -1 : a > b ? 1 : 0))
-    .map(([key, n]) => {
-      const type = typeName(n);
-      const parts: string[] = [];
-      if (n.description !== undefined && n.description !== "") parts.push(`description:${Q}${n.description}${Q}`);
-      if (type === "STRING" && n.enum !== undefined && n.enum.length > 0) parts.push(`enum:${gemmaValue(n.enum, true)}`);
-      if (type === "ARRAY" && n.items !== undefined && Object.keys(n.items.raw).length > 0) parts.push(items(n.items));
-      if (isNullable(n)) parts.push("nullable:true");
-      if (type === "OBJECT") {
-        if (n.properties !== undefined) parts.push(`properties:{${properties(n.properties)}}`);
-        if (n.required.length > 0) parts.push(`required:${list(n.required)}`);
-      }
-      parts.push(`type:${Q}${type}${Q}`);
-      return `${key}:{${parts.join(",")}}`;
-    })
+    .map(([key, n]) => `${key}:{${describe(n)}}`)
     .join(",");
 }
 

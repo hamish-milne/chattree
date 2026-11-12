@@ -21,7 +21,17 @@ describe("qwen-xml rendering matches the model's own template", () => {
 });
 
 describe("gemma rendering matches the model's own template", () => {
-  for (const s of SCENARIOS) test(s, () => assert.equal(render(gemma, "gemma", s), fixture("gemma", s).prompt));
+  for (const s of SCENARIOS.filter((x) => x !== "nested-schema")) test(s, () => assert.equal(render(gemma, "gemma", s), fixture("gemma", s).prompt));
+  test("nested-schema differs only by the keyword the format has no word for (G3)", () => {
+    const want = fixture("gemma", "nested-schema").prompt;
+    assert.ok(want.includes("additionalProperties:false,"));
+    assert.equal(render(gemma, "gemma", "nested-schema"), want.replace("additionalProperties:false,", ""));
+  });
+  test("items are described like properties at any depth, and unknown keywords are left out", () => {
+    const tool = { name: "t", description: "d", input_schema: { type: "object", properties: { grid: { type: "array", items: { type: "array", items: { type: ["integer", "null"], enum: [1, 2], minimum: 0, pattern: "x" } } } } } };
+    const p = gemma.render({ context: { system: "", instructions: undefined, turns: [], tools: [tool], cacheHints: [] }, options: {}, effort: undefined, date: "d", provider: "p", model: "m" }).prompt;
+    assert.ok(p.includes('grid:{items:{items:{enum:[1,2],nullable:true,type:<|"|>INTEGER<|"|>},type:<|"|>ARRAY<|"|>},type:<|"|>ARRAY<|"|>}'), p);
+  });
   test("thinking off closes an empty thought", () => assert.ok(render(gemma, "gemma", "after-final-answer", { thinking: false }).endsWith("<|turn>model\n<|channel>thought\n<channel|>")));
 });
 

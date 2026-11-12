@@ -14,7 +14,7 @@ import { runLoop, syncTools } from "../harness/loop.ts";
 import { envSource } from "../harness/secrets.ts";
 import type { AgentSetup } from "../harness/setup.ts";
 import { leafTools } from "../harness/starter/index.ts";
-import { ToolRegistry } from "../harness/tools.ts";
+import { ToolRegistry, type Tool } from "../harness/tools.ts";
 import { verifyHistory } from "../harness/verify.ts";
 import type { StreamRun } from "../providers/conformance.ts";
 import { AdapterRegistry, defineAdapter } from "../providers/registry.ts";
@@ -68,6 +68,8 @@ export interface AgentTaskOptions {
   busybox?: string | undefined;
   /** Wall-clock limit for the whole task. Default 180 s. */
   timeoutMs?: number;
+  /** Tools offered besides the starter ones. */
+  extraTools?: readonly Tool[] | undefined;
   /** Tells the model the date and where it is, as a session does (the `environment` injection). */
   environment?: HostEnvironment | undefined;
   /** Called with each request's raw run, for recording. */
@@ -97,7 +99,7 @@ export interface AgentTaskResult {
 export const AGENT_SYSTEM = "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.";
 
 export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult> {
-  const registry = new ToolRegistry(leafTools({ busybox: o.busybox }));
+  const registry = new ToolRegistry([...leafTools({ busybox: o.busybox }), ...(o.extraTools ?? [])]);
   const live = new AdapterRegistry().register(
     defineAdapter({
       $tag: "live",
