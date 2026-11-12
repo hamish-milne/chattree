@@ -80,7 +80,7 @@ async function run(acts: string[], settings: object = { dialect: "toy" }, status
 
 describe("a model with a dialect", () => {
   test("is sent the rendered prompt to /completion, with the sampling, the stop strings and special tokens on", async () => {
-    const { result, server } = await run([chunk({ content: "ok", stop: false }), last()], { dialect: "toy", dialect_options: { tag: "T" }, reasoning_effort: "high", temperature: 0.5, stop: ["X"], extra: { top_k: 20, prompt: "no" } });
+    const { result, server } = await run([chunk({ content: "ok", stop: false }), last()], { dialect: "toy", dialect_options: { tag: "T" }, reasoning_effort: "high", temperature: 0.5, stop: ["X"], extra: { top_k: 20, prompt: "no", cache_prompt: false } });
     assert.equal(result.error, undefined);
     assert.equal(server.seen[0]!.url, "/completion");
     const body = JSON.parse(server.seen[0]!.body) as Record<string, unknown>;
@@ -89,7 +89,7 @@ describe("a model with a dialect", () => {
     assert.equal(body["n_predict"], 99);
     assert.equal(body["temperature"], 0.5);
     assert.equal(body["top_k"], 20);
-    assert.equal(body["cache_prompt"], true);
+    assert.equal(body["cache_prompt"], false);
     assert.equal(body["special"], true);
     assert.equal(body["stream"], true);
     assert.equal(body["model"], "qwen");

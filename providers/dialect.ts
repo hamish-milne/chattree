@@ -155,7 +155,7 @@ export class Assembler {
 // ---- the /completion transport ------------------------------------------------------------------------------------
 
 type Json = Record<string, unknown>;
-const OWNED = new Set(["model", "prompt", "stream", "n_predict", "stop", "cache_prompt", "special"]);
+const OWNED = new Set(["model", "prompt", "stream", "n_predict", "stop", "special"]);
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
 export interface CompletionOptions {
@@ -216,6 +216,7 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       const stop = [...(s.stop ?? []), ...r.stop];
       if (stop.length > 0) body["stop"] = stop;
       for (const k of ["temperature", "top_p", "seed"] as const) if (s[k] !== undefined) body[k] = s[k];
+      // `extra` may switch the server's prompt cache off (`cache_prompt: false`) or add any sampler key; it cannot replace what the dialect owns.
       for (const [k, v] of Object.entries(s.extra ?? {})) if (!OWNED.has(k)) body[k] = v;
       return { url: `${opts.baseUrl.replace(/\/$/, "")}/completion`, headers: { "content-type": "application/json", accept: "text/event-stream" }, body };
     },
