@@ -37,6 +37,8 @@ export interface CallCodec {
   peek(partial: string): string | undefined;
   /** Whether a body that was cut off is whole anyway (the arguments are all there). */
   complete?(body: string): boolean;
+  /** Markers inside the body that are tokens of their own (a separator). */
+  markers?: readonly string[];
 }
 
 export interface FamilySpec {
@@ -183,6 +185,7 @@ export function nameThenJson(t: { sep: string; name?: (c: { name: string; id: st
       return { name, raw };
     },
     complete: () => true,
+    markers: [t.sep],
   };
 }
 
@@ -357,5 +360,7 @@ export function familyParser(spec: FamilySpec, tools: Tools, prompt: string): Pa
 
 /** A dialect from its declaration. */
 export function defineFamily(spec: FamilySpec): Dialect {
-  return { id: spec.id, render: (input) => renderFamily(spec, input), parser: (_options, tools, prompt) => familyParser(spec, tools, prompt) };
+  const c = spec.call;
+  const markers = [c.start, c.end, c.section?.open, c.section?.close, spec.think?.open, spec.think?.close, ...(c.codec.markers ?? [])].flatMap((m) => (m === undefined || m.trim() === "" ? [] : [m.trim()]));
+  return { id: spec.id, render: (input) => renderFamily(spec, input), parser: (_options, tools, prompt) => familyParser(spec, tools, prompt), markers: [...new Set(markers)] };
 }

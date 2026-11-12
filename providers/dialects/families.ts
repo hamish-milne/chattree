@@ -14,8 +14,8 @@ import { spacedJson } from "./scan.ts";
  *   kimi      Kimi K2: calls carry ids `functions.NAME:N`, which we number as Moonshot's API does; results are headed by them;
  *   deepseek  DeepSeek V3.1, non-thinking (the only mode its calls are defined for): its template does not render the tools, so the
  *             list is written as the model card says; the model carries on after tool outputs with no turn marker of its own;
- *   glm47     GLM-4.7 (and Flash): the same tags with no newlines, and the prompt ends inside `<think>`;
- *   glm       GLM-4.5 and 4.6: a tag for each argument, `<think></think>` stands for reasoning that is not replayed;
+ *   glm       GLM-4.7 and later (Flash too): a tag for each argument with no newlines, and the prompt ends inside `<think>`;
+ *   glm46     GLM-4.5 and 4.6: the same tags with newlines between them, `<think></think>` stands for reasoning that is not replayed;
  *   minimax   MiniMax-M2: `<invoke>` calls in a `<minimax:tool_call>` section; always thinks.
  */
 
@@ -90,10 +90,10 @@ const deepseek: FamilySpec = {
   think: { open: "<think>", close: "</think>", start: "<think>", skip: "</think>", absent: "</think>", never: true, default: false },
 };
 
-// ---- GLM-4.5 / 4.6 -----------------------------------------------------------------------------------------------------
+// ---- GLM-4.5 / 4.6 (glm46) -----------------------------------------------------------------------------------------------------
 
-const glm: FamilySpec = {
-  id: "glm",
+const glm46: FamilySpec = {
+  id: "glm46",
   head: ({ system, tools }) =>
     `[gMASK]<sop>${tools.length === 0 ? "" : `<|system|>\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n${tools.map((t) => `${spacedJson(tool(t))}\n`).join("")}</tools>\n\nFor each function call, output the function name and arguments within the following XML format:\n<tool_call>{function-name}\n<arg_key>{arg-key-1}</arg_key>\n<arg_value>{arg-value-1}</arg_value>\n<arg_key>{arg-key-2}</arg_key>\n<arg_value>{arg-value-2}</arg_value>\n...\n</tool_call>`}${system === "" ? "" : `<|system|>\n${system}`}`,
   user: { open: "<|user|>\n", close: "" },
@@ -105,9 +105,9 @@ const glm: FamilySpec = {
 
 // ---- GLM-4.7 ------------------------------------------------------------------------------------------------------------
 
-/** GLM-4.7's template drops every newline of 4.5/4.6's: `<|user|>text`, `<tool_call>name<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>`, `<tool_response>…</tool_response>`. */
-const glm47: FamilySpec = {
-  id: "glm47",
+/** GLM-4.7 and later: the template drops every newline of 4.5/4.6's (`glm46`): `<|user|>text`, `<tool_call>name<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>`, `<tool_response>…</tool_response>`. */
+const glm: FamilySpec = {
+  id: "glm",
   head: ({ system, tools }) =>
     `[gMASK]<sop>${tools.length === 0 ? "" : `<|system|>\n# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>\n${tools.map((t) => `${spacedJson(tool(t))}\n`).join("")}</tools>\n\nFor each function call, output the function name and arguments within the following XML format:\n<tool_call>{function-name}<arg_key>{arg-key-1}</arg_key><arg_value>{arg-value-1}</arg_value><arg_key>{arg-key-2}</arg_key><arg_value>{arg-value-2}</arg_value>...</tool_call>`}${system === "" ? "" : `<|system|>${system}`}`,
   user: { open: "<|user|>", close: "" },
@@ -142,8 +142,8 @@ export const hermesDialect: Dialect = defineFamily(hermes);
 export const mistralDialect: Dialect = defineFamily(mistral);
 export const kimiDialect: Dialect = defineFamily(kimi);
 export const deepseekDialect: Dialect = defineFamily(deepseek);
+export const glm46Dialect: Dialect = defineFamily(glm46);
 export const glmDialect: Dialect = defineFamily(glm);
-export const glm47Dialect: Dialect = defineFamily(glm47);
 export const minimaxDialect: Dialect = defineFamily(minimax);
 
-export const familyDialects = (): Dialect[] => [hermesDialect, mistralDialect, kimiDialect, deepseekDialect, glmDialect, glm47Dialect, minimaxDialect];
+export const familyDialects = (): Dialect[] => [hermesDialect, mistralDialect, kimiDialect, deepseekDialect, glm46Dialect, glmDialect, minimaxDialect];

@@ -200,3 +200,42 @@ describe("the assembler", () => {
     assert.deepEqual(reg.check(a.blocks[0] as never), { error: "say this" });
   });
 });
+
+describe("a special token the server gives no text", () => {
+  // llama-server sends a token its vocabulary marks unused as an empty piece even with `special` on (the Mistral GGUFs do it for [TOOL_CALLS] and [ARGS]),
+  // but the chunk still names the token, so the transport finds the id with /tokenize and puts the text back.
+  const marked: Dialect = { ...toy, id: "marked", markers: ["[[", "]]"] };
+  const sse = (acts: string[]) => ({ status: 200, headers: { "content-type": "text/event-stream" }, acts });
+  test("the text of a marker comes back from its id", async () => {
+    const server = await FakeServer.start((_n, req) => {
+      if (req.url === "/tokenize") return { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ tokens: [(JSON.parse(req.body) as { content: string }).content === "[[" ? 9 : 32] })] };
+      return sse([chunk({ content: "", tokens: [9], stop: false }), chunk({ content: "read ", tokens: [5], stop: false }), chunk({ content: '{"path": "a"}', tokens: [6], stop: false }), chunk({ content: "", tokens: [32], stop: false }), last()]);
+    });
+    try {
+      const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" })).get("local-models")!;
+      const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+      const result = await collectStream(adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }));
+      assert.equal(result.error, undefined);
+      assert.equal(server.seen.filter((r) => r.url === "/tokenize").length, 2);
+      assert.equal(server.seen.at(-1)!.url, "/completion");
+      assert.equal((JSON.parse(server.seen.at(-1)!.body) as Record<string, unknown>)["return_tokens"], true);
+      const call = result.completed!.blocks[0] as { name: string; args: unknown };
+      assert.equal(call.name, "read");
+      assert.deepEqual(call.args, { path: "a" });
+    } finally {
+      await server.close();
+    }
+  });
+  test("a server that cannot tokenize leaves the stream as it is", async () => {
+    const server = await FakeServer.start((_n, req) => (req.url === "/tokenize" ? { status: 404, acts: ["no"] } : sse([chunk({ content: "plain", tokens: [5], stop: false }), last()])));
+    try {
+      const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" })).get("local-models")!;
+      const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+      const result = await collectStream(adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }));
+      assert.equal(result.error, undefined);
+      assert.deepEqual(result.completed!.blocks, [{ type: "text", text: "plain" }]);
+    } finally {
+      await server.close();
+    }
+  });
+});

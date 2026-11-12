@@ -10,4 +10,29 @@ You are provided with function signatures within <tools></tools> XML tags:
 </tools>
 
 For each function call, output the function name and arguments within the following XML format:
-<tool_call>{function-name}<arg_key>{arg-key-1}</arg_key><arg_value>{arg-value-1}</arg_value><arg_key>{arg-key-2}</arg_key><arg_value>{arg-value-2}</arg_value>...</tool_call><|system|>You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|user|>What is 2 + 2?<|assistant|></think>4.<|user|>And 9 / 2?<|assistant|><think>
+<tool_call>{function-name}
+<arg_key>{arg-key-1}</arg_key>
+<arg_value>{arg-value-1}</arg_value>
+<arg_key>{arg-key-2}</arg_key>
+<arg_value>{arg-value-2}</arg_value>
+...
+</tool_call><|system|>
+You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|user|>
+Read a.txt and b.txt.<|assistant|>
+<think></think>
+<tool_call>read
+<arg_key>path</arg_key>
+<arg_value>a.txt</arg_value>
+</tool_call>
+<tool_call>read
+<arg_key>path</arg_key>
+<arg_value>b.txt</arg_value>
+</tool_call><|observation|>
+<tool_response>
+=== a.txt (1 line, version 11111111) ===
+1	alpha
+</tool_response>
+<tool_response>
+=== b.txt (1 line, version 22222222) ===
+1	beta
+</tool_response><|assistant|>

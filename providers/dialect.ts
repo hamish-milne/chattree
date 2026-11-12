@@ -58,6 +58,12 @@ export interface Dialect {
   render(input: RenderInput): Rendered;
   /** `tools` give the types of arguments a format writes as text; `prompt` is what was rendered, whose ending says whether the model starts inside its thinking. */
   parser(options: Record<string, unknown>, tools: readonly ToolDefinition[], prompt: string): Parser;
+  /**
+   * The special tokens the parser looks for, as text. A server may give a special token no text even when asked to (llama-server does for
+   * a token its vocabulary marks unused, as the Mistral GGUFs do for `[TOOL_CALLS]` and `[ARGS]`), so the transport finds their ids with
+   * `/tokenize` and puts the text back where a chunk carries that id and no text.
+   */
+  markers?: readonly string[];
 }
 
 export class DialectRegistry {
@@ -161,7 +167,7 @@ export class Assembler {
 // ---- the /completion transport ------------------------------------------------------------------------------------
 
 type Json = Record<string, unknown>;
-const OWNED = new Set(["model", "prompt", "stream", "n_predict", "stop", "special"]);
+const OWNED = new Set(["model", "prompt", "stream", "n_predict", "stop", "special", "return_tokens"]);
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
 export interface CompletionOptions {
@@ -173,9 +179,13 @@ export interface CompletionOptions {
   modelName: (setupModelId: string) => string;
   observe: (requested: string) => string | undefined;
   newId?: () => string;
+  /** For `/tokenize` (default: the global fetch). */
+  fetch?: typeof fetch;
 }
 
 interface State {
+  /** Token ids of the dialect's markers, to put their text back where the server left it out. */
+  markers: ReadonlyMap<number, string>;
   parser: Parser;
   assembler: Assembler;
   started: boolean;
@@ -202,14 +212,42 @@ export interface DialectSettings {
   dialect_options?: Record<string, unknown> | undefined;
 }
 
+const markerCache = new Map<string, Promise<Map<number, string>>>();
+
+/** The ids of the markers that are single tokens, by `/tokenize`; a marker the server cannot say is left out, and nothing here fails a request. */
+async function markerTokens(base: string, model: string, markers: readonly string[], doFetch: typeof fetch): Promise<Map<number, string>> {
+  const key = `${base}\u0000${model}\u0000${markers.join("\u0000")}`;
+  const known = markerCache.get(key);
+  if (known !== undefined) return known;
+  const found = (async () => {
+    const out = new Map<number, string>();
+    await Promise.all(
+      markers.map(async (m) => {
+        try {
+          const res = await doFetch(`${base.replace(/\/$/, "")}/tokenize`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, content: m, add_special: false, parse_special: true }), signal: AbortSignal.timeout(5000) });
+          if (!res.ok) return;
+          const tokens = ((await res.json()) as { tokens?: unknown }).tokens;
+          if (Array.isArray(tokens) && tokens.length === 1 && typeof tokens[0] === "number") out.set(tokens[0], m);
+        } catch {
+          /* the marker's text is then only what the server sends */
+        }
+      }),
+    );
+    return out;
+  })();
+  markerCache.set(key, found);
+  return found;
+}
+
 export function completionMapper(opts: CompletionOptions, settings: (req: StreamRequest) => DialectSettings): HttpMapper<State> {
   const rendered = new WeakMap<StreamRequest, Rendered>();
+  const markerIds = new WeakMap<StreamRequest, Map<number, string>>();
   const renderFor = (req: StreamRequest, s: DialectSettings): Rendered => {
     const served = servedModelId(req.setup.model!);
     return opts.dialects.get(s.dialect).render({ context: req.context, options: s.dialect_options ?? {}, effort: s.reasoning_effort, date: opts.today(), provider: req.setup.model!.provider, model: served });
   };
   return {
-    request(req: StreamRequest): HttpRequestSpec {
+    async request(req: StreamRequest): Promise<HttpRequestSpec> {
       const s = settings(req);
       if (req.setup.model === undefined) throw new ProviderError({ kind: "invalid_request", message: "the agent has no model" });
       for (const t of req.context.turns) {
@@ -218,7 +256,9 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       const served = servedModelId(req.setup.model);
       const r = renderFor(req, s);
       rendered.set(req, r);
-      const body: Json = { model: opts.modelName(served), prompt: r.prompt, stream: true, cache_prompt: true, special: true, n_predict: s.max_output_tokens };
+      const markers = opts.dialects.get(s.dialect).markers ?? [];
+      if (markers.length > 0) markerIds.set(req, await markerTokens(opts.baseUrl, opts.modelName(served), markers, opts.fetch ?? fetch));
+      const body: Json = { model: opts.modelName(served), prompt: r.prompt, stream: true, cache_prompt: true, special: true, return_tokens: true, n_predict: s.max_output_tokens };
       const stop = [...(s.stop ?? []), ...r.stop];
       if (stop.length > 0) body["stop"] = stop;
       for (const k of ["temperature", "top_p", "seed"] as const) if (s[k] !== undefined) body[k] = s[k];
@@ -230,6 +270,7 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       const s = settings(req);
       const served = servedModelId(req.setup.model!);
       return {
+        markers: markerIds.get(req) ?? new Map(),
         parser: opts.dialects.get(s.dialect).parser(s.dialect_options ?? {}, req.context.tools, (rendered.get(req) ?? renderFor(req, s)).prompt),
         assembler: new Assembler(req.setup.model!.provider, opts.newId),
         started: false,
@@ -263,7 +304,10 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
         const model = opts.observe(s.requested);
         if (model !== undefined) events.push({ type: "observed", observed: { model } });
       }
-      if (typeof d["content"] === "string" && d["content"] !== "") events.push(...s.assembler.feed(s.parser.push(d["content"])));
+      let content = typeof d["content"] === "string" ? d["content"] : "";
+      const ids = d["tokens"];
+      if (content === "" && Array.isArray(ids) && ids.length === 1) content = s.markers.get(ids[0] as number) ?? "";
+      if (content !== "") events.push(...s.assembler.feed(s.parser.push(content)));
       if (d["stop"] === true) {
         s.done = true;
         s.stopType = typeof d["stop_type"] === "string" ? d["stop_type"] : undefined;

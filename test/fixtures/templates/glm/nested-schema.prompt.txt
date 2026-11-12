@@ -9,12 +9,4 @@ You are provided with function signatures within <tools></tools> XML tags:
 </tools>
 
 For each function call, output the function name and arguments within the following XML format:
-<tool_call>{function-name}
-<arg_key>{arg-key-1}</arg_key>
-<arg_value>{arg-value-1}</arg_value>
-<arg_key>{arg-key-2}</arg_key>
-<arg_value>{arg-value-2}</arg_value>
-...
-</tool_call><|system|>
-You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|user|>
-Record an order for Ada: two of SKU-1 with options gift and rush, and one SKU-9.<|assistant|>
+<tool_call>{function-name}<arg_key>{arg-key-1}</arg_key><arg_value>{arg-value-1}</arg_value><arg_key>{arg-key-2}</arg_key><arg_value>{arg-value-2}</arg_value>...</tool_call><|system|>You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|user|>Record an order for Ada: two of SKU-1 with options gift and rush, and one SKU-9.<|assistant|><think>

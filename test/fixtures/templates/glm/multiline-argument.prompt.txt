@@ -10,29 +10,10 @@ You are provided with function signatures within <tools></tools> XML tags:
 </tools>
 
 For each function call, output the function name and arguments within the following XML format:
-<tool_call>{function-name}
-<arg_key>{arg-key-1}</arg_key>
-<arg_value>{arg-value-1}</arg_value>
-<arg_key>{arg-key-2}</arg_key>
-<arg_value>{arg-value-2}</arg_value>
-...
-</tool_call><|system|>
-You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|user|>
-Write hello.py<|assistant|>
-<think></think>
-<tool_call>write
-<arg_key>path</arg_key>
-<arg_value>hello.py</arg_value>
-<arg_key>content</arg_key>
-<arg_value>def greet(name):
+<tool_call>{function-name}<arg_key>{arg-key-1}</arg_key><arg_value>{arg-value-1}</arg_value><arg_key>{arg-key-2}</arg_key><arg_value>{arg-value-2}</arg_value>...</tool_call><|system|>You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.<|user|>Write hello.py<|assistant|></think><tool_call>write<arg_key>path</arg_key><arg_value>hello.py</arg_value><arg_key>content</arg_key><arg_value>def greet(name):
     """Say "hello" to name."""
     print(f"hello, {name}!\n")
 
 if __name__ == "__main__":
     greet("world")
-</arg_value>
-</tool_call><|observation|>
-<tool_response>
-wrote hello.py (6 lines)
-</tool_response><|user|>
-Now read it back.<|assistant|>
+</arg_value></tool_call><|observation|><tool_response>wrote hello.py (6 lines)</tool_response><|user|>Now read it back.<|assistant|><think>
