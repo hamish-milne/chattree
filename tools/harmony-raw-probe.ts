@@ -10,7 +10,7 @@
  * `run` and `script` are not offered, so the shell and Python can only be reached through the tools under test. Nothing here is part of chattree's dialects: the probe's own dialect renders the built-ins (and writes earlier calls to them the same
  * way, which is a guess at the format, so judge the first request of each sample first).
  *
- *   node tools/harmony-raw-probe.ts --model gpt-oss [--repeat 10] [--out DIR] [--busybox PATH] [--yes]
+ *   node tools/harmony-raw-probe.ts --model gpt-oss [--repeat 10] [--only TEXT]... [--out DIR] [--busybox PATH] [--yes]
  */
 import { spawnSync } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -34,6 +34,14 @@ const BASH = `## bash
 Use this tool to run shell commands. When you send a message containing a shell command to bash, it will be executed in the workspace directory, and bash will respond with the command's output or time out after 60.0 seconds.`;
 
 const PROSE: Record<string, string> = { python: PYTHON, bash: BASH };
+
+const FUNCTIONS_LINE = "\nCalls to these tools must go to the commentary channel: 'functions'.";
+
+/** What the developer block says about how to call the tools, when an arm gives guidance. */
+const guidance = (kind: string, names: string[]): string =>
+  kind === "builtin"
+    ? `Built-in tools: ${names.join(", ")}. Call a built-in tool on the analysis channel with the recipient set to its name (to=${names[0]}), and send the code or command itself as the message: bare text, no JSON, no quotes around it. Call every other tool on the commentary channel with to=functions.NAME and JSON-encoded arguments.`
+    : `Call every tool, including ${names.join(" and ")}, on the commentary channel with to=functions.NAME and JSON-encoded arguments, as its declaration says.`;
 
 const pythonTool = ordinaryTools[0] as Tool;
 
@@ -75,12 +83,16 @@ export const probeDialect: Dialect = {
     const builtins = Object.keys((input.options["builtins"] ?? {}) as Record<string, unknown>);
     const strings = (input.options["strings"] ?? []) as string[];
     const visible = input.context.tools.filter((t) => !builtins.includes(t.name));
-    let { prompt, stop } = renderHarmony({ ...input, context: { ...input.context, tools: visible }, options: {} });
+    const kind = input.options["guidance"];
+    const told = typeof kind === "string" ? guidance(kind, kind === "builtin" ? builtins : (input.context.tools.map((t) => t.name).filter((n) => n === "python" || n === "bash"))) : undefined;
+    const instructions = [input.context.instructions ?? "", told ?? ""].filter((x) => x !== "").join("\n\n");
+    let { prompt, stop } = renderHarmony({ ...input, context: { ...input.context, instructions: instructions === "" ? undefined : instructions, tools: visible }, options: {} });
+    if (input.options["no_functions_line"] === true) prompt = prompt.replace(FUNCTIONS_LINE, "");
     if (builtins.length > 0) prompt = prompt.replace("\n\n# Valid channels:", `\n\n# Tools\n\n${builtins.map((b) => PROSE[b]).join("\n\n")}\n\n# Valid channels:`);
     for (const b of builtins) {
-      // An earlier call to a built-in: on analysis, to=NAME, the code bare; its result from NAME on analysis (a guess at the format).
+      // An earlier call to a built-in: on analysis, to=NAME, the code bare after the word `code` the model writes there; its result from NAME on analysis (a guess at the format).
       prompt = prompt
-        .replace(new RegExp(`<\\|start\\|>assistant<\\|channel\\|>commentary to=functions\\.${b} <\\|constrain\\|>json<\\|message\\|>([\\s\\S]*?)<\\|call\\|>`, "g"), (_m, body: string) => `<|start|>assistant<|channel|>analysis to=${b}<|message|>${bare(body)}<|call|>`)
+        .replace(new RegExp(`<\\|start\\|>assistant<\\|channel\\|>commentary to=functions\\.${b} <\\|constrain\\|>json<\\|message\\|>([\\s\\S]*?)<\\|call\\|>`, "g"), (_m, body: string) => `<|start|>assistant<|channel|>analysis to=${b} code<|message|>${bare(body)}<|call|>`)
         .replaceAll(`<|start|>functions.${b} to=assistant<|channel|>commentary<|message|>`, `<|start|>${b} to=assistant<|channel|>analysis<|message|>`);
     }
     for (const s of strings) {
@@ -123,6 +135,7 @@ interface Arm {
 }
 
 const ARMS: Arm[] = [
+  // Without help.
   { label: "python as built-in", options: { builtins: { python: true } }, tools: [pythonTool], tasks: ["python"] },
   { label: "bash as built-in (ours)", options: { builtins: { bash: true } }, tools: [bashTool], tasks: ["bash"] },
   { label: "python and bash as built-ins", options: { builtins: { python: true, bash: true } }, tools: [pythonTool, bashTool], tasks: ["python", "bash"] },
@@ -130,6 +143,17 @@ const ARMS: Arm[] = [
   { label: "python as function, object argument", options: {}, tools: [pythonTool], tasks: ["python"] },
   { label: "bash as function, string argument", options: { strings: ["bash"] }, tools: [bashTool], tasks: ["bash"] },
   { label: "bash as function, object argument", options: {}, tools: [bashTool], tasks: ["bash"] },
+  // Without the line that sends every call to the commentary channel.
+  { label: "python as built-in, no functions line", options: { builtins: { python: true }, no_functions_line: true }, tools: [pythonTool], tasks: ["python"] },
+  { label: "bash as built-in, no functions line", options: { builtins: { bash: true }, no_functions_line: true }, tools: [bashTool], tasks: ["bash"] },
+  // Told how to call them.
+  { label: "python as built-in, told", options: { builtins: { python: true }, guidance: "builtin" }, tools: [pythonTool], tasks: ["python"] },
+  { label: "bash as built-in, told", options: { builtins: { bash: true }, guidance: "builtin" }, tools: [bashTool], tasks: ["bash"] },
+  { label: "python as built-in, told, no functions line", options: { builtins: { python: true }, guidance: "builtin", no_functions_line: true }, tools: [pythonTool], tasks: ["python"] },
+  { label: "bash as built-in, told, no functions line", options: { builtins: { bash: true }, guidance: "builtin", no_functions_line: true }, tools: [bashTool], tasks: ["bash"] },
+  { label: "python and bash as built-ins, told", options: { builtins: { python: true, bash: true }, guidance: "builtin" }, tools: [pythonTool, bashTool], tasks: ["python", "bash"] },
+  { label: "python as function, told JSON", options: { guidance: "functions" }, tools: [pythonTool], tasks: ["python"] },
+  { label: "bash as function, told JSON", options: { guidance: "functions" }, tools: [bashTool], tasks: ["bash"] },
 ];
 
 export interface Message {
@@ -173,11 +197,11 @@ interface Sample {
   calls: Message[];
 }
 
-function args(argv: readonly string[]): { model: string; repeat: number; out: string | undefined; yes: boolean; busybox: string | undefined } {
+function args(argv: readonly string[]): { model: string; repeat: number; out: string | undefined; yes: boolean; busybox: string | undefined; only: string[] } {
   const v = (f: string): string | undefined => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
   const model = v("--model");
   if (model === undefined) throw new Error("--model is required: a gpt-oss name from local_models in the settings file");
-  return { model, repeat: Number(v("--repeat") ?? 10), out: v("--out"), yes: argv.includes("--yes"), busybox: v("--busybox") };
+  return { model, repeat: Number(v("--repeat") ?? 10), out: v("--out"), yes: argv.includes("--yes"), busybox: v("--busybox"), only: argv.flatMap((a, i) => (a === "--only" ? [argv[i + 1] as string] : [])) };
 }
 
 const tally = (xs: (string | undefined)[]): string => {
@@ -195,8 +219,9 @@ async function main(): Promise<void> {
   const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, probeDialect] }).create({ $tag: "local-models" }, { get: () => undefined });
   const sampling = samplingSettings((await lookupSampling(io, o.model)).values) as Record<string, unknown>;
   const samples: Sample[] = [];
+  const arms = ARMS.filter((a) => o.only.length === 0 || o.only.some((x) => a.label.includes(x)));
   for (let n = 1; n <= o.repeat; n++) {
-    for (const arm of ARMS) {
+    for (const arm of arms) {
       for (const key of arm.tasks) {
         const task = TASKS[key] as Task;
         raws.length = 0;
@@ -210,7 +235,7 @@ async function main(): Promise<void> {
     }
   }
   const lines = ["| arm | task | right | first call: channel, recipient | constrain | word before message | body (JSON object / bare) | other tools used |", "|---|---|---|---|---|---|---|---|"];
-  for (const arm of ARMS) {
+  for (const arm of arms) {
     for (const key of arm.tasks) {
       const task = TASKS[key] as Task;
       const mine = samples.filter((s) => s.arm === arm.label && s.task === task.name);
