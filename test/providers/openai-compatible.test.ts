@@ -95,6 +95,18 @@ describe("request body", () => {
     assert.equal(b["tools"], undefined);
   });
 
+  test('replay_reasoning "turn" sends only what the same model wrote since the last user message', () => {
+    const a = (model: string, text: string) => ({ role: "assistant" as const, provider: "local", model, blocks: [{ type: "reasoning" as const, provider: "local", visible: text }, { type: "tool_call" as const, call_id: text, name: "t", args: {} }] });
+    const u = (text: string) => ({ role: "user" as const, parts: [{ type: "text" as const, text }] });
+    const turns: ModelContext["turns"] = [u("one"), a("qwen3:4b@aaaa1111", "old"), u("two"), a("qwen3:4b@bbbb2222", "mine"), a("other-model@cccc3333", "theirs"), a("qwen3:4b", "again")];
+    const sent = (mode: unknown) => (buildChatBody(ctx({ turns }), setupFor({ max_output_tokens: 5, replay_reasoning: mode }), opts)["messages"] as { reasoning_content?: string }[]).flatMap((m) => (m.reasoning_content === undefined ? [] : [m.reasoning_content]));
+    assert.deepEqual(sent("turn"), ["mine", "again"]);
+    assert.deepEqual(sent(true), ["old", "mine", "theirs", "again"]);
+    assert.deepEqual(sent(false), []);
+    assert.deepEqual(parseCompatibleSettings({ max_output_tokens: 1, replay_reasoning: "turn" }).replay_reasoning, "turn");
+    assert.throws(() => parseCompatibleSettings({ max_output_tokens: 1, replay_reasoning: "always" }));
+  });
+
   test("an empty system prompt leaves the system message out; images, PDFs and a missing model never reach the network", async () => {
     assert.equal((buildChatBody(ctx({ system: "" }), setupFor(), opts)["messages"] as unknown[]).length, 1);
     const img = ctx({ turns: [{ role: "user", parts: [{ type: "text", text: "look" }, { type: "attachment", kind: "image", name: "a.png", mime: "image/png", sha256: "a".repeat(64), bytes: new Uint8Array([1, 2, 3]) }] }] });

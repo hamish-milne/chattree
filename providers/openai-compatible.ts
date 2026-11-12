@@ -34,10 +34,12 @@ export const compatibleSettings = z.strictObject({
   /** `reasoning_effort`, for servers and models that take it. Changing it changes what the server computes, so it counts as a cache break. */
   reasoning_effort: z.string().min(1).optional(),
   /**
-   * Send the model's earlier reasoning back (as `reasoning_content`) with each assistant message. Default false: most
-   * chat templates drop it, and a few (those that expect it next to tool calls) need it.
+   * Send the model's earlier reasoning back (as `reasoning_content`) with the assistant messages. `"turn"`: only what the same model
+   * wrote since the last user message, which is where it matters (between tool calls) and what model makers say to send; `true`: all of
+   * it, for the template to sort out; `false` (the default): none, as most chat templates drop it and a few (those that expect it next
+   * to tool calls) need it.
    */
-  replay_reasoning: z.boolean().optional(),
+  replay_reasoning: z.union([z.boolean(), z.literal("turn")]).optional(),
   /**
    * Reasoning that a server leaves inline in the text as `<think>…</think>`. `auto` (the default) looks only at the very start
    * of each response and costs nothing when there is no tag; `off` never splits (use it if answers may begin with a literal
@@ -87,7 +89,7 @@ export function buildChatBody(ctx: ModelContext, setup: AgentSetup, opts: Reques
   const s = parseCompatibleSettings(setup.model.settings);
   const body: Json = { model: opts.modelName?.(servedModelId(setup.model)) ?? servedModelId(setup.model), stream: true, [opts.maxTokensParam]: s.max_output_tokens };
   if (opts.includeUsage) body["stream_options"] = { include_usage: true };
-  body["messages"] = toMessages(ctx, s.replay_reasoning === true);
+  body["messages"] = toMessages(ctx, s.replay_reasoning ?? false, { provider: setup.model.provider, model: servedModelId(setup.model) });
   if (ctx.tools.length > 0) body["tools"] = ctx.tools.map(toTool);
   for (const k of ["temperature", "top_p", "stop", "seed", "reasoning_effort"] as const) if (s[k] !== undefined) body[k] = s[k];
   for (const [k, v] of Object.entries(s.extra ?? {})) if (!OWNED.has(k)) body[k] = v;
@@ -96,11 +98,13 @@ export function buildChatBody(ctx: ModelContext, setup: AgentSetup, opts: Reques
 
 const toTool = (t: ToolDefinition): Json => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } });
 
-function toMessages(ctx: ModelContext, replayReasoning: boolean): Json[] {
+function toMessages(ctx: ModelContext, replay: boolean | "turn", who: { provider: string; model: string }): Json[] {
   const out: Json[] = [];
+  const turns = ctx.turns as readonly Turn[];
+  const lastUser = turns.map((t) => t.role).lastIndexOf("user");
   const system = [ctx.system, ctx.instructions ?? ""].filter((x) => x !== "").join("\n\n");
   if (system !== "") out.push({ role: "system", content: system });
-  for (const t of ctx.turns as readonly Turn[]) {
+  for (const [i, t] of turns.entries()) {
     if (t.role === "user") {
       for (const p of t.parts) {
         if (p.type === "attachment" && p.kind === "pdf") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "a PDF"} cannot be sent: Chat Completions has no portable PDF input; send its text instead` });
@@ -112,7 +116,8 @@ function toMessages(ctx: ModelContext, replayReasoning: boolean): Json[] {
     } else {
       const text = t.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
       const calls = t.blocks.flatMap((b) => (b.type === "tool_call" ? [{ id: b.call_id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.args) } }] : []));
-      const reasoning = replayReasoning ? t.blocks.flatMap((b) => (b.type === "reasoning" && b.visible !== undefined && b.visible !== "" ? [b.visible] : [])).join("") : "";
+      const replayHere = replay === true || (replay === "turn" && i > lastUser && t.provider === who.provider && t.model.split("@")[0] === who.model.split("@")[0]);
+      const reasoning = replayHere ? t.blocks.flatMap((b) => (b.type === "reasoning" && b.visible !== undefined && b.visible !== "" ? [b.visible] : [])).join("") : "";
       if (text === "" && calls.length === 0) continue;
       out.push({ role: "assistant", content: text === "" ? null : text, ...(reasoning === "" ? {} : { reasoning_content: reasoning }), ...(calls.length === 0 ? {} : { tool_calls: calls }) });
     }

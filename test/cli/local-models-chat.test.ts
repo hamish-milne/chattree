@@ -100,7 +100,7 @@ test("init pins the sampling a model's own header carries, and says so; the sett
   try {
     server.on("/m.gguf", { body: gguf(SAMPLING) });
     const settings = join(dir, "settings.yml");
-    await writeFile(settings, `local_models:\n  models:\n    plain: { url: "${server.base}/m.gguf" }\n    set: { url: "${server.base}/m.gguf", sampling: { temperature: 0.1 } }\n`);
+    await writeFile(settings, `local_models:\n  models:\n    plain: { url: "${server.base}/m.gguf" }\n    gemma-test: { url: "${server.base}/m.gguf" }\n    set: { url: "${server.base}/m.gguf", sampling: { temperature: 0.1 } }\n`);
     const env = { CHATTREE_SETTINGS: settings, CHATTREE_ENVIRONMENT: "off" };
     const settingsOf = async (project: string) => {
       const entries = (await (await Conversation.open(nodeHost(), project)).readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
@@ -113,6 +113,15 @@ test("init pins the sampling a model's own header carries, and says so; the sett
     const pinned = await settingsOf(join(dir, "a"));
     assert.match(pinned, /"temperature":0\.6/);
     assert.match(pinned, /"top_k":20/);
+    assert.match(pinned, /"replay_reasoning":"turn"/);
+    assert.doesNotMatch(pinned, /"dialect"/);
+    assert.match(a.stderr, /pinned replay_reasoning turn/);
+
+    const g = testIo(dir, { env });
+    assert.equal(await main(["init", join(dir, "g"), "--provider", "local-models", "--model", "gemma-test"], g), 0, g.stderr);
+    const gemma = await settingsOf(join(dir, "g"));
+    assert.match(gemma, /"dialect":"gemma"/);
+    assert.doesNotMatch(gemma, /replay_reasoning/);
 
     const b = testIo(dir, { env });
     assert.equal(await main(["init", join(dir, "b"), "--provider", "local-models", "--model", "set"], b), 0, b.stderr);

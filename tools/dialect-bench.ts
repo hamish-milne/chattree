@@ -27,6 +27,7 @@ import { lookupSampling } from "../cli/providers.ts";
 import { loadSettings } from "../cli/settings.ts";
 import type { AgentSetup } from "../harness/setup.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
+import { dialectForModel } from "../providers/dialects/index.ts";
 import { ProviderError, type ProviderAdapter } from "../providers/types.ts";
 import { findBusybox } from "../hosts/node.ts";
 import { runAgentTask, type ToolStep } from "./agent-task.ts";
@@ -43,10 +44,7 @@ export interface Arm {
 
 export const DEFAULT_ARMS = ["jinja", "jinja+replay", "dialect", "dialect-no-reasoning"] as const;
 
-export function guessDialect(model: string): string | undefined {
-  const m = model.toLowerCase();
-  return m.includes("gpt-oss") ? "harmony" : m.includes("qwen") ? "qwen-xml" : m.includes("gemma") ? "gemma" : undefined;
-}
+export const guessDialect = dialectForModel;
 
 /** The arms to run for a model: the chosen built-in ones, and the custom ones. */
 export function armsFor(dialect: string | undefined, chosen: readonly string[], custom: readonly Arm[]): Arm[] {

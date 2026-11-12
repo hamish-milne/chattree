@@ -572,7 +572,7 @@ test/providers/fixtures/        P12
    arguments accepted as an object; a finished call is `tool_use` whatever `finish_reason` says (Ollama says `stop`);
    `refusal` becomes text with the `refusal` stop reason; the end is `[DONE]`. Decisions: reasoning is **not** sent back
    by default (most chat templates drop it; `replay_reasoning` sends the visible text as `reasoning_content` for the models
-   that want it next to tool calls); usage is reported as **one** event at `[DONE]`, because chunks may carry running totals
+   that want it next to tool calls: `true` for all of it, `"turn"` for what the same model wrote since the last user message); usage is reported as **one** event at `[DONE]`, because chunks may carry running totals
    and a cache hit found partway lowers the uncached input, and an event cannot be taken back (so a stream that dies
    mid-way reports no tokens; fine for local servers, and the parking lot has the alternative); cached tokens are taken
    out of `prompt_tokens` so the meters stay disjoint; a server that reports no usage gives zero tokens and

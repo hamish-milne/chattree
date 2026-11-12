@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { Conversation, ConversationError } from "../harness/conversation.ts";
 import { envSource } from "../harness/secrets.ts";
+import { dialectForModel } from "../providers/dialects/index.ts";
 import { catalog, samplingSettings } from "../localmodels/catalog.ts";
 import { cliRegistry, lookupSampling } from "./providers.ts";
 import { loadSettings } from "./settings.ts";
@@ -157,13 +158,22 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   }
   // Sampling is pinned in the setup as well as being the server's default, so the transcript says what the model was run with (docs/local-models.md, section 7).
   let sampling: ReturnType<typeof samplingSettings> = {};
+  const pinned_extra: Record<string, unknown> = {};
   if (provider === "local-models") {
     const found = await lookupSampling(where, model);
     sampling = samplingSettings(found.values);
+    // What the benchmarks found (docs/local-models.md, sections 8 and 9): Gemma needs its dialect, the others do well with their own reasoning sent back since the last user message.
+    if (dialectForModel(model) === "gemma") {
+      pinned_extra["dialect"] = "gemma";
+      notes.push("pinned dialect gemma: its chat template and parser lose to our own on the tool tasks");
+    } else {
+      pinned_extra["replay_reasoning"] = "turn";
+      notes.push("pinned replay_reasoning turn: the model sees its own reasoning between tool calls");
+    }
     if (found.source !== undefined && found.source !== "settings") notes.push(`sampling pinned from ${found.detail}: ${Object.entries(found.values).map(([k, v]) => `${k} ${v}`).join(", ")}`);
     for (const n of found.notes) notes.push(n);
   }
-  await convo.setupChange({ model: { provider: cfg.name, id: model, settings: { max_output_tokens: o.maxOutput ?? 8192, ...sampling } } });
+  await convo.setupChange({ model: { provider: cfg.name, id: model, settings: { max_output_tokens: o.maxOutput ?? 8192, ...sampling, ...pinned_extra } } });
   if (provider === "local-models") notes.push("the model host starts when you first chat; `chattree models start` does it now and shows the downloads");
   let pinned = false;
   try {
