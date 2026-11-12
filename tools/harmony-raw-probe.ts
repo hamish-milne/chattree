@@ -57,10 +57,13 @@ const guidance = (kind: string, names: string[]): string =>
     ? `Built-in tools: ${names.join(", ")}. Call a built-in tool on the analysis channel with the recipient set to its name (to=${names[0]}), and send the code or command itself as the message: bare text, no JSON, no quotes around it. Call every other tool on the commentary channel with to=functions.NAME and JSON-encoded arguments.`
     : `Call every tool, including ${names.join(" and ")}, on the commentary channel with to=functions.NAME and JSON-encoded arguments, as its declaration says.`;
 
-const pythonTool = ordinaryTools[0] as Tool;
+export const pythonTool = ordinaryTools[0] as Tool;
 
 let busybox: string | undefined;
-const bashTool: Tool = {
+export const setBusybox = (path: string | undefined): void => {
+  busybox = path;
+};
+export const bashTool: Tool = {
   definition: {
     name: "bash",
     description: "Run a shell command in the workspace and return its output.",
@@ -281,6 +284,7 @@ async function main(): Promise<void> {
   io.settings = await loadSettings(io);
   await ensureLocalModels(io, { yes: o.yes });
   busybox = await requireBusybox(o.busybox);
+  setBusybox(busybox);
   const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, probeDialect] }).create({ $tag: "local-models" }, { get: () => undefined });
   const sampling = samplingSettings((await lookupSampling(io, o.model)).values) as Record<string, unknown>;
   const samples: Sample[] = [];

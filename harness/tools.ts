@@ -176,9 +176,12 @@ export class ToolRegistry {
   }
 
   /** Check a call the model made. Returns the tool, or the message to send back as an error result. */
-  check(call: { name: string; args: unknown; args_raw?: string | undefined }): { tool: Tool; args: Record<string, unknown> } | { error: string } {
+  check(call: { name: string; args: unknown; args_raw?: string | undefined; ext?: unknown }): { tool: Tool; args: Record<string, unknown> } | { error: string } {
     const tool = this.#tools.get(call.name);
     if (tool === undefined) return { error: `there is no tool called ${call.name}; the tools are: ${this.names().join(", ")}` };
+    // A dialect that could not read the call without guessing says what to tell the model (`Emit` `error`, providers/dialect.ts).
+    const said = typeof call.ext === "object" && call.ext !== null ? (call.ext as Record<string, unknown>)["call_error"] : undefined;
+    if (typeof said === "string") return { error: said };
     if (call.args_raw !== undefined) return { error: `the arguments for ${call.name} were not valid JSON: ${call.args_raw.length > 200 ? `${call.args_raw.slice(0, 200)}...` : call.args_raw}` };
     const args = coerceArgs(tool.definition.input_schema, tool.normalize === undefined ? call.args : tool.normalize(call.args));
     const problems = validateArgs(tool.definition.input_schema, args);

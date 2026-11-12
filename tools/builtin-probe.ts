@@ -83,9 +83,9 @@ export const ordinaryTools: Tool[] = [
       description: "Run Python 3 code and return what it prints. Each call is a fresh interpreter: nothing is kept between calls. Print the values you want to see.",
       input_schema: { type: "object", additionalProperties: false, required: ["code"], properties: { code: { type: "string", description: "The program to run." } } },
     },
-    async execute(args) {
+    async execute(args, ctx) {
       for (const exe of process.platform === "win32" ? ["python", "py"] : ["python3", "python"]) {
-        const r = spawnSync(exe, ["-c", String(args["code"])], { encoding: "utf8", timeout: 20_000 });
+        const r = spawnSync(exe, ["-c", String(args["code"])], { cwd: ctx.workspace, encoding: "utf8", timeout: 20_000 });
         if (r.error === undefined) return { content: `${r.stdout}${r.stderr}`.trim() === "" ? "(no output)" : `${r.stdout}${r.stderr}`.trim(), is_error: r.status !== 0 };
       }
       return { content: "python is not installed on this machine", is_error: true };

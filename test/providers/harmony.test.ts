@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import type { ModelContext } from "../../harness/context-builder.ts";
 import type { Emit } from "../../providers/dialect.ts";
 import { harmonyParser, renderHarmony } from "../../providers/dialects/harmony.ts";
+import { builtinSpecs } from "../../providers/dialects/harmony-builtin.ts";
 
 import { contextOf, fixture as fixtureOf } from "../support/templates.ts";
 const fixture = (name: string) => fixtureOf("gpt-oss", name);
@@ -159,5 +160,85 @@ describe("a bare body for a tool with one required string argument", () => {
   test("a tool with more required arguments, or an unknown one, is left alone", () => {
     assert.deepEqual(end(run(call("write", "hello"), [write], 5)), { kind: "call.end", raw: "hello" });
     assert.deepEqual(end(run(call("other", "hello"), [python], 5)), { kind: "call.end", raw: "hello" });
+  });
+});
+
+describe("built-in tools", () => {
+  const python = { name: "python", description: "Run code.", input_schema: { type: "object", required: ["code"], properties: { code: { type: "string" } } } };
+  const bash = { name: "bash", description: "Run a command.", input_schema: { type: "object", required: ["command"], properties: { command: { type: "string" } } } };
+  const write = { name: "write", description: "Write.", input_schema: { type: "object", required: ["path"], properties: { path: { type: "string" } } } };
+  const options = { builtin_tools: { python: true, bash: true } };
+  const ctx = (tools: ModelContext["tools"]): ModelContext => ({
+    system: "S",
+    instructions: undefined,
+    tools,
+    cacheHints: [],
+    turns: [
+      { role: "user", parts: [{ type: "text", text: "go" }] },
+      { role: "assistant", provider: "p", model: "m", blocks: [{ type: "tool_call", call_id: "1", name: "python", args: { code: "print(1)" } }, { type: "tool_call", call_id: "2", name: "write", args: { path: "a" } }] },
+      { role: "tool_results", results: [{ call_id: "1", content: "1", is_error: false, truncated: false }, { call_id: "2", content: "ok", is_error: false, truncated: false }] },
+    ],
+  });
+  const rendered = (tools: ModelContext["tools"]) => renderHarmony({ context: ctx(tools), options, effort: undefined, date: "d", provider: "p", model: "m" }).prompt;
+
+  test("are described in the system block and left out of functions", () => {
+    const p = rendered([python, bash, write]);
+    assert.ok(p.includes("Reasoning: medium\n\n# Tools\n\n## python\n\nUse this tool to execute Python code"));
+    assert.ok(p.includes("## bash\n\nUse this tool to run shell commands"));
+    const fns = p.slice(p.indexOf("namespace functions"));
+    assert.ok(fns.includes("type write ="));
+    assert.ok(!fns.includes("type python =") && !fns.includes("type bash ="));
+  });
+  test("the developer block states the rules with an example of each built-in, and names the functions convention only when there are functions", () => {
+    const p = rendered([python, bash, write]);
+    assert.ok(p.includes("IMPORTANT. You MUST follow these rules exactly for the built-in tools python and bash."));
+    assert.ok(p.includes("Example call to bash:\n  channel: analysis\n  recipient: bash\n  message: ls -l"));
+    assert.ok(p.includes("Every other tool is a function"));
+    assert.ok(!rendered([python]).includes("Every other tool is a function"));
+    assert.ok(!rendered([python]).includes("namespace functions"));
+    assert.ok(!rendered([python]).includes("Calls to these tools must go to the commentary channel"));
+  });
+  test("earlier calls are written as analysis to=NAME with the bare text, and their results come from the tool", () => {
+    const p = rendered([python, write]);
+    assert.ok(p.includes("<|start|>assistant<|channel|>analysis to=python code<|message|>print(1)<|call|><|start|>python to=assistant<|channel|>analysis<|message|>1<|end|>"));
+    assert.ok(p.includes("<|start|>assistant<|channel|>commentary to=functions.write <|constrain|>json<|message|>"));
+  });
+  test("a tool that is not offered is not described", () => {
+    assert.ok(!rendered([write]).includes("## python"));
+    assert.ok(!rendered([write]).includes("IMPORTANT. You MUST"));
+  });
+
+  const specs = builtinSpecs({ python: true, bash: true });
+  const calls = (text: string, size = 5): Emit[] => {
+    const p = harmonyParser([python, bash], specs);
+    const out: Emit[] = [];
+    for (let i = 0; i < text.length; i += size) out.push(...p.push(text.slice(i, i + size)));
+    out.push(...p.end("stop"));
+    return out.filter((e) => e.kind === "call.start" || e.kind === "call.end");
+  };
+  const header = (channel: string, recipient: string, constrain = "") => `<|channel|>${channel} to=${recipient}${constrain}<|message|>`;
+  test("a call in the convention is the bare text as the argument", () => {
+    assert.deepEqual(calls(`${header("analysis", "python")}print(1)<|call|>`), [{ kind: "call.start", name: "python" }, { kind: "call.end", args: { code: "print(1)" } }]);
+  });
+  test("the channel, a functions. prefix and a constrain word make no difference", () => {
+    for (const h of [header("commentary", "functions.bash"), header("analysis", "functions.bash", " code"), header("commentary", "bash", " <|constrain|>json")]) {
+      assert.deepEqual(calls(`${h}ls -l<|call|>`), [{ kind: "call.start", name: "bash" }, { kind: "call.end", args: { command: "ls -l" } }], h);
+    }
+  });
+  test("JSON with one key holding a string is that string, whatever the key; a list of strings is joined with spaces", () => {
+    assert.deepEqual(calls(`${header("commentary", "functions.bash")}{"cmd": "ls -l"}<|call|>`)[1], { kind: "call.end", args: { command: "ls -l" } });
+    assert.deepEqual(calls(`${header("commentary", "functions.bash")}{"cmd": ["bash", "-lc", "wc -l notes.txt"]}<|call|>`)[1], { kind: "call.end", args: { command: "bash -lc wc -l notes.txt" } });
+  });
+  test("any other structure is not guessed at: the call is kept as written with an error that says how to call the tool", () => {
+    for (const body of ['{"cmd": "a", "cwd": "b"}', '{"cmd": {"a": 1}}', '{"cmd": [1, 2]}', '{"cmd": []}', "{}"]) {
+      const end = calls(`${header("commentary", "functions.bash")}${body}<|call|>`)[1] as Extract<Emit, { kind: "call.end" }>;
+      assert.equal(end.raw, body, body);
+      assert.match(end.error ?? "", /bash was NOT run: its message was JSON that cannot be read as one shell command.*message: ls -l/, body);
+    }
+  });
+  test("a built-in the settings name with its own argument and wording", () => {
+    const own = builtinSpecs({ sh: { arg: "script", what: "shell script", example: "echo hi", prose: "## sh\n\nRuns scripts." } });
+    assert.deepEqual(own.get("sh"), { arg: "script", prose: "## sh\n\nRuns scripts.", what: "shell script", example: "echo hi" });
+    assert.equal(builtinSpecs({ bash: false }).size, 0);
   });
 });

@@ -190,4 +190,13 @@ describe("the assembler", () => {
     a.end();
     assert.deepEqual(a.blocks, [{ type: "reasoning", provider: "p", visible: "think" }, { type: "text", text: "say" }, { type: "tool_call", call_id: "c1", name: "x", args: { a: 1 } }]);
   });
+  test("a call the dialect could not read keeps what the model wrote and carries the error to say, which the registry answers with", async () => {
+    const a = new Assembler("p", () => "c1");
+    a.feed([{ kind: "call.start", name: "x" }, { kind: "call.end", raw: "{\"cmd\": {}}", error: "say this" }]);
+    a.end();
+    assert.deepEqual(a.blocks, [{ type: "tool_call", call_id: "c1", name: "x", args: {}, args_raw: "{\"cmd\": {}}", ext: { call_error: "say this" } }]);
+    const { ToolRegistry } = await import("../../harness/tools.ts");
+    const reg = new ToolRegistry([{ definition: { name: "x", description: "d", input_schema: { type: "object", properties: {} } }, execute: () => Promise.resolve({ content: "" }) }]);
+    assert.deepEqual(reg.check(a.blocks[0] as never), { error: "say this" });
+  });
 });

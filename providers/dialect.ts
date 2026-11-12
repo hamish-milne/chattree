@@ -19,8 +19,12 @@ export type Emit =
   | { kind: "reasoning"; text: string }
   | { kind: "call.start"; name: string }
   | { kind: "call.args"; delta: string }
-  /** `args` when the dialect parsed them; `raw` when it only has the text (parsed as JSON here, else kept as `args_raw`); neither: the deltas so far are the text. */
-  | { kind: "call.end"; args?: Record<string, unknown>; raw?: string };
+  /**
+   * `args` when the dialect parsed them; `raw` when it only has the text (parsed as JSON here, else kept as `args_raw`); neither: the deltas so
+   * far are the text. `error`: the call cannot be read without guessing; the call is kept as the model wrote it (`args_raw`) and the model is
+   * answered with this text instead of a validator's message (it travels in the block's `ext.call_error`, see `ToolRegistry.check`).
+   */
+  | { kind: "call.end"; args?: Record<string, unknown>; raw?: string; error?: string };
 
 export interface Parser {
   /** Text as it arrives, in whatever pieces the server sends. */
@@ -136,6 +140,7 @@ export class Assembler {
     let block: Block;
     if (o.kind === "text") block = { type: "text", text: o.text };
     else if (o.kind === "reasoning") block = { type: "reasoning", provider: this.#provider, visible: o.text };
+    else if (end?.error !== undefined) block = { type: "tool_call", call_id: o.id, name: o.name, args: {}, args_raw: end.raw ?? o.args, ext: { call_error: end.error } };
     else if (end?.args !== undefined) block = { type: "tool_call", call_id: o.id, name: o.name, args: end.args };
     else {
       const raw = end?.raw ?? o.args;
