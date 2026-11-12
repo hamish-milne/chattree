@@ -35,11 +35,19 @@ export function tapFetch(match: (url: string) => boolean, on: (r: WireRecord) =>
     }
     const copy = res.clone();
     const done = (async () => {
-      let text: string;
+      // Read what arrives and keep it even if the stream is cut: the loop abandons a response as soon as the model says it has stopped,
+      // and a response read with `.text()` would then be lost whole, with the model's raw output in it.
+      let text = "";
       try {
-        text = await copy.text();
+        const reader = copy.body?.getReader();
+        const dec = new TextDecoder();
+        for (;;) {
+          const n = await reader?.read();
+          if (n === undefined || n.done) break;
+          text += dec.decode(n.value, { stream: true });
+        }
       } catch (e) {
-        text = `[the response could not be read: ${e instanceof Error ? e.message : String(e)}]`;
+        text += `\n[the response was cut: ${e instanceof Error ? e.message : String(e)}]`;
       }
       const failed = res.status >= 400 || /"error"\s*:/.test(text);
       await on({ n, at, url, status: res.status, failed, request, response: text });

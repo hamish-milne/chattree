@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
-import { installWireLog } from "../../tools/wire-log.ts";
+import { installWireLog, tapFetch } from "../../tools/wire-log.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
 
@@ -28,5 +28,29 @@ test("records chat requests with the raw response, flags the failed ones, and le
   } finally {
     globalThis.fetch = real;
     await server.close();
+  }
+});
+
+test("a response that is cut off is recorded as far as it came", async () => {
+  const { createServer } = await import("node:http");
+  const server = createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.write('data: {"content":"hello"}\n\n');
+    setTimeout(() => res.destroy(), 50);
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+  const records: { response: string }[] = [];
+  const tap = tapFetch((u) => u.endsWith("/completion"), (r) => void records.push(r));
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/completion`, { method: "POST", body: "{}" });
+    await res.text().catch(() => undefined);
+    await tap.flush();
+    assert.equal(records.length, 1);
+    assert.match(records[0]!.response, /"content":"hello"/);
+    assert.match(records[0]!.response, /the response was cut/);
+  } finally {
+    tap.restore();
+    server.close();
   }
 });
