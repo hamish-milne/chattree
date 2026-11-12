@@ -531,3 +531,30 @@ describe("script", () => {
     assert.match(r.content, /timed out after 1 seconds/);
   });
 });
+
+import { renameReplacing } from "../../hosts/node.ts";
+import { test as t2 } from "node:test";
+
+t2("a write to a name Windows cannot keep is refused, a read is not", async () => {
+  const dir = await tempDir();
+  const host = nodeHost();
+  for (const p of ["calc..", "dir /x.txt", "a.txt ", "sub/b.", 'q"x', "what?"]) await assert.rejects(resolveInWorkspace(host, dir, p, "write"), (e) => e instanceof PathRefused && /not a usable file name/.test(e.message), p);
+  for (const p of ["calc.js", ".gitignore", "a b/c.txt", "./x/../y.txt", "..data/x"]) await resolveInWorkspace(host, dir, p, "write");
+  await resolveInWorkspace(host, dir, "calc..", "read");
+});
+
+t2("a rename that Windows refuses for a moment is tried again, and one that is refused for good is raised", async () => {
+  let calls = 0;
+  const eperm = Object.assign(new Error("EPERM"), { code: "EPERM" });
+  await renameReplacing("a", "b", { windows: true, sleep: async () => {}, rename: async () => { if (++calls < 30) throw eperm; } });
+  assert.equal(calls, 30);
+  calls = 0;
+  await assert.rejects(renameReplacing("a", "b", { windows: true, sleep: async () => {}, rename: async () => { calls++; throw eperm; } }), /EPERM/);
+  assert.equal(calls, 50);
+  calls = 0;
+  await assert.rejects(renameReplacing("a", "b", { windows: false, rename: async () => { calls++; throw eperm; } }), /EPERM/);
+  assert.equal(calls, 1);
+  calls = 0;
+  await assert.rejects(renameReplacing("a", "b", { windows: true, sleep: async () => {}, rename: async () => { calls++; throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); } }), /ENOENT/);
+  assert.equal(calls, 1);
+});

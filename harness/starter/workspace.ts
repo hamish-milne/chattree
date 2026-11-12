@@ -51,6 +51,12 @@ export async function resolveInWorkspace(host: Host, workspace: string, requeste
   if (rel !== "" && blocked.includes(first)) {
     throw new PathRefused(mode === "write" ? `${requested} is part of the conversation or its configuration and cannot be written` : `${requested} cannot be read`);
   }
+  if (mode === "write") {
+    // A name Windows cannot keep (it drops a trailing dot or space, and refuses these characters) would be written under another name, or
+    // leave git looking for a file that is not there; refuse it on every platform, so a repository stays usable on all of them.
+    const bad = rel.split("/").find((c) => c !== "" && c !== "." && c !== ".." && (/[. ]$/.test(c) || /[<>:"|?*\x00-\x1f]/.test(c)));
+    if (bad !== undefined) throw new PathRefused(`${JSON.stringify(bad)} is not a usable file name (it ends in a dot or a space, or has one of < > : " | ? *)`);
+  }
   return real;
 }
 

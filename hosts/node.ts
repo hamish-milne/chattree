@@ -11,18 +11,23 @@ const DEFAULT_MAX_OUTPUT = 256 * 1024 * 1024;
 const isCode = (e: unknown, code: string): boolean => typeof e === "object" && e !== null && (e as { code?: unknown }).code === code;
 
 /**
- * Rename over an existing file. On Windows the rename fails transiently (EPERM, EACCES, EBUSY) while another
- * process (git, an indexer, antivirus) has the target or source open, so retry briefly before giving up.
+ * Rename over an existing file. On Windows the rename fails transiently (EPERM, EACCES, EBUSY) while another process (git, an indexer,
+ * antivirus) has the target or the new file open: a benchmark of 1,360 samples lost 43 to it with eight tries over a third of a second,
+ * so the tries go on for as long as graceful-fs's (about five seconds) before giving up. Where the failure is not transient, or is not
+ * Windows, it is raised at once.
  */
-async function renameReplacing(from: string, to: string): Promise<void> {
+export async function renameReplacing(from: string, to: string, io: { rename?: (a: string, b: string) => Promise<void>; windows?: boolean; sleep?: (ms: number) => Promise<void> } = {}): Promise<void> {
+  const rename = io.rename ?? ((a, b) => fsp.rename(a, b));
+  const windows = io.windows ?? process.platform === "win32";
+  const sleep = io.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
   for (let attempt = 1; ; attempt++) {
     try {
-      await fsp.rename(from, to);
+      await rename(from, to);
       return;
     } catch (e) {
       const transient = isCode(e, "EPERM") || isCode(e, "EACCES") || isCode(e, "EBUSY");
-      if (!transient || process.platform !== "win32" || attempt >= 8) throw e;
-      await new Promise((r) => setTimeout(r, 10 * attempt));
+      if (!transient || !windows || attempt >= 50) throw e;
+      await sleep(Math.min(10 * attempt, 100));
     }
   }
 }
@@ -440,7 +445,7 @@ const nodeFs: Fs = {
       await h.close();
     }
   },
-  rename: (from, to) => fsp.rename(from, to),
+  rename: (from, to) => renameReplacing(from, to),
   async remove(path) {
     try {
       await fsp.unlink(path);
