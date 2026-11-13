@@ -1,6 +1,6 @@
 import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
 import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
-import { resultContent, userContent } from "./media.ts";
+import { audioFrameOf, resultContent, userContent } from "./media.ts";
 import { nextMarker, safeLength, Trimmer } from "./scan.ts";
 import { argNode, concreteTypes, isNullable, parseSchema, type SchemaNode } from "./schema-tree.ts";
 
@@ -101,7 +101,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i] as Turn;
     if (t.role === "user") {
-      out += `<|turn>user\n${userContent(t.parts, input.marker, media)}<turn|>\n`;
+      out += `<|turn>user\n${userContent(t.parts, input.marker, media, undefined, audioFrameOf(input.options))}<turn|>\n`;
       open = false;
     } else if (t.role === "assistant") {
       if (!open) out += "<|turn>model\n";
@@ -124,7 +124,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
       for (const c of calls) {
         const r = results.get(c.call_id);
         if (r !== undefined) {
-          out += response(c.name, resultContent(r, input.marker, media));
+          out += response(c.name, resultContent(r, input.marker, media, audioFrameOf(input.options)));
           answered = true;
         }
       }

@@ -3,12 +3,13 @@
  * go to the model one at a time with their question, and the answers are checked. Recordings of speech can be added from a folder of
  * `name.wav` files, with the words said in `name.txt` to score them (see tools/audio-samples.ts for a set). The sounds are written next to the results, so a wrong answer can be listened to.
  *
- *   node tools/audio-probe.ts --model NAME [--count 5] [--seed 1] [--kinds beeps,pitch] [--speech DIR] [--pad SECONDS] [--dialect NAME] [--max-tokens 1024] [--out DIR] [--yes]
+ *   node tools/audio-probe.ts --model NAME [--count 5] [--seed 1] [--kinds beeps,pitch] [--speech DIR] [--pad SECONDS] [--dialect NAME] [--audio-frame none|label|transcript] [--max-tokens 1024] [--out DIR] [--yes]
  *
  * `--pad SECONDS` follows each made sound with silence up to that length (a short sound may not be given the attention that a clip of speech is).
  * `--model` is a name from local_models in the settings file whose projector can hear (Gemma 4 E2B and E4B, Qwen Omni, Voxtral, Ultravox
  * have one, and llama-server says in `/props` whether the one loaded does). `--dialect NAME` sends the sound through that dialect's
- * `/completion` and not the chat endpoint (which takes it as `input_audio`).
+ * `/completion` and not the chat endpoint (which takes it as `input_audio`). `--audio-frame` is how the prompt introduces a sound (`dialect_options.audio_frame`,
+ * default `label`): a speech encoder's output looks like words, so a bare marker may be taken for text (docs/local-models.md, 9.11).
  */
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
@@ -16,6 +17,7 @@ import { join } from "node:path";
 import { nodeIo } from "../cli/io.ts";
 import { ensureLocalModels } from "../cli/models.ts";
 import { lookupSampling } from "../cli/providers.ts";
+import { AUDIO_FRAMES } from "../providers/dialects/media.ts";
 import { loadSettings } from "../cli/settings.ts";
 import type { ModelContext } from "../harness/context-builder.ts";
 import { emptySetup, type AgentSetup } from "../harness/setup.ts";
@@ -42,9 +44,11 @@ function args(argv: readonly string[]) {
   const v = (f: string): string | undefined => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
   const model = v("--model");
   if (model === undefined) throw new Error("--model is required: a model from local_models in the settings file, with a projector that can hear");
+  const frame = v("--audio-frame");
+  if (frame !== undefined && !(AUDIO_FRAMES as readonly string[]).includes(frame)) throw new Error(`--audio-frame: ${frame} is not one of ${AUDIO_FRAMES.join(", ")}`);
   const kinds = v("--kinds")?.split(",").map((k) => k.trim());
   for (const k of kinds ?? []) if (!(AUDIO_KINDS as readonly string[]).includes(k)) throw new Error(`--kinds: ${k} is not one of ${AUDIO_KINDS.join(", ")}`);
-  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as AudioKind[] | undefined, speech: v("--speech"), pad: Number(v("--pad") ?? 0), maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), out: v("--out"), yes: argv.includes("--yes") };
+  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as AudioKind[] | undefined, speech: v("--speech"), pad: Number(v("--pad") ?? 0), maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), audioFrame: v("--audio-frame"), out: v("--out"), yes: argv.includes("--yes") };
 }
 
 /** The table of results: right of total for each kind, and the wrong answers. */
@@ -93,7 +97,7 @@ async function main(): Promise<void> {
   await ensureLocalModels(io, { yes: o.yes });
   const adapter = localModelsAdapter(io);
   const sampling = samplingSettings((await lookupSampling(io, o.model)).values) as Record<string, unknown>;
-  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens, ...sampling, ...(o.dialect === undefined ? {} : { dialect: o.dialect }) } } as NonNullable<AgentSetup["model"]>;
+  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens, ...sampling, ...(o.dialect === undefined ? {} : { dialect: o.dialect }), ...(o.audioFrame === undefined ? {} : { dialect_options: { audio_frame: o.audioFrame } }) } } as NonNullable<AgentSetup["model"]>;
   const setup: AgentSetup = { ...emptySetup(), model };
   const dir = o.out ?? join("bench-runs", `audio-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
   await mkdir(dir, { recursive: true });
@@ -107,7 +111,7 @@ async function main(): Promise<void> {
   }
   const text = report(results);
   await writeFile(join(dir, "audio.json"), JSON.stringify(results, null, 2));
-  await writeFile(join(dir, "run.json"), JSON.stringify({ model: o.model, dialect: o.dialect, maxTokens: o.maxTokens, seed: o.seed, sampling, pad: o.pad }, null, 2));
+  await writeFile(join(dir, "run.json"), JSON.stringify({ model: o.model, dialect: o.dialect, audioFrame: o.audioFrame, maxTokens: o.maxTokens, seed: o.seed, sampling, pad: o.pad }, null, 2));
   await writeFile(join(dir, "audio.md"), text);
   console.log(text);
 }

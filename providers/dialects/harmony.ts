@@ -1,7 +1,7 @@
 import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
-import { userContent } from "./media.ts";
+import { audioFrameOf, userContent } from "./media.ts";
 import { ProviderError } from "../types.ts";
 import { builtinPreamble, builtinSpecs, commandFor, messageOf, RUN_TOOL, type BuiltinSpec } from "./harmony-builtin.ts";
 import { parseSchema, toolSchema, type SchemaNode } from "./schema-tree.ts";
@@ -146,7 +146,7 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i] as Turn;
     if (t.role === "user") {
-      out += `${START}user${MESSAGE}${userContent(t.parts, input.marker, media)}${END}`;
+      out += `${START}user${MESSAGE}${userContent(t.parts, input.marker, media, undefined, audioFrameOf(input.options))}${END}`;
     } else if (t.role === "assistant") {
       const next = turns[i + 1];
       const results = new Map((next?.role === "tool_results" ? next.results : []).map((r) => [r.call_id, r]));

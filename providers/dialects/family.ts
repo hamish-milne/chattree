@@ -1,7 +1,7 @@
 import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
-import { resultContent, userContent } from "./media.ts";
+import { audioFrameOf, resultContent, userContent } from "./media.ts";
 import { ProviderError } from "../types.ts";
 import { argNode } from "./schema-tree.ts";
 import { coerce, nextMarker, safeLength, spacedJson, Trimmer } from "./scan.ts";
@@ -245,9 +245,9 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i] as Turn;
     if (t.role === "user") {
-      out += `${spec.user.open}${userContent(t.parts, input.marker, media)}${spec.user.close}`;
+      out += `${spec.user.open}${userContent(t.parts, input.marker, media, undefined, audioFrameOf(input.options))}${spec.user.close}`;
     } else if (t.role === "tool_results") {
-      const items = t.results.map((r) => fill(spec.results.item, { content: resultContent(r, input.marker, media), id: ids.get(r.call_id)?.id ?? r.call_id, name: ids.get(r.call_id)?.name ?? "" }));
+      const items = t.results.map((r) => fill(spec.results.item, { content: resultContent(r, input.marker, media, audioFrameOf(input.options)), id: ids.get(r.call_id)?.id ?? r.call_id, name: ids.get(r.call_id)?.name ?? "" }));
       out += `${spec.results.open ?? ""}${items.join(spec.results.between ?? "")}${spec.results.close ?? ""}`;
     } else {
       const blocks = t.blocks as Block[];

@@ -34,9 +34,9 @@ export function speechClips(o: { count: number; seed: number }): SpeechClip[] {
   for (let i = 0; i < o.count; i++) {
     const n = 3 + Math.floor(r() * 3);
     const text = Array.from({ length: n }, () => DIGITS[Math.floor(r() * 10)]).join(" ");
-    out.push({ name: `digits-${i + 1}`, text, voice: VOICES[i % VOICES.length] as SpeechClip["voice"], question: "Listen to the audio clip attached to this message. Which digits are spoken, in order? Write each digit as a word, separated by spaces, and nothing else." });
+    out.push({ name: `digits-${i + 1}`, text, voice: VOICES[i % VOICES.length] as SpeechClip["voice"], question: "Which digits are spoken, in order? Write each digit as a word, separated by spaces, and nothing else." });
   }
-  SENTENCES.forEach((text, i) => out.push({ name: `sentence-${String(i + 1).padStart(2, "0")}`, text, voice: VOICES[(i + 1) % VOICES.length] as SpeechClip["voice"], question: "Listen to the audio clip attached to this message. What is said in it? Answer with just the words." }));
+  SENTENCES.forEach((text, i) => out.push({ name: `sentence-${String(i + 1).padStart(2, "0")}`, text, voice: VOICES[(i + 1) % VOICES.length] as SpeechClip["voice"], question: "What is said in it? Answer with just the words." }));
   return out;
 }
 

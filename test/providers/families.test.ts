@@ -117,7 +117,8 @@ describe("pictures are written into the prompt as the server's marker", () => {
   test("sound is written as the same marker, in order with pictures, and is carried in media", () => {
     const wav: AttachmentPart = { ...png("a.wav"), kind: "audio", mime: "audio/wav" };
     const r = render(hermesDialect, withPicture([png("p.png"), wav, { type: "text", text: "what did you hear?" }]), "<__m__>");
-    assert.ok(r.prompt.includes("<__m__>\n<__m__>\nwhat did you hear?"));
+    assert.ok(r.prompt.includes('<__m__>\n[Audio clip "a.wav", attached as sound. It is not text: you hear it.]\n<__m__>\n[End of audio clip.]\nwhat did you hear?'), "a sound is introduced in words, a picture is not");
+    assert.equal(r.prompt.split("<__m__>").length - 1, 2, "still one marker for each item");
     assert.deepEqual(r.media?.map((m) => [m.name, m.kind]), [["p.png", "image"], ["a.wav", "audio"]]);
     assert.throws(() => render(hermesDialect, withPicture([wav]), undefined), /sound, and the server has not said how to mark it/);
   });

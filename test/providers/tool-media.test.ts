@@ -5,7 +5,7 @@ import { emptySetup, type AgentSetup } from "../../harness/setup.ts";
 import { buildAnthropicBody } from "../../providers/anthropic.ts";
 import { buildChatBody } from "../../providers/openai-compatible.ts";
 import { buildResponsesBody } from "../../providers/openai-responses.ts";
-import { resultContent } from "../../providers/dialects/media.ts";
+import { audioFrameOf, resultContent, userContent } from "../../providers/dialects/media.ts";
 import { ProviderError } from "../../providers/types.ts";
 
 const png: AttachmentPart = { type: "attachment", kind: "image", name: "out.png", mime: "image/png", sha256: "0".repeat(64), bytes: Uint8Array.from([1, 2, 3]) };
@@ -79,5 +79,27 @@ describe("media in a tool result, for a local dialect", () => {
     assert.equal(resultContent({ content: "seen" }, "<m>", []), "seen");
     assert.throws(() => resultContent({ content: "x", media: [pdf] }, "<m>", []), ProviderError);
     assert.throws(() => resultContent({ content: "x", media: [png] }, undefined, []), ProviderError);
+  });
+});
+
+describe("how a sound is introduced in a local prompt", () => {
+  const say = (frame: "none" | "label" | "transcript") => userContent([wav, { type: "text", text: "What is said?" }], "<m>", [], undefined, frame);
+  test("none leaves the bare marker; label and transcript wrap it in lines that say what it is", () => {
+    assert.equal(say("none"), "<m>\n\nWhat is said?".replace("\n\n", "\n"));
+    assert.match(say("label"), /^\[Audio clip "a\.wav", attached as sound\. It is not text: you hear it\.\]\n<m>\n\[End of audio clip\.\]\nWhat is said\?$/);
+    assert.match(say("transcript"), /^\[The audio clip "a\.wav" attached here is heard by you as follows:\]\n<m>\n\[End of audio clip\.\]/);
+  });
+  test("a picture is never framed, and a result's sound is framed like a user's", () => {
+    assert.equal(userContent([png], "<m>", [], undefined, "label"), "<m>");
+    assert.match(resultContent({ content: "heard", media: [wav] }, "<m>", [], "label"), /^heard\n\[Audio clip.*\]\n<m>\n\[End of audio clip\.\]$/);
+  });
+  test("the option is read from dialect_options, label by default, and a bad value is ignored", () => {
+    assert.equal(audioFrameOf({}), "label");
+    assert.equal(audioFrameOf({ audio_frame: "none" }), "none");
+    assert.equal(audioFrameOf({ audio_frame: "loud" }), "label");
+  });
+  test("a file name that contains the marker is left out, so the count of markers stays right", () => {
+    assert.ok(!userContent([{ ...wav, name: "<m>.wav" }], "<m>", [], undefined, "label").includes('"<m>.wav"'));
+    assert.equal(userContent([{ ...wav, name: "<m>.wav" }], "<m>", [], undefined, "label").split("<m>").length - 1, 1);
   });
 });
