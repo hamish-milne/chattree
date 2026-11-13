@@ -101,7 +101,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const listed = (name: string): boolean => config?.tools[name] !== undefined;
   const busybox = listed("run") || listed("script") ? await resolveBusybox(io, io.settings?.busybox) : undefined;
   const runs = new ThreadRuns();
-  const leaf = [...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), skillTool(), ...threadTools({ convo, siblings: config?.threads.siblings === true }), searchTool({ convo })];
+  const leaf = [...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, git: config?.tools["run"]?.git === true, batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), skillTool(), ...threadTools({ convo, siblings: config?.threads.siblings === true }), searchTool({ convo })];
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
   const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
   // The models the parent may choose for a subagent. A list that names a provider harness.yml does not have is the user's to fix.

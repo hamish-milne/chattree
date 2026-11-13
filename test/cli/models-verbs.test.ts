@@ -138,8 +138,8 @@ describe("models update", () => {
   });
 });
 
-describe("models restart, reload and logs (host running)", () => {
-  test("restart starts the server again, reload reports, logs show what the server printed, and a pull goes through the daemon", async () => {
+describe("models reload and logs (host running)", () => {
+  test("reload reports, logs show what the server printed, and a pull goes through the daemon", async () => {
     const { server, dir, data, env, run } = await setup();
     let starts = 0;
     const daemon = new Daemon({
@@ -156,11 +156,7 @@ describe("models restart, reload and logs (host running)", () => {
     try {
       assert.equal((await run(["start", "-y"])).code, 0);
       assert.equal(starts, 1);
-      const restart = await run(["restart", "-y"]);
-      assert.equal(restart.code, 0, restart.err);
-      assert.match(restart.err, /ready at/);
-      assert.equal(starts, 2);
-
+      // (`restart` replaces the daemon process, which this test's in-process daemon is not: see test/cli/models.test.ts)
       assert.match((await run(["logs", "-n", "50"])).out, /listening on \d+/);
       assert.match((await run(["reload"])).out, /model host: ready/);
 

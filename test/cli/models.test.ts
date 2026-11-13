@@ -100,6 +100,26 @@ describe("chattree models", () => {
     }
   });
 
+  test("restart replaces the daemon itself, so code and settings are new", { skip: process.platform === "win32" }, async () => {
+    const { server, env, dir, data } = await setup();
+    let pids: number[] = [];
+    try {
+      assert.equal(await main(["models", "start", "-y"], testIo(dir, { env })), 0);
+      const before = (await findDaemon(data))?.info.pid as number;
+      pids.push(before);
+      const io = testIo(dir, { env });
+      assert.equal(await main(["models", "restart", "-y"], io), 0, io.stderr);
+      assert.match(io.stderr, /stopping the model host[\s\S]*starting the model host[\s\S]*ready at http/);
+      const after = (await findDaemon(data))?.info.pid as number;
+      pids.push(after);
+      assert.notEqual(after, before, "a new process");
+      assert.equal(pidAlive(before), false, "and the old one is gone");
+    } finally {
+      for (const p of pids) if (pidAlive(p)) process.kill(p);
+      await server.close();
+    }
+  });
+
   test("shows what will be installed and installs only when the answer is yes", async () => {
     const server = await HttpFixture.start();
     const dir = await tempDir();

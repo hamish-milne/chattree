@@ -31,7 +31,7 @@ describe("the environment note in a chat", () => {
       const r = await session(dir, ["hello", "again"]);
       assert.equal(r.code, 0, r.all);
       const first = messages(server, 0);
-      assert.match(first[0]?.content ?? "", /working in chattree[\s\S]*version 1\)$/);
+      assert.match(first[0]?.content ?? "", /working in chattree[\s\S]*version 2\)$/);
       const user = first.find((m) => m.role === "user")?.content ?? "";
       assert.match(user, /\[Note from the harness\]\nEnvironment: .*Time zone .*today is /);
       assert.match(user, /Thread: main\. Workspace: /);

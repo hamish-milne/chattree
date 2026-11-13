@@ -167,8 +167,8 @@ const agentPretend = (opts: { tools?: boolean; badArgv?: boolean; wrongLines?: b
   if (prompt.includes("Read notes.txt, then use the edit tool")) {
     if (results === 0) return read("notes.txt");
     if (results === 1) return edit("notes.txt", { start: 1, end: 1, content: "status: final" });
-    if (results === 2) return toolCalls({ id: "x1", name: "run", args: { command: "git log --oneline -n 3" } });
-    return chatText(["It printed 1 line."]);
+    if (results === 2) return toolCalls({ id: "x1", name: "run", args: { command: "node --version" } });
+    return chatText(["It printed v22.1.0."]);
   }
   // tools-edit cases: read the file, then edit it with the version read showed
   const cases: [string, string, unknown[]][] = [

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
-import { readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 import { parse } from "yaml";
 import { DaemonClient, type ClientEvent } from "../../localmodels/client.ts";
 import { localModelsSchema } from "../../localmodels/config.ts";
-import { Daemon } from "../../localmodels/daemon.ts";
+import { Daemon, sourceSignature } from "../../localmodels/daemon.ts";
 import { readInfo } from "../../localmodels/daemon-files.ts";
 import { nodeSpawn, RouterEngine } from "../../localmodels/engine.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
@@ -14,7 +14,7 @@ import { tempDir } from "../support/tmp.ts";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "support", "fake-llama-server.mjs");
 
-async function setup(o: { serverExtra?: string; idleMinuteMs?: number; models?: string } = {}) {
+async function setup(o: { serverExtra?: string; idleMinuteMs?: number; models?: string; debounceMs?: number; code?: { root: string; dirs: string[] }; logs?: string[] } = {}) {
   const server = await HttpFixture.start();
   const dir = await tempDir();
   const data = join(dir, "data");
@@ -33,7 +33,9 @@ async function setup(o: { serverExtra?: string; idleMinuteMs?: number; models?: 
   await save(yaml(o.models ?? alpha));
   const daemon = new Daemon({
     data,
-    watch: { path: file, debounceMs: 50 },
+    watch: { path: file, debounceMs: o.debounceMs ?? 50, pollMs: 40 },
+    ...(o.code === undefined ? {} : { codeWatch: { ...o.code, pollMs: 30 } }),
+    ...(o.logs === undefined ? {} : { log: (m: string) => o.logs?.push(m) }),
     idleCheckMs: 30,
     ...(o.idleMinuteMs === undefined ? {} : { idleMinuteMs: o.idleMinuteMs }),
     loadSettings: async () => {
@@ -66,6 +68,7 @@ async function setup(o: { serverExtra?: string; idleMinuteMs?: number; models?: 
     events,
     save,
     yaml,
+    file,
     alpha,
     beta,
     until,
@@ -102,6 +105,75 @@ describe("the settings file", () => {
     } finally {
       await t.close();
     }
+  });
+});
+
+describe("a watch that does not miss", () => {
+  test("a change is found by looking at the file even when no event is delivered", async () => {
+    const t = await setup({ debounceMs: 600_000 }); // an event would only act after ten minutes
+    try {
+      await t.client.start({ yes: true });
+      await t.until(() => t.daemon.status().state.phase === "ready");
+      await t.save(t.yaml(t.alpha + t.beta));
+      await t.until(() => t.daemon.status().state.models.length === 2);
+    } finally {
+      await t.close();
+    }
+  });
+
+  test("a file that cannot be read is an error, the old settings keep running, and a restored file clears it and is read again", async () => {
+    const t = await setup();
+    try {
+      t.watchEvents();
+      await t.client.start({ yes: true });
+      await t.until(() => t.daemon.status().state.phase === "ready");
+      await rm(t.file);
+      await t.until(() => t.daemon.status().settingsError !== undefined);
+      assert.match(t.daemon.status().settingsError ?? "", /cannot be read/);
+      assert.ok(t.events.some((e) => e.type === "settings" && e.error !== undefined));
+      assert.equal(t.daemon.status().state.models.length, 1);
+      await t.save(t.yaml(t.alpha + t.beta));
+      await t.until(() => t.daemon.status().settingsError === undefined && t.daemon.status().state.models.length === 2);
+    } finally {
+      await t.close();
+    }
+  });
+});
+
+describe("the daemon's own code", () => {
+  test("a change to a source file stops the daemon once it has settled; other files do not", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "src"), { recursive: true });
+    await mkdir(join(root, "other"), { recursive: true });
+    await writeFile(join(root, "src", "a.ts"), "export const a = 1;\n");
+    const logs: string[] = [];
+    const t = await setup({ code: { root, dirs: ["src"] }, logs });
+    try {
+      let exited = false;
+      void t.daemon.done.then(() => (exited = true));
+      await writeFile(join(root, "other", "b.ts"), "x\n");
+      await writeFile(join(root, "src", "notes.md"), "x\n");
+      await new Promise((r) => setTimeout(r, 300));
+      assert.equal(exited, false, "files outside the watched source are not the code");
+      await writeFile(join(root, "src", "a.ts"), "export const a = 2; // longer\n");
+      await Promise.race([t.daemon.done, new Promise((_, no) => setTimeout(() => no(new Error("did not stop")), 5000))]);
+      assert.ok(logs.some((m) => /code changed/.test(m)));
+      assert.equal(await stat(join(t.data, "run", "daemon.json")).catch(() => undefined), undefined, "the state file is gone, so the next session starts a new daemon");
+    } finally {
+      await t.close();
+    }
+  });
+
+  test("the signature changes with a file's size or time and not with other things", async () => {
+    const root = await tempDir();
+    await mkdir(join(root, "d", "node_modules"), { recursive: true });
+    await writeFile(join(root, "d", "a.ts"), "1");
+    const a = await sourceSignature(root, ["d"]);
+    await writeFile(join(root, "d", "node_modules", "x.js"), "1");
+    await writeFile(join(root, "d", "readme.md"), "1");
+    assert.equal(await sourceSignature(root, ["d"]), a);
+    await writeFile(join(root, "d", "a.ts"), "12");
+    assert.notEqual(await sourceSignature(root, ["d"]), a);
   });
 });
 

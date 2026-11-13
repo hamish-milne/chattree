@@ -11,7 +11,7 @@
  * --model NAME[=DIALECT] (repeatable): a name from `local_models` in the settings file; the dialect is guessed from the name (gpt-oss:
  * harmony, qwen: qwen-xml, gemma: gemma) when not given. --arms jinja,jinja+replay,dialect,dialect-no-reasoning (default: all four)
  * picks arms; --arm LABEL=JSON adds one of your own (model settings, e.g. 'mine={"dialect":"harmony","dialect_options":{"schema":"flat"}}').
- * --setting KEY=VALUE applies to every arm. Also --repeat N (default 10), --task TEXT, --group NAME, --max-tokens, --timeout-seconds,
+ * --setting KEY=VALUE applies to every arm. Also --repeat N (default 10), --task TEXT, --group NAME, --max-tokens, --timeout-seconds, --max-requests (default 40),
  * --out DIR (default bench-runs/<time>), --yes (agree to installing llama.cpp), --busybox PATH.
  *
  * `--group context` runs tasks about what the prompt tells the model instead of how it calls tools (they are not in the default set): the
@@ -109,6 +109,8 @@ export interface BenchOptions {
   maxTokens: number;
   busybox?: string | undefined;
   timeoutSeconds: number;
+  /** Requests allowed per sample (default 40). */
+  maxRequests?: number | undefined;
   /** Where the wire taps report. Set by the caller that installed the tap. */
   wire?: { drain: () => Promise<WireRecord[]> };
 }
@@ -129,6 +131,7 @@ export async function runOne(o: BenchOptions, task: Task, n: number): Promise<Be
     files: task.files,
     prompt: task.prompt,
     timeoutMs: o.timeoutSeconds * 1000,
+    maxRequests: o.maxRequests,
     onRequest: (run) => {
       const u = run.completed?.usage;
       if (u !== undefined) {
@@ -253,6 +256,7 @@ export interface CliOptions {
   groups: string[];
   maxTokens: number;
   timeoutSeconds: number;
+  maxRequests: number;
   out: string | undefined;
   resume: string | undefined;
   summarize: string | undefined;
@@ -280,7 +284,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       flags.set(a, [...(flags.get(a) ?? []), v]);
     } else throw new Error(`unexpected argument ${a}`);
   }
-  const known = new Set(["--model", "--arms", "--arm", "--setting", "--repeat", "--task", "--group", "--max-tokens", "--timeout-seconds", "--out", "--resume", "--summarize", "--busybox"]);
+  const known = new Set(["--model", "--arms", "--arm", "--setting", "--repeat", "--task", "--group", "--max-tokens", "--timeout-seconds", "--max-requests", "--out", "--resume", "--summarize", "--busybox"]);
   for (const f of flags.keys()) if (!known.has(f)) throw new Error(`unknown flag ${f}`);
   const one = (n: string): string | undefined => flags.get(n)?.[0];
   const int = (n: string, d: number): number => {
@@ -320,6 +324,7 @@ export function parseArgs(argv: readonly string[]): CliOptions {
     groups: flags.get("--group") ?? [],
     maxTokens: int("--max-tokens", 4096),
     timeoutSeconds: int("--timeout-seconds", 180),
+    maxRequests: int("--max-requests", 40),
     out: one("--out"),
     resume,
     summarize: summarizeDir,
@@ -393,7 +398,7 @@ async function main(): Promise<void> {
       for (let n = 1; n <= plan.repeat; n++) {
         for (const arm of arms) {
           if (done.has(`${m.name}|${arm.label}|${task.name}|${n}`)) continue;
-          const s = await runOne({ adapter, model: m.name, arm, sampling, settings: plan.settings, maxTokens: plan.maxTokens, busybox, timeoutSeconds: plan.timeoutSeconds, wire }, task, n);
+          const s = await runOne({ adapter, model: m.name, arm, sampling, settings: plan.settings, maxTokens: plan.maxTokens, busybox, timeoutSeconds: plan.timeoutSeconds, maxRequests: plan.maxRequests, wire }, task, n);
           await appendFile(file, `${JSON.stringify(s)}\n`);
           all.push(s);
           console.error(`[${++count}/${total}] ${m.name} ${arm.label} ${task.name} #${n}: ${s.ok ? (s.firstTry ? "ok" : "ok (after a tool error)") : `WRONG (${(s.problem ?? "").slice(0, 60)})`}  ${s.requests} req, ${(s.ms / 1000).toFixed(1)}s, ${s.tokens.in}/${s.tokens.out} tok`);

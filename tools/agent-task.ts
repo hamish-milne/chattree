@@ -69,6 +69,8 @@ export interface AgentTaskOptions {
   busybox?: string | undefined;
   /** Wall-clock limit for the whole task. Default 180 s. */
   timeoutMs?: number;
+  /** Requests the model may make for the task (default 40): a model that loops is stopped, and its samples do not drown the means. */
+  maxRequests?: number | undefined;
   /** Starter tools to leave out, by name. */
   without?: readonly string[] | undefined;
   /** Tools offered besides the starter ones. */
@@ -114,7 +116,7 @@ export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult
     }),
   );
   const dir = join(await mkdtemp(join(tmpdir(), "chattree-live-")), "c");
-  const convo = await Conversation.create(nodeHost(), dir, { providers: { registry: live, secrets: envSource({}) }, config: "providers:\n  live:\n    $tag: live\n" });
+  const convo = await Conversation.create(nodeHost(), dir, { providers: { registry: live, secrets: envSource({}) }, config: `providers:\n  live:\n    $tag: live\nlimits:\n  max_requests_per_turn: ${o.maxRequests ?? 40}\n` });
   await convo.setupChange({ model: o.model });
   await syncTools(convo, registry);
   for (const [name, text] of Object.entries(o.files)) await writeFile(join(dir, name), text);

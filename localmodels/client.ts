@@ -113,6 +113,16 @@ export async function findDaemon(data: string, f: typeof fetch = fetch): Promise
   }
 }
 
+/** Wait until a process has exited; false when it has not within `ms`. */
+export async function waitGone(pid: number, ms: number): Promise<boolean> {
+  const deadline = Date.now() + ms;
+  while (pidAlive(pid)) {
+    if (Date.now() > deadline) return false;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return true;
+}
+
 /** Start a daemon that outlives this process: its output goes to `run/daemon.log`. */
 export async function launchDetached(data: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<void> {
   await mkdir(runDir(data), { recursive: true });

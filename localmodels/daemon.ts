@@ -1,7 +1,7 @@
 import { watch, type FSWatcher } from "node:fs";
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { basename, dirname } from "node:path";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { basename, dirname, join } from "node:path";
 import type { LocalModels } from "./config.ts";
 import { ControlServer, type ControlTarget, type DaemonEvent, type DaemonStatus } from "./control.ts";
 import { acquireLock, releaseLock, removeInfo, writeInfo } from "./daemon-files.ts";
@@ -25,8 +25,19 @@ export interface DaemonOptions {
   /** Read the settings now. Called at start and on a reload; a rejection is the reason shown to the user. */
   loadSettings: () => Promise<SettingsSnapshot>;
   host: Omit<HostOptions, "data" | "config" | "baseDir" | "confirm">;
-  /** The settings file to watch: a change is applied as a reload is. */
-  watch?: { path: string; debounceMs?: number } | undefined;
+  /**
+   * The settings file to watch: a change is applied as a reload is. The watch does not rely on the operating system's events alone: it also
+   * looks at the file every `pollMs` (default 1000), re-attaches the events when they fail, and says in `settingsError` when the file cannot
+   * be read, so a change is never silently missed.
+   */
+  watch?: { path: string; debounceMs?: number; pollMs?: number } | undefined;
+  /**
+   * The daemon's own code: when a file under `dirs` (relative to `root`; the `.ts`, `.mjs`, `.js` and `.json` files in them) changes, the
+   * daemon stops once the change has settled, and the next session that needs the host starts a new one with the new code.
+   */
+  codeWatch?: { root: string; dirs: readonly string[]; pollMs?: number; settleMs?: number } | undefined;
+  /** Where the daemon says what it is doing (default: nowhere). */
+  log?: ((message: string) => void) | undefined;
   /** How often to look at whether the host has been idle long enough to exit. */
   idleCheckMs?: number | undefined;
   /** How long a minute is for `idle_exit_minutes` (tests make it short). */
@@ -49,6 +60,9 @@ export class Daemon implements ControlTarget {
   #watcher: FSWatcher | undefined;
   #watchTimer: NodeJS.Timeout | undefined;
   #seen: string | undefined;
+  #unreadable = false;
+  #settingsPoll: NodeJS.Timeout | undefined;
+  #codePoll: NodeJS.Timeout | undefined;
   #idleTimer: NodeJS.Timeout | undefined;
   #stopped!: () => void;
   readonly done = new Promise<void>((resolve) => (this.#stopped = resolve));
@@ -70,6 +84,7 @@ export class Daemon implements ControlTarget {
         if (e.type === "state" && (e.state.phase === "ready" || e.state.phase === "error")) this.#yes = false; // a yes is for the start it was given with
       });
       await this.#watchSettings();
+      await this.#watchCode();
       this.#watchIdle();
       await writeInfo(this.#o.data, { pid: process.pid, port, token: this.#control.token, startedAt: this.#startedAt });
       return { port };
@@ -122,6 +137,8 @@ export class Daemon implements ControlTarget {
   async close(): Promise<void> {
     this.#watcher?.close();
     clearTimeout(this.#watchTimer);
+    clearInterval(this.#settingsPoll);
+    clearInterval(this.#codePoll);
     clearInterval(this.#idleTimer);
     this.#consent?.answer(false);
     await this.#host?.stop().catch(() => undefined);
@@ -158,31 +175,96 @@ export class Daemon implements ControlTarget {
     return (this.#host as LocalModelHost).unload(model);
   }
 
-  /** Apply the settings file when it changes. Editors replace files, so the directory is watched; a save that changes nothing is ignored. */
+  /**
+   * Apply the settings file when it changes, however it changes. Editors replace files, so the directory is watched, and the file is also
+   * looked at on a timer, so a missed or failed event costs a second and not the change. A save that changes nothing is ignored. A file that
+   * cannot be read, or does not pass the schema, is `settingsError` (the old settings keep running, and a consumer that asks for the host is
+   * told why it is not on the new ones); the next good save clears it.
+   */
   async #watchSettings(): Promise<void> {
     const w = this.#o.watch;
     if (w === undefined) return;
-    const content = async (): Promise<string | undefined> => {
-      const text = await readFile(w.path).catch(() => undefined);
-      return text === undefined ? undefined : createHash("sha256").update(text).digest("hex");
+    const content = async (): Promise<string | { unreadable: string }> => {
+      try {
+        return createHash("sha256").update(await readFile(w.path)).digest("hex");
+      } catch (e) {
+        return { unreadable: e instanceof Error ? e.message : String(e) };
+      }
     };
-    this.#seen = await content();
-    try {
-      this.#watcher = watch(dirname(w.path), (_kind, name) => {
-        if (name !== null && name !== basename(w.path)) return;
-        clearTimeout(this.#watchTimer);
-        this.#watchTimer = setTimeout(() => {
-          void content().then((now) => {
-            if (now === undefined || now === this.#seen) return;
-            this.#seen = now;
-            return this.reload();
-          });
-        }, w.debounceMs ?? 400);
-      });
-      this.#watcher.on("error", () => undefined);
-    } catch {
-      // a directory that cannot be watched: `models reload` still works
-    }
+    const first = await content();
+    this.#seen = typeof first === "string" ? first : undefined;
+    const check = async (): Promise<void> => {
+      const now = await content();
+      if (typeof now !== "string") {
+        const text = `the settings file cannot be read, so the settings that were running still are: ${now.unreadable}`;
+        if (!this.#unreadable || this.#settingsError !== text) {
+          this.#unreadable = true;
+          this.#settingsError = text;
+          this.#emit({ type: "settings", error: text });
+        }
+        return;
+      }
+      if (now === this.#seen && !this.#unreadable) return;
+      this.#unreadable = false;
+      this.#seen = now;
+      await this.reload();
+    };
+    let checking = false;
+    const run = (): void => {
+      if (checking) return;
+      checking = true;
+      void check().finally(() => (checking = false));
+    };
+    const attach = (): void => {
+      if (this.#watcher !== undefined) return;
+      try {
+        const watcher = watch(dirname(w.path), (_kind, name) => {
+          if (name !== null && name !== basename(w.path)) return;
+          clearTimeout(this.#watchTimer);
+          this.#watchTimer = setTimeout(run, w.debounceMs ?? 400);
+        });
+        const lost = (): void => {
+          watcher.close();
+          if (this.#watcher === watcher) this.#watcher = undefined; // the next tick attaches another
+        };
+        watcher.on("error", lost);
+        watcher.on("close", lost);
+        this.#watcher = watcher;
+      } catch {
+        // the directory cannot be watched now (it may not exist): the timer still looks, and tries again
+      }
+    };
+    attach();
+    this.#settingsPoll = setInterval(() => {
+      attach();
+      run();
+    }, w.pollMs ?? 1000);
+    this.#settingsPoll.unref();
+  }
+
+  /** Stop when the daemon's own code changes (`codeWatch`). */
+  async #watchCode(): Promise<void> {
+    const w = this.#o.codeWatch;
+    if (w === undefined) return;
+    let baseline = await sourceSignature(w.root, w.dirs);
+    let pending: string | undefined;
+    let busy = false;
+    this.#codePoll = setInterval(() => {
+      if (busy) return;
+      busy = true;
+      void sourceSignature(w.root, w.dirs)
+        .then((now) => {
+          if (now === baseline) return void (pending = undefined);
+          // a change must hold for a whole tick before we act, so a checkout or a build that is still writing is waited out
+          if (pending !== now) return void (pending = now);
+          baseline = now;
+          this.#o.log?.("the daemon's code changed on disk: stopping, so that the next use starts the new code");
+          void this.close();
+        })
+        .catch(() => undefined)
+        .finally(() => (busy = false));
+    }, w.pollMs ?? 2000);
+    this.#codePoll.unref();
   }
 
   /** `server.idle_exit_minutes`: exit when no model is in memory and nothing has used the control API, with no session attached, for that long. */
@@ -222,4 +304,23 @@ export class Daemon implements ControlTarget {
       }
     }
   }
+}
+
+/** A fingerprint of the source files under `dirs`: their paths, sizes and modification times. Equal while nothing has been saved. */
+export async function sourceSignature(root: string, dirs: readonly string[]): Promise<string> {
+  const parts: string[] = [];
+  const walk = async (dir: string): Promise<void> => {
+    const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+    for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      const path = join(dir, e.name);
+      if (e.isDirectory()) {
+        if (e.name !== "node_modules" && !e.name.startsWith(".")) await walk(path);
+      } else if (/\.(ts|mjs|js|json)$/.test(e.name)) {
+        const st = await stat(path).catch(() => undefined);
+        if (st !== undefined) parts.push(`${path}:${st.size}:${st.mtimeMs}`);
+      }
+    }
+  };
+  for (const d of dirs) await walk(join(root, d));
+  return createHash("sha256").update(parts.join("\n")).digest("hex");
 }

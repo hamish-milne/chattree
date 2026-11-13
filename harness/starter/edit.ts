@@ -109,6 +109,17 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
   return { text, report, lines: out.length };
 }
 
+/**
+ * Whether `content` is the lines of `read`'s output pasted back: every line starts with its own line number and a tab, counting up from where the
+ * change begins. Some models copy the numbering of what they read into what they write, so the file gains a `1\t` in front of every line; the
+ * numbers have to be the ones the lines would have, which a file that really starts its lines with numbers and tabs rarely matches.
+ */
+export function echoesLineNumbers(content: string, first: number): boolean {
+  if (content === "") return false;
+  const lines = content.replace(/\r?\n$/, "").split(/\r?\n/);
+  return lines.every((l, i) => l.startsWith(`${first + i}\t`));
+}
+
 const CHANGE_ALIASES = { start: ["start_line", "line_start", "from", "from_line"], end: ["end_line", "line_end", "to", "to_line"], after: ["after_line", "insert_after"], content: ["contents", "text", "new_text", "replace_with", "replacement", "new_content"] } as const;
 
 /** The flat arguments of edit: one file, one change (docs/tools.md, 4.1). The nested shapes with one item are repaired (args.ts). */
@@ -165,6 +176,8 @@ export function editTool(): Tool {
         if (f.end !== undefined) change.end = f.end;
         else if (f.start !== undefined && f.after === undefined) change.end = f.start;
         if (f.after !== undefined) change.after = f.after;
+        const first = change.after !== undefined ? change.after + 1 : change.start;
+        if (first !== undefined && echoesLineNumbers(change.content, first)) throw new EditFailed("`content` starts every line with its line number and a tab, as read shows them; give the text of the lines only, without the numbers");
         const out = applyChanges(original, [change]);
         const written = enc.encode(out.text);
         await host.fs.writeAtomic(abs, written, { keepMode: true });

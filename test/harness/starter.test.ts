@@ -263,6 +263,17 @@ describe("edit", () => {
     assert.match((await call("edit", { path: "harness.yml", version: "x", after: 0, content: "x" })).content, /cannot be written/);
   });
 
+  test("content that repeats read's line numbers is refused, and a file whose lines merely start with a number is not", async () => {
+    const { dir, call } = await workspace({ "a.txt": "alpha\nbeta\n", "t.txt": "x\n" });
+    const v = /version ([0-9a-f]{8})/.exec((await call("read", { path: "a.txt" })).content)?.[1] as string;
+    const echoed = await call("edit", { path: "a.txt", version: v, start: 1, end: 2, content: "1\tone\n2\ttwo" });
+    assert.equal(echoed.is_error, true);
+    assert.match(echoed.content, /starts every line with its line number and a tab.*nothing in it was changed/);
+    assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "alpha\nbeta\n");
+    assert.equal((await call("edit", { path: "a.txt", version: v, after: 2, content: "3\tthree" })).is_error, true, "an insert is numbered from the line after");
+    assert.equal((await call("edit", { path: "a.txt", version: v, start: 1, end: 1, content: "7\tseven" })).is_error, undefined, "other numbers are the user's text");
+  });
+
   test("another change to the same file uses the version and numbers the last result gave", async () => {
     const { dir, call } = await workspace({ "a.txt": "1\n2\n3\n4\n" });
     let v = await versionOf(new TextEncoder().encode("1\n2\n3\n4\n"));
@@ -393,6 +404,19 @@ describe("run", () => {
     assert.match((await call("run", { command: "no-such-program-xyz --flag" })).content, /exit 127\nno-such-program-xyz: command not found/);
   });
 
+  test("git is refused by default, with the reason, and allowed by tools.run.git", async () => {
+    const { call, dir } = await workspace();
+    const r = await call("run", { command: "git log --oneline" });
+    assert.equal(r.is_error, true);
+    assert.match(r.content, /git is not used here: the working directory is a repository that stores a log of this conversation.*saved automatically.*tools\.run\.git/);
+    assert.match((await call("run", { command: "echo hi | git hash-object --stdin" })).content, /git is not used here/, "in a pipeline too");
+    const tools = new ToolRegistry(leafTools({ git: true }));
+    const checked = tools.check({ name: "run", args: { command: "git --version" } });
+    if ("error" in checked) throw new Error(checked.error);
+    const out = text(await checked.tool.execute(checked.args, { signal: new AbortController().signal, callId: "c2", workspace: dir, host, blobs: new MemoryBlobStore() }));
+    assert.doesNotMatch(out.content, /not used here/);
+  });
+
   test("syntax run does not do is an error result that says what to use instead", async () => {
     const { call } = await workspace();
     for (const [command, re] of [["echo a; echo b", /`;` is not supported by run \(use the script tool/], ["echo a && echo b", /`&&`/], ["echo $(date)", /\$\(\.\.\.\)/], ["", /empty/], ["FOO=1 node -v", /setting a variable/]] as const) {
@@ -488,8 +512,8 @@ describe("run", () => {
     const windows = { ...host, platform: "windows" as const, run: async (spec: Parameters<NonNullable<typeof host.run>>[0]) => (started.push(spec.stages), { exitCode: 0, stageCodes: [0], output: new Uint8Array(), dropped: 0, timedOut: false, aborted: false }) };
     const ctx: ToolContext = { signal: new AbortController().signal, callId: "c", workspace: dir, host: windows };
     const withBb = new ToolRegistry(leafTools({ busybox: "C:\\tools\\busybox.exe" })).get("run") as Tool;
-    await withBb.execute({ command: "cat a.txt | sort | git status" }, ctx);
-    assert.deepEqual(started[0], [["C:\\tools\\busybox.exe", "cat", "a.txt"], ["C:\\tools\\busybox.exe", "sort"], ["git", "status"]]);
+    await withBb.execute({ command: "cat a.txt | sort | node -v" }, ctx);
+    assert.deepEqual(started[0], [["C:\\tools\\busybox.exe", "cat", "a.txt"], ["C:\\tools\\busybox.exe", "sort"], ["node", "-v"]]);
     const without = new ToolRegistry(leafTools()).get("run") as Tool;
     const r = (await without.execute({ command: "ls -la" }, ctx)) as ToolOutput;
     assert.equal(r.is_error, true);

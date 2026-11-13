@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 import { Daemon, DaemonRunning } from "../localmodels/daemon.ts";
-import { ensureDaemon, findDaemon, launchDetached, DaemonError, type ClientEvent, type DaemonClient } from "../localmodels/client.ts";
+import { ensureDaemon, findDaemon, launchDetached, waitGone, DaemonError, type ClientEvent, type DaemonClient } from "../localmodels/client.ts";
 import { logFile } from "../localmodels/daemon-files.ts";
 import { LocalModelHost } from "../localmodels/host.ts";
 import { latestTag, type InstallPlan } from "../localmodels/install.ts";
@@ -174,6 +175,8 @@ export async function serve(io: Io): Promise<number> {
     data,
     host: { ...thisMachine(), env: io.env },
     watch: path === undefined ? undefined : { path },
+    codeWatch: { root: fileURLToPath(new URL("..", import.meta.url)), dirs: ["cli", "harness", "hosts", "localmodels", "providers", "src"] },
+    log: (m) => io.out(`${m}\n`),
     loadSettings: async () => {
       const s = await loadSettings(io);
       if (s.local_models === undefined) throw new CliError("the settings file has no local_models section");
@@ -264,15 +267,24 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
       case "restart": {
         need(0);
         localConfig(io);
+        // A restart is a whole new daemon, with the code and settings as they are now: nobody should have to wonder whether it really was.
+        const old = sub === "restart" ? await running() : undefined;
+        if (old !== undefined) {
+          io.err("stopping the model host\n");
+          const pid = (await old.status()).pid;
+          await old.stop();
+          if (!(await waitGone(pid, 60_000))) throw new CliError(`the model host (process ${pid}) did not stop within a minute`);
+        }
         const client = await ensureDaemon({ data, fetch: o.fetch, launch: o.launch ?? (() => launchDetached(data, io.env)), onLaunch: () => io.err("starting the model host\n") });
-        return await follow(io, client, { kind: sub, yes: o.yes });
+        return await follow(io, client, { kind: "start", yes: o.yes });
       }
       case "reload": {
         need(0);
         const client = await running();
         if (client === undefined) return (io.out("the model host is not running; it reads the settings when it starts\n"), 0);
-        io.out(`${describeStatus(await client.reload())}\n`);
-        return 0;
+        const st = await client.reload();
+        io.out(`${describeStatus(st)}\n`);
+        return st.settingsError === undefined ? 0 : 1;
       }
       case "list": {
         need(0);

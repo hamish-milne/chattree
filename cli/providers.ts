@@ -1,6 +1,6 @@
 import { defaultRegistry, localModelsDefinition, type AdapterRegistry, type LocalModelsRuntime } from "../providers/index.ts";
 import { catalog, resolveName } from "../localmodels/catalog.ts";
-import { findDaemon } from "../localmodels/client.ts";
+import { ensureDaemon, launchDetached } from "../localmodels/client.ts";
 import { dataDir } from "../localmodels/plan.ts";
 import { resolveSampling, type ResolvedSampling } from "../localmodels/sampling.ts";
 import type { Io } from "./io.ts";
@@ -17,10 +17,18 @@ export function localRuntime(io: Pick<Io, "host" | "env" | "settings">): LocalMo
       if (data === undefined) throw new Error("there is no data directory on this machine (set data_dir in the settings file)");
       const deadline = Date.now() + 60_000;
       for (;;) {
-        const client = await findDaemon(data);
-        if (client === undefined) throw new Error("the local model host is not running: start it with `chattree models start`");
-        const st = (await client.status()).state;
-        if (st.phase === "ready" && st.baseUrl !== undefined) return { baseUrl: st.baseUrl, ids: st.ids };
+        // A host that is not running (stopped, or gone because its code changed) is started: asking for a model is asking for it to be there.
+        // Nothing is installed or downloaded without the user's yes, so a first start still has to be `chattree models start`.
+        const client = await ensureDaemon({ data, launch: () => launchDetached(data, io.env) });
+        let status = await client.status();
+        if (status.state.phase === "idle" || status.state.phase === "stopped") status = await client.start({ yes: false });
+        // A settings file that cannot be used is an error for every consumer, not something to find in `status`.
+        if (status.settingsError !== undefined) throw new Error(`the local model host is not using the current settings: ${status.settingsError} (fix the settings file; \`chattree models status\` shows more)`);
+        const st = status.state;
+        if (st.phase === "ready" && st.baseUrl !== undefined) {
+          if (st.error !== undefined) throw new Error(`the local model host could not apply the current settings: ${st.error}`);
+          return { baseUrl: st.baseUrl, ids: st.ids };
+        }
         // A host that is restarting is given a moment; anything else is for the user to look at.
         if (!["restarting", "starting"].includes(st.phase) || Date.now() > deadline || signal?.aborted === true) {
           throw new Error(`the local model host is ${st.phase}${st.error === undefined ? "" : `: ${st.error}`}; \`chattree models status\` shows more, \`chattree models start\` starts it`);

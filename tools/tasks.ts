@@ -147,11 +147,11 @@ export const TASKS: Task[] = [
     check: (r) => (ranOk(r, "run") && /PEAR/.test(r.answer) && /APPLE/.test(r.answer) ? undefined : `the answer was ${JSON.stringify(r.answer.slice(0, 100))}, run succeeded: ${ranOk(r, "run")}`),
   },
   {
-    name: "run git",
+    name: "run node version",
     group: "run",
-    files: { "untracked.txt": "hello\n" },
-    prompt: "Use the run tool to run `git log --oneline` and tell me how many lines it printed.",
-    check: (r) => (ranOk(r, "run") && /\d/.test(r.answer) ? undefined : `run succeeded: ${ranOk(r, "run")}, answer ${JSON.stringify(r.answer.slice(0, 80))}`),
+    files: {},
+    prompt: "Use the run tool to run `node --version` and tell me what it printed.",
+    check: (r) => (ranOk(r, "run") && /v?\d+\.\d+/.test(r.answer) ? undefined : `run succeeded: ${ranOk(r, "run")}, answer ${JSON.stringify(r.answer.slice(0, 80))}`),
   },
   {
     name: "utility pipe",
@@ -184,7 +184,7 @@ export const TASKS: Task[] = [
     name: "edit then run",
     group: "mixed",
     files: { "notes.txt": "status: draft\n" },
-    prompt: "Read notes.txt, then use the edit tool to change the word draft to final, then use the run tool to run `git log --oneline -n 3` and tell me how many lines it printed.",
+    prompt: "Read notes.txt, then use the edit tool to change the word draft to final, then use the run tool to run `node --version` and tell me what it printed.",
     check: (r) => (r.after["notes.txt"] === "status: final\n" && ranOk(r, "run") && r.status === "completed" ? undefined : `notes.txt is ${JSON.stringify(r.after["notes.txt"])}, run succeeded: ${ranOk(r, "run")}, status ${r.status}`),
   },
 ];

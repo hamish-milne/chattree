@@ -70,6 +70,26 @@ local_models:
     assert.equal(await main(["say", "again"], second), 0, second.stderr);
     assert.doesNotMatch(second.stderr, /starting the model host/);
     assert.equal((await findDaemon(data))?.info.pid, pid);
+
+    // A settings file that stopped being valid is an error for the session that asks for the model (it reads the file itself), and the host
+    // reports it too, in `models status` and to every consumer that asks it for the model.
+    const good = await readFile(settings, "utf8");
+    await writeFile(settings, good.replace("ctx_size: 4096", "ctx_size: -5"));
+    for (let i = 0; i < 100 && (await findDaemon(data).then((c) => c?.status()))?.settingsError === undefined; i++) await new Promise((r) => setTimeout(r, 100));
+    const broken = testIo(project, { env });
+    assert.equal(await main(["say", "third"], broken), 1);
+    assert.match(broken.stderr, /is not valid/);
+    await writeFile(settings, good);
+    for (let i = 0; i < 100 && (await findDaemon(data).then((c) => c?.status()))?.settingsError !== undefined; i++) await new Promise((r) => setTimeout(r, 100));
+
+    // A daemon that has gone (stopped, or exited because its code changed) is replaced by the next session that needs the host.
+    assert.equal(await main(["models", "stop"], testIo(dir, { env })), 0);
+    for (let i = 0; i < 100 && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
+    const revived = testIo(project, { env });
+    assert.equal(await main(["say", "fourth"], revived), 0, revived.stderr);
+    const next = (await findDaemon(data))?.info.pid;
+    assert.ok(next !== undefined && next !== pid);
+    pid = next;
   } finally {
     await main(["models", "stop"], testIo(dir, { env }));
     for (let i = 0; i < 100 && pid !== undefined && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
