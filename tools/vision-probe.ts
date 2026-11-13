@@ -31,6 +31,13 @@ export interface Result {
   right: boolean;
   error?: string;
   ms: number;
+  /** Why the request ended (`end_turn`, `max_tokens`, ...), and its tokens, so an empty answer can be told from a cut-off one. */
+  stop?: string | undefined;
+  tokens?: { in: number; out: number; reasoning?: number | undefined };
+  /** The reasoning the model wrote, when there was any: what it said it saw. */
+  reasoning?: string | undefined;
+  /** The kinds of block that came back, in order. */
+  blocks?: string[];
 }
 
 function args(argv: readonly string[]) {
@@ -53,7 +60,7 @@ export function report(results: readonly Result[]): string {
   const wrong = results.filter((r) => !r.right);
   if (wrong.length > 0) {
     lines.push("", "Wrong:", "");
-    for (const r of wrong) lines.push(`- ${r.id}: expected ${r.expected}; ${r.error !== undefined ? `error: ${r.error}` : `answered ${JSON.stringify(r.answer.slice(0, 200))}`}`);
+    for (const r of wrong) lines.push(`- ${r.id}: expected ${r.expected}; ${r.error !== undefined ? `error: ${r.error}` : `answered ${JSON.stringify(r.answer.slice(0, 200))}`}${r.stop === undefined || r.stop === "end_turn" ? "" : ` [${r.stop}]`}${r.tokens === undefined ? "" : ` (${r.tokens.out} tokens out)`}`);
   }
   return lines.join("\n");
 }
@@ -78,6 +85,7 @@ async function main(): Promise<void> {
   }
   const text = report(results);
   await writeFile(join(dir, "vision.json"), JSON.stringify(results, null, 2));
+  await writeFile(join(dir, "run.json"), JSON.stringify({ model: o.model, dialect: o.dialect, maxTokens: o.maxTokens, seed: o.seed, sampling }, null, 2));
   await writeFile(join(dir, "vision.md"), text);
   console.log(text);
 }
@@ -94,8 +102,11 @@ async function ask(adapter: ReturnType<typeof localModelsAdapter>, setup: AgentS
   const run = await collectStream(adapter.stream({ context, setup, signal: AbortSignal.timeout(300_000) }));
   const base = { id: s.id, kind: s.kind, expected: s.expected, ms: Date.now() - t0 };
   if (run.error !== undefined) return { ...base, answer: "", right: false, error: run.error instanceof Error ? run.error.message : String(run.error) };
-  const answer = (run.completed?.blocks ?? []).flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-  return { ...base, answer, right: s.check(answer) };
+  const blocks = run.completed?.blocks ?? [];
+  const answer = blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+  const reasoning = blocks.flatMap((b) => (b.type === "reasoning" && typeof b.visible === "string" ? [b.visible] : [])).join("\n");
+  const u = run.completed?.usage;
+  return { ...base, answer, right: s.check(answer), stop: run.completed?.stop_reason, ...(u === undefined ? {} : { tokens: { in: u.input_tokens + (u.cache_read_tokens ?? 0), out: u.output_tokens, reasoning: u.reasoning_tokens } }), ...(reasoning === "" ? {} : { reasoning }), blocks: blocks.map((b) => b.type) };
 }
 
 if (import.meta.main) {
