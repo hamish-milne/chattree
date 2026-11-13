@@ -38,6 +38,13 @@ describe("audio scenarios", () => {
     assert.ok(lengths.size > 1, "different counts make sounds of different lengths");
   });
 
+  test("padding makes a sound at least as long as asked, and leaves a longer one alone", () => {
+    const [a] = scenarios({ kinds: ["pitch"], count: 1, seed: 1, pad: 10 });
+    assert.equal(a?.wav.length, 44 + 10 * 16000 * 2);
+    const [b] = scenarios({ kinds: ["pitch"], count: 1, seed: 1, pad: 1 });
+    assert.equal(b?.wav.length, 44 + Math.round(2.0 * 16000) * 2);
+  });
+
   test("speech is right when the words are in the answer, whatever the case and punctuation", async () => {
     const s = speechScenario("hello", new Uint8Array(), "Hello, World.");
     assert.ok(s.check("It says: hello world!"));
@@ -68,12 +75,16 @@ describe("audio scenarios", () => {
 
 describe("the speech sample set", () => {
   test("names are unique, the clips are short, and ffmpeg is told to cut from the Commons redirect with a user agent", async () => {
-    const { SAMPLES, ffmpegArgs, sourceUrl, USER_AGENT } = await import("../../tools/audio-samples.ts");
+    const { SAMPLES, ffmpegArgs, sourceOf, sourceUrl, USER_AGENT } = await import("../../tools/audio-samples.ts");
     assert.equal(new Set(SAMPLES.map((s) => s.name)).size, SAMPLES.length);
     assert.ok(SAMPLES.every((s) => s.seconds <= 30 && /^[a-z-]+$/.test(s.name)));
     assert.equal(sourceUrl("Non-native English.ogg"), "https://commons.wikimedia.org/wiki/Special:FilePath/Non-native%20English.ogg");
     const args = ffmpegArgs(SAMPLES[1] as (typeof SAMPLES)[number], "out.wav");
     assert.deepEqual(args.slice(args.indexOf("-user_agent"), args.indexOf("-user_agent") + 2), ["-user_agent", USER_AGENT]);
+    assert.equal(sourceOf("a b.ogg", "in", () => false), "https://commons.wikimedia.org/wiki/Special:FilePath/a%20b.ogg");
+    const local = sourceOf("a.ogg", "in", () => true);
+    assert.ok(local.endsWith("/in/a.ogg") && local.startsWith("/"), "a copy in the input folder is read in place of the URL");
+    assert.ok(!ffmpegArgs(SAMPLES[1] as (typeof SAMPLES)[number], "o.wav", local).includes("-user_agent"), "no user agent for a file");
     assert.ok(args.includes("-ar") && args.at(-1) === "out.wav" && args[args.indexOf("-i") + 1]?.endsWith("Declaration_of_Independence_Part_1.ogg"));
   });
 });

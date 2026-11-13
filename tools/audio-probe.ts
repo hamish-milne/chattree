@@ -3,8 +3,9 @@
  * go to the model one at a time with their question, and the answers are checked. Recordings of speech can be added from a folder of
  * `name.wav` files, with the words said in `name.txt` to score them (see tools/audio-samples.ts for a set). The sounds are written next to the results, so a wrong answer can be listened to.
  *
- *   node tools/audio-probe.ts --model NAME [--count 5] [--seed 1] [--kinds beeps,pitch] [--speech DIR] [--dialect NAME] [--max-tokens 1024] [--out DIR] [--yes]
+ *   node tools/audio-probe.ts --model NAME [--count 5] [--seed 1] [--kinds beeps,pitch] [--speech DIR] [--pad SECONDS] [--dialect NAME] [--max-tokens 1024] [--out DIR] [--yes]
  *
+ * `--pad SECONDS` follows each made sound with silence up to that length (a short sound may not be given the attention that a clip of speech is).
  * `--model` is a name from local_models in the settings file whose projector can hear (Gemma 4 E2B and E4B, Qwen Omni, Voxtral, Ultravox
  * have one, and llama-server says in `/props` whether the one loaded does). `--dialect NAME` sends the sound through that dialect's
  * `/completion` and not the chat endpoint (which takes it as `input_audio`).
@@ -43,7 +44,7 @@ function args(argv: readonly string[]) {
   if (model === undefined) throw new Error("--model is required: a model from local_models in the settings file, with a projector that can hear");
   const kinds = v("--kinds")?.split(",").map((k) => k.trim());
   for (const k of kinds ?? []) if (!(AUDIO_KINDS as readonly string[]).includes(k)) throw new Error(`--kinds: ${k} is not one of ${AUDIO_KINDS.join(", ")}`);
-  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as AudioKind[] | undefined, speech: v("--speech"), maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), out: v("--out"), yes: argv.includes("--yes") };
+  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as AudioKind[] | undefined, speech: v("--speech"), pad: Number(v("--pad") ?? 0), maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), out: v("--out"), yes: argv.includes("--yes") };
 }
 
 /** The table of results: right of total for each kind, and the wrong answers. */
@@ -96,7 +97,7 @@ async function main(): Promise<void> {
   const setup: AgentSetup = { ...emptySetup(), model };
   const dir = o.out ?? join("bench-runs", `audio-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
   await mkdir(dir, { recursive: true });
-  const all = [...scenarios({ kinds: o.kinds, count: o.count, seed: o.seed }), ...(o.speech === undefined ? [] : await readSpeech(o.speech))];
+  const all = [...scenarios({ kinds: o.kinds, count: o.count, seed: o.seed, pad: o.pad }), ...(o.speech === undefined ? [] : await readSpeech(o.speech))];
   const results: AudioResult[] = [];
   for (const s of all) {
     await writeFile(join(dir, `${s.id}.wav`), s.wav);
@@ -106,7 +107,7 @@ async function main(): Promise<void> {
   }
   const text = report(results);
   await writeFile(join(dir, "audio.json"), JSON.stringify(results, null, 2));
-  await writeFile(join(dir, "run.json"), JSON.stringify({ model: o.model, dialect: o.dialect, maxTokens: o.maxTokens, seed: o.seed, sampling }, null, 2));
+  await writeFile(join(dir, "run.json"), JSON.stringify({ model: o.model, dialect: o.dialect, maxTokens: o.maxTokens, seed: o.seed, sampling, pad: o.pad }, null, 2));
   await writeFile(join(dir, "audio.md"), text);
   console.log(text);
 }
