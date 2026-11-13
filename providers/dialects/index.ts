@@ -15,6 +15,8 @@ export function builtinDialects(): Dialect[] {
  */
 export function dialectForModel(name: string): string | undefined {
   const m = name.toLowerCase();
+  // The R1 distills are Qwen (or Llama) weights with DeepSeek's own template and no tool list in it: the name of the base model says nothing of their format.
+  if (/deepseek|r1-distill/.test(m)) return undefined;
   // Only the generations whose format a dialect reproduces: older models of the same makers (DeepSeek-MoE-16B, ChatGLM, Mistral 7B) were not trained for these calls.
   const by: [RegExp, string][] = [[/gpt-oss/, "harmony"], [/qwen/, "qwen-xml"], [/gemma/, "gemma"], [/glm-?4\.[56]/, "glm46"], [/glm-?4\.[789]|glm-?[5-9]/, "glm"], [/devstral|mistral-small-3/, "mistral"]];
   return by.find(([re]) => re.test(m))?.[1];
