@@ -4,10 +4,19 @@
  * records the type in the blob reference, and everything after reads the type from there.
  */
 
-export type AttachmentKind = "text" | "image" | "pdf";
+export type AttachmentKind = "text" | "image" | "pdf" | "audio";
 
 /** Image types every provider that takes images accepts. */
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+
+/** Audio types, and the format name that APIs which take audio ask for (`input_audio.format`). llama.cpp reads these three. */
+const AUDIO_FORMATS: Readonly<Record<string, "wav" | "mp3" | "flac">> = { "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav", "audio/vnd.wave": "wav", "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/flac": "flac", "audio/x-flac": "flac" };
+
+/** The format name of an audio type, or undefined if it is not one a model is given. */
+export function audioFormat(mime: string): "wav" | "mp3" | "flac" | undefined {
+  const m = normalizeMime(mime);
+  return m === undefined ? undefined : AUDIO_FORMATS[m];
+}
 
 /** The media type without parameters, lowercased; undefined if it is not `type/subtype`. */
 export function normalizeMime(mime: string): string | undefined {
@@ -21,6 +30,7 @@ export function attachmentKind(mime: string): AttachmentKind | undefined {
   if (m === undefined) return undefined;
   if (IMAGE_TYPES.has(m)) return "image";
   if (m === "application/pdf") return "pdf";
+  if (AUDIO_FORMATS[m] !== undefined) return "audio";
   if (m.startsWith("text/") || ["application/json", "application/xml", "application/yaml", "application/x-yaml", "application/toml", "application/javascript", "application/sql"].includes(m) || /\+(json|xml|yaml)$/.test(m)) return "text";
   return undefined;
 }
@@ -79,3 +89,6 @@ export function dataUrl(mime: string, bytes: Uint8Array): string {
  */
 export const IMAGE_TOKEN_GUESS = 2000;
 export const pdfTokenGuess = (bytes: number): number => 1500 + Math.ceil(bytes / 25);
+
+/** Audio costs a token per frame the model's encoder makes (25 a second for Gemma 4); 16-bit mono at 16 kHz is 32 000 bytes a second, so a token for every 400 bytes is a deliberate overestimate. */
+export const audioTokenGuess = (bytes: number): number => 100 + Math.ceil(bytes / 400);

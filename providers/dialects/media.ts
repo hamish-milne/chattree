@@ -18,8 +18,8 @@ export function userContent(parts: readonly UserPart[], marker: string | undefin
       isImage.push(false);
       continue;
     }
-    if (p.kind !== "image") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "a PDF"} cannot be sent: only pictures can be sent to a local model; send the text of a PDF instead` });
-    if (marker === undefined) throw new ProviderError({ kind: "invalid_request", message: "this request has a picture, and the server has not said how to mark one" });
+    if (p.kind === "pdf") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "a PDF"} cannot be sent: only pictures and sound can be sent to a local model; send the text of a PDF instead` });
+    if (marker === undefined) throw new ProviderError({ kind: "invalid_request", message: `this request has ${p.kind === "audio" ? "sound" : "a picture"}, and the server has not said how to mark it` });
     media.push(p);
     pieces.push(marker);
     isImage.push(true);

@@ -141,6 +141,7 @@ function toItems(turns: readonly Turn[], opts: RequestOptions): Json[][] {
           role: "user",
           content: t.parts.map((p): Json => {
             if (p.type === "text") return { type: "input_text", text: p.text };
+            if (p.kind === "audio") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Responses API takes no audio input here` });
             if (p.kind === "image") return { type: "input_image", image_url: dataUrl(p.mime, p.bytes) };
             return { type: "input_file", filename: p.name ?? "document.pdf", file_data: dataUrl(p.mime, p.bytes) };
           }),

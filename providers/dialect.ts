@@ -253,11 +253,16 @@ async function markerTokens(base: string, model: string, markers: readonly strin
 }
 
 /** What a server says of itself (`GET /props`): whether it can take pictures, and what marks one in a prompt. Remembered for the run when it was answered. */
-const propsCache = new Map<string, Promise<{ vision: boolean | undefined; marker: string }>>();
+interface Props {
+  vision: boolean | undefined;
+  audio: boolean | undefined;
+  marker: string;
+}
+const propsCache = new Map<string, Promise<Props>>();
 /** `mtmd_default_marker()` of llama.cpp, for a build that does not say its own. */
 const DEFAULT_MARKER = "<__media__>";
 
-async function serverProps(base: string, model: string, doFetch: typeof fetch): Promise<{ vision: boolean | undefined; marker: string }> {
+async function serverProps(base: string, model: string, doFetch: typeof fetch): Promise<Props> {
   const key = `${base}\n${model}`;
   const known = propsCache.get(key);
   if (known !== undefined) return known;
@@ -265,11 +270,11 @@ async function serverProps(base: string, model: string, doFetch: typeof fetch): 
     try {
       const res = await doFetch(`${base.replace(/\/$/, "")}/props?model=${encodeURIComponent(model)}`, { signal: AbortSignal.timeout(60_000) });
       if (!res.ok) throw new Error(String(res.status));
-      const d = (await res.json()) as { modalities?: { vision?: unknown }; media_marker?: unknown };
-      return { vision: typeof d.modalities?.vision === "boolean" ? d.modalities.vision : undefined, marker: typeof d.media_marker === "string" && d.media_marker !== "" ? d.media_marker : DEFAULT_MARKER };
+      const d = (await res.json()) as { modalities?: { vision?: unknown; audio?: unknown }; media_marker?: unknown };
+      return { vision: typeof d.modalities?.vision === "boolean" ? d.modalities.vision : undefined, audio: typeof d.modalities?.audio === "boolean" ? d.modalities.audio : undefined, marker: typeof d.media_marker === "string" && d.media_marker !== "" ? d.media_marker : DEFAULT_MARKER };
     } catch {
       propsCache.delete(key); // the model may still be loading: ask again next time
-      return { vision: undefined, marker: DEFAULT_MARKER };
+      return { vision: undefined, audio: undefined, marker: DEFAULT_MARKER };
     }
   })();
   propsCache.set(key, found);
@@ -291,7 +296,9 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       let marker: string | undefined;
       if (req.context.turns.some((t) => t.role === "user" && t.parts.some((p) => p.type === "attachment"))) {
         const props = await serverProps(opts.baseUrl, opts.modelName(served), opts.fetch ?? fetch);
-        if (props.vision === false) throw new ProviderError({ kind: "invalid_request", message: `${opts.modelName(served)} cannot take pictures: it has no multimodal projector (set mmproj, for instance \`mmproj: auto\`, in its local_models entry)` });
+        const attached = req.context.turns.flatMap((t) => (t.role === "user" ? t.parts : [])).flatMap((p) => (p.type === "attachment" ? [p.kind] : []));
+        if (props.audio === false && attached.includes("audio")) throw new ProviderError({ kind: "invalid_request", message: `${opts.modelName(served)} cannot take sound: its multimodal projector has no audio encoder (Gemma 4 E2B and E4B, Qwen Omni, Voxtral and Ultravox have one)` });
+        if (props.vision === false && attached.some((k) => k !== "audio")) throw new ProviderError({ kind: "invalid_request", message: `${opts.modelName(served)} cannot take pictures: it has no multimodal projector (set mmproj, for instance \`mmproj: auto\`, in its local_models entry)` });
         marker = props.marker;
       }
       const r = renderFor(req, s, marker);

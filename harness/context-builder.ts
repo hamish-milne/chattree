@@ -32,7 +32,7 @@ export type Block =
 type BlobRef = { $tag: "blob"; sha256: string; bytes: number; mime?: string | undefined };
 
 /** A file for the model to see. Text files never get here: they are inlined as text (see `Renderer.textAttachment`). */
-export type AttachmentPart = { type: "attachment"; kind: "image" | "pdf"; name: string | undefined; mime: string; sha256: string; bytes: Uint8Array };
+export type AttachmentPart = { type: "attachment"; kind: "image" | "pdf" | "audio"; name: string | undefined; mime: string; sha256: string; bytes: Uint8Array };
 export type UserPart = { type: "text"; text: string } | AttachmentPart;
 
 export type Turn =

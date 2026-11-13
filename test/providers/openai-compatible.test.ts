@@ -111,6 +111,8 @@ describe("request body", () => {
     assert.equal((buildChatBody(ctx({ system: "" }), setupFor(), opts)["messages"] as unknown[]).length, 1);
     const img = ctx({ turns: [{ role: "user", parts: [{ type: "text", text: "look" }, { type: "attachment", kind: "image", name: "a.png", mime: "image/png", sha256: "a".repeat(64), bytes: new Uint8Array([1, 2, 3]) }] }] });
     assert.deepEqual((buildChatBody(img, setupFor(), opts)["messages"] as { content: unknown }[]).at(-1)?.content, [{ type: "text", text: "look" }, { type: "image_url", image_url: { url: "data:image/png;base64,AQID" } }]);
+    const wav = ctx({ turns: [{ role: "user", parts: [{ type: "attachment", kind: "audio", name: "a.wav", mime: "audio/wav", sha256: "c".repeat(64), bytes: new Uint8Array([1, 2, 3]) }] }] });
+    assert.deepEqual((buildChatBody(wav, setupFor(), opts)["messages"] as { content: unknown }[]).at(-1)?.content, [{ type: "input_audio", input_audio: { data: "AQID", format: "wav" } }]);
     const r = await run(replay(TEXT), ctx({ turns: [{ role: "user", parts: [{ type: "attachment", kind: "pdf", name: "r.pdf", mime: "application/pdf", sha256: "b".repeat(64), bytes: new Uint8Array([4, 5]) }] }] }));
     assert.ok(r.error instanceof ProviderError && /PDF/.test(r.error.message));
     const r2 = await collectStream(replay(TEXT).stream(req(ctx(), emptySetup())));

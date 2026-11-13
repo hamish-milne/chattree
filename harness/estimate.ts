@@ -1,7 +1,7 @@
 import { cacheWriteRate, findModel, ratesFor, ttlMinutes, type ModelPrice, type PriceTable, type Rates } from "../providers/pricing.ts";
 import type { ModelInfo } from "../providers/registry.ts";
 import type { Change } from "./setup.ts";
-import { IMAGE_TOKEN_GUESS, pdfTokenGuess } from "./attachments.ts";
+import { IMAGE_TOKEN_GUESS, audioTokenGuess, pdfTokenGuess } from "./attachments.ts";
 import type { ModelContext } from "./context-builder.ts";
 
 /**
@@ -45,7 +45,7 @@ export function estimateInputTokens(ctx: ModelContext): number {
   let attached = 0;
   for (const t of ctx.turns) {
     if (t.role !== "user") continue;
-    for (const p of t.parts) if (p.type === "attachment") attached += p.kind === "image" ? IMAGE_TOKEN_GUESS : pdfTokenGuess(p.bytes.length);
+    for (const p of t.parts) if (p.type === "attachment") attached += p.kind === "image" ? IMAGE_TOKEN_GUESS : p.kind === "audio" ? audioTokenGuess(p.bytes.length) : pdfTokenGuess(p.bytes.length);
   }
   return Math.ceil(new TextEncoder().encode(text).length / BYTES_PER_TOKEN) + attached;
 }

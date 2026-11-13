@@ -114,6 +114,13 @@ describe("pictures are written into the prompt as the server's marker", () => {
     assert.deepEqual(kimi.media?.map((m) => m.name), ["a.png"]);
     for (const d of [hermesDialect, mistralDialect, glmDialect, glm46Dialect, deepseekR1Dialect]) assert.ok(render(d, context, "<__m__>").prompt.includes("<__m__>\nwhat is this?"), d.id);
   });
+  test("sound is written as the same marker, in order with pictures, and is carried in media", () => {
+    const wav: AttachmentPart = { ...png("a.wav"), kind: "audio", mime: "audio/wav" };
+    const r = render(hermesDialect, withPicture([png("p.png"), wav, { type: "text", text: "what did you hear?" }]), "<__m__>");
+    assert.ok(r.prompt.includes("<__m__>\n<__m__>\nwhat did you hear?"));
+    assert.deepEqual(r.media?.map((m) => [m.name, m.kind]), [["p.png", "image"], ["a.wav", "audio"]]);
+    assert.throws(() => render(hermesDialect, withPicture([wav]), undefined), /sound, and the server has not said how to mark it/);
+  });
   test("several pictures keep their order, and a turn without one has no media", () => {
     const r = render(hermesDialect, withPicture([{ type: "text", text: "compare" }, png("1.png"), png("2.png")]), "<__m__>");
     assert.ok(r.prompt.includes("compare\n<__m__>\n<__m__>"));
@@ -121,7 +128,7 @@ describe("pictures are written into the prompt as the server's marker", () => {
     assert.equal(render(hermesDialect, chat([said("hi")]), "<__m__>").media, undefined);
   });
   test("a picture with no marker to write, or a PDF, cannot be sent", () => {
-    assert.throws(() => render(hermesDialect, withPicture([png("a.png")]), undefined), /how to mark one/);
+    assert.throws(() => render(hermesDialect, withPicture([png("a.png")]), undefined), /how to mark it/);
     const pdf: AttachmentPart = { ...png("a.pdf"), kind: "pdf", mime: "application/pdf" };
     assert.throws(() => render(hermesDialect, withPicture([pdf]), "<__m__>"), /a\.pdf cannot be sent/);
   });

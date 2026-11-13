@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { nodeHost } from "../../hosts/node.ts";
-import { attachmentKind, decodeText, mimeCharset, normalizeMime } from "../../harness/attachments.ts";
+import { attachmentKind, audioFormat, audioTokenGuess, decodeText, mimeCharset, normalizeMime } from "../../harness/attachments.ts";
 import { Conversation, ConversationError } from "../../harness/conversation.ts";
 import { estimateInputTokens } from "../../harness/estimate.ts";
 import { prepareContext } from "../../harness/request.ts";
@@ -23,7 +23,9 @@ describe("media types", () => {
   test("normalised, and classified by how a model is given the file", () => {
     assert.equal(normalizeMime("Text/Plain; charset=utf-8"), "text/plain");
     assert.equal(normalizeMime("png"), undefined);
-    assert.deepEqual(["image/png", "image/jpeg", "application/pdf", "text/markdown", "application/json", "application/ld+json", "image/svg+xml", "application/zip", "video/mp4"].map(attachmentKind), ["image", "image", "pdf", "text", "text", "text", "text", undefined, undefined]);
+    assert.deepEqual(["image/png", "image/jpeg", "application/pdf", "text/markdown", "application/json", "application/ld+json", "image/svg+xml", "application/zip", "video/mp4", "audio/wav", "audio/mpeg", "audio/x-flac; charset=x", "audio/ogg"].map(attachmentKind), ["image", "image", "pdf", "text", "text", "text", "text", undefined, undefined, "audio", "audio", "audio", undefined]);
+    assert.deepEqual(["audio/x-wav", "audio/mpeg", "audio/flac", "audio/ogg", "image/png"].map(audioFormat), ["wav", "mp3", "flac", undefined, undefined]);
+    assert.ok(audioTokenGuess(32_000 * 10) >= 250, "never below what 25 frames a second need");
   });
 });
 

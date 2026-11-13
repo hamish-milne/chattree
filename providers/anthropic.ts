@@ -100,6 +100,7 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: Jso
     if (t.role === "user") {
       push("user", t.parts.map((p): Json => {
         if (p.type === "text") return { type: "text", text: p.text };
+        if (p.kind === "audio") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Anthropic API takes no audio` });
         return { type: p.kind === "image" ? "image" : "document", source: { type: "base64", media_type: p.mime, data: base64(p.bytes) }, ...(p.kind === "pdf" && p.name !== undefined ? { title: p.name } : {}) };
       }), i);
     } else if (t.role === "tool_results") {

@@ -185,7 +185,7 @@ describe("a model with a dialect", () => {
 });
 
 describe("pictures to the server", () => {
-  const picture = { type: "attachment" as const, kind: "image" as const, name: "a.png", mime: "image/png", sha256: "0".repeat(64), bytes: Uint8Array.from([1, 2, 3]) };
+  const picture = { type: "attachment" as const, kind: "image" as "image" | "audio", name: "a.png", mime: "image/png", sha256: "0".repeat(64), bytes: Uint8Array.from([1, 2, 3]) };
   const ctx = { ...context, turns: [{ role: "user" as const, parts: [picture, { type: "text" as const, text: "what?" }] }], tools: [] };
   // A dialect that writes a user turn's text and pictures as the server's marker, the way the families do.
   const seeing: Dialect = { ...toy, id: "seeing", render: (i) => { const media: (typeof picture)[] = []; return { prompt: `${userContent((i.context.turns[0] as unknown as { parts: never[] }).parts, i.marker, media)}`, stop: [], ...(media.length === 0 ? {} : { media }) }; } };
@@ -213,6 +213,26 @@ describe("pictures to the server", () => {
       assert.equal(server.seen.filter((r) => r.url === "/completion").length, 0);
     } finally {
       await server.close();
+    }
+  });
+  test("sound goes only to a server whose projector can hear, in the same way as a picture", async () => {
+    const sound = { ...picture, kind: "audio" as const, name: "a.wav", mime: "audio/wav" };
+    const hearing = { ...ctx, turns: [{ role: "user" as const, parts: [sound, { type: "text" as const, text: "what?" }] }] };
+    const mute = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true, audio: false } })] } : sse([last()])));
+    try {
+      assert.match(((await ask(mute, hearing)).error as ProviderError).message, /cannot take sound/);
+      assert.equal(mute.seen.filter((r) => r.url === "/completion").length, 0);
+    } finally {
+      await mute.close();
+    }
+    const ear = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: false, audio: true } })] } : sse([chunk({ content: "a beep", stop: false }), last()])));
+    try {
+      const run = await ask(ear, hearing);
+      assert.equal(run.error, undefined);
+      const body = JSON.parse(ear.seen.find((r) => r.url === "/completion")!.body) as { prompt: { multimodal_data: string[] } };
+      assert.deepEqual(body.prompt.multimodal_data, [Buffer.from([1, 2, 3]).toString("base64")]);
+    } finally {
+      await ear.close();
     }
   });
   test("a build that does not say its marker gets the default one, and text-only requests do not ask", async () => {
