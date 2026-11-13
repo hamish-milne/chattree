@@ -48,15 +48,32 @@ describe("audio scenarios", () => {
     await writeFile(join(dir, "notes.md"), "ignored");
     assert.deepEqual((await readSpeech(dir)).map((x) => [x.id, x.expected]), [["speech-a", "one two"]]);
     await writeFile(join(dir, "b.wav"), new Uint8Array([2]));
-    await assert.rejects(readSpeech(dir), /b\.txt/);
+    await writeFile(join(dir, "b.q"), "Yanny or Laurel?\n");
+    const got = await readSpeech(dir);
+    assert.deepEqual(got.map((x) => [x.id, x.kind, x.question]), [["speech-a", "speech", "What is said in this recording? Answer with just the words."], ["listen-b", "listen", "Yanny or Laurel?"]]);
+    assert.equal(got[1]?.check("anything"), true);
   });
 
   test("the report counts right answers by kind and lists the wrong ones", () => {
     const text = report([
       { id: "beeps-1", kind: "beeps", expected: "3", answer: "3", right: true, ms: 1 },
+      { id: "listen-x", kind: "listen", expected: "", answer: "hello there", right: true, ms: 1 },
       { id: "pitch-1", kind: "pitch", expected: "first", answer: "second", right: false, ms: 1, stop: "max_tokens", tokens: { in: 1, out: 9 } },
     ]);
-    assert.match(text, /\| beeps \| 1 \| 1 \|[\s\S]*\| pitch \| 0 \| 1 \|[\s\S]*\| all \| 1 \| 2 \|/);
+    assert.match(text, /\| beeps \| 1 \| 1 \|[\s\S]*\| pitch \| 0 \| 1 \|[\s\S]*\| listen \(unscored\) \| - \| 1 \|[\s\S]*\| all scored \| 1 \| 2 \|/);
+    assert.match(text, /Heard[\s\S]*listen-x: "hello there"/);
     assert.match(text, /pitch-1: expected first; answered "second" \[max_tokens\] \(9 tokens out\)/);
+  });
+});
+
+describe("the speech sample set", () => {
+  test("names are unique, the clips are short, and ffmpeg is told to cut from the Commons redirect with a user agent", async () => {
+    const { SAMPLES, ffmpegArgs, sourceUrl, USER_AGENT } = await import("../../tools/audio-samples.ts");
+    assert.equal(new Set(SAMPLES.map((s) => s.name)).size, SAMPLES.length);
+    assert.ok(SAMPLES.every((s) => s.seconds <= 30 && /^[a-z-]+$/.test(s.name)));
+    assert.equal(sourceUrl("Non-native English.ogg"), "https://commons.wikimedia.org/wiki/Special:FilePath/Non-native%20English.ogg");
+    const args = ffmpegArgs(SAMPLES[1] as (typeof SAMPLES)[number], "out.wav");
+    assert.deepEqual(args.slice(args.indexOf("-user_agent"), args.indexOf("-user_agent") + 2), ["-user_agent", USER_AGENT]);
+    assert.ok(args.includes("-ar") && args.at(-1) === "out.wav" && args[args.indexOf("-i") + 1]?.endsWith("Declaration_of_Independence_Part_1.ogg"));
   });
 });

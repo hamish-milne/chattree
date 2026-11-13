@@ -7,7 +7,7 @@ import { rng } from "./vision-scenarios.ts";
  * (`speechScenarios`, from a folder of `name.wav` with the words in `name.txt`).
  */
 
-export const AUDIO_KINDS = ["beeps", "pitch", "loudness", "speech"] as const;
+export const AUDIO_KINDS = ["beeps", "pitch", "loudness", "speech", "listen"] as const;
 export type AudioKind = (typeof AUDIO_KINDS)[number];
 
 export interface AudioScenario {
@@ -16,6 +16,7 @@ export interface AudioScenario {
   wav: Uint8Array;
   question: string;
   expected: string;
+  /** Whether an answer is right; a `listen` scenario has none (nothing is known of what is said, so the answers are only to be read). */
   check(answer: string): boolean;
 }
 
@@ -69,7 +70,7 @@ const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4
 const numbersIn = (a: string): number[] => [...a.toLowerCase().matchAll(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/g)].map((m) => WORD_NUMBERS[m[1] as string] ?? Number(m[1]));
 const words = (a: string): string => a.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
 
-function make(kind: Exclude<AudioKind, "speech">, seed: number, index: number): AudioScenario {
+function make(kind: Exclude<AudioKind, "speech" | "listen">, seed: number, index: number): AudioScenario {
   const r = rng(seed * 7919 + index * 104729 + kind.length);
   const id = `${kind}-${index + 1}`;
   if (kind === "beeps") {
@@ -92,14 +93,19 @@ function make(kind: Exclude<AudioKind, "speech">, seed: number, index: number): 
 export function scenarios(o: { kinds?: readonly AudioKind[] | undefined; count: number; seed: number }): AudioScenario[] {
   const out: AudioScenario[] = [];
   for (const kind of o.kinds ?? (["beeps", "pitch", "loudness"] as const)) {
-    if (kind === "speech") continue;
+    if (kind === "speech" || kind === "listen") continue;
     for (let i = 0; i < o.count; i++) out.push(make(kind, o.seed, i));
   }
   return out;
 }
 
 /** A recording and the words said in it, as a scenario: the answer is right when it holds all of the words, in any case and punctuation. */
-export function speechScenario(name: string, wav: Uint8Array, said: string): AudioScenario {
+export function speechScenario(name: string, wav: Uint8Array, said: string, question?: string): AudioScenario {
   const expected = words(said);
-  return { kind: "speech", id: `speech-${name}`, wav, question: "What is said in this recording? Answer with just the words.", expected: said.trim(), check: (a) => words(a).includes(expected) };
+  return { kind: "speech", id: `speech-${name}`, wav, question: question ?? "What is said in this recording? Answer with just the words.", expected: said.trim(), check: (a) => words(a).includes(expected) };
+}
+
+/** A recording with no known words (an accent sample, an illusion): the model is asked `question`, and its answer is only to be read. */
+export function listenScenario(name: string, wav: Uint8Array, question = "Transcribe what is said, then describe the speaker's accent in a few words."): AudioScenario {
+  return { kind: "listen", id: `listen-${name}`, wav, question, expected: "(read the answer)", check: () => true };
 }

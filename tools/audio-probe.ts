@@ -1,7 +1,7 @@
 /**
  * Can a local model hear? Sounds made on the fly (tools/audio-scenarios.ts: how many beeps, which of two tones is higher, which is louder)
  * go to the model one at a time with their question, and the answers are checked. Recordings of speech can be added from a folder of
- * `name.wav` files with the words said in `name.txt`. The sounds are written next to the results, so a wrong answer can be listened to.
+ * `name.wav` files, with the words said in `name.txt` to score them (see tools/audio-samples.ts for a set). The sounds are written next to the results, so a wrong answer can be listened to.
  *
  *   node tools/audio-probe.ts --model NAME [--count 5] [--seed 1] [--kinds beeps,pitch] [--speech DIR] [--dialect NAME] [--max-tokens 1024] [--out DIR] [--yes]
  *
@@ -20,7 +20,7 @@ import type { ModelContext } from "../harness/context-builder.ts";
 import { emptySetup, type AgentSetup } from "../harness/setup.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
 import { collectStream } from "../providers/conformance.ts";
-import { AUDIO_KINDS, scenarios, speechScenario, type AudioKind, type AudioScenario } from "./audio-scenarios.ts";
+import { AUDIO_KINDS, listenScenario, scenarios, speechScenario, type AudioKind, type AudioScenario } from "./audio-scenarios.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
 
 export interface AudioResult {
@@ -51,10 +51,16 @@ export function report(results: readonly AudioResult[]): string {
   const lines = ["| kind | right | of |", "|---|---|---|"];
   for (const k of AUDIO_KINDS) {
     const rs = results.filter((r) => r.kind === k);
-    if (rs.length > 0) lines.push(`| ${k} | ${rs.filter((r) => r.right).length} | ${rs.length} |`);
+    if (rs.length > 0) lines.push(k === "listen" ? `| listen (unscored) | - | ${rs.length} |` : `| ${k} | ${rs.filter((r) => r.right).length} | ${rs.length} |`);
   }
-  lines.push(`| all | ${results.filter((r) => r.right).length} | ${results.length} |`);
+  const scored = results.filter((r) => r.kind !== "listen");
+  lines.push(`| all scored | ${scored.filter((r) => r.right).length} | ${scored.length} |`);
   const wrong = results.filter((r) => !r.right);
+  const heard = results.filter((r) => r.kind === "listen");
+  if (heard.length > 0) {
+    lines.push("", "Heard (to be read, not scored):", "");
+    for (const r of heard) lines.push(`- ${r.id}: ${r.error !== undefined ? `error: ${r.error}` : JSON.stringify(r.answer.slice(0, 400))}`);
+  }
   if (wrong.length > 0) {
     lines.push("", "Wrong:", "");
     for (const r of wrong) lines.push(`- ${r.id}: expected ${r.expected}; ${r.error !== undefined ? `error: ${r.error}` : `answered ${JSON.stringify(r.answer.slice(0, 200))}`}${r.stop === undefined || r.stop === "end_turn" ? "" : ` [${r.stop}]`}${r.tokens === undefined ? "" : ` (${r.tokens.out} tokens out)`}`);
@@ -62,15 +68,19 @@ export function report(results: readonly AudioResult[]): string {
   return lines.join("\n");
 }
 
-/** The recordings in a folder: each `name.wav` with the words in `name.txt`. */
+/**
+ * The recordings in a folder: each `name.wav`, with the words said in `name.txt` (scored: the answer must hold them), or without one (a
+ * `listen` scenario, read by eye). `name.q`, when there is one, is the question to ask instead of the usual.
+ */
 export async function readSpeech(dir: string): Promise<AudioScenario[]> {
   const out: AudioScenario[] = [];
   for (const f of (await readdir(dir)).sort()) {
     if (!f.endsWith(".wav")) continue;
     const name = f.slice(0, -4);
     const said = await readFile(join(dir, `${name}.txt`), "utf8").catch(() => undefined);
-    if (said === undefined) throw new Error(`${join(dir, f)} has no ${name}.txt with the words said in it`);
-    out.push(speechScenario(name, await readFile(join(dir, f)), said));
+    const question = (await readFile(join(dir, `${name}.q`), "utf8").catch(() => undefined))?.trim();
+    const wav = await readFile(join(dir, f));
+    out.push(said === undefined ? listenScenario(name, wav, question) : speechScenario(name, wav, said, question));
   }
   return out;
 }
