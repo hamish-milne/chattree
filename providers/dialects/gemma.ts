@@ -1,5 +1,6 @@
-import type { Block, Turn } from "../../harness/context-builder.ts";
-import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
+import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
+import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
+import { userContent } from "./media.ts";
 import { nextMarker, safeLength, Trimmer } from "./scan.ts";
 import { argNode, concreteTypes, isNullable, parseSchema, type SchemaNode } from "./schema-tree.ts";
 
@@ -94,12 +95,13 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
   }
   const turns = context.turns;
   const lastUser = turns.map((t) => t.role).lastIndexOf("user");
+  const media: AttachmentPart[] = [];
   let open = false; // inside a model turn
   let openAfterResponse = false;
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i] as Turn;
     if (t.role === "user") {
-      out += `<|turn>user\n${t.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n\n").trim()}<turn|>\n`;
+      out += `<|turn>user\n${userContent(t.parts, input.marker, media)}<turn|>\n`;
       open = false;
     } else if (t.role === "assistant") {
       if (!open) out += "<|turn>model\n";
@@ -140,7 +142,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
   }
   if (open && openAfterResponse) out += thinking ? "<|channel>thought\n" : "";
   else if (!open) out += `<|turn>model\n${thinking ? "" : "<|channel>thought\n<channel|>"}`;
-  return { prompt: out, stop: ["<turn|>", "<|tool_response>"] };
+  return { prompt: out, stop: ["<turn|>", "<|tool_response>"], ...(media.length === 0 ? {} : { media }) };
 }
 
 // ---- parsing ----------------------------------------------------------------------------------------------------

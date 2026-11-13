@@ -1,6 +1,8 @@
-import type { Block, Turn } from "../../harness/context-builder.ts";
+import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
-import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
+import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
+import { userContent } from "./media.ts";
+import { ProviderError } from "../types.ts";
 import { argNode } from "./schema-tree.ts";
 import { coerce, nextMarker, safeLength, spacedJson, Trimmer } from "./scan.ts";
 
@@ -47,18 +49,21 @@ export interface FamilySpec {
   head(h: { system: string; tools: Tools; options: Record<string, unknown> }): string;
   user: Wrap;
   assistant: Wrap & {
-    /** Written before the text of an answer (when there is any). */
+    /** Written before the text of an answer (when there is any, and the answer is not the continuation of a run of tool results). */
     lead?: string;
   };
   /** Tool results: `item` has `{content}`, `{id}` (the call's id) and `{name}` (its tool) in it; `open` and `close` wrap a run of them. */
   results: {
     open?: string;
     close?: string;
+    /** Written between the items of a run (DeepSeek puts a newline there). */
+    between?: string;
     item: string;
     /** The model carries on straight after the results, with no turn marker of its own (DeepSeek). */
     continues?: true;
   };
-  call: {
+  /** Without one the family has no tool calls: tools are not written, and nothing is read as a call (Kimi-VL). */
+  call?: {
     start: string;
     /** Without one, a call ends at the next `start`, at the end of a section, or when the model stops (Mistral). */
     end?: string;
@@ -189,6 +194,30 @@ export function nameThenJson(t: { sep: string; name?: (c: { name: string; id: st
   };
 }
 
+/** `{type}{sep}NAME`, a line, and the JSON in a code fence (DeepSeek's original call format: `function<｜tool▁sep｜>name`). */
+export function fencedJson(t: { type: string; sep: string }): CallCodec {
+  const head = new RegExp(`^\\s*(?:${esc(t.type)})?${esc(t.sep)}(${NAME})\\s*\\n`);
+  return {
+    write: (c) => `${t.type}${t.sep}${c.name}\n\`\`\`json\n${c.raw ?? jsonOf(c.args)}\n\`\`\``,
+    peek: (partial) => head.exec(partial)?.[1],
+    read(body) {
+      const h = head.exec(body);
+      if (h === null) return undefined;
+      const fence = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/.exec(body.slice(h[0].length));
+      const raw = fence === null ? body.slice(h[0].length) : (fence[1] as string);
+      try {
+        const parsed = JSON.parse(raw) as unknown;
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) return { name: h[1] as string, args: parsed as Args };
+      } catch {
+        /* the assembler keeps it as text */
+      }
+      return { name: h[1] as string, raw };
+    },
+    complete: (body) => /```\s*$/.test(body.trimEnd()) && body.includes("```json"),
+    markers: [t.sep],
+  };
+}
+
 /** The first codec that can read a body reads it; the first one writes. */
 export function anyOf(...codecs: [CallCodec, ...CallCodec[]]): CallCodec {
   return {
@@ -201,11 +230,13 @@ export function anyOf(...codecs: [CallCodec, ...CallCodec[]]): CallCodec {
 
 // ---- rendering ----------------------------------------------------------------------------------------------------
 
-export function renderFamily(spec: FamilySpec, input: RenderInput): { prompt: string; stop: string[] } {
+export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
   const { context, options } = input;
   const keep = options["keep_reasoning"] !== false;
   const thinking = options["thinking"] === undefined ? spec.think?.default !== false : options["thinking"] !== false;
   const system = [context.system, context.instructions ?? ""].filter((x) => x !== "").join("\n\n").trim();
+  if (spec.call === undefined && context.tools.length > 0) throw new ProviderError({ kind: "invalid_request", message: `dialect "${spec.id}" has no tool calls, and this agent has tools: use a model that has them, or an agent with none` });
+  const media: AttachmentPart[] = [];
   let out = spec.head({ system, tools: context.tools, options });
   const turns = context.turns;
   const lastUser = turns.map((t) => t.role).lastIndexOf("user");
@@ -214,10 +245,10 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): { prompt: st
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i] as Turn;
     if (t.role === "user") {
-      out += `${spec.user.open}${t.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n\n").trim()}${spec.user.close}`;
+      out += `${spec.user.open}${userContent(t.parts, input.marker, media)}${spec.user.close}`;
     } else if (t.role === "tool_results") {
       const items = t.results.map((r) => fill(spec.results.item, { content: r.content, id: ids.get(r.call_id)?.id ?? r.call_id, name: ids.get(r.call_id)?.name ?? "" }));
-      out += `${spec.results.open ?? ""}${items.join("")}${spec.results.close ?? ""}`;
+      out += `${spec.results.open ?? ""}${items.join(spec.results.between ?? "")}${spec.results.close ?? ""}`;
     } else {
       const blocks = t.blocks as Block[];
       const content = blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("").trim();
@@ -233,8 +264,8 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): { prompt: st
           out += replay ? `${th.open}${reasoning}${th.close}` : (th.absent ?? "");
         }
       }
-      if (content !== "") out += `${spec.assistant.lead ?? ""}${content}`;
-      if (calls.length > 0) {
+      if (content !== "") out += `${continued ? "" : (spec.assistant.lead ?? "")}${content}`;
+      if (calls.length > 0 && spec.call !== undefined) {
         const c = spec.call;
         out += content !== "" ? (c.gap ?? "") : (c.gapEmpty ?? c.gap ?? "");
         out += c.section?.open ?? "";
@@ -253,7 +284,7 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): { prompt: st
   const resumed = spec.results.continues === true && turns[turns.length - 1]?.role === "tool_results";
   const th = spec.think;
   out += resumed ? "" : `${spec.assistant.open}${th === undefined ? "" : thinking ? (th.start ?? "") : (th.skip ?? "")}`;
-  return { prompt: out, stop: spec.stop ?? [] };
+  return { prompt: out, stop: spec.stop ?? [], ...(media.length === 0 ? {} : { media }) };
 }
 
 // ---- reading ------------------------------------------------------------------------------------------------------
@@ -261,13 +292,15 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): { prompt: st
 type Mode = "reasoning" | "text" | "call";
 
 export function familyParser(spec: FamilySpec, tools: Tools, prompt: string): Parser {
-  const c = spec.call;
+  // A family with no calls never enters call mode: `c` is only used there.
+  const c = spec.call as NonNullable<FamilySpec["call"]>;
+  const hasCalls = spec.call !== undefined;
   const open = spec.think?.open.trim();
   const close = spec.think?.close.trim();
-  const ignored = [c.section?.open, c.section?.close].flatMap((m) => (m === undefined || m.trim() === "" ? [] : [m.trim()]));
-  const textMarks = [c.start, ...ignored, ...(open === undefined || open === "" ? [] : [open])];
+  const ignored = hasCalls ? [c.section?.open, c.section?.close].flatMap((m) => (m === undefined || m.trim() === "" ? [] : [m.trim()])) : [];
+  const textMarks = [...(hasCalls ? [c.start, ...ignored] : []), ...(open === undefined || open === "" ? [] : [open])];
   const reasoningMarks = close === undefined || close === "" ? [] : [close];
-  const callMarks = c.end !== undefined ? [c.end] : [c.start, ...ignored];
+  const callMarks = !hasCalls ? [] : c.end !== undefined ? [c.end] : [c.start, ...ignored];
   let mode: Mode = open !== undefined && open !== "" && prompt.trimEnd().endsWith(open) ? "reasoning" : "text";
   let buf = "";
   let call = "";
@@ -328,7 +361,7 @@ export function familyParser(spec: FamilySpec, tools: Tools, prompt: string): Pa
       body(buf.slice(0, m.at));
       buf = buf.slice(m.at + m.marker.length);
       trim.reset();
-      mode = m.marker === c.start ? "call" : m.marker === open ? "reasoning" : "text";
+      mode = hasCalls && m.marker === c.start ? "call" : m.marker === open ? "reasoning" : "text";
       if (mode === "call") {
         call = "";
         started = false;
@@ -361,6 +394,6 @@ export function familyParser(spec: FamilySpec, tools: Tools, prompt: string): Pa
 /** A dialect from its declaration. */
 export function defineFamily(spec: FamilySpec): Dialect {
   const c = spec.call;
-  const markers = [c.start, c.end, c.section?.open, c.section?.close, spec.think?.open, spec.think?.close, ...(c.codec.markers ?? [])].flatMap((m) => (m === undefined || m.trim() === "" ? [] : [m.trim()]));
+  const markers = [c?.start, c?.end, c?.section?.open, c?.section?.close, spec.think?.open, spec.think?.close, ...(c?.codec.markers ?? [])].flatMap((m) => (m === undefined || m.trim() === "" ? [] : [m.trim()]));
   return { id: spec.id, render: (input) => renderFamily(spec, input), parser: (_options, tools, prompt) => familyParser(spec, tools, prompt), markers: [...new Set(markers)] };
 }

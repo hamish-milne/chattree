@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { Dialect, Emit } from "../../providers/dialect.ts";
-import { glmDialect, glm46Dialect, hermesDialect, mistralDialect } from "../../providers/dialects/families.ts";
+import type { AttachmentPart, ModelContext } from "../../harness/context-builder.ts";
+import { deepseekR1Dialect, glmDialect, glm46Dialect, hermesDialect, kimiVlDialect, mistralDialect } from "../../providers/dialects/families.ts";
 import { dialectForModel } from "../../providers/dialects/index.ts";
 import { contextOf, fixture } from "../support/templates.ts";
 
@@ -53,7 +54,76 @@ describe("the options of a family", () => {
     assert.equal(dialectForModel("GLM-4.6"), "glm46");
     assert.equal(dialectForModel("glm-4.7-flash"), "glm");
     assert.equal(dialectForModel("qwen3.5-9b"), "qwen-xml");
-    for (const old of ["deepseek-moe-16b", "DeepSeek-R1-Distill-Qwen-14B", "DeepSeek-R1-Distill-Llama-8B", "chatglm3-6b", "Mistral-7B-Instruct-v0.3", "kimi-vl"]) assert.equal(dialectForModel(old), undefined, old);
+    assert.equal(dialectForModel("unsloth/Kimi-VL-A3B-Thinking-2506-GGUF"), "kimi-vl");
+    assert.equal(dialectForModel("DeepSeek-R1-Distill-Qwen-14B"), "deepseek-r1");
+    assert.equal(dialectForModel("deepseek-ai/DeepSeek-R1-0528"), "deepseek-r1");
+    for (const old of ["deepseek-moe-16b", "deepseek-v3.1", "chatglm3-6b", "Mistral-7B-Instruct-v0.3", "kimi-k2", "my-qwen-tune", "llama-3.1-8b-qwen-merge"]) assert.equal(dialectForModel(old), undefined, old);
+  });
+});
+
+// The expected prompts were rendered by each model's own template (jinja2, as tools/jinja-fixture.py does) over these messages.
+const chat = (turns: ModelContext["turns"], system = "S", tools: ModelContext["tools"] = []): ModelContext => ({ system, instructions: undefined, turns, tools, cacheHints: [] });
+const said = (text: string): ModelContext["turns"][number] => ({ role: "user", parts: [{ type: "text", text }] });
+const answered = (text: string, reasoning?: string): ModelContext["turns"][number] => ({ role: "assistant", provider: "local-models", model: "gpt-oss", blocks: [...(reasoning === undefined ? [] : [{ type: "reasoning" as const, provider: "local-models", visible: reasoning }]), { type: "text", text }] });
+const prompt = (d: Dialect, context: ModelContext, options: Record<string, unknown> = {}): string => d.render({ context, options, effort: undefined, date: "2026-11-11", provider: "local-models", model: "gpt-oss" }).prompt;
+const conversation = [said("hi"), answered("hello"), said("again")];
+
+describe("kimi-vl and deepseek-r1 render what their templates do", () => {
+  test("kimi-vl: the same for the Thinking and the Instruct model, with a default system turn", () => {
+    assert.equal(prompt(kimiVlDialect, chat(conversation)), "<|im_system|>system<|im_middle|>S<|im_end|><|im_user|>user<|im_middle|>hi<|im_end|><|im_assistant|>assistant<|im_middle|>hello<|im_end|><|im_user|>user<|im_middle|>again<|im_end|><|im_assistant|>assistant<|im_middle|>");
+    assert.ok(prompt(kimiVlDialect, chat([said("hi")], "")).startsWith("<|im_system|>system<|im_middle|>You are a helpful assistant<|im_end|><|im_user|>"));
+  });
+  test("kimi-vl has no tool calls, and says so to an agent that has tools", () => {
+    assert.throws(() => prompt(kimiVlDialect, chat([said("hi")], "S", [{ name: "read", description: "d", input_schema: { type: "object" } }])), /has no tool calls/);
+  });
+  test("deepseek-r1: the system text straight away, the answer after the blank line, the prompt ends inside the thinking", () => {
+    assert.equal(prompt(deepseekR1Dialect, chat(conversation)), "S<｜User｜>hi<｜Assistant｜>\n\nhello<｜end▁of▁sentence｜><｜User｜>again<｜Assistant｜><think>\n");
+    assert.equal(prompt(deepseekR1Dialect, chat([said("hi")]), { thinking: false }), "S<｜User｜>hi<｜Assistant｜><think>\n\n</think>\n\n");
+  });
+  test("deepseek-r1 does not replay reasoning, and writes the tool list that its template never does", () => {
+    assert.ok(!prompt(deepseekR1Dialect, chat([said("hi"), answered("hello", "MARK-BETA"), said("again")])).includes("MARK-BETA"));
+    const p = prompt(deepseekR1Dialect, chat([said("hi")], "S", [{ name: "read", description: "d", input_schema: { type: "object", properties: { path: { type: "string" } } } }]));
+    assert.ok(p.startsWith("S\n\n# Tools\n\n"));
+    assert.ok(p.includes('<tools>\n{"type": "function", "function": {"name": "read"'));
+    assert.ok(p.includes("<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜><function-name>"));
+  });
+  test("deepseek-r1: a call and its results are in the template's format, the model continuing straight after them", () => {
+    const turns: ModelContext["turns"] = [
+      said("hi"),
+      { role: "assistant", provider: "local-models", model: "gpt-oss", blocks: [{ type: "tool_call", call_id: "c1", name: "read", args: { path: "a" } }] },
+      { role: "tool_results", results: [{ call_id: "c1", is_error: false, content: "X", truncated: false }, { call_id: "c1", is_error: false, content: "Y", truncated: false }] },
+      answered("done"),
+    ];
+    // The template leaves the end of the calls and of the sentence out after a single call; this writes them, as V3 does.
+    assert.equal(
+      prompt(deepseekR1Dialect, chat(turns, "")),
+      '<｜User｜>hi<｜Assistant｜><｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>read\n```json\n{"path": "a"}\n```<｜tool▁call▁end｜><｜tool▁calls▁end｜><｜end▁of▁sentence｜><｜tool▁outputs▁begin｜><｜tool▁output▁begin｜>X<｜tool▁output▁end｜>\n<｜tool▁output▁begin｜>Y<｜tool▁output▁end｜><｜tool▁outputs▁end｜>done<｜end▁of▁sentence｜><｜Assistant｜><think>\n',
+    );
+  });
+});
+
+describe("pictures are written into the prompt as the server's marker", () => {
+  const png = (name: string): AttachmentPart => ({ type: "attachment", kind: "image", name, mime: "image/png", sha256: "0".repeat(64), bytes: Uint8Array.from([1, 2, 3]) });
+  const withPicture = (parts: ModelContext["turns"][number] extends infer T ? (T extends { parts: infer P } ? P : never) : never): ModelContext => chat([{ role: "user", parts }], "");
+  const render = (d: Dialect, context: ModelContext, marker: string | undefined) => d.render({ context, options: {}, effort: undefined, date: "2026-11-11", provider: "local-models", model: "gpt-oss", marker });
+
+  test("each format writes the marker where the picture is, and says which pictures the markers are for", () => {
+    const context = withPicture([png("a.png"), { type: "text", text: "what is this?" }]);
+    const kimi = render(kimiVlDialect, context, "<__m__>");
+    assert.equal(kimi.prompt, "<|im_system|>system<|im_middle|>You are a helpful assistant<|im_end|><|im_user|>user<|im_middle|><__m__>\nwhat is this?<|im_end|><|im_assistant|>assistant<|im_middle|>");
+    assert.deepEqual(kimi.media?.map((m) => m.name), ["a.png"]);
+    for (const d of [hermesDialect, mistralDialect, glmDialect, glm46Dialect, deepseekR1Dialect]) assert.ok(render(d, context, "<__m__>").prompt.includes("<__m__>\nwhat is this?"), d.id);
+  });
+  test("several pictures keep their order, and a turn without one has no media", () => {
+    const r = render(hermesDialect, withPicture([{ type: "text", text: "compare" }, png("1.png"), png("2.png")]), "<__m__>");
+    assert.ok(r.prompt.includes("compare\n<__m__>\n<__m__>"));
+    assert.deepEqual(r.media?.map((m) => m.name), ["1.png", "2.png"]);
+    assert.equal(render(hermesDialect, chat([said("hi")]), "<__m__>").media, undefined);
+  });
+  test("a picture with no marker to write, or a PDF, cannot be sent", () => {
+    assert.throws(() => render(hermesDialect, withPicture([png("a.png")]), undefined), /how to mark one/);
+    const pdf: AttachmentPart = { ...png("a.pdf"), kind: "pdf", mime: "application/pdf" };
+    assert.throws(() => render(hermesDialect, withPicture([pdf]), "<__m__>"), /a\.pdf cannot be sent/);
   });
 });
 
@@ -109,6 +179,27 @@ const CASES: { family: string; d: Dialect; prompt: string; raw: string; want: Em
     prompt: "…<|assistant|><think>",
     raw: "Plan.</think>Writing.<tool_call>write<arg_key>path</arg_key><arg_value>hello.py</arg_value><arg_key>n</arg_key><arg_value>3</arg_value></tool_call><tool_call>read<arg_key>path</arg_key><arg_value>a.txt</arg_value></tool_call>",
     want: [{ kind: "reasoning", text: "Plan." }, { kind: "text", text: "Writing." }, ...two],
+  },
+  {
+    family: "deepseek-r1 (DeepSeek's calls: a fenced JSON block)",
+    d: deepseekR1Dialect,
+    prompt: "…<｜Assistant｜><think>\n",
+    raw: 'Plan.\n</think>\n\nWriting.<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜>write\n```json\n{"path": "hello.py", "n": 3}\n```<｜tool▁call▁end｜>\n<｜tool▁call▁begin｜>function<｜tool▁sep｜>read\n```json\n{"path": "a.txt"}\n```<｜tool▁call▁end｜><｜tool▁calls▁end｜>',
+    want: [{ kind: "reasoning", text: "Plan." }, { kind: "text", text: "Writing." }, ...two],
+  },
+  {
+    family: "kimi-vl (Thinking: its own thinking tags, in the text)",
+    d: kimiVlDialect,
+    prompt: "…<|im_assistant|>assistant<|im_middle|>",
+    raw: "◁think▷Plan.◁/think▷The picture shows a cat.",
+    want: [{ kind: "reasoning", text: "Plan." }, { kind: "text", text: "The picture shows a cat." }],
+  },
+  {
+    family: "kimi-vl (Instruct: plain text)",
+    d: kimiVlDialect,
+    prompt: "…<|im_assistant|>assistant<|im_middle|>",
+    raw: "The picture shows a <cat>.",
+    want: [{ kind: "text", text: "The picture shows a <cat>." }],
   },
 ];
 

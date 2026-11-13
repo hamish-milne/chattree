@@ -4,9 +4,10 @@
  * reading and words, numbers and sums its text reading, so the table says which of the two a model (and its projector) is weaker at.
  * The pictures are written next to the results, so a wrong answer can be looked at.
  *
- *   node tools/vision-probe.ts --model NAME [--count 5] [--seed 1] [--kinds shape,text] [--max-tokens 1024] [--out DIR] [--yes]
+ *   node tools/vision-probe.ts --model NAME [--count 5] [--seed 1] [--kinds shape,text] [--dialect NAME] [--max-tokens 1024] [--out DIR] [--yes]
  *
- * `--model` is a name from local_models in the settings file, with its `mmproj` set (a projector file next to the model).
+ * `--model` is a name from local_models in the settings file, with its `mmproj` set (a projector file next to the model, or `auto`).
+ * `--dialect NAME` sends the picture through that dialect's `/completion` (kimi-vl, qwen-xml, gemma, ...) and not the chat endpoint.
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -38,7 +39,7 @@ function args(argv: readonly string[]) {
   if (model === undefined) throw new Error("--model is required: a model from local_models in the settings file, with an mmproj");
   const kinds = v("--kinds")?.split(",").map((k) => k.trim());
   for (const k of kinds ?? []) if (!(KINDS as readonly string[]).includes(k)) throw new Error(`--kinds: ${k} is not one of ${KINDS.join(", ")}`);
-  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as Kind[] | undefined, maxTokens: Number(v("--max-tokens") ?? 1024), out: v("--out"), yes: argv.includes("--yes") };
+  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as Kind[] | undefined, maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), out: v("--out"), yes: argv.includes("--yes") };
 }
 
 /** The table of results: right of total for each kind, and the wrong answers. */
@@ -64,7 +65,7 @@ async function main(): Promise<void> {
   await ensureLocalModels(io, { yes: o.yes });
   const adapter = localModelsAdapter(io);
   const sampling = samplingSettings((await lookupSampling(io, o.model)).values) as Record<string, unknown>;
-  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens, ...sampling } } as NonNullable<AgentSetup["model"]>;
+  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens, ...sampling, ...(o.dialect === undefined ? {} : { dialect: o.dialect }) } } as NonNullable<AgentSetup["model"]>;
   const setup: AgentSetup = { ...emptySetup(), model };
   const dir = o.out ?? join("bench-runs", `vision-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
   await mkdir(dir, { recursive: true });

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Block, ModelContext } from "../harness/context-builder.ts";
+import type { AttachmentPart, Block, ModelContext } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId } from "../harness/setup.ts";
 import type { HttpMapper, HttpRequestSpec } from "./http.ts";
@@ -44,10 +44,14 @@ export interface RenderInput {
   /** The provider and model name this request is for: reasoning is replayed only to the model that wrote it. */
   provider: string;
   model: string;
+  /** The server's marker for one picture (`/props`' `media_marker`), when it has one: a user turn's pictures are written as this (providers/dialects/media.ts). */
+  marker?: string | undefined;
 }
 
 export interface Rendered {
   prompt: string;
+  /** The pictures the prompt has a marker for, in order. */
+  media?: AttachmentPart[];
   /** Strings that end generation, besides the model's own end tokens. */
   stop: string[];
 }
@@ -248,26 +252,58 @@ async function markerTokens(base: string, model: string, markers: readonly strin
   return found;
 }
 
+/** What a server says of itself (`GET /props`): whether it can take pictures, and what marks one in a prompt. Remembered for the run when it was answered. */
+const propsCache = new Map<string, Promise<{ vision: boolean | undefined; marker: string }>>();
+/** `mtmd_default_marker()` of llama.cpp, for a build that does not say its own. */
+const DEFAULT_MARKER = "<__media__>";
+
+async function serverProps(base: string, model: string, doFetch: typeof fetch): Promise<{ vision: boolean | undefined; marker: string }> {
+  const key = `${base}\n${model}`;
+  const known = propsCache.get(key);
+  if (known !== undefined) return known;
+  const found = (async () => {
+    try {
+      const res = await doFetch(`${base.replace(/\/$/, "")}/props?model=${encodeURIComponent(model)}`, { signal: AbortSignal.timeout(60_000) });
+      if (!res.ok) throw new Error(String(res.status));
+      const d = (await res.json()) as { modalities?: { vision?: unknown }; media_marker?: unknown };
+      return { vision: typeof d.modalities?.vision === "boolean" ? d.modalities.vision : undefined, marker: typeof d.media_marker === "string" && d.media_marker !== "" ? d.media_marker : DEFAULT_MARKER };
+    } catch {
+      propsCache.delete(key); // the model may still be loading: ask again next time
+      return { vision: undefined, marker: DEFAULT_MARKER };
+    }
+  })();
+  propsCache.set(key, found);
+  return found;
+}
+
 export function completionMapper(opts: CompletionOptions, settings: (req: StreamRequest) => DialectSettings): HttpMapper<State> {
   const rendered = new WeakMap<StreamRequest, Rendered>();
   const markerIds = new WeakMap<StreamRequest, Map<number, string>>();
-  const renderFor = (req: StreamRequest, s: DialectSettings): Rendered => {
+  const renderFor = (req: StreamRequest, s: DialectSettings, marker?: string): Rendered => {
     const served = servedModelId(req.setup.model!);
-    return opts.dialects.get(s.dialect).render({ context: req.context, options: s.dialect_options ?? {}, effort: s.reasoning_effort, date: opts.today(), provider: req.setup.model!.provider, model: served });
+    return opts.dialects.get(s.dialect).render({ context: req.context, options: s.dialect_options ?? {}, effort: s.reasoning_effort, date: opts.today(), provider: req.setup.model!.provider, model: served, marker });
   };
   return {
     async request(req: StreamRequest): Promise<HttpRequestSpec> {
       const s = settings(req);
       if (req.setup.model === undefined) throw new ProviderError({ kind: "invalid_request", message: "the agent has no model" });
-      for (const t of req.context.turns) {
-        if (t.role === "user" && t.parts.some((p) => p.type === "attachment")) throw new ProviderError({ kind: "invalid_request", message: `dialect "${s.dialect}" takes text only: attachments cannot be sent` });
-      }
       const served = servedModelId(req.setup.model);
-      const r = renderFor(req, s);
+      let marker: string | undefined;
+      if (req.context.turns.some((t) => t.role === "user" && t.parts.some((p) => p.type === "attachment"))) {
+        const props = await serverProps(opts.baseUrl, opts.modelName(served), opts.fetch ?? fetch);
+        if (props.vision === false) throw new ProviderError({ kind: "invalid_request", message: `${opts.modelName(served)} cannot take pictures: it has no multimodal projector (set mmproj, for instance \`mmproj: auto\`, in its local_models entry)` });
+        marker = props.marker;
+      }
+      const r = renderFor(req, s, marker);
       rendered.set(req, r);
       const markers = opts.dialects.get(s.dialect).markers ?? [];
       if (markers.length > 0) markerIds.set(req, await markerTokens(opts.baseUrl, opts.modelName(served), markers, opts.fetch ?? fetch));
-      const body: Json = { model: opts.modelName(served), prompt: r.prompt, stream: true, cache_prompt: true, special: true, return_tokens: true, n_predict: s.max_output_tokens };
+      const media = r.media ?? [];
+      const sent = req.context.turns.reduce((n, t) => n + (t.role === "user" ? t.parts.filter((p) => p.type === "attachment").length : 0), 0);
+      if (media.length !== sent) throw new ProviderError({ kind: "invalid_request", message: `dialect "${s.dialect}" does not write pictures into its prompt (${sent} sent, ${media.length} written)` });
+      if (media.length > 0 && r.prompt.split(marker as string).length - 1 !== media.length) throw new ProviderError({ kind: "invalid_request", message: "the text of a message contains the server's picture marker, which would be taken for a picture" });
+      const prompt: Json | string = media.length === 0 ? r.prompt : { prompt_string: r.prompt, multimodal_data: media.map((m) => Buffer.from(m.bytes).toString("base64")) };
+      const body: Json = { model: opts.modelName(served), prompt, stream: true, cache_prompt: true, special: true, return_tokens: true, n_predict: s.max_output_tokens };
       const stop = [...(s.stop ?? []), ...r.stop];
       if (stop.length > 0) body["stop"] = stop;
       for (const k of ["temperature", "top_p", "seed"] as const) if (s[k] !== undefined) body[k] = s[k];

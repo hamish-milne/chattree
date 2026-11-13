@@ -3,6 +3,7 @@ import { describe, test } from "node:test";
 import { emptySetup, type AgentSetup } from "../../harness/setup.ts";
 import { collectStream } from "../../providers/conformance.ts";
 import { Assembler, type Dialect, type Emit } from "../../providers/dialect.ts";
+import { userContent } from "../../providers/dialects/media.ts";
 import { AdapterRegistry } from "../../providers/index.ts";
 import { localModelsDefinition, type LocalModelsRuntime } from "../../providers/local-models.ts";
 import type { ProviderError } from "../../providers/types.ts";
@@ -149,15 +150,15 @@ describe("a model with a dialect", () => {
     assert.match((result.error as ProviderError).message, /unknown dialect "nope"; known: toy/);
   });
 
-  test("attachments are refused: dialects take text", async () => {
-    const server = await FakeServer.start([{ acts: [last()] }]);
+  test("a dialect that does not write pictures is not given them to drop", async () => {
+    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true } })] } : { acts: [last()] }));
     try {
       const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [toy] })).get("local-models")!;
       const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
       const ctx = { ...context, turns: [{ role: "user" as const, parts: [{ type: "attachment" as const, kind: "image" as const, name: "a.png", mime: "image/png", sha256: "x", bytes: new Uint8Array(1) }] }] };
       const r = await collectStream(adapter.stream({ context: ctx, setup: setup({ dialect: "toy" }), signal: new AbortController().signal }));
-      assert.match((r.error as ProviderError).message, /text only/);
-      assert.equal(server.seen.length, 0);
+      assert.match((r.error as ProviderError).message, /does not write pictures into its prompt \(1 sent, 0 written\)/);
+      assert.equal(server.seen.filter((x) => x.url === "/completion").length, 0);
     } finally {
       await server.close();
     }
@@ -180,6 +181,60 @@ describe("a model with a dialect", () => {
     const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
     assert.equal(adapter.classify!(setup({ dialect: "toy" }), setup({ dialect: "toy", dialect_options: { a: 1 } }), { midLoop: false }).length, 1);
     assert.equal(adapter.classify!(setup({ dialect: "toy" }), setup({ dialect: "toy" }), { midLoop: false }).length, 0);
+  });
+});
+
+describe("pictures to the server", () => {
+  const picture = { type: "attachment" as const, kind: "image" as const, name: "a.png", mime: "image/png", sha256: "0".repeat(64), bytes: Uint8Array.from([1, 2, 3]) };
+  const ctx = { ...context, turns: [{ role: "user" as const, parts: [picture, { type: "text" as const, text: "what?" }] }], tools: [] };
+  // A dialect that writes a user turn's text and pictures as the server's marker, the way the families do.
+  const seeing: Dialect = { ...toy, id: "seeing", render: (i) => { const media: (typeof picture)[] = []; return { prompt: `${userContent((i.context.turns[0] as unknown as { parts: never[] }).parts, i.marker, media)}`, stop: [], ...(media.length === 0 ? {} : { media }) }; } };
+  const sse = (acts: string[]) => ({ status: 200, headers: { "content-type": "text/event-stream" }, acts });
+  const adapterFor = (server: FakeServer) => new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [seeing], today: () => "2026-11-11" })).get("local-models")!.create({ $tag: "local-models" } as never, { get: () => undefined });
+  const ask = (server: FakeServer, c = ctx) => collectStream(adapterFor(server).stream({ context: c, setup: setup({ dialect: "seeing" }), signal: new AbortController().signal }));
+
+  test("the prompt goes with the pictures as base64, in the server's own marker", async () => {
+    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true }, media_marker: "<__media_x__>" })] } : sse([chunk({ content: "a cat", stop: false }), last()])));
+    try {
+      const run = await ask(server);
+      assert.equal(run.error, undefined);
+      const body = JSON.parse(server.seen.find((r) => r.url === "/completion")!.body) as { prompt: { prompt_string: string; multimodal_data: string[] } };
+      assert.deepEqual(body.prompt, { prompt_string: "<__media_x__>\nwhat?", multimodal_data: [Buffer.from([1, 2, 3]).toString("base64")] });
+      assert.match(server.seen.find((r) => r.url.startsWith("/props"))!.url, /^\/props\?model=/);
+    } finally {
+      await server.close();
+    }
+  });
+  test("a server without a projector is told so, and nothing is sent to /completion", async () => {
+    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: false } })] } : sse([last()])));
+    try {
+      const run = await ask(server);
+      assert.match((run.error as ProviderError).message, /no multimodal projector/);
+      assert.equal(server.seen.filter((r) => r.url === "/completion").length, 0);
+    } finally {
+      await server.close();
+    }
+  });
+  test("a build that does not say its marker gets the default one, and text-only requests do not ask", async () => {
+    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 404, acts: [] } : sse([chunk({ content: "ok", stop: false }), last()])));
+    try {
+      await ask(server);
+      assert.equal((JSON.parse(server.seen.find((r) => r.url === "/completion")!.body) as { prompt: { prompt_string: string } }).prompt.prompt_string, "<__media__>\nwhat?");
+      const before = server.seen.length;
+      await ask(server, { ...context, tools: [] });
+      assert.equal(server.seen.slice(before).filter((r) => r.url.startsWith("/props")).length, 0);
+    } finally {
+      await server.close();
+    }
+  });
+  test("text that holds the marker is refused, since it would be taken for a picture", async () => {
+    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true }, media_marker: "<__m__>" })] } : sse([last()])));
+    try {
+      const run = await ask(server, { ...ctx, turns: [{ role: "user", parts: [picture, { type: "text", text: "say <__m__>" }] }] });
+      assert.match((run.error as ProviderError).message, /contains the server's picture marker/);
+    } finally {
+      await server.close();
+    }
   });
 });
 

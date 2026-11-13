@@ -1,6 +1,7 @@
-import type { Block, Turn } from "../../harness/context-builder.ts";
+import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
-import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
+import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
+import { userContent } from "./media.ts";
 import { builtinPreamble, builtinSpecs, commandFor, messageOf, RUN_TOOL, type BuiltinSpec } from "./harmony-builtin.ts";
 import { parseSchema, toolSchema, type SchemaNode } from "./schema-tree.ts";
 import { spacedJson } from "./scan.ts";
@@ -139,11 +140,12 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
   const functions = input.context.tools.filter((t) => !(o.builtin.has(t.name) && own(t.name)));
   // A built-in made of `run` is offered when `run` is; one that is a tool of its own, when that tool is.
   const builtins = [...o.builtin].filter(([n, b]) => have.has(b.run === undefined ? n : RUN_TOOL));
+  const media: AttachmentPart[] = [];
   let out = systemBlock(input, o, functions.length > 0, builtins) + developerBlock(input, o, functions, builtins);
   for (let i = 0; i < turns.length; i++) {
     const t = turns[i] as Turn;
     if (t.role === "user") {
-      out += `${START}user${MESSAGE}${t.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n\n")}${END}`;
+      out += `${START}user${MESSAGE}${userContent(t.parts, input.marker, media)}${END}`;
     } else if (t.role === "assistant") {
       const next = turns[i + 1];
       const results = new Map((next?.role === "tool_results" ? next.results : []).map((r) => [r.call_id, r]));
@@ -173,7 +175,7 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
     }
     // A tool_results turn was written out with the calls it answers.
   }
-  return { prompt: `${out}${START}assistant`, stop: [] };
+  return { prompt: `${out}${START}assistant`, stop: [], ...(media.length === 0 ? {} : { media }) };
 }
 
 // ---- parsing ----------------------------------------------------------------------------------------------------

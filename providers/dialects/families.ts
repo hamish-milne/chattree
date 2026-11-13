@@ -1,6 +1,6 @@
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect } from "../dialect.ts";
-import { defineFamily, jsonCall, nameThenJson, tagParams, type FamilySpec } from "./family.ts";
+import { defineFamily, fencedJson, jsonCall, nameThenJson, tagParams, type FamilySpec } from "./family.ts";
 import { spacedJson } from "./scan.ts";
 
 /**
@@ -12,6 +12,8 @@ import { spacedJson } from "./scan.ts";
  *   mistral   Devstral and Mistral Small (v7 tokenizer: `[TOOL_CALLS]name[ARGS]{json}`), without call ids: results follow in order;
  *   glm       GLM-4.7 and later (Flash too): a tag for each argument with no newlines, and the prompt ends inside `<think>`;
  *   glm46     GLM-4.5 and 4.6: the same tags with newlines between them, `<think></think>` stands for reasoning that is not replayed;
+ *   kimi-vl   Kimi-VL, Thinking and Instruct (one template for both): no tool calls, thinking between `◁think▷` and `◁/think▷`;
+ *   deepseek-r1  the R1 distills (and R1): DeepSeek's original call format, which the models' template can only replay: it never writes the tool list.
  */
 
 const tool = (t: ToolDefinition): { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } } => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } });
@@ -71,12 +73,52 @@ const glm: FamilySpec = {
   think: { open: "<think>", close: "</think>", start: "<think>", skip: "</think>", absent: "</think>" },
 };
 
+// ---- Kimi-VL ---------------------------------------------------------------------------------------------------------------
+
+/**
+ * Kimi-VL-A3B (Thinking and Instruct have the very same template, so one dialect): `<|im_user|>user<|im_middle|>…<|im_end|>`, a default
+ * system turn when there is none, no tools. Only the Thinking model writes `◁think▷ … ◁/think▷` (llama-server's own reasoning parser looks
+ * for `<think>`, so through the chat endpoint that text arrives as the answer); the Instruct one never does, and the tags are then never met.
+ * The picture is a marker; the server writes the `<|media_start|>image<|media_content|>…<|media_end|>` tokens around it.
+ */
+const kimiVl: FamilySpec = {
+  id: "kimi-vl",
+  head: ({ system }) => `<|im_system|>system<|im_middle|>${system === "" ? "You are a helpful assistant" : system}<|im_end|>`,
+  user: { open: "<|im_user|>user<|im_middle|>", close: "<|im_end|>" },
+  assistant: { open: "<|im_assistant|>assistant<|im_middle|>", close: "<|im_end|>" },
+  results: { open: "<|im_user|>user<|im_middle|>", close: "<|im_end|>", item: "{content}" },
+  think: { open: "◁think▷", close: "◁/think▷", never: true },
+};
+
+// ---- DeepSeek R1 ---------------------------------------------------------------------------------------------------------
+
+/**
+ * The R1 distills (Qwen and Llama weights) and R1 itself: the system text straight after the BOS (left to the server), `<｜User｜>`, `<｜Assistant｜>`,
+ * the model's answer after `</think>` (with the blank line that follows it) is all that is kept in history, and the prompt ends in `<think>\n`. Their template has calls and results
+ * in DeepSeek's original format but never reads the `tools` it is given, and the distills were not trained for calls, so the tool list is
+ * written into the system text here (the same words as Hermes) and asked for in the format the template replays. Where this and the template
+ * differ on calls: the template leaves `<｜tool▁calls▁end｜><｜end▁of▁sentence｜>` out after a single call (a bug of its own), this writes them as V3 does.
+ * Experimental: nothing says these models call well.
+ */
+const deepseekR1: FamilySpec = {
+  id: "deepseek-r1",
+  head: ({ system, tools }) =>
+    `${system}${tools.length === 0 ? "" : `${system === "" ? "" : "\n\n"}# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>${tools.map((t) => `\n${spacedJson(tool(t))}`).join("")}\n</tools>\n\nFor function calls, write them in this format (several calls go on separate lines inside one block):\n<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜><function-name>\n\`\`\`json\n<args-json-object>\n\`\`\`<｜tool▁call▁end｜><｜tool▁calls▁end｜>`}`,
+  user: { open: "<｜User｜>", close: "" },
+  assistant: { open: "<｜Assistant｜>", close: "<｜end▁of▁sentence｜>", lead: "\n\n" },
+  results: { open: "<｜tool▁outputs▁begin｜>", close: "<｜tool▁outputs▁end｜>", between: "\n", item: "<｜tool▁output▁begin｜>{content}<｜tool▁output▁end｜>", continues: true },
+  call: { start: "<｜tool▁call▁begin｜>", end: "<｜tool▁call▁end｜>", section: { open: "<｜tool▁calls▁begin｜>", close: "<｜tool▁calls▁end｜>" }, between: "\n", codec: fencedJson({ type: "function", sep: "<｜tool▁sep｜>" }) },
+  think: { open: "<think>\n", close: "\n</think>\n\n", start: "<think>\n", skip: "<think>\n\n</think>\n\n", never: true },
+};
+
 export const hermesDialect: Dialect = defineFamily(hermes);
 export const mistralDialect: Dialect = defineFamily(mistral);
 export const glm46Dialect: Dialect = defineFamily(glm46);
 export const glmDialect: Dialect = defineFamily(glm);
+export const kimiVlDialect: Dialect = defineFamily(kimiVl);
+export const deepseekR1Dialect: Dialect = defineFamily(deepseekR1);
 
-export const familyDialects = (): Dialect[] => [hermesDialect, mistralDialect, glm46Dialect, glmDialect];
+export const familyDialects = (): Dialect[] => [hermesDialect, mistralDialect, glm46Dialect, glmDialect, kimiVlDialect, deepseekR1Dialect];
 
 // Declarations for Kimi K2, DeepSeek V3.1 and MiniMax-M2 were here (checked against their templates) and were removed in 2026-11-12, since
 // no hosted service offers a raw prompt endpoint we could test them on: see docs/local-models.md 9.7, and the history of this file.
