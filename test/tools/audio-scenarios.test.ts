@@ -88,3 +88,17 @@ describe("the speech sample set", () => {
     assert.ok(args.includes("-ar") && args.at(-1) === "out.wav" && args[args.indexOf("-i") + 1]?.endsWith("Declaration_of_Independence_Part_1.ogg"));
   });
 });
+
+describe("spoken clips", () => {
+  test("the same seed makes the same clips, with only words flite can say", async () => {
+    const { speechClips, fliteArgs } = await import("../../tools/audio-speech.ts");
+    const a = speechClips({ count: 4, seed: 3 });
+    assert.deepEqual(a, speechClips({ count: 4, seed: 3 }));
+    assert.notDeepEqual(a, speechClips({ count: 4, seed: 4 }));
+    assert.equal(a.length, 8);
+    for (const c of a) assert.match(c.text, /^[a-z]+( [a-z]+)*$/);
+    const args = fliteArgs(a[0] as (typeof a)[number], "o.wav");
+    assert.ok(args.includes(`flite=text='${a[0]?.text}':voice=${a[0]?.voice}`));
+    assert.throws(() => fliteArgs({ text: "it's", voice: "slt" }, "o.wav"));
+  });
+});
