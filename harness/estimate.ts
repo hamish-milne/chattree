@@ -43,9 +43,11 @@ export function contextJson(value: unknown): string {
 export function estimateInputTokens(ctx: ModelContext): number {
   const text = contextJson({ system: ctx.system, instructions: ctx.instructions, tools: ctx.tools, turns: ctx.turns });
   let attached = 0;
+  const guess = (p: { kind: "image" | "pdf" | "audio"; bytes: Uint8Array }): number => (p.kind === "image" ? IMAGE_TOKEN_GUESS : p.kind === "audio" ? audioTokenGuess(p.bytes.length) : pdfTokenGuess(p.bytes.length));
   for (const t of ctx.turns) {
+    if (t.role === "tool_results") for (const r of t.results) for (const m of r.media ?? []) attached += guess(m);
     if (t.role !== "user") continue;
-    for (const p of t.parts) if (p.type === "attachment") attached += p.kind === "image" ? IMAGE_TOKEN_GUESS : p.kind === "audio" ? audioTokenGuess(p.bytes.length) : pdfTokenGuess(p.bytes.length);
+    for (const p of t.parts) if (p.type === "attachment") attached += guess(p);
   }
   return Math.ceil(new TextEncoder().encode(text).length / BYTES_PER_TOKEN) + attached;
 }

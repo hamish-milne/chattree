@@ -112,7 +112,11 @@ function toMessages(ctx: ModelContext, replay: boolean | "turn", who: { provider
       if (t.parts.every((p) => p.type === "text")) out.push({ role: "user", content: t.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n\n") });
       else out.push({ role: "user", content: t.parts.map((p): Json => (p.type === "text" ? { type: "text", text: p.text } : p.kind === "audio" ? { type: "input_audio", input_audio: { data: base64(p.bytes), format: audioFormat(p.mime) ?? "wav" } } : { type: "image_url", image_url: { url: dataUrl(p.mime, p.bytes) } })) });
     } else if (t.role === "tool_results") {
-      for (const r of t.results) out.push({ role: "tool", tool_call_id: r.call_id, content: r.content });
+      for (const r of t.results) out.push({ role: "tool", tool_call_id: r.call_id, content: r.media === undefined ? r.content : `${r.content}\n[${r.media.length === 1 ? "the attachment is" : `${r.media.length} attachments are`} in the next message]` });
+      // A tool message holds text only: what a result shows goes in a user message that follows the results, naming the call each part is from.
+      const shown = t.results.flatMap((r) => (r.media ?? []).map((m) => ({ call: r.call_id, m })));
+      for (const { m } of shown) if (m.kind === "pdf") throw new ProviderError({ kind: "invalid_request", message: `${m.name ?? "a PDF"} cannot be sent: Chat Completions has no portable PDF input; send its text instead` });
+      if (shown.length > 0) out.push({ role: "user", content: shown.flatMap(({ call, m }): Json[] => [{ type: "text", text: `[From the result of call ${call}${m.name === undefined ? "" : `: ${m.name}`}]` }, m.kind === "audio" ? { type: "input_audio", input_audio: { data: base64(m.bytes), format: audioFormat(m.mime) ?? "wav" } } : { type: "image_url", image_url: { url: dataUrl(m.mime, m.bytes) } }]) });
     } else {
       const text = t.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
       const calls = t.blocks.flatMap((b) => (b.type === "tool_call" ? [{ id: b.call_id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.args) } }] : []));

@@ -73,7 +73,7 @@ describe("the starter definitions through each flavour", () => {
     const a = buildAnthropicBody(ctx(), setupFor(), { cacheControl: false })["tools"] as Record<string, unknown>[];
     const r = buildResponsesBody(ctx(), setupFor(), { store: true, replayItemIds: true, chain: true, pruneAtCompaction: true })["tools"] as Record<string, unknown>[];
     const c = buildChatBody(ctx(), setupFor(), { maxTokensParam: "max_tokens", includeUsage: true })["tools"] as { function: Record<string, unknown> }[];
-    assert.equal(defs.length, 5);
+    assert.equal(defs.length, 6);
     defs.forEach((d, i) => {
       assert.deepEqual(a[i], { name: d.name, description: d.description, input_schema: d.input_schema });
       assert.deepEqual(r[i], { type: "function", name: d.name, description: d.description, parameters: d.input_schema, strict: false });

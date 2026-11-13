@@ -20,7 +20,7 @@ interface Item {
   limit?: number;
 }
 
-async function readOne(ctx: ToolContext, item: Item): Promise<{ text: string; ok: boolean }> {
+async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{ text: string; ok: boolean }> {
   const { host, workspace } = ctx;
   const failed = (path: string, why: string) => ({ text: `=== ${path}: ${why} ===`, ok: false });
   let bytes: Uint8Array;
@@ -52,7 +52,7 @@ async function readOne(ctx: ToolContext, item: Item): Promise<{ text: string; ok
     if (st.size > MAX_FILE_BYTES) return failed(name, `${st.size} bytes is too large to read whole; use run with head, tail or grep`);
     bytes = await host.fs.read(abs);
   }
-  if (bytes.subarray(0, 8000).includes(0)) return failed(name, "a binary file");
+  if (bytes.subarray(0, 8000).includes(0)) return failed(name, mmRead ? "a binary file; if it is a picture, sound or PDF, use mm_read to see it" : "a binary file");
   let text: string;
   try {
     text = dec.decode(bytes);
@@ -73,7 +73,7 @@ async function readOne(ctx: ToolContext, item: Item): Promise<{ text: string; ok
   return { text: `=== ${name} (${head}) ===\n${lineNumbered(slice, offset + 1)}${more}`, ok: true };
 }
 
-export function readTool(): Tool {
+export function readTool(opts: { mmRead?: boolean } = {}): Tool {
   return {
     normalize: (args) => flattenArgs(args, { path: PATH_ALIASES, offset: ["start", "skip"], limit: ["lines", "max_lines", "count"] }),
     definition: {
@@ -93,7 +93,7 @@ export function readTool(): Tool {
     },
     allowKeys: () => [ALL],
     async execute(args, ctx) {
-      const r = await readOne(ctx, args as unknown as Item);
+      const r = await readOne(ctx, args as unknown as Item, opts.mmRead === true);
       return { content: r.text, is_error: !r.ok };
     },
   };

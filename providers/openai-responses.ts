@@ -1,7 +1,7 @@
 import { dataUrl } from "../harness/attachments.ts";
 import { createHash } from "node:crypto";
 import { z } from "zod";
-import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
+import type { AttachmentPart, Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
@@ -132,6 +132,13 @@ export function buildResponsesBody(ctx: ModelContext, setup: AgentSetup, opts: R
 
 const toTool = (t: ToolDefinition): Json => ({ type: "function", name: t.name, description: t.description, parameters: t.input_schema, strict: false });
 
+/** A picture or a document as an input part, in a user turn or in a tool result; this adapter sends no audio. */
+function mediaPart(p: AttachmentPart): Json {
+  if (p.kind === "audio") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Responses API takes no audio input here` });
+  if (p.kind === "image") return { type: "input_image", image_url: dataUrl(p.mime, p.bytes) };
+  return { type: "input_file", filename: p.name ?? "document.pdf", file_data: dataUrl(p.mime, p.bytes) };
+}
+
 /** The input items for each turn, in order (kept per turn so a prefix can be cut at a turn boundary). */
 function toItems(turns: readonly Turn[], opts: RequestOptions): Json[][] {
   return turns.map((t): Json[] => {
@@ -141,14 +148,12 @@ function toItems(turns: readonly Turn[], opts: RequestOptions): Json[][] {
           role: "user",
           content: t.parts.map((p): Json => {
             if (p.type === "text") return { type: "input_text", text: p.text };
-            if (p.kind === "audio") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Responses API takes no audio input here` });
-            if (p.kind === "image") return { type: "input_image", image_url: dataUrl(p.mime, p.bytes) };
-            return { type: "input_file", filename: p.name ?? "document.pdf", file_data: dataUrl(p.mime, p.bytes) };
+            return mediaPart(p);
           }),
         },
       ];
     }
-    if (t.role === "tool_results") return t.results.map((r): Json => ({ type: "function_call_output", call_id: r.call_id, output: r.content }));
+    if (t.role === "tool_results") return t.results.map((r): Json => ({ type: "function_call_output", call_id: r.call_id, output: r.media === undefined ? r.content : [{ type: "input_text", text: r.content }, ...r.media.map(mediaPart)] }));
     return assistantItems(t.blocks, opts);
   });
 }

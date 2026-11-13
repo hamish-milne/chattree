@@ -294,9 +294,9 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       if (req.setup.model === undefined) throw new ProviderError({ kind: "invalid_request", message: "the agent has no model" });
       const served = servedModelId(req.setup.model);
       let marker: string | undefined;
-      if (req.context.turns.some((t) => t.role === "user" && t.parts.some((p) => p.type === "attachment"))) {
+      const attached = req.context.turns.flatMap((t) => (t.role === "user" ? t.parts.flatMap((p) => (p.type === "attachment" ? [p.kind] : [])) : t.role === "tool_results" ? t.results.flatMap((r) => (r.media ?? []).map((m) => m.kind)) : []));
+      if (attached.length > 0) {
         const props = await serverProps(opts.baseUrl, opts.modelName(served), opts.fetch ?? fetch);
-        const attached = req.context.turns.flatMap((t) => (t.role === "user" ? t.parts : [])).flatMap((p) => (p.type === "attachment" ? [p.kind] : []));
         if (props.audio === false && attached.includes("audio")) throw new ProviderError({ kind: "invalid_request", message: `${opts.modelName(served)} cannot take sound: its multimodal projector has no audio encoder (Gemma 4 E2B and E4B, Qwen Omni, Voxtral and Ultravox have one)` });
         if (props.vision === false && attached.some((k) => k !== "audio")) throw new ProviderError({ kind: "invalid_request", message: `${opts.modelName(served)} cannot take pictures: it has no multimodal projector (set mmproj, for instance \`mmproj: auto\`, in its local_models entry)` });
         marker = props.marker;

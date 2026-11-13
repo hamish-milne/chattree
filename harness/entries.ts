@@ -3,7 +3,7 @@ import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type T
 import { ULID_RE } from "./ulid.ts";
 
 /** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
-export const FORMAT = { format: "chatlog", major: 2, minor: 6 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 7 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -102,6 +102,8 @@ export const toolResult = z.object({
   truncated: z.boolean().optional(),
   /** When `content` was cut short, the whole output (format 1.3). A reference, so the blob is kept for as long as the entry is. */
   full: blobRef.optional(),
+  /** Pictures, sound or documents the tool gave the model besides its text (format 2.7); each blob has its media type. */
+  media: z.array(z.object({ name: z.string().optional(), data: blobRef })).optional(),
 });
 
 export const compaction = z.object({

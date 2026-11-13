@@ -39,8 +39,17 @@ export interface ApprovalContext {
   host: Host;
 }
 
+/** A picture, a sound or a document a tool hands to the model along with its text (`mm_read`). Stored as a blob in the transcript. */
+export interface ToolMedia {
+  name?: string | undefined;
+  mime: string;
+  bytes: Uint8Array;
+}
+
 export interface ToolOutput {
   content: string;
+  /** What the model is shown besides `content`: only for a model that takes it (the tool is not offered to one that does not). */
+  media?: ToolMedia[];
   is_error?: boolean;
   /** The tool already committed the entry that answers this call (a merge's `subagent_result`): the loop records no `tool_result`. `content` is what the host shows. */
   recorded?: boolean;

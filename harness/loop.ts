@@ -318,7 +318,9 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
         return `blob:${sha256}`;
       },
     });
-    await convo.append({ $tag: "tool_result", call_id: call.call_id, is_error: shaped.is_error, content: shaped.content, ...(shaped.truncated ? { truncated: true } : {}), ...(full === undefined ? {} : { full }) });
+    const media: { name?: string; data: { $tag: "blob"; sha256: string; bytes: number; mime: string } }[] = [];
+    for (const m of out.media ?? []) media.push({ ...(m.name === undefined ? {} : { name: m.name }), data: { $tag: "blob", sha256: await convo.store.put(m.bytes), bytes: m.bytes.length, mime: m.mime } });
+    await convo.append({ $tag: "tool_result", call_id: call.call_id, is_error: shaped.is_error, content: shaped.content, ...(shaped.truncated ? { truncated: true } : {}), ...(full === undefined ? {} : { full }), ...(media.length === 0 ? {} : { media }) });
     yield { type: "tool.result", callId: call.call_id, name: call.name, content: shaped.content, is_error: shaped.is_error, truncated: shaped.truncated, ms: now() - t0, ...(skipped === undefined ? {} : { skipped }) };
   };
 

@@ -1,6 +1,6 @@
 import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
 import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
-import { userContent } from "./media.ts";
+import { resultContent, userContent } from "./media.ts";
 import { nextMarker, safeLength, Trimmer } from "./scan.ts";
 import { argNode, concreteTypes, isNullable, parseSchema, type SchemaNode } from "./schema-tree.ts";
 
@@ -124,7 +124,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
       for (const c of calls) {
         const r = results.get(c.call_id);
         if (r !== undefined) {
-          out += response(c.name, r.content);
+          out += response(c.name, resultContent(r, input.marker, media));
           answered = true;
         }
       }

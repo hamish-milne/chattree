@@ -2,6 +2,7 @@ import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
 import { userContent } from "./media.ts";
+import { ProviderError } from "../types.ts";
 import { builtinPreamble, builtinSpecs, commandFor, messageOf, RUN_TOOL, type BuiltinSpec } from "./harmony-builtin.ts";
 import { parseSchema, toolSchema, type SchemaNode } from "./schema-tree.ts";
 import { spacedJson } from "./scan.ts";
@@ -161,6 +162,7 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
           const name = typeof made?.name === "string" && o.builtin.has(made.name) ? made.name : own(b.name) && o.builtin.has(b.name) ? b.name : undefined;
           const spec = name === undefined ? undefined : o.builtin.get(name);
           const r = results.get(b.call_id);
+          if (r?.media !== undefined) throw new ProviderError({ kind: "invalid_request", message: "this format has no picture or sound in a tool result: the model is text only" });
           if (name !== undefined && spec !== undefined) {
             // A built-in: on analysis, the recipient its name, the message the bare text, and the result from the tool on analysis.
             const given = typeof made?.message === "string" ? made.message : b.args[spec.arg];

@@ -45,6 +45,8 @@ export interface Renderer {
   continueInterrupted(): string;
   /** A text file attached to a message, shown inline. */
   textAttachment(name: string | undefined, content: string): string;
+  /** The note that stands for a picture, sound or document of an older tool result that a trim left out. */
+  mediaLeftOut(name: string): string;
   /** The instructions were changed after the conversation began: the new text, shown where the change was made. */
   instructionsUpdated(instructions: string): string;
   /** Text the harness put in front of the model (an `injection` entry). */
@@ -81,6 +83,7 @@ export const chattreeEnglishV1: Renderer = Object.freeze({
   cutOffCall: (toolName: string) => `[A call to ${toolName} was cut off before it finished and did not run]`,
   toolDidNotRun: () => "The tool did not run: the conversation was interrupted before it produced a result.",
   subagentBrief: (brief: string) => brief,
+  mediaLeftOut: (name: string) => `[${name} was shown here and is left out to save context; ask for it again if it is needed]`,
   textAttachment: (name: string | undefined, content: string) => `[Attached file${name === undefined ? "" : `: ${name}`}]\n${content}`,
   instructionsUpdated: (instructions: string) => `[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\n${instructions}`,
   injection: (_key: string, text: string) => `[Note from the harness]\n${text}`,

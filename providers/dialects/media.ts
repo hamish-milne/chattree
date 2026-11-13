@@ -9,6 +9,19 @@ import { ProviderError } from "../types.ts";
  * `marker` is undefined when the transport has not been told one (render is pure and the marker belongs to the server); a turn with a
  * picture then cannot be written.
  */
+/** The text of a tool result, and the server's marker after it for each picture or sound it shows (`media` gets them, in order). */
+export function resultContent(r: { content: string; media?: AttachmentPart[] }, marker: string | undefined, media: AttachmentPart[]): string {
+  if (r.media === undefined) return r.content;
+  const markers: string[] = [];
+  for (const p of r.media) {
+    if (p.kind === "pdf") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "a PDF"} cannot be sent: only pictures and sound can be sent to a local model; send the text of a PDF instead` });
+    if (marker === undefined) throw new ProviderError({ kind: "invalid_request", message: `this request has ${p.kind === "audio" ? "sound" : "a picture"} in a tool result, and the server has not said how to mark it` });
+    media.push(p);
+    markers.push(marker);
+  }
+  return `${r.content}\n${markers.join("\n")}`;
+}
+
 export function userContent(parts: readonly UserPart[], marker: string | undefined, media: AttachmentPart[], join = "\n\n"): string {
   const pieces: string[] = [];
   const isImage: boolean[] = [];

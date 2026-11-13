@@ -38,7 +38,7 @@ export type UserPart = { type: "text"; text: string } | AttachmentPart;
 export type Turn =
   | { role: "user"; parts: UserPart[] }
   | { role: "assistant"; provider: string; model: string; blocks: Block[]; /** The entry's `ext`: the response id and prefix digest an adapter chains from. */ ext?: Record<string, unknown> }
-  | { role: "tool_results"; results: { call_id: string; is_error: boolean; content: string; truncated: boolean }[] };
+  | { role: "tool_results"; results: { call_id: string; is_error: boolean; content: string; truncated: boolean; /** What the tool showed besides its text. */ media?: AttachmentPart[] }[] };
 
 export interface ModelContext {
   /** The harness's own prompt: part of the pinned prefix. */
@@ -78,7 +78,7 @@ export interface BuildInput {
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
-type Pending = { call_id: string; is_error: boolean; content: string; truncated: boolean; fallback?: string };
+type Pending = { call_id: string; is_error: boolean; content: string; truncated: boolean; media?: AttachmentPart[]; fallback?: string };
 
 /**
  * Build the context for the next request.
@@ -158,7 +158,8 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
           if (mime === undefined || kind === undefined) throw new Error(`attachment ${p.name ?? ref.sha256.slice(0, 12)} has ${mime === undefined ? "no media type" : `the media type ${mime}, which no model is given`}`);
           if (input.readBytes === undefined) throw new Error(`an attachment (${ref.sha256.slice(0, 12)}) needs readBytes`);
           const bytes = await input.readBytes(ref);
-          if (kind === "text") parts.push({ type: "text", text: render.textAttachment(p.name, decodeText(bytes, p.charset)) });
+          if (bytes.length === 0 && kind !== "text") parts.push({ type: "text", text: `[Attached ${kind === "image" ? "picture" : kind === "audio" ? "sound" : "file"}${p.name === undefined ? "" : `: ${p.name}`} is empty (0 bytes), so nothing was sent to you]` });
+          else if (kind === "text") parts.push({ type: "text", text: render.textAttachment(p.name, decodeText(bytes, p.charset)) });
           else parts.push({ type: "attachment", kind, name: p.name, mime: normalizeMime(mime) as string, sha256: ref.sha256, bytes });
         }
         raw.push({ role: "user", parts, ...(e.queued === true ? { queued: e.id } : {}) });
@@ -172,7 +173,23 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       }
       case "tool_result": {
         const left = rule?.tool_results !== undefined && textBytes(e.content) >= rule.tool_results;
-        raw.push({ role: "result", result: { call_id: e.call_id, is_error: e.is_error, content: left ? outputLeftOut(textBytes(e.content)) : await text(e.content), truncated: !left && e.truncated === true } });
+        // Pictures cost the most of anything a result holds, so a trim that leaves results out leaves them out first, and says so.
+        const shown: AttachmentPart[] = [];
+        const notes: string[] = [];
+        for (const m of e.media ?? []) {
+          const mime = m.data.mime;
+          const kind = mime === undefined ? undefined : attachmentKind(mime);
+          const name = m.name ?? m.data.sha256.slice(0, 12);
+          if (mime === undefined || kind === undefined || kind === "text") notes.push(`[${name}: a file of type ${mime ?? "unknown"}, which no model is given]`);
+          else if (rule?.tool_results !== undefined) notes.push(render.mediaLeftOut(name));
+          else if (m.data.bytes === 0) notes.push(`[${name} is empty (0 bytes), so nothing was sent to you]`);
+          else {
+            if (input.readBytes === undefined) throw new Error(`a tool result's attachment (${m.data.sha256.slice(0, 12)}) needs readBytes`);
+            shown.push({ type: "attachment", kind, name: m.name, mime: normalizeMime(mime) as string, sha256: m.data.sha256, bytes: await input.readBytes(m.data) });
+          }
+        }
+        const body = left ? outputLeftOut(textBytes(e.content)) : await text(e.content);
+        raw.push({ role: "result", result: { call_id: e.call_id, is_error: e.is_error, content: notes.length === 0 ? body : `${body}\n${notes.join("\n")}`, truncated: !left && e.truncated === true, ...(shown.length === 0 ? {} : { media: shown }) } });
         break;
       }
       case "compaction":

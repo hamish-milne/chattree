@@ -1,5 +1,6 @@
 import type { Tool } from "../tools.ts";
 import { editTool } from "./edit.ts";
+import { mmReadTool } from "./mm-read.ts";
 import { readTool } from "./read.ts";
 import { runTool, scriptTool, type RunToolOptions } from "./run.ts";
 import { writeTool } from "./write.ts";
@@ -9,10 +10,11 @@ export { expandGlob, GlobError } from "./glob.ts";
 export { parseCommand, CommandSyntax, type ParsedCommand, type Word } from "./command.ts";
 export { BUSYBOX_APPLETS, portableStage, NotAvailable } from "./portable.ts";
 export { applyChanges, EditFailed, type Change } from "./edit.ts";
+export { mmReadTool, sniffMedia, MM_READ_MAX_BYTES } from "./mm-read.ts";
 export { versionOf } from "./version.ts";
 export { expandEnv, SECRET_ENV_PATTERN, type RunToolOptions } from "./run.ts";
 
 /** The leaf tools: read, write, edit, run, script (docs/tools.md, 4.1). The meta tools come with the loop's later steps. */
 export function leafTools(opts: RunToolOptions = {}): Tool[] {
-  return [readTool(), writeTool(), editTool(), runTool(opts), scriptTool(opts)];
+  return [readTool({ mmRead: opts.mmRead === true }), mmReadTool(), writeTool(), editTool(), runTool(opts), scriptTool(opts)];
 }

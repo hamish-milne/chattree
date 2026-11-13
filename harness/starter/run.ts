@@ -18,6 +18,8 @@ export interface RunToolOptions {
   env?: { allow: readonly string[] | "*"; values: Readonly<Record<string, string | undefined>> };
   /** Environment variable names to hide from commands, besides anything that looks like a secret. */
   secretEnv?: readonly string[];
+  /** `mm_read` is offered: the refusals of binary data say to use it. */
+  mmRead?: boolean;
   /** Windows: allow `.cmd` and `.bat` programs (`tools.run.batch`). Default false: they are refused with a message that says what to set. */
   batch?: boolean;
   /** Windows: globs (relative to the workspace) of batch files inside the workspace that may be started (`tools.run.local`). */
@@ -39,6 +41,15 @@ const MAX_TIMEOUT = 3600;
 export const SECRET_ENV_PATTERN = "(^|_)(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_KEY)($|_)";
 const MAX_REDIRECT_BYTES = 64 * 1024 * 1024;
 const dec = new TextDecoder();
+const strict = new TextDecoder("utf-8", { fatal: true });
+const isUtf8 = (b: Uint8Array): boolean => {
+  try {
+    strict.decode(b);
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 class RunRefused extends Error {}
 
@@ -91,12 +102,16 @@ async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOpt
   return { stages: out, verbatim };
 }
 
-function report(outcome: RunOutcome, timeoutSeconds: number, extra: string[]): ToolOutput {
+function report(outcome: RunOutcome, timeoutSeconds: number, extra: string[], mm = false): ToolOutput {
   const lines = [`exit ${outcome.exitCode}${outcome.stageCodes.length > 1 ? ` (stages: ${outcome.stageCodes.join(", ")})` : ""}`];
   if (outcome.timedOut) lines.push(`timed out after ${timeoutSeconds} seconds and was killed`);
   if (outcome.aborted && !outcome.timedOut) lines.push("stopped before it finished");
-  const text = dec.decode(outcome.output);
-  lines.push(text === "" ? "(no output)" : text.replace(/\n$/, ""));
+  const binary = outcome.output.subarray(0, 8000).includes(0) || !isUtf8(outcome.dropped > 0 ? outcome.output.subarray(0, Math.max(0, outcome.output.length - 3)) : outcome.output);
+  if (binary) lines.push(`(the output is binary data, not text, so it is not shown; write it to a file with > ${mm ? "and look at it with mm_read if it is a picture or sound" : "and use a tool that reads that format"})`);
+  else {
+    const text = dec.decode(outcome.output);
+    lines.push(text === "" ? "(no output)" : text.replace(/\n$/, ""));
+  }
   if (outcome.dropped > 0) lines.push(`(${outcome.dropped} more bytes of output were discarded)`);
   lines.push(...extra);
   return { content: lines.join("\n"), is_error: outcome.exitCode !== 0 || outcome.timedOut || outcome.aborted };
@@ -200,7 +215,7 @@ function plainRunTool(opts: RunToolOptions): Tool {
           else await host.fs.writeAtomic(target, outcome.stdout, { keepMode: true });
           extra.push(`stdout ${out?.append === true ? "appended to" : "written to"} ${display(host, workspace, target)} (${outcome.stdout.length} bytes)`);
         }
-        return report(outcome, timeout, extra);
+        return report(outcome, timeout, extra, opts.mmRead === true);
       } catch (e) {
         if (e instanceof RunRefused || e instanceof CommandSyntax || e instanceof NotAvailable || e instanceof GlobError || e instanceof PathRefused) return { content: e.message, is_error: true };
         throw e;
@@ -243,7 +258,7 @@ function plainScriptTool(opts: RunToolOptions): Tool {
         timeoutMs: timeout * 1000,
         signal: ctx.signal,
       });
-      return report(outcome, timeout, []);
+      return report(outcome, timeout, [], opts.mmRead === true);
     },
   };
 }

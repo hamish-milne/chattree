@@ -1,7 +1,7 @@
 import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
-import { userContent } from "./media.ts";
+import { resultContent, userContent } from "./media.ts";
 import { ProviderError } from "../types.ts";
 import { argNode } from "./schema-tree.ts";
 import { coerce, nextMarker, safeLength, spacedJson, Trimmer } from "./scan.ts";
@@ -247,7 +247,7 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
     if (t.role === "user") {
       out += `${spec.user.open}${userContent(t.parts, input.marker, media)}${spec.user.close}`;
     } else if (t.role === "tool_results") {
-      const items = t.results.map((r) => fill(spec.results.item, { content: r.content, id: ids.get(r.call_id)?.id ?? r.call_id, name: ids.get(r.call_id)?.name ?? "" }));
+      const items = t.results.map((r) => fill(spec.results.item, { content: resultContent(r, input.marker, media), id: ids.get(r.call_id)?.id ?? r.call_id, name: ids.get(r.call_id)?.name ?? "" }));
       out += `${spec.results.open ?? ""}${items.join(spec.results.between ?? "")}${spec.results.close ?? ""}`;
     } else {
       const blocks = t.blocks as Block[];

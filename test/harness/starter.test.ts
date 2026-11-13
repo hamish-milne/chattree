@@ -35,9 +35,9 @@ async function workspace(files: Record<string, string> = {}) {
 }
 
 describe("the starter tools are valid registry entries", () => {
-  test("all five register, with portable schemas, and a bad call is caught before it runs", async () => {
+  test("all six register, with portable schemas, and a bad call is caught before it runs", async () => {
     const { registry } = await workspace();
-    assert.deepEqual(registry.names(), ["edit", "read", "run", "script", "write"]);
+    assert.deepEqual(registry.names(), ["edit", "mm_read", "read", "run", "script", "write"]);
     assert.match((registry.check({ name: "read", args: { files: [{ path: "a", bogus: 1 }] } }) as { error: string }).error, /bogus is not a known argument/);
     assert.match((registry.check({ name: "run", args: { argv: ["ls"] } }) as { error: string }).error, /argv is not a known argument \(known: command, timeout_seconds, background\)/);
     assert.match((registry.check({ name: "run", args: {} }) as { error: string }).error, /command is required/);

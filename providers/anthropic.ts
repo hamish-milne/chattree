@@ -1,6 +1,6 @@
 import { base64 } from "../harness/attachments.ts";
 import { z } from "zod";
-import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
+import type { AttachmentPart, Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
@@ -45,6 +45,12 @@ export const anthropicSettings = z.strictObject({
   cache_ttl: z.enum(["5m", "1h"]).optional(),
 });
 export type AnthropicSettings = z.infer<typeof anthropicSettings>;
+
+/** A picture or a document as the API takes it, in a user turn or in a tool result; the API takes no audio. */
+function mediaBlock(p: AttachmentPart): Json {
+  if (p.kind === "audio") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Anthropic API takes no audio` });
+  return { type: p.kind === "image" ? "image" : "document", source: { type: "base64", media_type: p.mime, data: base64(p.bytes) }, ...(p.kind === "pdf" && p.name !== undefined ? { title: p.name } : {}) };
+}
 
 export function parseAnthropicSettings(settings: unknown): AnthropicSettings {
   const r = anthropicSettings.safeParse(settings ?? {});
@@ -100,11 +106,10 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: Jso
     if (t.role === "user") {
       push("user", t.parts.map((p): Json => {
         if (p.type === "text") return { type: "text", text: p.text };
-        if (p.kind === "audio") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Anthropic API takes no audio` });
-        return { type: p.kind === "image" ? "image" : "document", source: { type: "base64", media_type: p.mime, data: base64(p.bytes) }, ...(p.kind === "pdf" && p.name !== undefined ? { title: p.name } : {}) };
+        return mediaBlock(p);
       }), i);
     } else if (t.role === "tool_results") {
-      push("user", t.results.map((r): Json => ({ type: "tool_result", tool_use_id: r.call_id, content: r.content, ...(r.is_error ? { is_error: true } : {}) })), i);
+      push("user", t.results.map((r): Json => ({ type: "tool_result", tool_use_id: r.call_id, content: r.media === undefined ? r.content : [{ type: "text", text: r.content }, ...r.media.map(mediaBlock)], ...(r.is_error ? { is_error: true } : {}) })), i);
     } else {
       const content = t.blocks.flatMap((b): Json[] => {
         if (b.type === "text") return b.text === "" ? [] : [{ type: "text", text: b.text }];
