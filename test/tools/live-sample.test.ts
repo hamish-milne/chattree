@@ -42,7 +42,8 @@ describe("selecting tasks", () => {
     assert.deepEqual(selectTasks({ tasks: ["one line", "read two"] }).run.map((t) => t.name), ["one line", "read two files"]);
     assert.ok(selectTasks({ groups: ["edit"] }).run.every((t) => t.group === "edit"));
     assert.deepEqual(selectTasks({ groups: ["context"] }).run.map((t) => t.name), ["month in a week", "riddle with a twist"]);
-    assert.ok(selectTasks({}).run.every((t) => t.group !== "context"), "the context tasks are asked for, not run by default");
+    assert.ok(selectTasks({}).run.every((t) => t.group !== "context" && t.group !== "media"), "the context and media tasks are asked for, not run by default");
+    assert.deepEqual(selectTasks({ groups: ["media"] }).run.map((t) => t.name), ["look at a made picture (red)", "look at a made picture (blue)"]);
     const all = selectTasks({ groups: ["run"], busybox: "C:\\bb\\busybox.exe" });
     const without = selectTasks({ groups: ["run"] });
     assert.equal(all.run.length + all.skipped.length, without.run.length + without.skipped.length);
@@ -137,4 +138,33 @@ test("--setting KEY=VALUE is a model setting, a JSON value when it parses, and i
   const report = await runSamples({ flavor: "local-models", baseUrl: "", model: "m", repeat: 1, tasks: ["one line"], adapter, sampling: { temperature: 1 }, settings });
   assert.deepEqual(seen[0], { max_output_tokens: 4096, temperature: 1, replay_reasoning: true });
   assert.match(formatReport(report, { flavor: "local-models", model: "m", repeat: 1, settings }), /\nsettings: \{"replay_reasoning":true\}/);
+});
+
+describe("the media group", () => {
+  test("a script writes a picture, mm_read shows it in the tool result, and the answer is scored; other tasks never see mm_read", async () => {
+    const offered: string[][] = [];
+    let sawPicture: { kind: string; mime: string } | undefined;
+    const adapter = {
+      $tag: "pretend",
+      // eslint-disable-next-line require-yield
+      async *stream(req: { context: ModelContext }) {
+        const c = req.context;
+        offered.push(c.tools.map((t) => t.name));
+        const results = c.turns.filter((t) => t.role === "tool_results") as { results: { content: string; media?: { kind: string; mime: string }[] }[] }[];
+        if (results.length === 0) return call("r", "run", { command: "node make.cjs red" });
+        if (results.length === 1) return call("m", "mm_read", { path: "picture.png" });
+        sawPicture = results[1]?.results[0]?.media?.[0];
+        return text("red");
+      },
+      retrieve: async () => undefined,
+    } as unknown as ProviderAdapter;
+    const report = await runSamples({ flavor: "anthropic", baseUrl: "x", model: "m", repeat: 1, groups: ["media"], tasks: ["(red)"], adapter });
+    assert.equal(report.stats[0]?.correct, 1);
+    assert.deepEqual([sawPicture?.kind, sawPicture?.mime], ["image", "image/png"]);
+    assert.ok(offered[0]?.includes("mm_read"));
+    const plain: string[][] = [];
+    const quiet = { $tag: "pretend", async *stream(req: { context: ModelContext }) { plain.push(req.context.tools.map((t) => t.name)); return text("x"); }, retrieve: async () => undefined } as unknown as ProviderAdapter;
+    await runSamples({ flavor: "anthropic", baseUrl: "x", model: "m", repeat: 1, tasks: ["one line"], adapter: quiet });
+    assert.ok(plain[0] !== undefined && !plain[0].includes("mm_read"));
+  });
 });

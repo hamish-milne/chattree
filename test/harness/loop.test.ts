@@ -263,6 +263,22 @@ describe("the tool loop", () => {
     await assertHistoryInvariants(convo);
   });
 
+  test("a tool's media is stored as blobs the entry references, with their types", async () => {
+    const bytes = Uint8Array.from([137, 80, 78, 71, 1, 2, 3]);
+    const shot = tool("shot", () => Promise.resolve({ content: "a picture", media: [{ name: "x.png", mime: "image/png", bytes }] }));
+    const registry = reg(shot);
+    const { convo } = await fresh(registry);
+    queue = [calls(call("c1", "shot")), answer("ok")];
+    await drive(convo, registry);
+    const [r] = await results(convo);
+    assert.equal(r!.media?.length, 1);
+    assert.equal(r!.media![0]!.name, "x.png");
+    assert.equal(r!.media![0]!.data.mime, "image/png");
+    assert.equal(r!.media![0]!.data.bytes, bytes.length);
+    assert.deepEqual([...(await convo.store.get(r!.media![0]!.data.sha256))!], [...bytes]);
+    await assertHistoryInvariants(convo);
+  });
+
   test("a crash between calls leaves valid history; the next loop answers the rest as not run, never re-running them", async () => {
     let ran: string[] = [];
     const t = tool("t", (_a, ctx) => {

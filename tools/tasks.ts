@@ -8,13 +8,15 @@ import type { AgentTaskResult } from "./agent-task.ts";
 
 export interface Task {
   name: string;
-  group: "edit" | "read" | "write" | "run" | "mixed" | "context";
+  group: "edit" | "read" | "write" | "run" | "mixed" | "context" | "media";
   files: Record<string, string>;
   prompt: string;
   /** What is wrong with the outcome, or undefined when it is right. */
   check(r: AgentTaskResult): string | undefined | Promise<string | undefined>;
   /** What the task needs besides Node and Git (`utils`: cat, grep, wc, sh and friends, which Windows has through busybox); the sampler skips it when missing. */
   needs?: "utils"[];
+  /** The task needs `mm_read` and a model that takes pictures (the `media` group; not in the default set). */
+  media?: true;
   /** The model is told the date and where it is (the `environment` injection), as a session would; only tasks that depend on it say so. */
   environment?: true;
 }
@@ -224,3 +226,35 @@ export const CONTEXT_TASKS: Task[] = [
     },
   },
 ];
+
+/**
+ * Tasks about a picture that the model makes and then looks at: a script writes it and `mm_read` shows it (the same path a user's
+ * attachment takes, but through a tool result). Only for a model that takes pictures: ask for them with `--group media`.
+ */
+const MAKE_PNG = `// Writes picture.png: a big square of the colour named on the command line, on white.
+const zlib = require("node:zlib");
+const fs = require("node:fs");
+const colours = { red: [220, 30, 30], green: [30, 160, 60], blue: [30, 60, 220], yellow: [240, 210, 20] };
+const rgb = colours[process.argv[2]];
+if (!rgb) throw new Error("colour must be one of " + Object.keys(colours).join(", "));
+const W = 96, H = 96;
+const raw = Buffer.alloc((W * 3 + 1) * H, 255);
+for (let y = 0; y < H; y++) {
+  raw[y * (W * 3 + 1)] = 0;
+  for (let x = 0; x < W; x++) if (x >= 24 && x < 72 && y >= 24 && y < 72) rgb.forEach((v, i) => (raw[y * (W * 3 + 1) + 1 + x * 3 + i] = v));
+}
+const crcTable = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+const crc = (b) => { let c = 0xffffffff; for (const v of b) c = crcTable[(c ^ v) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+const chunk = (t, d) => { const h = Buffer.alloc(8); h.writeUInt32BE(d.length); h.write(t, 4); const c = Buffer.alloc(4); c.writeUInt32BE(crc(Buffer.concat([h.subarray(4), d]))); return Buffer.concat([h, d, c]); };
+const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(W); ihdr.writeUInt32BE(H, 4); ihdr[8] = 8; ihdr[9] = 2;
+fs.writeFileSync("picture.png", Buffer.concat([Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", ihdr), chunk("IDAT", zlib.deflateSync(raw)), chunk("IEND", Buffer.alloc(0))]));
+console.log("wrote picture.png");
+`;
+export const MEDIA_TASKS: Task[] = ["red", "blue"].map((colour) => ({
+  name: `look at a made picture (${colour})`,
+  group: "media" as const,
+  media: true as const,
+  files: { "make.cjs": MAKE_PNG },
+  prompt: `Run \`node make.cjs ${colour}\`, which writes picture.png, then look at picture.png with mm_read and tell me the colour of the square in it. Answer with just the colour.`,
+  check: (r: AgentTaskResult) => (ranOk(r, "mm_read") && new RegExp(`\\b${colour}\\b`, "i").test(r.answer) ? undefined : `mm_read ran: ${ranOk(r, "mm_read")}, answer ${JSON.stringify(r.answer.slice(0, 80))}`),
+}));

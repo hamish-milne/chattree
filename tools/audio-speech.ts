@@ -1,6 +1,6 @@
 /**
  * Spoken test clips with a known answer, made by ffmpeg's flite synthesiser (so they need a "full" ffmpeg: hosts/ffmpeg.ts finds or
- * fetches one). Digits and short word lists, in several voices, as 16 kHz mono WAVs with `name.txt` (the words said) and `name.q`
+ * fetches one). Digits and the commonest short sentences, in several voices, as 16 kHz mono WAVs with `name.txt` (the words said) and `name.q`
  * (the question), which `node tools/audio-probe.ts --speech DIR` reads. The same seed makes the same clips.
  *
  *   node tools/audio-speech.ts [--count 6] [--seed 1] [--out bench-runs/audio-speech]
@@ -13,7 +13,11 @@ import { rng } from "./vision-scenarios.ts";
 
 export const VOICES = ["slt", "awb", "rms", "kal"] as const;
 const DIGITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
-const WORDS = ["banana", "window", "river", "candle", "orange", "bridge", "garden", "pencil", "silver", "thunder", "basket", "mirror", "forest", "ticket", "violin", "anchor"];
+/** The most common short sentences of spoken English: the easiest speech to recognise that still has a clear right answer. */
+export const SENTENCES = [
+  "Thank you.", "I don't know.", "I know.", "What do you mean?", "I'm sorry.", "I love you.", "What are you doing?", "Come on.",
+  "I don't think so.", "What's going on?", "Thank you very much.", "You're welcome.", "I have no idea.", "Let's go.", "Are you sure?",
+];
 
 export interface SpeechClip {
   name: string;
@@ -23,7 +27,7 @@ export interface SpeechClip {
   question: string;
 }
 
-/** The clips for a seed: `count` of digits (3 to 5 of them) and `count` of word lists (3 words), voices taken in turn. */
+/** The clips for a seed: `count` of digits (3 to 5 of them), then every sentence in `SENTENCES`, voices taken in turn. */
 export function speechClips(o: { count: number; seed: number }): SpeechClip[] {
   const r = rng(o.seed * 6007 + 11);
   const out: SpeechClip[] = [];
@@ -32,18 +36,14 @@ export function speechClips(o: { count: number; seed: number }): SpeechClip[] {
     const text = Array.from({ length: n }, () => DIGITS[Math.floor(r() * 10)]).join(" ");
     out.push({ name: `digits-${i + 1}`, text, voice: VOICES[i % VOICES.length] as SpeechClip["voice"], question: "Which digits are spoken, in order? Write each digit as a word, separated by spaces, and nothing else." });
   }
-  for (let i = 0; i < o.count; i++) {
-    const pool = [...WORDS];
-    const text = Array.from({ length: 3 }, () => pool.splice(Math.floor(r() * pool.length), 1)[0]).join(" ");
-    out.push({ name: `words-${i + 1}`, text, voice: VOICES[(i + 1) % VOICES.length] as SpeechClip["voice"], question: "What words are spoken, in order? Answer with just the words." });
-  }
+  SENTENCES.forEach((text, i) => out.push({ name: `sentence-${String(i + 1).padStart(2, "0")}`, text, voice: VOICES[(i + 1) % VOICES.length] as SpeechClip["voice"], question: "What is said in this recording? Answer with just the words." }));
   return out;
 }
 
-/** ffmpeg's arguments to speak `clip` into `out`. The text is only letters and spaces, so it needs no escaping inside the filter. */
+/** ffmpeg's arguments to speak `clip` into `out`. The text is quoted for the filter graph: only letters, spaces and . , ? ! ' are allowed. */
 export function fliteArgs(clip: Pick<SpeechClip, "text" | "voice">, out: string): string[] {
-  if (!/^[a-z ]+$/.test(clip.text)) throw new Error(`clip text must be lowercase letters and spaces: ${JSON.stringify(clip.text)}`);
-  return ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `flite=text='${clip.text}':voice=${clip.voice}`, "-ar", "16000", "-ac", "1", out];
+  if (!/^[A-Za-z .,?!']+$/.test(clip.text)) throw new Error(`clip text must be letters, spaces and . , ? ! ': ${JSON.stringify(clip.text)}`);
+  return ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `flite=text='${clip.text.replace(/'/g, "'\\''")}':voice=${clip.voice}`, "-ar", "16000", "-ac", "1", out];
 }
 
 const run = (exe: string, args: string[]): Promise<number> =>

@@ -216,3 +216,41 @@ describe("contextProblems", () => {
     assert.match(p, /result for y has no call/);
   });
 });
+
+describe("media in a tool result", () => {
+  const HASH = "a1".repeat(32);
+  const shown = (mime: string, bytes: number, name = "out.png"): ChatEntry => ({ $tag: "tool_result", id: id(), call_id: "c1", is_error: false, content: "ok", media: [{ name, data: { $tag: "blob", sha256: HASH, bytes, mime } }] });
+  const readBytes = async () => Uint8Array.from([1, 2, 3]);
+  const first = (c: ModelContext) => (c.turns.find((t) => t.role === "tool_results") as Extract<ModelContext["turns"][number], { role: "tool_results" }>).results[0]!;
+
+  test("the picture is read from its blob and shown with the result", async () => {
+    const c = ok(await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("image/png", 3)], { readBytes }));
+    const m = first(c).media;
+    assert.equal(m?.length, 1);
+    assert.deepEqual([m?.[0]?.kind, m?.[0]?.mime, m?.[0]?.name], ["image", "image/png", "out.png"]);
+  });
+
+  test("an empty file is a note, not a picture", async () => {
+    const c = await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("image/png", 0)], { readBytes });
+    assert.equal(first(c).media, undefined);
+    assert.match(first(c).content, /out\.png is empty \(0 bytes\)/);
+  });
+
+  test("a type no model is given is a note", async () => {
+    const c = await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("application/zip", 3, "a.zip")], { readBytes });
+    assert.equal(first(c).media, undefined);
+    assert.match(first(c).content, /a\.zip: a file of type application\/zip/);
+  });
+
+  test("a trim that leaves tool results out leaves the media out first and says so", async () => {
+    const entries: ChatEntry[] = [user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("image/png", 3)];
+    const t: ChatEntry = { $tag: "trim", id: id(), upto: (entries.at(-1) as { id: string }).id, rule: { tool_results: 1_000_000 }, by: "user" };
+    const c = await build([...entries, t, user("next")], { readBytes });
+    assert.equal(first(c).media, undefined);
+    assert.match(first(c).content, /out\.png was shown here and is left out/);
+  });
+
+  test("without readBytes it is an error, never a silent drop", async () => {
+    await assert.rejects(build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("image/png", 3)]), /needs readBytes/);
+  });
+});

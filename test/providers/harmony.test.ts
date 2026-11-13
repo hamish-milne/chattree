@@ -292,6 +292,14 @@ describe("built-in tools", () => {
       assert.ok(p.includes("<|start|>assistant<|channel|>analysis to=perl code<|message|>print 42<|call|><|start|>perl to=assistant<|channel|>analysis<|message|>42<|end|>"));
       assert.ok(p.includes('<|start|>assistant<|channel|>commentary to=functions.run <|constrain|>json<|message|>{"command": "ls"}<|call|>'), "an ordinary call of run is still a function call");
     });
+    test("a result with a picture or sound is refused: the format is text only", () => {
+      const turns: ModelContext["turns"] = [
+        { role: "user", parts: [{ type: "text", text: "go" }] },
+        { role: "assistant", provider: "p", model: "m", blocks: [{ type: "tool_call", call_id: "1", name: "run", args: { command: "ls" } }] },
+        { role: "tool_results", results: [{ call_id: "1", content: "x", is_error: false, truncated: false, media: [{ type: "attachment", kind: "image", name: "a.png", mime: "image/png", sha256: "0".repeat(64), bytes: Uint8Array.from([1]) }] }] },
+      ];
+      assert.throws(() => rendered([run], turns), /text only/);
+    });
     test("a refused call is written back as the model sent it", () => {
       const turns: ModelContext["turns"] = [
         { role: "user", parts: [{ type: "text", text: "go" }] },

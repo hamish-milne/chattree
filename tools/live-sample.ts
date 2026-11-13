@@ -33,7 +33,7 @@ import { loadSettings } from "../cli/settings.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
 import { installWireLog } from "./wire-log.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
-import { available, CONTEXT_TASKS, TASKS, type Task } from "./tasks.ts";
+import { available, CONTEXT_TASKS, MEDIA_TASKS, TASKS, type Task } from "./tasks.ts";
 
 export interface SampleOptions {
   flavor: Flavor | "local-models";
@@ -102,7 +102,7 @@ export function blur(tool: string, result: string): string {
 export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "busybox">): { run: Task[]; skipped: { task: string; why: string }[] } {
   const run: Task[] = [];
   const skipped: { task: string; why: string }[] = [];
-  for (const t of o.groups?.includes("context") === true ? [...TASKS, ...CONTEXT_TASKS] : TASKS) {
+  for (const t of [...TASKS, ...(o.groups?.includes("context") === true ? CONTEXT_TASKS : []), ...(o.groups?.includes("media") === true ? MEDIA_TASKS : [])]) {
     if (o.tasks !== undefined && o.tasks.length > 0 && !o.tasks.some((x) => t.name.includes(x))) continue;
     if (o.groups !== undefined && o.groups.length > 0 && !o.groups.includes(t.group)) continue;
     const missing = (t.needs ?? []).filter((n) => !available(n, o.busybox));
@@ -123,7 +123,7 @@ export async function runSamples(o: SampleOptions): Promise<SampleReport> {
   for (const task of run) {
     for (let n = 1; n <= repeat; n++) {
       const t0 = Date.now();
-      const r = await runAgentTask({ adapter, model, busybox: o.busybox, files: task.files, prompt: task.prompt, timeoutMs: (o.timeoutSeconds ?? 180) * 1000 });
+      const r = await runAgentTask({ adapter, model, busybox: o.busybox, files: task.files, prompt: task.prompt, media: task.media === true, timeoutMs: (o.timeoutSeconds ?? 180) * 1000 });
       const noTools = r.used.size === 0;
       const problem = noTools ? "the model made no tool call" : r.status !== "completed" ? `the loop ended with ${r.status}` : await task.check(r);
       const s: Sample = { task: task.name, n, ...(problem === undefined ? {} : { problem }), noTools, requests: r.requests, errors: r.errors, status: r.status, ms: Date.now() - t0, steps: r.steps, answer: r.answer };

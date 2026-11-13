@@ -71,6 +71,8 @@ export interface AgentTaskOptions {
   timeoutMs?: number;
   /** Requests the model may make for the task (default 40): a model that loops is stopped, and its samples do not drown the means. */
   maxRequests?: number | undefined;
+  /** Offer `mm_read` (and tell `read` and `run` about it): for tasks about pictures and sound, and only for a model that takes them. */
+  media?: boolean | undefined;
   /** Starter tools to leave out, by name. */
   without?: readonly string[] | undefined;
   /** Tools offered besides the starter ones. */
@@ -104,7 +106,7 @@ export interface AgentTaskResult {
 export const AGENT_SYSTEM = "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.";
 
 export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult> {
-  const registry = new ToolRegistry([...leafTools({ busybox: o.busybox }).filter((t) => !(o.without ?? []).includes(t.definition.name)), ...(o.extraTools ?? [])]);
+  const registry = new ToolRegistry([...leafTools({ busybox: o.busybox, mmRead: o.media === true }).filter((t) => !(o.without ?? []).includes(t.definition.name) && (o.media === true || t.definition.name !== "mm_read")), ...(o.extraTools ?? [])]);
   const live = new AdapterRegistry().register(
     defineAdapter({
       $tag: "live",

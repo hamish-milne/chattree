@@ -62,6 +62,7 @@ function samples(): Record<string, Record<string, unknown>> {
       stop_reason: "length",
     },
     tool_result: { $tag: "tool_result", id: nextId(), call_id: "toolu_01A", is_error: false, content: "test result: ok. 3 passed\n", truncated: true },
+    "tool_result with media": { $tag: "tool_result", id: nextId(), call_id: "toolu_01M", is_error: false, content: "out.png: picture (image/png, 9001 bytes), shown below", media: [{ name: "out.png", data: { $tag: "blob", sha256: HASH_A, bytes: 9001, mime: "image/png" } }] },
     "tool_result with a blob": { $tag: "tool_result", id: nextId(), call_id: "toolu_01B", is_error: true, content: blob },
     compaction: { $tag: "compaction", id: nextId(), replaces: { from: nextId(), to: nextId() }, summary: "The user asked for a parser fix.\nWe found an off-by-one in tokenize().", model: "claude-sonnet-5-5" },
     agent_setup: {

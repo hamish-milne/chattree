@@ -90,15 +90,23 @@ describe("the speech sample set", () => {
 });
 
 describe("spoken clips", () => {
-  test("the same seed makes the same clips, with only words flite can say", async () => {
-    const { speechClips, fliteArgs } = await import("../../tools/audio-speech.ts");
+  test("the same seed makes the same clips: digits, then every common sentence, in text flite can say", async () => {
+    const { speechClips, fliteArgs, SENTENCES } = await import("../../tools/audio-speech.ts");
     const a = speechClips({ count: 4, seed: 3 });
     assert.deepEqual(a, speechClips({ count: 4, seed: 3 }));
     assert.notDeepEqual(a, speechClips({ count: 4, seed: 4 }));
-    assert.equal(a.length, 8);
-    for (const c of a) assert.match(c.text, /^[a-z]+( [a-z]+)*$/);
-    const args = fliteArgs(a[0] as (typeof a)[number], "o.wav");
-    assert.ok(args.includes(`flite=text='${a[0]?.text}':voice=${a[0]?.voice}`));
-    assert.throws(() => fliteArgs({ text: "it's", voice: "slt" }, "o.wav"));
+    assert.equal(a.length, 4 + SENTENCES.length);
+    assert.equal(new Set(a.map((c) => c.name)).size, a.length);
+    for (const c of a.slice(0, 4)) assert.match(c.text, /^[a-z]+( [a-z]+)*$/);
+    const s = a.find((c) => c.text === "I don't know.") as (typeof a)[number];
+    assert.ok(fliteArgs(s, "o.wav").includes(`flite=text='I don'\\''t know.':voice=${s.voice}`));
+    assert.throws(() => fliteArgs({ text: "no; rm", voice: "slt" }, "o.wav"));
+  });
+
+  test("a sentence is scored on its words, ignoring case and punctuation", () => {
+    const sc = speechScenario("s", new Uint8Array(1), "I don't know.");
+    assert.equal(sc.check("I don't know"), true);
+    assert.equal(sc.check("\"I DON'T KNOW.\""), true);
+    assert.equal(sc.check("I do not know"), false);
   });
 });

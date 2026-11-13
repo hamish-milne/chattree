@@ -14,6 +14,8 @@
  * --setting KEY=VALUE applies to every arm. Also --repeat N (default 10), --task TEXT, --group NAME, --max-tokens, --timeout-seconds, --max-requests (default 40),
  * --out DIR (default bench-runs/<time>), --yes (agree to installing llama.cpp), --busybox PATH.
  *
+ * `--group media` adds tasks where a script writes a picture and the model looks at it with mm_read (a model that takes pictures only).
+ *
  * `--group context` runs tasks about what the prompt tells the model instead of how it calls tools (they are not in the default set): the
  * date reaching the model only through the `environment` injection, and a riddle whose thinking should grow with `reasoning_effort`
  * (compare output tokens across arms such as 'low={"dialect":"harmony","reasoning_effort":"low"}' and the same with high).
@@ -130,6 +132,7 @@ export async function runOne(o: BenchOptions, task: Task, n: number): Promise<Be
     environment: task.environment === true ? benchEnvironment(o.busybox) : undefined,
     files: task.files,
     prompt: task.prompt,
+    media: task.media === true,
     timeoutMs: o.timeoutSeconds * 1000,
     maxRequests: o.maxRequests,
     onRequest: (run) => {
