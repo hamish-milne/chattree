@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import { statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -99,8 +100,12 @@ describe("spoken clips", () => {
     assert.equal(new Set(a.map((c) => c.name)).size, a.length);
     for (const c of a.slice(0, 4)) assert.match(c.text, /^[a-z]+( [a-z]+)*$/);
     const s = a.find((c) => c.text === "I don't know.") as (typeof a)[number];
-    assert.ok(fliteArgs(s, "o.wav").includes(`flite=text='I don'\\''t know.':voice=${s.voice}`));
-    assert.throws(() => fliteArgs({ text: "no; rm", voice: "slt" }, "o.wav"));
+    const args = fliteArgs(s);
+    assert.ok(args.includes(`flite=textfile=${s.name}.txt:voice=${s.voice}`), "the text is read from a file, never put in the filter string");
+    assert.ok(!args.some((x) => x.includes("don")), "no part of the sentence is in the arguments");
+    assert.equal(args.at(-1), `${s.name}.wav`);
+    assert.throws(() => fliteArgs({ name: "x", text: "no; rm", voice: "slt" }));
+    assert.throws(() => fliteArgs({ name: "../x", text: "ok", voice: "slt" }));
   });
 
   test("a sentence is scored on its words, ignoring case and punctuation", () => {
@@ -108,5 +113,24 @@ describe("spoken clips", () => {
     assert.equal(sc.check("I don't know"), true);
     assert.equal(sc.check("\"I DON'T KNOW.\""), true);
     assert.equal(sc.check("I do not know"), false);
+  });
+});
+
+describe("flite through a real ffmpeg", () => {
+  test("a sentence with an apostrophe is spoken as written, not with the voice option read aloud", async (t) => {
+    const { spawnSync } = await import("node:child_process");
+    const { fliteArgs } = await import("../../tools/audio-speech.ts");
+    const { findFfmpeg } = await import("../../hosts/ffmpeg.ts");
+    const exe = await findFfmpeg();
+    if (exe === undefined || !/\bflite\b/.test(spawnSync(exe, ["-hide_banner", "-filters"], { encoding: "utf8" }).stdout)) return t.skip("no ffmpeg with flite here");
+    const dir = await mkdtemp(join(tmpdir(), "flite-"));
+    const seconds = (clip: { name: string; text: string; voice: "rms" | "kal" }): number => {
+      writeFileSync(join(dir, `${clip.name}.txt`), `${clip.text}\n`);
+      spawnSync(exe, fliteArgs(clip), { cwd: dir });
+      return (statSync(join(dir, `${clip.name}.wav`)).size - 44) / 32_000; // 16 kHz, 16-bit, mono
+    };
+    const quoted = seconds({ name: "q", text: "I don't know.", voice: "rms" });
+    const plain = seconds({ name: "p", text: "I do not know.", voice: "rms" });
+    assert.ok(quoted > 0.5 && quoted < plain + 0.3, `with an apostrophe ${quoted}s, spelled out ${plain}s`);
   });
 });

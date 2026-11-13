@@ -34,21 +34,26 @@ export function speechClips(o: { count: number; seed: number }): SpeechClip[] {
   for (let i = 0; i < o.count; i++) {
     const n = 3 + Math.floor(r() * 3);
     const text = Array.from({ length: n }, () => DIGITS[Math.floor(r() * 10)]).join(" ");
-    out.push({ name: `digits-${i + 1}`, text, voice: VOICES[i % VOICES.length] as SpeechClip["voice"], question: "Which digits are spoken, in order? Write each digit as a word, separated by spaces, and nothing else." });
+    out.push({ name: `digits-${i + 1}`, text, voice: VOICES[i % VOICES.length] as SpeechClip["voice"], question: "Listen to the audio clip attached to this message. Which digits are spoken, in order? Write each digit as a word, separated by spaces, and nothing else." });
   }
-  SENTENCES.forEach((text, i) => out.push({ name: `sentence-${String(i + 1).padStart(2, "0")}`, text, voice: VOICES[(i + 1) % VOICES.length] as SpeechClip["voice"], question: "What is said in this recording? Answer with just the words." }));
+  SENTENCES.forEach((text, i) => out.push({ name: `sentence-${String(i + 1).padStart(2, "0")}`, text, voice: VOICES[(i + 1) % VOICES.length] as SpeechClip["voice"], question: "Listen to the audio clip attached to this message. What is said in it? Answer with just the words." }));
   return out;
 }
 
-/** ffmpeg's arguments to speak `clip` into `out`. The text is quoted for the filter graph: only letters, spaces and . , ? ! ' are allowed. */
-export function fliteArgs(clip: Pick<SpeechClip, "text" | "voice">, out: string): string[] {
+/**
+ * ffmpeg's arguments to speak `clip`, run with the clip's folder as the working directory: the text is read from `<name>.txt` there (the
+ * file that also says what is said), and the sound is written to `<name>.wav`. The text is deliberately not put in the filter string:
+ * an apostrophe in it opens a quote at the filter's own option level, which swallows `:voice=...` and makes flite say "voice rms" aloud.
+ */
+export function fliteArgs(clip: Pick<SpeechClip, "name" | "text" | "voice">): string[] {
   if (!/^[A-Za-z .,?!']+$/.test(clip.text)) throw new Error(`clip text must be letters, spaces and . , ? ! ': ${JSON.stringify(clip.text)}`);
-  return ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `flite=text='${clip.text.replace(/'/g, "'\\''")}':voice=${clip.voice}`, "-ar", "16000", "-ac", "1", out];
+  if (!/^[a-z0-9-]+$/.test(clip.name)) throw new Error(`clip name must be lowercase letters, digits and -: ${JSON.stringify(clip.name)}`);
+  return ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `flite=textfile=${clip.name}.txt:voice=${clip.voice}`, "-ar", "16000", "-ac", "1", `${clip.name}.wav`];
 }
 
-const run = (exe: string, args: string[]): Promise<number> =>
+const run = (exe: string, args: string[], cwd: string): Promise<number> =>
   new Promise((resolve, reject) => {
-    const p = spawn(exe, args, { stdio: ["ignore", "inherit", "inherit"] });
+    const p = spawn(exe, args, { cwd, stdio: ["ignore", "inherit", "inherit"] });
     p.on("error", reject);
     p.on("close", (c) => resolve(c ?? 1));
   });
@@ -61,13 +66,13 @@ async function main(): Promise<void> {
   await mkdir(dir, { recursive: true });
   let failed = 0;
   for (const c of speechClips({ count: Number(v("--count") ?? 6), seed: Number(v("--seed") ?? 1) })) {
-    if ((await run(exe, fliteArgs(c, join(dir, `${c.name}.wav`)))) !== 0) {
+    await writeFile(join(dir, `${c.name}.txt`), `${c.text}\n`);
+    await writeFile(join(dir, `${c.name}.q`), `${c.question}\n`);
+    if ((await run(exe, fliteArgs(c), dir)) !== 0) {
       failed++;
       console.error(`${c.name}: ffmpeg failed; skipped`);
       continue;
     }
-    await writeFile(join(dir, `${c.name}.txt`), `${c.text}\n`);
-    await writeFile(join(dir, `${c.name}.q`), `${c.question}\n`);
     console.error(`${c.name} (${c.voice}): ${c.text}`);
   }
   console.error(`${failed === 0 ? "done" : `${failed} failed`}: node tools/audio-probe.ts --model NAME --kinds speech --speech ${dir}`);
