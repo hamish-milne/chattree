@@ -9,7 +9,7 @@
  * `--model` is a name from local_models in the settings file whose projector can hear (Gemma 4 E2B and E4B, Qwen Omni, Voxtral, Ultravox
  * have one, and llama-server says in `/props` whether the one loaded does). `--dialect NAME` sends the sound through that dialect's
  * `/completion` and not the chat endpoint (which takes it as `input_audio`). `--audio-frame` is how the prompt introduces a sound (`dialect_options.audio_frame`,
- * default `label`): a speech encoder's output looks like words, so a bare marker may be taken for text (docs/local-models.md, 9.11).
+ * default `transcript`): a speech encoder's output looks like words, so a bare marker may be taken for text (docs/local-models.md, 9.11).
  */
 import { createHash } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";

@@ -25,11 +25,11 @@ export function resultContent(r: { content: string; media?: AttachmentPart[] }, 
 /**
  * How a sound is introduced in the prompt (`dialect_options.audio_frame`). A speech encoder gives the model embeddings that look like the
  * words themselves, so a bare marker reads as stray text and the model says no audio was attached (Gemma 4 12B, docs/local-models.md 9.11).
- * `label` says in words that a sound follows; `transcript` says what follows is what was heard; `none` leaves the marker bare.
+ * `transcript` (the default: Gemma 4 12B reasoned most sensibly with it) says what follows is what was heard; `label` says in words that a sound follows; `none` leaves the marker bare.
  */
 export type AudioFrame = "none" | "label" | "transcript";
 export const AUDIO_FRAMES: readonly AudioFrame[] = ["none", "label", "transcript"];
-export const audioFrameOf = (options: Record<string, unknown>): AudioFrame => (AUDIO_FRAMES.includes(options["audio_frame"] as AudioFrame) ? (options["audio_frame"] as AudioFrame) : "label");
+export const audioFrameOf = (options: Record<string, unknown>): AudioFrame => (AUDIO_FRAMES.includes(options["audio_frame"] as AudioFrame) ? (options["audio_frame"] as AudioFrame) : "transcript");
 
 /** The marker for a sound, with the lines around it that `frame` asks for. Only sound is framed. */
 export function framed(p: AttachmentPart, marker: string, frame: AudioFrame): string {

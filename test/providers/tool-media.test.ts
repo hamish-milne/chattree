@@ -93,10 +93,10 @@ describe("how a sound is introduced in a local prompt", () => {
     assert.equal(userContent([png], "<m>", [], undefined, "label"), "<m>");
     assert.match(resultContent({ content: "heard", media: [wav] }, "<m>", [], "label"), /^heard\n\[Audio clip.*\]\n<m>\n\[End of audio clip\.\]$/);
   });
-  test("the option is read from dialect_options, label by default, and a bad value is ignored", () => {
-    assert.equal(audioFrameOf({}), "label");
+  test("the option is read from dialect_options, transcript by default, and a bad value is ignored", () => {
+    assert.equal(audioFrameOf({}), "transcript");
     assert.equal(audioFrameOf({ audio_frame: "none" }), "none");
-    assert.equal(audioFrameOf({ audio_frame: "loud" }), "label");
+    assert.equal(audioFrameOf({ audio_frame: "loud" }), "transcript");
   });
   test("a file name that contains the marker is left out, so the count of markers stays right", () => {
     assert.ok(!userContent([{ ...wav, name: "<m>.wav" }], "<m>", [], undefined, "label").includes('"<m>.wav"'));
