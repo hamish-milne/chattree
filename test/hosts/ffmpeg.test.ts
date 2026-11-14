@@ -69,6 +69,14 @@ describe("ffmpeg", () => {
     assert.equal(d.downloads.length, 1);
   });
 
+  test("converting does not need flite: an ffmpeg without it is used when that is said", async () => {
+    const bin = await tempDir();
+    await writeFile(join(bin, "ffmpeg"), "x");
+    const ok = await ensureFfmpeg({ env: { PATH: bin }, platform: "linux", deps: deps({ probe: "no-flite" }).deps, flite: false });
+    assert.equal(ok, join(bin, "ffmpeg"));
+    await assert.rejects(ensureFfmpeg({ env: { PATH: bin }, platform: "linux", deps: deps({ probe: "broken" }).deps, flite: false }), /does not run/);
+  });
+
   test("a download with another hash, a failed download and a zip without flite install nothing", async () => {
     const dir = await tempDir();
     const run = (o: Parameters<typeof deps>[0]) => ensureFfmpeg({ env: { PATH: "" }, platform: "win32", deps: deps(o).deps, release, dir });

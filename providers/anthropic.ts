@@ -1,4 +1,5 @@
 import { base64 } from "../harness/attachments.ts";
+import { ANTHROPIC_MEDIA } from "./media-specs.ts";
 import { z } from "zod";
 import type { AttachmentPart, Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
@@ -380,6 +381,7 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
   return {
     $tag: "anthropic",
     toolSchema: "full",
+    mediaSpec: () => ANTHROPIC_MEDIA,
     stream: (req) => httpStream(mapper, req, http),
     async countTokens(req) {
       // POST /v1/messages/count_tokens takes the Messages request without the generation settings. No cache markers: they change nothing about the count.

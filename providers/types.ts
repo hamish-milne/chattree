@@ -1,3 +1,4 @@
+import type { MediaSpec } from "../harness/media-spec.ts";
 import type { Block, ModelContext } from "../harness/context-builder.ts";
 import type { AgentSetup, Change } from "../harness/setup.ts";
 
@@ -139,6 +140,12 @@ export interface ProviderAdapter {
   stream(req: StreamRequest): ModelStream;
   /** How much of a tool's JSON Schema the endpoint takes unless the model's info says otherwise (`ModelInfo.tool_schema`). Absent: `portable`. */
   readonly toolSchema?: "full" | "portable";
+  /**
+   * The media formats this endpoint takes, per kind in order of preference (harness/media-spec.ts): what a picture, sound or PDF must be
+   * to be sent, or converted to. Absent: nothing is known, and files are sent as they are. A local server's depends on its projector,
+   * which is asked for, so it is async.
+   */
+  mediaSpec?(setup: AgentSetup): MediaSpec | Promise<MediaSpec>;
   /** What a change of setup does that the harness cannot tell (cache, cost, capabilities). */
   /**
    * Fetch a finished response by the id reported in `observed.response_id`, for recovery after a crash.

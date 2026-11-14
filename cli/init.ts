@@ -5,7 +5,7 @@ import { envSource } from "../harness/secrets.ts";
 import { dialectForModel } from "../providers/dialects/index.ts";
 import { catalog, samplingSettings } from "../localmodels/catalog.ts";
 import { cliRegistry, lookupSampling } from "./providers.ts";
-import { loadSettings } from "./settings.ts";
+import { ensureFfmpegSetting, loadSettings } from "./settings.ts";
 import { Git } from "../src/index.ts";
 import { CliError, type Io } from "./io.ts";
 
@@ -182,5 +182,8 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   } catch (e) {
     notes.push(`could not pin prices (${e instanceof Error ? e.message : String(e)}); run /pricing pin later`);
   }
+  // How to get ffmpeg has no default (a conversion that is needed while it is unset is an error), so the first init says `auto`, the least surprising answer.
+  const ff = await ensureFfmpegSetting(io).catch(() => undefined);
+  if (ff?.changed === true) notes.push(`set \`ffmpeg: auto\` in ${ff.path}: pictures and sound a model cannot take are converted with ffmpeg (an installed one, or on Windows a download of about 100 MB the first time one is needed); \`false\` turns that off`);
   return { root: convo.dir, branch: convo.branch, provider: cfg.name, model, pinned, notes };
 }

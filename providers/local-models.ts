@@ -1,8 +1,9 @@
 import { z } from "zod";
-import { stable, type AgentSetup, type Change } from "../harness/setup.ts";
-import { completionMapper, DialectRegistry, type Dialect, type DialectSettings } from "./dialect.ts";
+import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
+import { completionMapper, DialectRegistry, serverProps, type Dialect, type DialectSettings } from "./dialect.ts";
 import { builtinDialects } from "./dialects/index.ts";
 import { httpStream } from "./http.ts";
+import { localMedia } from "./media-specs.ts";
 import { classifyCompatible, compatibleSettings, openaiCompatibleAdapter } from "./openai-compatible.ts";
 import { commonProviderFields, defineAdapter, httpOptionsFor, modelsFor, pricesFor, type ModelInfo } from "./registry.ts";
 import { ProviderError, type ModelStream, type StreamRequest } from "./types.ts";
@@ -79,6 +80,12 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
     create: (c) => ({
       $tag: "local-models",
       classify: classifyLocal,
+      // What the server's projector takes: asked of the server (which this starts if it is idle), so only when there is media to send.
+      async mediaSpec(setup: AgentSetup) {
+        const conn = await runtime.connect(AbortSignal.timeout(120_000));
+        const served = setup.model === undefined ? "" : servedModelId(setup.model);
+        return localMedia(await serverProps(conn.baseUrl, runtime.resolve(modelNameOf(served)), fetch));
+      },
       stream(req: StreamRequest): ModelStream {
         return (async function* () {
           let conn: LocalModelsConnection;

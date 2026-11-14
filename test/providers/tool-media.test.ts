@@ -103,3 +103,16 @@ describe("how a sound is introduced in a local prompt", () => {
     assert.equal(userContent([{ ...wav, name: "<m>.wav" }], "<m>", [], undefined, "label").split("<m>").length - 1, 1);
   });
 });
+
+describe("the hosted adapters say what they take", () => {
+  const setupAny = setup;
+  test("each exposes its spec", async () => {
+    const { anthropicAdapter } = await import("../../providers/anthropic.ts");
+    const { openaiResponsesAdapter } = await import("../../providers/openai-responses.ts");
+    const { openaiCompatibleAdapter } = await import("../../providers/openai-compatible.ts");
+    const { ANTHROPIC_MEDIA, RESPONSES_MEDIA, CHAT_MEDIA } = await import("../../providers/media-specs.ts");
+    assert.equal(await anthropicAdapter().mediaSpec!(setupAny), ANTHROPIC_MEDIA);
+    assert.equal(await openaiResponsesAdapter().mediaSpec!(setupAny), RESPONSES_MEDIA);
+    assert.equal(await openaiCompatibleAdapter({ baseUrl: "http://x/v1" }).mediaSpec!(setupAny), CHAT_MEDIA);
+  });
+});

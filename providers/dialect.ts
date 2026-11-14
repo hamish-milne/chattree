@@ -262,7 +262,7 @@ const propsCache = new Map<string, Promise<Props>>();
 /** `mtmd_default_marker()` of llama.cpp, for a build that does not say its own. */
 const DEFAULT_MARKER = "<__media__>";
 
-async function serverProps(base: string, model: string, doFetch: typeof fetch): Promise<Props> {
+export async function serverProps(base: string, model: string, doFetch: typeof fetch): Promise<Props> {
   const key = `${base}\n${model}`;
   const known = propsCache.get(key);
   if (known !== undefined) return known;

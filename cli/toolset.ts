@@ -15,6 +15,7 @@ import type { McpPool } from "../harness/mcp/pool.ts";
 import { McpServers, type McpDeps } from "../harness/mcp/servers.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
+import { FfmpegError, ensureFfmpeg } from "../hosts/ffmpeg.ts";
 import { findBusybox } from "../hosts/node.ts";
 import type { AskFn, Choice } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
@@ -87,6 +88,29 @@ export async function resolveBusybox(io: Io, mode: string | undefined, ensure: t
 export async function busyboxFor(io: Io): Promise<string | undefined> {
   return resolveBusybox(io, io.settings?.busybox);
 }
+
+/**
+ * The ffmpeg that converts pictures and sound, or undefined when the `ffmpeg` setting is `false` (never convert). There is no default: an
+ * unset key is an error here, at the moment a conversion is needed, because what the user means (fetch one? use mine? never?) is not known.
+ * `auto` uses the one that is there (CHATTREE_FFMPEG, the PATH) and on Windows fetches the pinned build; a path must be a file.
+ */
+export async function resolveFfmpeg(io: Io, setting: false | string | undefined, ensure: typeof ensureFfmpeg = ensureFfmpeg): Promise<string | undefined> {
+  if (setting === undefined) throw new CliError("a picture or sound has to be converted for this model, and the ffmpeg setting is not set", "add `ffmpeg: auto` (or a path to ffmpeg, or `false` to never convert) to the settings file: `chattree settings edit`");
+  if (setting === false) return undefined;
+  if (setting !== "auto") {
+    if ((await io.host.fs.stat(setting))?.isFile !== true) throw new CliError(`ffmpeg is ${setting}, which is not a file`, "fix the ffmpeg setting (`chattree settings edit`)");
+    return setting;
+  }
+  try {
+    return await ensure({ env: io.env, flite: false, say: (m) => io.err(`${m}\n`) });
+  } catch (e) {
+    if (e instanceof FfmpegError) throw new CliError(e.message, e.hint);
+    throw e;
+  }
+}
+
+/** The ffmpeg for this session's settings (see `resolveFfmpeg`). */
+export const ffmpegFor = (io: Io): Promise<string | undefined> => resolveFfmpeg(io, io.settings?.ffmpeg);
 
 /** What starting an MCP server needs from this session. */
 export const mcpDeps = (io: Io, convo: Conversation, projectDir: string | undefined): McpDeps => ({ host: io.host, cwd: convo.dir, env: io.env, ...(projectDir === undefined ? {} : { projectDir }) });

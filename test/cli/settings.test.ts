@@ -1,10 +1,12 @@
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
-import { editorFor, loadSettings, settingsPath } from "../../cli/settings.ts";
-import { busyboxFor } from "../../cli/toolset.ts";
+import { CliError } from "../../cli/io.ts";
+import { FfmpegError } from "../../hosts/ffmpeg.ts";
+import { editorFor, ensureFfmpegSetting, loadSettings, settingsPath } from "../../cli/settings.ts";
+import { busyboxFor, resolveFfmpeg } from "../../cli/toolset.ts";
 import { FakeServer } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { answer, host, initArgs, testIo } from "./support.ts";
@@ -96,5 +98,75 @@ describe("the settings file in the CLI", () => {
     } finally {
       await server.close();
     }
+  });
+});
+
+describe("the ffmpeg setting", () => {
+  const settingsIo = async (text?: string) => {
+    const path = join(await tempDir(), "settings.yml");
+    if (text !== undefined) await writeFile(path, text);
+    return { path, io: testIo(await tempDir(), { env: { CHATTREE_ENVIRONMENT: "off", CHATTREE_SETTINGS: path } }) };
+  };
+
+  test("it is false or a string; anything else (a bare key, a number) is an invalid settings file", async () => {
+    for (const [text, ok] of [["ffmpeg: auto\n", true], ["ffmpeg: false\n", true], ["ffmpeg: /usr/bin/ffmpeg\n", true], ["ffmpeg:\n", false], ["ffmpeg: true\n", false], ["ffmpeg: 3\n", false]] as const) {
+      const { io } = await settingsIo(text);
+      if (ok) assert.deepEqual(Object.keys(await loadSettings(io)), ["ffmpeg"], text);
+      else await assert.rejects(loadSettings(io), /is not valid/, text);
+    }
+  });
+
+  test("ensureFfmpegSetting creates the file, adds the key to one without it keeping its comments, and leaves a key that is there alone", async () => {
+    const fresh = await settingsIo();
+    assert.deepEqual(await ensureFfmpegSetting(fresh.io), { path: fresh.path, changed: true });
+    assert.equal((await loadSettings(fresh.io)).ffmpeg, "auto");
+
+    const mine = await settingsIo("# my notes\neditor: code -w   # the one I like\n");
+    assert.equal((await ensureFfmpegSetting(mine.io))?.changed, true);
+    const text = await readFile(mine.path, "utf8");
+    assert.match(text, /# my notes/);
+    assert.match(text, /editor: code -w\s+# the one I like/);
+    assert.match(text, /ffmpeg: auto/);
+
+    for (const keep of ["ffmpeg: false\n", "ffmpeg: /x/ffmpeg\n", "ffmpeg: auto\n"]) {
+      const s = await settingsIo(keep);
+      assert.deepEqual(await ensureFfmpegSetting(s.io), { path: s.path, changed: false });
+      assert.equal(await readFile(s.path, "utf8"), keep);
+    }
+  });
+
+  test("a settings file that does not parse is left alone, and no location means nothing to do", async () => {
+    const bad = await settingsIo("editor: [unclosed\n");
+    assert.equal(await ensureFfmpegSetting(bad.io), undefined);
+    assert.equal(await readFile(bad.path, "utf8"), "editor: [unclosed\n");
+    assert.equal(await ensureFfmpegSetting({ host, env: {} }), undefined);
+  });
+
+  test("init adds it, with a note", async () => {
+    const server = await FakeServer.start([answer("hi")]);
+    try {
+      const { path, io } = await settingsIo();
+      const dir = join(await tempDir(), "p");
+      assert.equal(await main(initArgs(server, dir), io), 0, io.stderr);
+      assert.equal((await loadSettings(io)).ffmpeg, "auto");
+      assert.match(io.stderr, /set `ffmpeg: auto` in .*settings\.yml/);
+      assert.ok(path.length > 0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("unset is a hard error naming the fix, false converts nothing, a path must be a file, auto asks for an ffmpeg without flite", async () => {
+    const io = testIo(await tempDir());
+    await assert.rejects(resolveFfmpeg(io, undefined), (e: unknown) => e instanceof CliError && /ffmpeg setting is not set/.test(e.message) && /ffmpeg: auto/.test(e.hint ?? ""));
+    assert.equal(await resolveFfmpeg(io, false), undefined);
+    await assert.rejects(resolveFfmpeg(io, "/no/such/ffmpeg"), /which is not a file/);
+    const exe = join(await tempDir(), "ffmpeg");
+    await writeFile(exe, "x");
+    assert.equal(await resolveFfmpeg(io, exe), exe);
+    let asked: { flite?: boolean } | undefined;
+    assert.equal(await resolveFfmpeg(io, "auto", async (o) => ((asked = o), "/found/ffmpeg")), "/found/ffmpeg");
+    assert.equal(asked?.flite, false);
+    await assert.rejects(resolveFfmpeg(io, "auto", async () => { throw new FfmpegError("ffmpeg was not found on the PATH", "install it"); }), (e: unknown) => e instanceof CliError && e.hint === "install it");
   });
 });

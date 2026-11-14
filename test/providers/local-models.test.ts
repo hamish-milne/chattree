@@ -31,6 +31,23 @@ const adapterFor = (rt: LocalModelsRuntime) => {
   return { def, adapter: def.create({ $tag: "local-models" } as never, { get: () => undefined }) };
 };
 
+describe("the media a local server takes", () => {
+  test("is what its projector says: asked of /props for this model, with no PDF and no webp", async () => {
+    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true, audio: false } })] } : { acts: [] }));
+    try {
+      const { adapter } = adapterFor(runtime(server));
+      const spec = await adapter.mediaSpec!(setupFor("q"));
+      assert.deepEqual((spec.image ?? []).map((t) => t.mime), ["image/png", "image/jpeg", "image/gif", "image/bmp"]);
+      assert.equal(spec.audio, undefined);
+      assert.equal(spec.pdf, undefined);
+      assert.match(server.seen[0]!.url, /^\/props/);
+      assert.match(server.seen[0]!.url, /model=qwen/);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 describe("the local-models adapter", () => {
   test("asks the server for the model's own name, and records the identity of the file that answered", async () => {
     const server = await FakeServer.start([{ headers: { "content-type": "text/event-stream" }, acts: REPLY }]);

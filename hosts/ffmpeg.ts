@@ -110,6 +110,8 @@ export interface EnsureFfmpegOptions {
   deps?: FfmpegDeps;
   release?: { url: string; sha256: string };
   dir?: string;
+  /** Require the flite filter (default true: the speech benches need it). Converting pictures and sound does not, so it passes false. */
+  flite?: boolean;
 }
 
 /**
@@ -123,7 +125,7 @@ export async function ensureFfmpeg(o: EnsureFfmpegOptions = {}): Promise<string>
   const have = await findFfmpeg({ ...(o.env === undefined ? {} : { env: o.env }), ...(o.dir === undefined ? {} : { dir: o.dir }), platform });
   if (have !== undefined) {
     const p = await deps.probe(have);
-    if (p === "ok") return have;
+    if (p === "ok" || (p === "no-flite" && o.flite === false)) return have;
     throw new FfmpegError(p === "broken" ? `${have} does not run as ffmpeg` : `${have} has no flite filter, so it cannot make speech`, hint);
   }
   if (platform !== "win32") throw new FfmpegError("ffmpeg was not found on the PATH", hint);

@@ -1,4 +1,5 @@
 import { audioFormat, base64, dataUrl } from "../harness/attachments.ts";
+import { CHAT_MEDIA } from "./media-specs.ts";
 import { z } from "zod";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
@@ -428,7 +429,7 @@ export function openaiCompatibleAdapter(opts: CompatibleOptions & { tag?: string
       return { ...base, authorization: `Bearer ${key}` };
     },
   };
-  return { $tag: opts.tag ?? "openai-compatible", stream: (req) => httpStream(mapper, req, http), classify: classifyCompatible };
+  return { $tag: opts.tag ?? "openai-compatible", mediaSpec: () => CHAT_MEDIA, stream: (req) => httpStream(mapper, req, http), classify: classifyCompatible };
 }
 
 // ---- registration -----------------------------------------------------------------------------------------------

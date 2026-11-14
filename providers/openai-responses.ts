@@ -1,4 +1,5 @@
 import { dataUrl } from "../harness/attachments.ts";
+import { RESPONSES_MEDIA } from "./media-specs.ts";
 import { createHash } from "node:crypto";
 import { z } from "zod";
 import type { AttachmentPart, Block, ModelContext, Turn } from "../harness/context-builder.ts";
@@ -566,7 +567,7 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
     return n;
   }
 
-  return { $tag: "openai", toolSchema: "full", stream, retrieve, countTokens, classify: classifyOpenAI };
+  return { $tag: "openai", toolSchema: "full", mediaSpec: () => RESPONSES_MEDIA, stream, retrieve, countTokens, classify: classifyOpenAI };
 }
 
 // ---- registration -----------------------------------------------------------------------------------------------
