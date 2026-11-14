@@ -28,6 +28,8 @@ export interface JournalStart {
   nonce?: string;
   /** Who is running the request, for hosts that want to say so ("session 2, pid 4711") and for abort requests. */
   owner?: { pid?: number; host?: string; session?: string };
+  /** Files sent in another format than the transcript holds, and what converted them: the difference between this request and the thread. */
+  converted?: { name?: string | undefined; from: string; to: string; converter: string; cached: boolean }[];
 }
 
 export type JournalRecord =

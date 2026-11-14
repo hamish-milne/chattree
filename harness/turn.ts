@@ -108,6 +108,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
         context_digest: await sha256Hex(enc.encode(stable(context))),
         after: tip?.id,
         at: now(),
+        ...(prepared.converted === undefined ? {} : { converted: prepared.converted }),
         ...(opts.owner === undefined ? {} : { owner: opts.owner }),
       },
       { ...opts.journal, now },

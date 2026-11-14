@@ -12,6 +12,9 @@ import { ChangeNotAllowed, pendingAppends, servedModelId, type AgentSetup } from
 import { projectDefinitions, toolSchemaLevel } from "./schema-project.ts";
 import { hasSkillTool, skillCatalog, skillUpdates, withCatalog } from "./skills.ts";
 import { tableHash } from "../providers/pricing.ts";
+import { hostConvertCache, type ConvertCache } from "./convert-cache.ts";
+import type { Converter } from "./converter.ts";
+import { prepareMedia, type MediaConversion } from "./prepare-media.ts";
 
 export interface PrepareOptions {
   /** The harness's own prompt. Part of the pinned prefix. */
@@ -36,6 +39,12 @@ export interface PrepareOptions {
    * figure change a decision; `always`; or `never`. A failed count keeps the estimate and adds a `token_count_failed` warning.
    */
   count?: "auto" | "always" | "never";
+  /**
+   * Converting pictures and sound a model cannot take (harness/prepare-media.ts). `converter` is asked for only when a file needs
+   * converting, so a missing setting is an error only then; without it such files become notes to the model. `cache` defaults to
+   * a directory in the git directory outside any commit; `false` converts every time.
+   */
+  media?: { converter?: () => Promise<Converter | undefined>; cache?: ConvertCache | false };
 }
 
 const counts = new WeakMap<Conversation, Map<string, number>>();
@@ -50,6 +59,8 @@ export interface Prepared {
   ledger?: Ledger;
   /** Things to tell the user before sending: nearing a limit, an unknown price, the context window. */
   warnings: CostWarning[];
+  /** Files turned into another format for this model: where the request differs from the transcript. */
+  converted?: MediaConversion[];
 }
 
 /**
@@ -80,7 +91,7 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);
   // The same for skills; the catalog in the prefix lists what the prefix shows, not what is current, and only for a model that has the tool.
   const skillNotes = await skillUpdates(entries, pendingAppends(entries), { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) });
-  const context = await buildContext(entries, {
+  const built = await buildContext(entries, {
     renderer,
     system: opts.system,
     instructions: withCatalog(defs.prefixInstructions, hasSkillTool(setup) ? skillCatalog(renderer, defs.prefixSkills) : undefined),
@@ -99,7 +110,14 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
       return dec.decode(bytes);
     },
   });
-  if (opts.cost === false || convo.providers.size === 0) return { setup, context, ...(tip === undefined ? {} : { tip }), warnings: [] };
+  // What the model is sent differs from the transcript where a picture or sound had to be converted or could not be shown.
+  const adapterFor = convo.providers.get(setup.model.provider);
+  const spec = adapterFor?.mediaSpec === undefined ? undefined : await adapterFor.mediaSpec(setup);
+  const cache = opts.media?.cache === false ? undefined : (opts.media?.cache ?? hostConvertCache(convo.host, convo.host.path.join(await convo.git.commonDir(), "chattree", "convert")));
+  const prepared = spec === undefined ? { context: built, converted: [] as MediaConversion[], warnings: [] as CostWarning[] } : await prepareMedia(built, { spec, ...(opts.media?.converter === undefined ? {} : { converter: opts.media.converter }), ...(cache === undefined ? {} : { cache }) });
+  const context = prepared.context;
+  const mediaOut = { ...(prepared.converted.length === 0 ? {} : { converted: prepared.converted }) };
+  if (opts.cost === false || convo.providers.size === 0) return { setup, context, ...(tip === undefined ? {} : { tip }), warnings: prepared.warnings, ...mediaOut };
 
   // Prices: the agent's pin must be the provider's current table, or the host must have said it accepts the difference.
   const model = setup.model;
@@ -142,7 +160,7 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
     }
   }
   const { violations } = checked;
-  const warnings = countFailed === undefined ? checked.warnings : [...checked.warnings, countFailed];
+  const warnings = [...prepared.warnings, ...(countFailed === undefined ? checked.warnings : [...checked.warnings, countFailed])];
   if (violations.length > 0) throw new LimitExceeded(violations);
-  return { setup, context, ...(tip === undefined ? {} : { tip }), estimate, ledger, warnings };
+  return { setup, context, ...(tip === undefined ? {} : { tip }), estimate, ledger, warnings, ...mediaOut };
 }

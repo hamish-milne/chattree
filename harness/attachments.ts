@@ -4,12 +4,9 @@
  * records the type in the blob reference, and everything after reads the type from there.
  */
 
-import { FORMATS } from "./formats.ts";
+import { formatOf } from "./formats.ts";
 
 export type AttachmentKind = "text" | "image" | "pdf" | "audio";
-
-/** Image types every provider that takes images accepts: the registry's picture formats that a provider takes as they are. */
-const IMAGE_TYPES = new Set(FORMATS.filter((f) => f.kind === "image" && f.direct).map((f) => f.mime));
 
 /** Audio types, and the format name that APIs which take audio ask for (`input_audio.format`). llama.cpp reads these three. */
 const AUDIO_FORMATS: Readonly<Record<string, "wav" | "mp3" | "flac">> = { "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav", "audio/vnd.wave": "wav", "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/flac": "flac", "audio/x-flac": "flac" };
@@ -30,8 +27,9 @@ export function normalizeMime(mime: string): string | undefined {
 export function attachmentKind(mime: string): AttachmentKind | undefined {
   const m = normalizeMime(mime);
   if (m === undefined) return undefined;
-  if (IMAGE_TYPES.has(m)) return "image";
-  if (m === "application/pdf") return "pdf";
+  // Any picture, sound or PDF the format registry knows is kept as it came; what a model is sent is decided per sink (harness/prepare-media.ts).
+  const f = formatOf(m);
+  if (f !== undefined && f.kind !== "video") return f.kind;
   if (AUDIO_FORMATS[m] !== undefined) return "audio";
   if (m.startsWith("text/") || ["application/json", "application/xml", "application/yaml", "application/x-yaml", "application/toml", "application/javascript", "application/sql"].includes(m) || /\+(json|xml|yaml)$/.test(m)) return "text";
   return undefined;

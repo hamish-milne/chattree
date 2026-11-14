@@ -13,6 +13,7 @@ import { ProviderError, type StreamEvent } from "../providers/types.ts";
 import { CliError } from "./io.ts";
 import type { Ctx } from "./engine.ts";
 import type { Output } from "./output.ts";
+import { mediaFor } from "./toolset.ts";
 
 /**
  * One request to the model for the thread as it stands, shown as it streams. Shared by `/say`, `/retry` and `/continue`.
@@ -82,6 +83,7 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
         owner: localOwner(engine.sessionId),
         standing: [...engine.standing, ...drift],
         allowDrift: drift,
+        media: mediaFor(ctx.engine.io, () => convo.git.commonDir()),
         onPrepared: (p) => {
           model = p.setup.model?.id ?? "";
           for (const w of p.warnings) warnings.push(w.message);
@@ -162,6 +164,7 @@ async function* toolLoop(
     owner: localOwner(engine.sessionId),
     standing: o.standing,
     allowDrift: o.drift,
+    media: mediaFor(engine.io, () => convo.git.commonDir()),
     onPrepared: (p) => {
       o.setModel(p.setup.model?.id ?? "");
       for (const w of p.warnings) o.warnings.push(w.message);

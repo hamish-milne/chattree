@@ -16,6 +16,8 @@ import { McpServers, type McpDeps } from "../harness/mcp/servers.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { BUSYBOX_HINT, BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
 import { FfmpegError, ensureFfmpeg } from "../hosts/ffmpeg.ts";
+import type { Converter } from "../harness/converter.ts";
+import { ffmpegConverter } from "../harness/ffmpeg-converter.ts";
 import { findBusybox } from "../hosts/node.ts";
 import type { AskFn, Choice } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
@@ -193,5 +195,29 @@ export function makeApprover(ask: AskFn, label?: string): (request: Pick<Approva
     if (parsed !== "no") return parsed;
     const reason = (await ask("Why not? (sent to the model; Enter to skip)", "")).trim();
     return { allow: false, ...(reason === "" ? {} : { reason }) };
+  };
+}
+
+const converters = new WeakMap<Io, Promise<Converter | undefined>>();
+
+/**
+ * What `prepareContext` takes to convert pictures and sound for this session: a converter asked for only when something needs converting
+ * (so the `ffmpeg` setting is an error only then, and `false` means files that need converting become notes), made once per session.
+ */
+export function mediaFor(io: Io, commonDir: () => Promise<string>): { converter: () => Promise<Converter | undefined> } {
+  return {
+    converter: () => {
+      let c = converters.get(io);
+      if (c === undefined) {
+        c = (async () => {
+          const ffmpeg = await ffmpegFor(io);
+          if (ffmpeg === undefined) return undefined;
+          return ffmpegConverter({ host: io.host, ffmpeg, workDir: io.host.path.join(await commonDir(), "chattree", "convert", "work") });
+        })();
+        converters.set(io, c);
+        c.catch(() => converters.delete(io));
+      }
+      return c;
+    },
   };
 }

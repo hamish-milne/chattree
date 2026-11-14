@@ -23,7 +23,7 @@ describe("media types", () => {
   test("normalised, and classified by how a model is given the file", () => {
     assert.equal(normalizeMime("Text/Plain; charset=utf-8"), "text/plain");
     assert.equal(normalizeMime("png"), undefined);
-    assert.deepEqual(["image/png", "image/jpeg", "application/pdf", "text/markdown", "application/json", "application/ld+json", "image/svg+xml", "application/zip", "video/mp4", "audio/wav", "audio/mpeg", "audio/x-flac; charset=x", "audio/ogg"].map(attachmentKind), ["image", "image", "pdf", "text", "text", "text", "text", undefined, undefined, "audio", "audio", "audio", undefined]);
+    assert.deepEqual(["image/png", "image/jpeg", "application/pdf", "text/markdown", "application/json", "application/ld+json", "image/svg+xml", "application/zip", "video/mp4", "audio/wav", "audio/mpeg", "audio/x-flac; charset=x", "audio/ogg", "image/bmp"].map(attachmentKind), ["image", "image", "pdf", "text", "text", "text", "text", undefined, undefined, "audio", "audio", "audio", "audio", "image"]);
     assert.deepEqual(["audio/x-wav", "audio/mpeg", "audio/flac", "audio/ogg", "image/png"].map(audioFormat), ["wav", "mp3", "flac", undefined, undefined]);
     assert.ok(audioTokenGuess(32_000 * 10) >= 250, "never below what 25 frames a second need");
   });
