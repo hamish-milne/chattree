@@ -4,10 +4,12 @@
  * records the type in the blob reference, and everything after reads the type from there.
  */
 
+import { FORMATS } from "./formats.ts";
+
 export type AttachmentKind = "text" | "image" | "pdf" | "audio";
 
-/** Image types every provider that takes images accepts. */
-const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
+/** Image types every provider that takes images accepts: the registry's picture formats that a provider takes as they are. */
+const IMAGE_TYPES = new Set(FORMATS.filter((f) => f.kind === "image" && f.direct).map((f) => f.mime));
 
 /** Audio types, and the format name that APIs which take audio ask for (`input_audio.format`). llama.cpp reads these three. */
 const AUDIO_FORMATS: Readonly<Record<string, "wav" | "mp3" | "flac">> = { "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav", "audio/vnd.wave": "wav", "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/flac": "flac", "audio/x-flac": "flac" };

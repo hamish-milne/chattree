@@ -207,7 +207,7 @@ const attach: Command = {
     const name = parsed.values.name ?? basename(path);
     try {
       const bytes = await ctx.io.host.fs.read(path);
-      const found = detectMime(name, bytes, { ...(parsed.values.mime === undefined ? {} : { mime: parsed.values.mime }), ...(parsed.values.charset === undefined ? {} : { charset: parsed.values.charset }) });
+      const found = await detectMime(name, bytes, { ...(parsed.values.mime === undefined ? {} : { mime: parsed.values.mime }), ...(parsed.values.charset === undefined ? {} : { charset: parsed.values.charset }) });
       if (attachmentKind(found.mime) === undefined) throw new Error(`${found.mime} files cannot be given to a model (images: png, jpeg, gif, webp; PDFs; text)`);
       if (attachmentKind(found.mime) === "text") decodeText(bytes, found.charset);
       const staged: StagedAttachment = { path, name, mime: found.mime, ...(found.charset === undefined ? {} : { charset: found.charset }), size: bytes.length, mtimeMs: st.mtimeMs ?? 0 };

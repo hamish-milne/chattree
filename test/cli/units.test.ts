@@ -32,16 +32,16 @@ describe("command lines", () => {
 });
 
 describe("mime detection", () => {
-  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0]);
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0]);
   const text = (s: string) => new TextEncoder().encode(s);
-  test("magic numbers beat the extension; extension and text check cover the rest", () => {
-    assert.equal(detectMime("x.txt", png).mime, "image/png");
-    assert.equal(detectMime("notes.md", text("hi")).mime, "text/markdown");
-    assert.equal(detectMime("README", text("hi")).mime, "text/plain");
+  test("magic numbers beat the extension; extension and text check cover the rest", async () => {
+    assert.equal((await detectMime("x.txt", png)).mime, "image/png");
+    assert.equal((await detectMime("notes.md", text("hi"))).mime, "text/markdown");
+    assert.equal((await detectMime("README", text("hi"))).mime, "text/plain");
   });
-  test("binary of unknown kind is refused unless --mime says; a bad override is refused", () => {
-    assert.throws(() => detectMime("blob", new Uint8Array([0, 1, 2])), /looks binary/);
-    assert.equal(detectMime("blob", new Uint8Array([0, 1, 2]), { mime: "application/x-thing" }).mime, "application/x-thing");
-    assert.throws(() => detectMime("a", text("x"), { mime: "nonsense" }), /not a media type/);
+  test("binary of unknown kind is refused unless --mime says; a bad override is refused", async () => {
+    await assert.rejects(detectMime("blob", new Uint8Array([0, 1, 2])), /looks binary/);
+    assert.equal((await detectMime("blob", new Uint8Array([0, 1, 2]), { mime: "application/x-thing" })).mime, "application/x-thing");
+    await assert.rejects(detectMime("a", text("x"), { mime: "nonsense" }), /not a media type/);
   });
 });
