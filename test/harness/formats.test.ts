@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { findFfmpeg } from "../../hosts/ffmpeg.ts";
-import { FORMATS, canonicalMime, convertHint, formatOf, sniffFormat } from "../../harness/formats.ts";
+import { FORMATS, canonicalMime, formatOf, sniffFormat } from "../../harness/formats.ts";
 
 const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
@@ -63,14 +63,6 @@ describe("the table", () => {
     assert.equal(formatOf("text/plain"), undefined);
   });
 
-  test("the formats a provider takes as they are are the ones models were given before the table: png, jpeg, gif, webp, pdf, wav, mp3, flac", () => {
-    assert.deepEqual(FORMATS.filter((f) => f.direct).map((f) => f.mime).sort(), ["application/pdf", "audio/flac", "audio/mpeg", "audio/wav", "image/gif", "image/jpeg", "image/png", "image/webp"]);
-  });
-
-  test("a refusal's remedy names what to convert to", () => {
-    assert.match(convertHint(formatOf("image/bmp")!), /png/);
-    assert.match(convertHint(formatOf("audio/ogg")!), /wav, mp3 or flac/);
-  });
 });
 
 describe("real files made by ffmpeg", () => {

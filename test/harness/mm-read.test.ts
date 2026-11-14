@@ -40,9 +40,16 @@ describe("mm_read", () => {
     assert.match((await run("mm_read", { path: "e.png" })).content, /empty \(0 bytes\)/);
     assert.match((await run("mm_read", { path: "big.png" })).content, /over the \d+ byte limit/);
     assert.match((await run("mm_read", { path: "t.txt" })).content, /use read/);
-    assert.match((await run("mm_read", { path: "o.ogg" })).content, /Ogg sound.*convert it to wav, mp3 or flac/);
     assert.match((await run("mm_read", { path: "nope.png" })).content, /no such file/);
-    for (const p of ["e.png", "big.png", "t.txt", "o.ogg", "nope.png"]) assert.equal((await run("mm_read", { path: p })).media, undefined);
+    for (const p of ["e.png", "big.png", "t.txt", "nope.png"]) assert.equal((await run("mm_read", { path: p })).media, undefined);
+  });
+
+  test("a format models do not take as it is is still shown: converting it is decided when the request is built", async () => {
+    const ogg = Uint8Array.from([...Buffer.from("OggS"), 0, 2, ...new Array(20).fill(0), 1, 30, 1, ...Buffer.from("vorbis"), ...new Array(40).fill(0)]);
+    const { run } = await setup({ "o.ogg": ogg });
+    const r = await run("mm_read", { path: "o.ogg" });
+    assert.equal(r.is_error, undefined);
+    assert.equal(r.media?.[0]?.mime, "audio/ogg");
   });
 
   test("read points a binary file to mm_read only when it is offered", async () => {

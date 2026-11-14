@@ -87,6 +87,8 @@ export const assistant = z.object({
   stop_reason: z.string(),
   /** The id of the last entry the request that produced this one was built from (format 2.3): a user message with a later id was not seen by it. */
   context_tip: ulid.optional(),
+  /** Pictures and sound the request sent in another format than the thread holds, and what converted them: what the model was shown, where it differs from the entries before this one. */
+  converted: z.array(z.object({ name: z.string().optional(), from: z.string(), to: z.string(), converter: z.string() })).optional(),
   /** Whatever token counts the provider reports; field names differ between providers. */
   usage: z.record(z.string(), z.number()).optional(),
   /** Provider round-trip data that has no place in the blocks (response ids, item ids, cache hints). */

@@ -3,8 +3,10 @@
  * go to the model one at a time with their question, and the answers are checked. Recordings of speech can be added from a folder of
  * `name.wav` files, with the words said in `name.txt` to score them (see tools/audio-samples.ts for a set). The sounds are written next to the results, so a wrong answer can be listened to.
  *
- *   node tools/audio-probe.ts --model NAME [--count 5] [--seed 1] [--kinds beeps,pitch] [--speech DIR] [--pad SECONDS] [--dialect NAME] [--audio-frame none|label|transcript] [--max-tokens 1024] [--out DIR] [--yes]
+ *   node tools/audio-probe.ts --model NAME [--count 5] [--seed 1] [--kinds beeps,pitch] [--speech DIR] [--pad SECONDS] [--dialect NAME] [--audio-frame none|label|transcript] [--as ogg|mp3|flac|m4a|wav] [--max-tokens 1024] [--out DIR] [--yes]
  *
+ * `--as FORMAT` (ogg, mp3, flac, m4a, wav) makes each sound into that format first and sends it through the same step a request goes through (the sink's media spec and ffmpeg),
+ * so the run tests the conversion as well as the model; the result says what the model was sent. It needs the `ffmpeg` setting.
  * `--pad SECONDS` follows each made sound with silence up to that length (a short sound may not be given the attention that a clip of speech is).
  * `--model` is a name from local_models in the settings file whose projector can hear (Gemma 4 E2B and E4B, Qwen Omni, Voxtral, Ultravox
  * have one, and llama-server says in `/props` whether the one loaded does). `--dialect NAME` sends the sound through that dialect's
@@ -25,6 +27,7 @@ import { samplingSettings } from "../localmodels/catalog.ts";
 import { collectStream } from "../providers/conformance.ts";
 import { AUDIO_KINDS, listenScenario, scenarios, speechScenario, type AudioKind, type AudioScenario } from "./audio-scenarios.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
+import { SOURCE_FORMATS, probeFfmpeg, reencode, throughSink } from "./media-source.ts";
 
 export interface AudioResult {
   id: string;
@@ -34,6 +37,8 @@ export interface AudioResult {
   right: boolean;
   error?: string;
   ms: number;
+  /** With `--as`: what the sound was made into, and what the request sent after conversion. */
+  sent?: string;
   stop?: string | undefined;
   tokens?: { in: number; out: number; reasoning?: number | undefined };
   reasoning?: string | undefined;
@@ -48,7 +53,7 @@ function args(argv: readonly string[]) {
   if (frame !== undefined && !(AUDIO_FRAMES as readonly string[]).includes(frame)) throw new Error(`--audio-frame: ${frame} is not one of ${AUDIO_FRAMES.join(", ")}`);
   const kinds = v("--kinds")?.split(",").map((k) => k.trim());
   for (const k of kinds ?? []) if (!(AUDIO_KINDS as readonly string[]).includes(k)) throw new Error(`--kinds: ${k} is not one of ${AUDIO_KINDS.join(", ")}`);
-  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as AudioKind[] | undefined, speech: v("--speech"), pad: Number(v("--pad") ?? 0), maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), audioFrame: v("--audio-frame"), out: v("--out"), yes: argv.includes("--yes") };
+  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as AudioKind[] | undefined, speech: v("--speech"), pad: Number(v("--pad") ?? 0), maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), audioFrame: v("--audio-frame"), as: v("--as"), out: v("--out"), yes: argv.includes("--yes") };
 }
 
 /** The table of results: right of total for each kind, and the wrong answers. */
@@ -103,9 +108,11 @@ async function main(): Promise<void> {
   await mkdir(dir, { recursive: true });
   const all = [...scenarios({ kinds: o.kinds, count: o.count, seed: o.seed, pad: o.pad }), ...(o.speech === undefined ? [] : await readSpeech(o.speech))];
   const results: AudioResult[] = [];
+  if (o.as !== undefined && SOURCE_FORMATS[o.as]?.mime.startsWith("audio/") !== true) throw new Error(`--as: ${o.as} is not a sound format (${Object.entries(SOURCE_FORMATS).filter(([, f]) => f.mime.startsWith("audio/")).map(([k]) => k).join(", ")})`);
+  const via = o.as === undefined ? undefined : { as: o.as, ffmpeg: await probeFfmpeg(io), workDir: join(dir, "work") };
   for (const s of all) {
     await writeFile(join(dir, `${s.id}.wav`), s.wav);
-    results.push(await ask(adapter, setup, s));
+    results.push(await ask(adapter, setup, s, via));
     const r = results[results.length - 1] as AudioResult;
     console.error(`${r.id}: ${r.right ? "right" : "wrong"} (${r.ms} ms) ${r.right ? "" : `expected ${r.expected}, got ${JSON.stringify(r.answer.slice(0, 80))}${r.error === undefined ? "" : ` ${r.error}`}`}`);
   }
@@ -116,23 +123,31 @@ async function main(): Promise<void> {
   console.log(text);
 }
 
-async function ask(adapter: ReturnType<typeof localModelsAdapter>, setup: AgentSetup, s: AudioScenario): Promise<AudioResult> {
+async function ask(adapter: ReturnType<typeof localModelsAdapter>, setup: AgentSetup, s: AudioScenario, via?: { as: string; ffmpeg: string; workDir: string }): Promise<AudioResult> {
   const t0 = Date.now();
-  const context: ModelContext = {
+  const made = via === undefined ? { bytes: s.wav, mime: "audio/wav", ext: "wav" } : await reencode(via.ffmpeg, s.wav, "wav", via.as);
+  let context: ModelContext = {
     system: "You are terse. Answer only what is asked.",
     instructions: undefined,
-    turns: [{ role: "user", parts: [{ type: "attachment", kind: "audio", name: `${s.id}.wav`, mime: "audio/wav", sha256: createHash("sha256").update(s.wav).digest("hex"), bytes: s.wav }, { type: "text", text: s.question }] }],
+    turns: [{ role: "user", parts: [{ type: "attachment", kind: "audio", name: `${s.id}.${made.ext}`, mime: made.mime, sha256: createHash("sha256").update(made.bytes).digest("hex"), bytes: made.bytes }, { type: "text", text: s.question }] }],
     tools: [],
     cacheHints: [],
   };
+  let sent: string | undefined;
+  const base = { id: s.id, kind: s.kind, expected: s.expected, get ms() { return Date.now() - t0; } };
+  if (via !== undefined) {
+    const prepared = await throughSink(adapter, setup, context, via.ffmpeg, via.workDir);
+    if (prepared.warnings.length > 0) return { ...base, answer: "", right: false, error: prepared.warnings.map((w) => w.message).join("; "), sent: `${made.mime} (not sent)` };
+    context = prepared.context;
+    sent = `${made.mime} -> ${prepared.converted.map((c) => c.to).join(", ") || "as it was"}`;
+  }
   const run = await collectStream(adapter.stream({ context, setup, signal: AbortSignal.timeout(300_000) }));
-  const base = { id: s.id, kind: s.kind, expected: s.expected, ms: Date.now() - t0 };
-  if (run.error !== undefined) return { ...base, answer: "", right: false, error: run.error instanceof Error ? run.error.message : String(run.error) };
+  if (run.error !== undefined) return { ...base, ...(sent === undefined ? {} : { sent }), answer: "", right: false, error: run.error instanceof Error ? run.error.message : String(run.error) };
   const blocks = run.completed?.blocks ?? [];
   const answer = blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   const reasoning = blocks.flatMap((b) => (b.type === "reasoning" && typeof b.visible === "string" ? [b.visible] : [])).join("\n");
   const u = run.completed?.usage;
-  return { ...base, answer, right: s.check(answer), stop: run.completed?.stop_reason, ...(u === undefined ? {} : { tokens: { in: u.input_tokens + (u.cache_read_tokens ?? 0), out: u.output_tokens, reasoning: u.reasoning_tokens } }), ...(reasoning === "" ? {} : { reasoning }), blocks: blocks.map((b) => b.type) };
+  return { ...base, ...(sent === undefined ? {} : { sent }), answer, right: s.check(answer), stop: run.completed?.stop_reason, ...(u === undefined ? {} : { tokens: { in: u.input_tokens + (u.cache_read_tokens ?? 0), out: u.output_tokens, reasoning: u.reasoning_tokens } }), ...(reasoning === "" ? {} : { reasoning }), blocks: blocks.map((b) => b.type) };
 }
 
 if (import.meta.main) {

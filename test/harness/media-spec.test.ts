@@ -85,9 +85,4 @@ describe("what each sink takes", () => {
     assert.equal(localMedia({}).image?.[0]?.mime, "image/png");
   });
 
-  test("everything a sink takes that the registry calls direct is taken by some sink, and nothing else is", () => {
-    const taken = new Set(specs.flatMap(([, s]) => [...(s.image ?? []), ...(s.audio ?? []), ...(s.pdf ?? [])].map((t) => t.mime)));
-    // bmp is taken by a local server (stb_image) although no hosted provider takes it
-    assert.ok(FORMATS.filter((x) => x.direct).every((x) => taken.has(x.mime)), "a direct format that no sink takes");
-  });
 });

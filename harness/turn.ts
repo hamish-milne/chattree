@@ -157,7 +157,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
       if (completed !== undefined) {
         journal?.write({ t: "done", completed });
         await journal?.flush();
-        const entries = await convo.appendResponse({ ...assistantFromCompleted(model.provider, servedModelId(model), completed), ...(prepared.tip === undefined ? {} : { context_tip: prepared.tip }) }, { model: completed.observed.model ?? servedModelId(model) }, guard);
+        const entries = await convo.appendResponse({ ...assistantFromCompleted(model.provider, servedModelId(model), completed), ...(prepared.tip === undefined ? {} : { context_tip: prepared.tip }), ...(prepared.converted === undefined ? {} : { converted: prepared.converted.map(({ name, from, to, converter }) => ({ ...(name === undefined ? {} : { name }), from, to, converter })) }) }, { model: completed.observed.model ?? servedModelId(model) }, guard);
         await journal?.discard();
         return { status: "completed", entries, completed, prepared };
       }

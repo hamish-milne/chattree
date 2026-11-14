@@ -4,9 +4,11 @@
  * reading and words, numbers and sums its text reading, so the table says which of the two a model (and its projector) is weaker at.
  * The pictures are written next to the results, so a wrong answer can be looked at.
  *
- *   node tools/vision-probe.ts --model NAME [--count 5] [--seed 1] [--kinds shape,text] [--dialect NAME] [--max-tokens 1024] [--out DIR] [--yes]
+ *   node tools/vision-probe.ts --model NAME [--count 5] [--seed 1] [--kinds shape,text] [--dialect NAME] [--as webp|tiff|bmp|jpeg|gif|png] [--max-tokens 1024] [--out DIR] [--yes]
  *
  * `--model` is a name from local_models in the settings file, with its `mmproj` set (a projector file next to the model, or `auto`).
+ * `--as FORMAT` (webp, tiff, bmp, jpeg, gif, png) makes each picture into that format first and sends it through the same step a request goes through
+ * (the sink's media spec and ffmpeg), so the run tests the conversion as well as the model; the result says what the model was sent. It needs the `ffmpeg` setting.
  * `--dialect NAME` sends the picture through that dialect's `/completion` (kimi-vl, qwen-xml, gemma, ...) and not the chat endpoint.
  */
 import { mkdir, writeFile } from "node:fs/promises";
@@ -20,6 +22,7 @@ import { emptySetup, type AgentSetup } from "../harness/setup.ts";
 import { samplingSettings } from "../localmodels/catalog.ts";
 import { collectStream } from "../providers/conformance.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
+import { SOURCE_FORMATS, probeFfmpeg, reencode, throughSink } from "./media-source.ts";
 import { KINDS, scenarios, type Kind, type Scenario } from "./vision-scenarios.ts";
 import { createHash } from "node:crypto";
 
@@ -31,6 +34,8 @@ export interface Result {
   right: boolean;
   error?: string;
   ms: number;
+  /** With `--as`: what the picture was made into, and what the request sent after conversion. */
+  sent?: string;
   /** Why the request ended (`end_turn`, `max_tokens`, ...), and its tokens, so an empty answer can be told from a cut-off one. */
   stop?: string | undefined;
   tokens?: { in: number; out: number; reasoning?: number | undefined };
@@ -46,7 +51,7 @@ function args(argv: readonly string[]) {
   if (model === undefined) throw new Error("--model is required: a model from local_models in the settings file, with an mmproj");
   const kinds = v("--kinds")?.split(",").map((k) => k.trim());
   for (const k of kinds ?? []) if (!(KINDS as readonly string[]).includes(k)) throw new Error(`--kinds: ${k} is not one of ${KINDS.join(", ")}`);
-  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as Kind[] | undefined, maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), out: v("--out"), yes: argv.includes("--yes") };
+  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as Kind[] | undefined, maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), as: v("--as"), out: v("--out"), yes: argv.includes("--yes") };
 }
 
 /** The table of results: right of total for each kind, and the wrong answers. */
@@ -77,9 +82,11 @@ async function main(): Promise<void> {
   const dir = o.out ?? join("bench-runs", `vision-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
   await mkdir(dir, { recursive: true });
   const results: Result[] = [];
+  if (o.as !== undefined && SOURCE_FORMATS[o.as]?.mime.startsWith("image/") !== true) throw new Error(`--as: ${o.as} is not a picture format (${Object.entries(SOURCE_FORMATS).filter(([, f]) => f.mime.startsWith("image/")).map(([k]) => k).join(", ")})`);
+  const via = o.as === undefined ? undefined : { as: o.as, ffmpeg: await probeFfmpeg(io), workDir: join(dir, "work") };
   for (const s of scenarios({ kinds: o.kinds, count: o.count, seed: o.seed })) {
     await writeFile(join(dir, `${s.id}.png`), s.png);
-    results.push(await ask(adapter, setup, s));
+    results.push(await ask(adapter, setup, s, via));
     const r = results[results.length - 1] as Result;
     console.error(`${r.id}: ${r.right ? "right" : "wrong"} (${r.ms} ms) ${r.right ? "" : `expected ${r.expected}, got ${JSON.stringify(r.answer.slice(0, 80))}${r.error === undefined ? "" : ` ${r.error}`}`}`);
   }
@@ -90,23 +97,31 @@ async function main(): Promise<void> {
   console.log(text);
 }
 
-async function ask(adapter: ReturnType<typeof localModelsAdapter>, setup: AgentSetup, s: Scenario): Promise<Result> {
+async function ask(adapter: ReturnType<typeof localModelsAdapter>, setup: AgentSetup, s: Scenario, via?: { as: string; ffmpeg: string; workDir: string }): Promise<Result> {
   const t0 = Date.now();
-  const context: ModelContext = {
+  const made = via === undefined ? { bytes: s.png, mime: "image/png", ext: "png" } : await reencode(via.ffmpeg, s.png, "png", via.as);
+  let context: ModelContext = {
     system: "You are terse. Answer only what is asked.",
     instructions: undefined,
-    turns: [{ role: "user", parts: [{ type: "attachment", kind: "image", name: `${s.id}.png`, mime: "image/png", sha256: createHash("sha256").update(s.png).digest("hex"), bytes: s.png }, { type: "text", text: s.question }] }],
+    turns: [{ role: "user", parts: [{ type: "attachment", kind: "image", name: `${s.id}.${made.ext}`, mime: made.mime, sha256: createHash("sha256").update(made.bytes).digest("hex"), bytes: made.bytes }, { type: "text", text: s.question }] }],
     tools: [],
     cacheHints: [],
   };
+  let sent: string | undefined;
+  const base = { id: s.id, kind: s.kind, expected: s.expected, get ms() { return Date.now() - t0; } };
+  if (via !== undefined) {
+    const prepared = await throughSink(adapter, setup, context, via.ffmpeg, via.workDir);
+    if (prepared.warnings.length > 0) return { ...base, answer: "", right: false, error: prepared.warnings.map((w) => w.message).join("; "), sent: `${made.mime} (not sent)` };
+    context = prepared.context;
+    sent = `${made.mime} -> ${prepared.converted.map((c) => c.to).join(", ") || "as it was"}`;
+  }
   const run = await collectStream(adapter.stream({ context, setup, signal: AbortSignal.timeout(300_000) }));
-  const base = { id: s.id, kind: s.kind, expected: s.expected, ms: Date.now() - t0 };
-  if (run.error !== undefined) return { ...base, answer: "", right: false, error: run.error instanceof Error ? run.error.message : String(run.error) };
+  if (run.error !== undefined) return { ...base, ...(sent === undefined ? {} : { sent }), answer: "", right: false, error: run.error instanceof Error ? run.error.message : String(run.error) };
   const blocks = run.completed?.blocks ?? [];
   const answer = blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   const reasoning = blocks.flatMap((b) => (b.type === "reasoning" && typeof b.visible === "string" ? [b.visible] : [])).join("\n");
   const u = run.completed?.usage;
-  return { ...base, answer, right: s.check(answer), stop: run.completed?.stop_reason, ...(u === undefined ? {} : { tokens: { in: u.input_tokens + (u.cache_read_tokens ?? 0), out: u.output_tokens, reasoning: u.reasoning_tokens } }), ...(reasoning === "" ? {} : { reasoning }), blocks: blocks.map((b) => b.type) };
+  return { ...base, ...(sent === undefined ? {} : { sent }), answer, right: s.check(answer), stop: run.completed?.stop_reason, ...(u === undefined ? {} : { tokens: { in: u.input_tokens + (u.cache_read_tokens ?? 0), out: u.output_tokens, reasoning: u.reasoning_tokens } }), ...(reasoning === "" ? {} : { reasoning }), blocks: blocks.map((b) => b.type) };
 }
 
 if (import.meta.main) {

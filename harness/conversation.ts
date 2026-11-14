@@ -983,7 +983,7 @@ export class Conversation {
     const mime = normalizeMime(opts.mime ?? "");
     const charset = (opts.charset ?? mimeCharset(opts.mime ?? ""))?.toLowerCase();
     if (mime === undefined) throw new ConversationError(`attach needs the file's media type as type/subtype, got ${JSON.stringify(opts.mime)}`);
-    if (attachmentKind(mime) === undefined) throw new ConversationError(`${mime} files cannot be given to a model (images: png, jpeg, gif, webp; application/pdf; text types)`);
+    if (attachmentKind(mime) === undefined) throw new ConversationError(`${mime} files cannot be given to a model (pictures, sound and PDFs of the kinds in harness/formats.ts, and text types)`);
     if (bytes.length === 0) throw new ConversationError("the file is empty");
     if (attachmentKind(mime) === "text") {
       try {
