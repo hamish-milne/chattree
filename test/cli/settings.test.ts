@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
 import { CliError } from "../../cli/io.ts";
 import { FfmpegError } from "../../hosts/ffmpeg.ts";
-import { editorFor, ensureFfmpegSetting, loadSettings, settingsPath } from "../../cli/settings.ts";
+import { editorFor, initSettingsFile, loadSettings, settingsPath, settingsTemplate } from "../../cli/settings.ts";
 import { busyboxFor, resolveFfmpeg } from "../../cli/toolset.ts";
 import { FakeServer } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
@@ -116,41 +116,47 @@ describe("the ffmpeg setting", () => {
     }
   });
 
-  test("ensureFfmpegSetting creates the file, adds the key to one without it keeping its comments, and leaves a key that is there alone", async () => {
+  test("initSettingsFile makes the file from the platform's template when there is none, and never touches one that is there", async () => {
     const fresh = await settingsIo();
-    assert.deepEqual(await ensureFfmpegSetting(fresh.io), { path: fresh.path, changed: true });
-    assert.equal((await loadSettings(fresh.io)).ffmpeg, "auto");
+    assert.equal(await initSettingsFile(fresh.io), fresh.path);
+    const made = await loadSettings(fresh.io);
+    assert.equal(made.ffmpeg, "auto");
+    assert.equal(made.busybox, undefined, "busybox is a Windows setting");
+    assert.match(await readFile(fresh.path, "utf8"), /# editor:/, "the rest is shown, commented out");
 
-    const mine = await settingsIo("# my notes\neditor: code -w   # the one I like\n");
-    assert.equal((await ensureFfmpegSetting(mine.io))?.changed, true);
-    const text = await readFile(mine.path, "utf8");
-    assert.match(text, /# my notes/);
-    assert.match(text, /editor: code -w\s+# the one I like/);
-    assert.match(text, /ffmpeg: auto/);
-
-    for (const keep of ["ffmpeg: false\n", "ffmpeg: /x/ffmpeg\n", "ffmpeg: auto\n"]) {
+    for (const keep of ["# my notes\neditor: code -w\n", "ffmpeg: false\n", ""]) {
       const s = await settingsIo(keep);
-      assert.deepEqual(await ensureFfmpegSetting(s.io), { path: s.path, changed: false });
-      assert.equal(await readFile(s.path, "utf8"), keep);
+      assert.equal(await initSettingsFile(s.io), undefined);
+      assert.equal(await readFile(s.path, "utf8"), keep, "left alone, even without an ffmpeg key");
+    }
+    assert.equal(await initSettingsFile({ host, env: {} }), undefined, "no location: nothing to do");
+  });
+
+  test("the template for Windows also sets busybox, and both templates are valid settings", async () => {
+    for (const platform of ["windows", "posix"] as const) {
+      const path = join(await tempDir(), "s.yml");
+      await writeFile(path, settingsTemplate(platform));
+      const io = testIo(await tempDir(), { env: { CHATTREE_SETTINGS: path } });
+      const s = await loadSettings(io);
+      assert.equal(s.ffmpeg, "auto");
+      assert.equal(s.busybox, platform === "windows" ? "auto" : undefined);
     }
   });
 
-  test("a settings file that does not parse is left alone, and no location means nothing to do", async () => {
-    const bad = await settingsIo("editor: [unclosed\n");
-    assert.equal(await ensureFfmpegSetting(bad.io), undefined);
-    assert.equal(await readFile(bad.path, "utf8"), "editor: [unclosed\n");
-    assert.equal(await ensureFfmpegSetting({ host, env: {} }), undefined);
-  });
-
-  test("init adds it, with a note", async () => {
+  test("init makes the settings file, with a note, and leaves an existing one alone", async () => {
     const server = await FakeServer.start([answer("hi")]);
     try {
       const { path, io } = await settingsIo();
       const dir = join(await tempDir(), "p");
       assert.equal(await main(initArgs(server, dir), io), 0, io.stderr);
       assert.equal((await loadSettings(io)).ffmpeg, "auto");
-      assert.match(io.stderr, /set `ffmpeg: auto` in .*settings\.yml/);
-      assert.ok(path.length > 0);
+      assert.match(io.stderr, /made the settings file .*settings\.yml/);
+      const before = await readFile(path, "utf8");
+      await writeFile(path, `${before}# mine\n`);
+      const again = testIo(await tempDir(), { env: { CHATTREE_ENVIRONMENT: "off", CHATTREE_SETTINGS: path } });
+      assert.equal(await main(initArgs(server, join(await tempDir(), "q")), again), 0, again.stderr);
+      assert.doesNotMatch(again.stderr, /made the settings file/);
+      assert.equal(await readFile(path, "utf8"), `${before}# mine\n`);
     } finally {
       await server.close();
     }

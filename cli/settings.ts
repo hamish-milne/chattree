@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { editConfig, parseConfig } from "../src/config.ts";
+import { parseConfig } from "../src/config.ts";
 import type { Host } from "../src/host.ts";
 import { localModelsSchema } from "../localmodels/config.ts";
 import { CliError, type Io } from "./io.ts";
@@ -17,7 +17,7 @@ export const settingsSchema = z
     /**
      * Where ffmpeg comes from, which converts pictures and sound into a form a model takes (docs/tools.md, media formats). `auto`: the one that
      * is there (CHATTREE_FFMPEG, the PATH), else on Windows the pinned build is fetched; a path: that program; `false`: never convert. There is no
-     * default: a conversion that is needed while this is not set is an error, since what was meant is not known. `chattree init` writes `auto`.
+     * default: a conversion that is needed while this is not set is an error, since what was meant is not known. `chattree init` makes the file with `auto`.
      */
     ffmpeg: z.union([z.literal(false), z.string().min(1)]).optional(),
     /** Where downloaded programs and models are kept. Default: the user data directory (`$XDG_DATA_HOME/chattree`, `%LOCALAPPDATA%\\chattree`). */
@@ -58,10 +58,16 @@ export async function loadSettings(io: Pick<Io, "host" | "env">): Promise<Settin
   return parsed.value;
 }
 
-const TEMPLATE = `# chattree settings (user level; thread settings are in harness.yml)
+/**
+ * The settings file a new machine starts with, for the platform: the keys that have no good default are set (`ffmpeg: auto`; on Windows also
+ * `busybox: auto`, which is what a missing key means there anyway), the rest are shown commented out.
+ */
+export function settingsTemplate(platform: "windows" | "posix" | undefined): string {
+  const windows = platform === "windows";
+  return `# chattree settings (user level; thread settings are in harness.yml)
 # editor: code -w
-# busybox: auto        # auto | off | path to busybox.exe (Windows)
-# ffmpeg: auto        # auto | false | path to ffmpeg: converts pictures and sound a model cannot take (written by \`chattree init\`)
+${windows ? "busybox: auto          # auto | off | path to busybox.exe: where run gets cat, ls, grep and the rest" : "# (busybox is for Windows only)"}
+ffmpeg: auto           # auto | false | path to ffmpeg: converts pictures and sound a model cannot take; false never converts
 # data_dir: ~/.local/share/chattree
 # local_models:             # see docs/local-models.md
 #   llama_cpp: { tag: b12110, backend: auto }
@@ -71,6 +77,7 @@ const TEMPLATE = `# chattree settings (user level; thread settings are in harnes
 #   thinking: brief    # on | brief | off
 #   tools: brief       # full | brief | off
 `;
+}
 
 /** The editor command: settings, then \`$VISUAL\`, then \`$EDITOR\`; undefined leaves the choice of a default to the host. */
 export const editorFor = (io: Pick<Io, "env" | "settings">): string | undefined => io.settings?.editor ?? io.env["VISUAL"] ?? io.env["EDITOR"];
@@ -79,30 +86,17 @@ export const editorFor = (io: Pick<Io, "env" | "settings">): string | undefined 
 export async function ensureSettingsFile(io: Pick<Io, "host" | "env">): Promise<string> {
   const path = settingsPath(io.host, io.env);
   if (path === undefined) throw new CliError("there is no settings location on this machine", "set CHATTREE_SETTINGS to a file path");
-  if ((await io.host.fs.stat(path)) === undefined) await io.host.fs.writeAtomic(path, new TextEncoder().encode(TEMPLATE));
+  if ((await io.host.fs.stat(path)) === undefined) await io.host.fs.writeAtomic(path, new TextEncoder().encode(settingsTemplate(io.host.platform)));
   return path;
 }
 
 /**
- * Make sure the settings file says how to get ffmpeg: `ffmpeg: auto` is added when the key is missing (the file is created if there is none),
- * keeping the file's comments. Whatever the file already says is left alone. Returns the file and whether it was changed; undefined when
- * there is no place for a settings file, or when the file does not parse (the person has to fix that first, and is told then).
+ * `chattree init`'s part: when there is no settings file, make one from the template for this platform; a file that is there is left
+ * alone, whatever it says. Returns the path when it was made; undefined when there was a file or there is no place for one.
  */
-export async function ensureFfmpegSetting(io: Pick<Io, "host" | "env">): Promise<{ path: string; changed: boolean } | undefined> {
+export async function initSettingsFile(io: Pick<Io, "host" | "env">): Promise<string | undefined> {
   const path = settingsPath(io.host, io.env);
-  if (path === undefined) return undefined;
-  const bytes = await io.host.fs.read(path).catch(() => undefined);
-  const text = bytes === undefined ? undefined : new TextDecoder().decode(bytes);
-  const write = (t: string) => io.host.fs.writeAtomic(path, new TextEncoder().encode(t));
-  if (text === undefined || text.trim() === "") {
-    await write(`${TEMPLATE}\nffmpeg: auto\n`);
-    return { path, changed: true };
-  }
-  const edited = await editConfig(text, settingsSchema, (doc) => {
-    if (!doc.has("ffmpeg")) doc.set("ffmpeg", "auto");
-  });
-  if (!edited.ok) return undefined;
-  if (edited.text === text) return { path, changed: false };
-  await write(edited.text);
-  return { path, changed: true };
+  if (path === undefined || (await io.host.fs.stat(path)) !== undefined) return undefined;
+  await io.host.fs.writeAtomic(path, new TextEncoder().encode(settingsTemplate(io.host.platform)));
+  return path;
 }
