@@ -46,7 +46,7 @@ export function nodeIo(): Io {
     err: (t) => void process.stderr.write(t),
     env: process.env,
     cwd: process.cwd(),
-    interactive: process.stdin.isTTY === true && process.stdout.isTTY === true,
+    interactive: process.stdin.isTTY && process.stdout.isTTY,
     async readStdin() {
       const chunks: Uint8Array[] = [];
       for await (const c of process.stdin) chunks.push(c as Uint8Array);
@@ -91,7 +91,7 @@ export function nodeIo(): Io {
         });
       } finally {
         process.removeAllListeners("SIGINT");
-        for (const l of saved) process.on("SIGINT", l as NodeJS.SignalsListener);
+        for (const l of saved) process.on("SIGINT", l);
       }
     },
     async ask(question, fallback) {

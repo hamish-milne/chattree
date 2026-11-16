@@ -82,7 +82,7 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const defs = await loadDefinitions(setup, { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) });
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const lastWithId = entries.findLast((e) => "id" in e && typeof e.id === "string" && e.$tag !== "approval");
-  const tip = lastWithId !== undefined && "id" in lastWithId ? (lastWithId.id as string) : undefined;
+  const tip = lastWithId !== undefined && "id" in lastWithId ? lastWithId.id : undefined;
   const dec = new TextDecoder();
   // Instructions changed since the prefix was last rebuilt are shown where they were changed (docs/context.md).
   const instructionUpdates = new Map<string, string>();

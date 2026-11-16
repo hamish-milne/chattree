@@ -48,7 +48,7 @@ export function usageRecord(u: {
   cache_write_by_minutes?: Record<string, number> | undefined;
 }): Record<string, number> {
   const out: Record<string, number> = { input_tokens: u.input_tokens, output_tokens: u.output_tokens };
-  for (const k of ["cache_read_tokens", "cache_write_tokens", "reasoning_tokens"] as const) if (u[k] !== undefined) out[k] = u[k] as number;
+  for (const k of ["cache_read_tokens", "cache_write_tokens", "reasoning_tokens"] as const) if (u[k] !== undefined) out[k] = u[k];
   for (const [m, n] of Object.entries(u.cache_write_by_minutes ?? {})) out[`cache_write_tokens_${m}m`] = n;
   return out;
 }

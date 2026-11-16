@@ -247,7 +247,7 @@ describe("the tool loop", () => {
       blocks: [{ $tag: "tool_call", call_id: "c1", name: "echo", args: {} }],
     };
     const q: ChatEntry = { $tag: "user", id: id(2), queued: true, content: [{ $tag: "text", text: "hey" }] };
-    const plain: ChatEntry = { ...q, queued: undefined } as ChatEntry;
+    const plain: ChatEntry = { ...q, queued: undefined };
     assert.deepEqual(unanswered([a, q]), ["c1"]);
     assert.deepEqual(unanswered([a, plain]), [], "an ordinary message after the calls leaves them to the context builder");
   });
@@ -332,8 +332,8 @@ describe("the tool loop", () => {
     assert.equal(r!.truncated, true);
     assert.ok(str(r!.content).length < 1500);
     assert.ok(r!.full !== undefined);
-    assert.equal(r!.full!.bytes, 5000);
-    assert.equal(new TextDecoder().decode(await convo.store.get(r!.full!.sha256)), "x".repeat(5000));
+    assert.equal(r!.full.bytes, 5000);
+    assert.equal(new TextDecoder().decode(await convo.store.get(r!.full.sha256)), "x".repeat(5000));
     await assertHistoryInvariants(convo);
   });
 
@@ -346,10 +346,10 @@ describe("the tool loop", () => {
     await drive(convo, registry);
     const [r] = await results(convo);
     assert.equal(r!.media?.length, 1);
-    assert.equal(r!.media![0]!.name, "x.png");
-    assert.equal(r!.media![0]!.data.mime, "image/png");
-    assert.equal(r!.media![0]!.data.bytes, bytes.length);
-    assert.deepEqual([...(await convo.store.get(r!.media![0]!.data.sha256))!], [...bytes]);
+    assert.equal(r!.media[0]!.name, "x.png");
+    assert.equal(r!.media[0]!.data.mime, "image/png");
+    assert.equal(r!.media[0]!.data.bytes, bytes.length);
+    assert.deepEqual([...(await convo.store.get(r!.media[0]!.data.sha256))!], [...bytes]);
     await assertHistoryInvariants(convo);
   });
 

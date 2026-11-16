@@ -270,7 +270,7 @@ describe("on-disk layout", () => {
   });
 
   test("the entry type is visible to plain text tools", async () => {
-    const e = await pipeline.encode(samples()["agent_setup"] as Record<string, unknown>);
+    const e = await pipeline.encode(samples()["agent_setup"]);
     assert.match(emitEntry(e), /^- !agent_setup\n/);
   });
 });

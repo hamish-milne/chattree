@@ -34,25 +34,23 @@ const dear: PriceTable = { ...cheap, models: { m: { rates: { standard: { input: 
 const resolver = priceResolver([cheap, dear]);
 let n = 0;
 const id = (): string => `01J${String(++n).padStart(23, "0")}`;
-const setup = (table: PriceTable | undefined, reason: "user" | "subagent" = "user"): ChatEntry =>
-  ({
-    $tag: "agent_setup",
-    id: id(),
-    reason,
-    model: { provider: "p", id: "m" },
-    ...(table === undefined ? {} : { pricing: { table: tableHash(table) } }),
-  }) as ChatEntry;
-const user = (): ChatEntry => ({ $tag: "user", id: id(), content: [{ $tag: "text", text: "hi" }] }) as ChatEntry;
-const reply = (usage: Record<string, number> | undefined, model = "m"): ChatEntry =>
-  ({
-    $tag: "assistant",
-    id: id(),
-    provider: "p",
-    model,
-    blocks: [{ $tag: "text", text: "x" }],
-    stop_reason: "end_turn",
-    ...(usage === undefined ? {} : { usage }),
-  }) as ChatEntry;
+const setup = (table: PriceTable | undefined, reason: "user" | "subagent" = "user"): ChatEntry => ({
+  $tag: "agent_setup",
+  id: id(),
+  reason,
+  model: { provider: "p", id: "m" },
+  ...(table === undefined ? {} : { pricing: { table: tableHash(table) } }),
+});
+const user = (): ChatEntry => ({ $tag: "user", id: id(), content: [{ $tag: "text", text: "hi" }] });
+const reply = (usage: Record<string, number> | undefined, model = "m"): ChatEntry => ({
+  $tag: "assistant",
+  id: id(),
+  provider: "p",
+  model,
+  blocks: [{ $tag: "text", text: "x" }],
+  stop_reason: "end_turn",
+  ...(usage === undefined ? {} : { usage }),
+});
 
 describe("ledger", () => {
   test("usage is priced under the table in force at that entry, so a later pin does not reprice history", async () => {
@@ -97,7 +95,7 @@ describe("ledger", () => {
       setup(cheap),
       user(),
       reply({ input_tokens: M, output_tokens: 0 }),
-      { $tag: "interrupted", id: id(), by: "user", partial: [], usage: { input_tokens: M, output_tokens: 0 } } as ChatEntry,
+      { $tag: "interrupted", id: id(), by: "user", partial: [], usage: { input_tokens: M, output_tokens: 0 } },
       {
         $tag: "subagent_result",
         id: id(),
@@ -107,7 +105,7 @@ describe("ledger", () => {
         summary: "s",
         files: { changed: [], added: [], discarded: [] },
         spend: { usd: 0.5, requests: 3, unpriced: 1 },
-      } as ChatEntry,
+      },
     ];
     const l = await computeLedger(entries, resolver);
     assert.deepEqual(l.turn, { usd: 2.5, requests: 5, unpriced: 1 });
@@ -116,7 +114,7 @@ describe("ledger", () => {
         setup(cheap),
         user(),
         reply({ input_tokens: M, output_tokens: 0 }),
-        { $tag: "branch_start", id: id(), kind: "subagent", from: { branch: "main", commit: "c" }, context: "fresh" } as ChatEntry,
+        { $tag: "branch_start", id: id(), kind: "subagent", from: { branch: "main", commit: "c" }, context: "fresh" },
         reply({ input_tokens: M, output_tokens: 0 }),
       ],
       resolver,
@@ -191,14 +189,13 @@ describe("usage records", () => {
 
 describe("cache lifetime in costs", () => {
   const t: PriceTable = { ...cheap, models: { m: { rates: { standard: { input: 1, output: 1, cache_write: { 30: 1.25, 720: 2.5 } } } } } };
-  const withTtl = (ttl: string | undefined): ChatEntry =>
-    ({
-      $tag: "agent_setup",
-      id: id(),
-      reason: "user",
-      model: { provider: "p", id: "m", settings: ttl === undefined ? { max_output_tokens: 1 } : { max_output_tokens: 1, cache_ttl: ttl } },
-      pricing: { table: tableHash(t) },
-    }) as ChatEntry;
+  const withTtl = (ttl: string | undefined): ChatEntry => ({
+    $tag: "agent_setup",
+    id: id(),
+    reason: "user",
+    model: { provider: "p", id: "m", settings: ttl === undefined ? { max_output_tokens: 1 } : { max_output_tokens: 1, cache_ttl: ttl } },
+    pricing: { table: tableHash(t) },
+  });
   const write = reply({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M });
 
   test("writes with no stated lifetime are priced at the setting's lifetime, else the shortest", async () => {

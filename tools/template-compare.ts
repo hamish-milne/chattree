@@ -278,7 +278,7 @@ export async function compare(baseUrl: string, models: string[], o: CompareOptio
       log(
         `  the model writes (greedy, ${j?.stop_type ?? `HTTP ${c.status}`}, ${j?.tokens_predicted ?? "?"} tokens): ${JSON.stringify(clip(text, 260))}`,
       );
-      const first = (j?.completion_probabilities ?? []).slice(0, 4).map((p) => `${JSON.stringify(p["token"] ?? p["content"])}`);
+      const first = (j?.completion_probabilities ?? []).slice(0, 4).map((p) => JSON.stringify(p["token"] ?? p["content"]));
       if (first.length > 0) log(`  its first tokens: ${first.join(" ")}`);
     }
   }

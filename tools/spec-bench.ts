@@ -244,7 +244,7 @@ async function main(): Promise<void> {
       temperature: 0,
       ...(o.dialect === undefined ? {} : { dialect: o.dialect }),
     };
-    setups.set(name, { ...emptySetup(), model: { provider: "live", id: name, settings } as NonNullable<AgentSetup["model"]> });
+    setups.set(name, { ...emptySetup(), model: { provider: "live", id: name, settings } });
   }
   const samples: Sample[] = [];
   for (const task of TASKS) {
@@ -255,7 +255,7 @@ async function main(): Promise<void> {
           adapter.stream({ context: task.context, setup: setups.get(model) as AgentSetup, signal: AbortSignal.timeout(600_000) }),
         );
         const blocks = run.completed?.blocks ?? [];
-        const raw = run.completed?.usage.raw as Record<string, unknown> | undefined;
+        const raw = run.completed?.usage.raw;
         const timings = (raw?.["timings"] ?? {}) as Record<string, unknown>;
         const s: Sample = {
           model,

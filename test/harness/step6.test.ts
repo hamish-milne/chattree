@@ -103,7 +103,7 @@ describe("appendMany", () => {
     const files = async (c: string) => (await convo.git.text(["ls-tree", "-r", "--name-only", c])).split("\n");
     const log = await convo.git.log("HEAD", { firstParent: true });
     assert.equal(log[2]?.trailers["Chattree-Snapshot"]?.[0], "true");
-    assert.ok((await files(log[2]!.hash)).includes("src/a.ts"));
+    assert.ok((await files(log[2].hash)).includes("src/a.ts"));
     assert.ok(out.every((o) => o.commit !== log[2]!.hash));
     assert.equal(await convo.git.isClean(), true);
     assert.deepEqual(await verifyHistory(convo, { deep: true }), []);

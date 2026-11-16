@@ -203,7 +203,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
             parts.push({ type: "text", text: await text(p.text) });
             continue;
           }
-          const ref = p.data as BlobRef;
+          const ref = p.data;
           const mime = ref.mime;
           const kind = mime === undefined ? undefined : attachmentKind(mime);
           if (mime === undefined || kind === undefined)
@@ -384,7 +384,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       open = new Map(r.blocks.flatMap((b) => (b.type === "tool_call" ? ([[b.call_id, true]] as const) : [])));
     } else {
       closeOpen();
-      turns.push(r as Turn);
+      turns.push(r);
     }
   }
   flushResults();

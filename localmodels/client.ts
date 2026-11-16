@@ -144,7 +144,7 @@ export async function launchDetached(data: string, env: Readonly<Record<string, 
     detached: true,
     stdio: ["ignore", log.fd, log.fd],
     windowsHide: true,
-    env: env as NodeJS.ProcessEnv,
+    env: env,
   });
   child.on("error", () => undefined);
   child.unref();

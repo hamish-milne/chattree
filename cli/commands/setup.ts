@@ -11,7 +11,7 @@ import { failure } from "../turn.ts";
 
 const providersOf = async (convo: Conversation): Promise<Record<string, { $tag: string; [k: string]: unknown }>> => {
   const cfg = await convo.readConfig();
-  return cfg?.ok === true ? (cfg.value.providers as Record<string, { $tag: string }>) : {};
+  return cfg?.ok === true ? cfg.value.providers : {};
 };
 
 /** The adapter's own check of a settings object: the issues, or none. */
@@ -25,7 +25,7 @@ async function settingsIssues(registry: AdapterRegistry, tag: string, settings: 
 }
 
 const settingKeys = (registry: AdapterRegistry, tag: string): string[] => {
-  const schema = registry.get(tag)?.jsonSchema().settings as { properties?: Record<string, unknown> } | undefined;
+  const schema: { properties?: Record<string, unknown> } | undefined = registry.get(tag)?.jsonSchema().settings;
   return Object.keys(schema?.properties ?? {});
 };
 
@@ -43,7 +43,7 @@ const model: Command = {
     for (const [name, p] of Object.entries(await providersOf(ctx.convo))) {
       const cfg = (await ctx.convo.readConfig())?.ok === true ? p : undefined;
       const def = registry.get(p.$tag);
-      for (const id of Object.keys(cfg === undefined ? {} : (def?.models?.(p as never) ?? {}))) out.push(`${name}/${id}`);
+      for (const id of Object.keys(cfg === undefined ? {} : (def?.models?.(p) ?? {}))) out.push(`${name}/${id}`);
     }
     return out.filter((m) => m.startsWith(partial));
   },
@@ -63,7 +63,7 @@ const model: Command = {
         };
         const lines: string[] = [];
         for (const [name, p] of Object.entries(providers)) {
-          const known = Object.keys(registry.get(p.$tag)?.models?.(p as never) ?? {});
+          const known = Object.keys(registry.get(p.$tag)?.models?.(p) ?? {});
           lines.push(
             `${name} (${p.$tag}): ${known.length === 0 ? "any model id the server offers" : known.slice(0, 10).join(", ") + (known.length > 10 ? `, … ${known.length - 10} more` : "")}`,
           );
@@ -96,12 +96,12 @@ const model: Command = {
         };
         return;
       }
-      const known = registry.get(conf.$tag)?.models?.(conf as never) ?? {};
+      const known = registry.get(conf.$tag)?.models?.(conf) ?? {};
       if (Object.keys(known).length > 0 && known[id] === undefined)
         yield { type: "warning", message: `${id} is not in ${provider}'s list of known models; it is used as given` };
       let settings = provider === setup.model?.provider ? setup.model?.settings : undefined;
       if (provider !== setup.model?.provider && setup.model?.settings !== undefined) {
-        const max = (setup.model.settings as Record<string, unknown>)["max_output_tokens"];
+        const max = setup.model.settings["max_output_tokens"];
         if (max !== undefined && (await settingsIssues(registry, conf.$tag, { max_output_tokens: max })).length === 0) {
           settings = { max_output_tokens: max };
           yield {
@@ -152,7 +152,7 @@ const set: Command = {
         yield { type: "error", message: `provider ${m.provider} is not configured in harness.yml` };
         return;
       }
-      const cur = (m.settings ?? {}) as Record<string, unknown>;
+      const cur = m.settings ?? {};
       const key = args[0];
       if (key === undefined) {
         yield {
@@ -319,7 +319,7 @@ const providers: Command = {
     const current = (await ctx.convo.setup()).model?.provider;
     const rows: string[] = [];
     for (const [name, p] of Object.entries(cfg.value.providers as Record<string, { $tag: string; [k: string]: unknown }>)) {
-      const keys = registry.get(p.$tag)?.secrets(p as never) ?? [];
+      const keys = registry.get(p.$tag)?.secrets(p) ?? [];
       const keyText =
         keys.length === 0
           ? "no key needed"

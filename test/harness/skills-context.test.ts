@@ -134,7 +134,7 @@ describe("skills are appendable", () => {
     await convo.append(user("again"));
     const { context } = await prep(convo);
     assert.match(context.instructions ?? "", /- a: alpha\n- b: beta/, "the catalog lines stay until a rebuild");
-    const notice = texts(context.turns as never).at(-1) ?? "";
+    const notice = texts(context.turns).at(-1) ?? "";
     assert.match(
       notice,
       /Changed \(call the skill tool again.*\):\n- a: alpha v2\nRemoved \(the skill tool no longer serves these\):\n- b/,
@@ -245,7 +245,7 @@ describe("skills are appendable", () => {
   });
 
   test("a skills difference counts as an instructions change to the cache; an MCP pin changes nothing the model is shown", () => {
-    const from = foldSetup([{ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: sonnet } as ChatEntry]);
+    const from = foldSetup([{ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: sonnet }]);
     const withSkill = { ...from, skills: { a: { hash: "a1".repeat(32), store: "blob" as const } } };
     assert.deepEqual(
       coreClassify(from, withSkill, { midLoop: false }).map((c) => c.kind),

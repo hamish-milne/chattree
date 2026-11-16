@@ -278,7 +278,7 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
       const last = i === spec.stages.length - 1;
       const child = spawn(program, args, {
         cwd: spec.cwd,
-        env: env as NodeJS.ProcessEnv,
+        env: env,
         stdio: ["pipe", "pipe", "pipe"],
         shell: false,
         detached: process.platform !== "win32",

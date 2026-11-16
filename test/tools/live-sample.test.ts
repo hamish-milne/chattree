@@ -52,7 +52,7 @@ function pretendModel(): ProviderAdapter {
       return text("I would rather not.");
     },
     retrieve: async () => undefined,
-  } as unknown as ProviderAdapter;
+  };
 }
 
 describe("selecting tasks", () => {

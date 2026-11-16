@@ -229,7 +229,7 @@ function assistantItems(blocks: readonly Block[], opts: RequestOptions): Json[] 
   for (const b of blocks) {
     const id = opts.replayItemIds && typeof b.ext?.["item_id"] === "string" ? { id: b.ext["item_id"] } : {};
     if (b.type === "reasoning") {
-      if (b.payload !== undefined) items.push(b.payload as Json);
+      if (b.payload !== undefined) items.push(b.payload);
     } else if (b.type === "provider_compaction") {
       const item = opaqueItem(b.payload);
       if (item !== undefined) items.push(item);

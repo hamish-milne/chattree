@@ -26,8 +26,12 @@ import { startHttp, type FakeTool } from "../support/mcp-server.ts";
 const host = nodeHost();
 const SERVER = fileURLToPath(new URL("../support/mcp-server.ts", import.meta.url));
 const deps = { host, cwd: process.cwd(), env: {} };
-const stdioCfg = (over: Partial<McpServerConfig> = {}): McpServerConfig =>
-  ({ command: process.execPath, args: ["--no-warnings", SERVER], allow: {}, ...over }) as McpServerConfig;
+const stdioCfg = (over: Partial<McpServerConfig> = {}): McpServerConfig => ({
+  command: process.execPath,
+  args: ["--no-warnings", SERVER],
+  allow: {},
+  ...over,
+});
 
 describe("narrowing a server's schema to the portable subset", () => {
   const ok = (s: unknown) => {
@@ -218,7 +222,7 @@ describe("a connected server", () => {
       const dir = join(await tempDir(), "c");
       const convo = await Conversation.create(host, dir, {});
       const pin = await pinServer(convo.store, cfg);
-      assert.ok(!new TextDecoder().decode((await convo.store.get(pin.hash)) as Uint8Array).includes("sekret"));
+      assert.ok(!new TextDecoder().decode(await convo.store.get(pin.hash)).includes("sekret"));
     } finally {
       await srv.close();
     }
@@ -307,7 +311,7 @@ describe("pinning the tools", () => {
       assert.equal(await syncTools(convo, registry), undefined, "nothing of the host's to pin, and the server's are not followed silently");
       const drift = await toolDrift(convo, registry);
       assert.equal(drift.missing.length, 5);
-      const loop = runLoop(convo, { system: "s", registry } as never);
+      const loop = runLoop(convo, { system: "s", registry });
       await assert.rejects(loop.next(), ToolsOutOfSync);
       await assert.rejects(syncMcpTools(convo, registry, ["fake"], []), /tools_changed/, "the user must allow it");
       await syncMcpTools(convo, registry, ["fake"], ["tools_changed", "cache_break"]);

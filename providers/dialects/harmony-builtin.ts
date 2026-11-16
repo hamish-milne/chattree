@@ -68,7 +68,7 @@ export function builtinSpecs(option: unknown): Map<string, BuiltinSpec> {
     const given = isMap(v) ? v : {};
     const known = KNOWN[name];
     const arg = typeof given["arg"] === "string" ? given["arg"] : (known?.arg ?? "command");
-    const text = (k: string, fallback: string): string => (typeof given[k] === "string" ? (given[k] as string) : fallback);
+    const text = (k: string, fallback: string): string => (typeof given[k] === "string" ? given[k] : fallback);
     const run = typeof given["run"] === "string" ? given["run"] : undefined;
     if (run !== undefined && !PLACEHOLDER.test(run))
       throw new Error(`builtin_tools.${name}.run must contain $message, where the model's message goes: ${run}`);
@@ -110,7 +110,7 @@ export function messageOf(name: string, spec: BuiltinSpec, body: string): { text
     const values = Object.values(value);
     const only = values.length === 1 ? values[0] : undefined;
     if (typeof only === "string") return { text: only };
-    if (Array.isArray(only) && only.length > 0 && only.every((x) => typeof x === "string")) return { text: (only as string[]).join(" ") };
+    if (Array.isArray(only) && only.length > 0 && only.every((x) => typeof x === "string")) return { text: only.join(" ") };
     return {
       error: `${name} was NOT run: its message was JSON that cannot be read as one ${spec.what}. ${name} is a built-in tool: call it on the analysis channel with the recipient ${name}, and make the message only the ${spec.what}, as bare text, with no JSON and no argument names. ${spec.example === "" ? "" : `Example: channel analysis, recipient ${name}, message: ${spec.example}. `}Call it again exactly like this.`,
     };

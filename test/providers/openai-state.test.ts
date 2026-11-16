@@ -293,7 +293,7 @@ describe("compaction", () => {
       payload: JSON.stringify({ type: "compaction", encrypted_content: "x" }),
     };
     const entries: ChatEntry[] = [
-      { $tag: "user", id: "01J00000000000000000000001", content: [{ $tag: "text", text: "hi" }] } as ChatEntry,
+      { $tag: "user", id: "01J00000000000000000000001", content: [{ $tag: "text", text: "hi" }] },
       {
         $tag: "assistant",
         id: "01J00000000000000000000002",
@@ -302,7 +302,7 @@ describe("compaction", () => {
         blocks: [{ $tag: "text", text: "ok" }, block],
         stop_reason: "end_turn",
         ext: { response_id: "resp_1" },
-      } as ChatEntry,
+      },
     ];
     const same = await buildContext(entries, { system: "s", target: { provider: "main", model: "gpt-5.4" } });
     assert.deepEqual(

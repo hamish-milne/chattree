@@ -419,10 +419,10 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
           const text = await readFile(logFile(data), "utf8").catch(() => undefined);
           if (text === undefined) return (io.out("there is no log: the model host has not run\n"), 0);
           io.out(
-            `${text
+            text
               .split("\n")
               .slice(-n - 1)
-              .join("\n")}`,
+              .join("\n"),
           );
           return 0;
         }

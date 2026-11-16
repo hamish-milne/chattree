@@ -142,7 +142,7 @@ describe("fork", () => {
     const mainBefore = await convo.readTranscript();
     const forkAt = (await convo.index())[2] as EntryRef; // first answer
 
-    const { branch, start, from, conversation } = await convo.fork(ids[1] as string);
+    const { branch, start, from, conversation } = await convo.fork(ids[1]);
     assert.match(branch, /^fork\/[0-9A-Z]{26}$/);
     assert.equal(from, forkAt.commit);
     assert.ok(conversation !== undefined);
@@ -182,7 +182,7 @@ describe("fork", () => {
   test("the two branches then grow independently", async () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
-    const { conversation } = await convo.fork(ids[1] as string);
+    const { conversation } = await convo.fork(ids[1]);
     assert.ok(conversation !== undefined);
     await conversation.append(user("a different second question"));
     await conversation.append(reply("a different answer"));
@@ -215,7 +215,7 @@ describe("fork", () => {
   test("a fork's index includes the history it was forked from, and it can be forked again", async () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
-    const { conversation: child } = await convo.fork(ids[1] as string);
+    const { conversation: child } = await convo.fork(ids[1]);
     assert.ok(child !== undefined);
     const r = await child.append(user("child question"));
     const index = await child.index();
@@ -225,7 +225,7 @@ describe("fork", () => {
     );
     assert.equal(index.at(-1)?.id, r.id);
 
-    const { conversation: grandchild } = await child.fork(ids[0] as string, { name: "deep/er" });
+    const { conversation: grandchild } = await child.fork(ids[0], { name: "deep/er" });
     assert.ok(grandchild !== undefined);
     assert.deepEqual(texts(await grandchild.readEntries()), ["<header>", "first question", "<branch_start>"]);
     const marker = (await grandchild.readEntries()).at(-1);
@@ -267,7 +267,7 @@ describe("fork", () => {
   test("without checkout the branch exists but has no worktree, and can be opened later", async () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
-    const r = await convo.fork(ids[0] as string, { checkout: false, name: "later" });
+    const r = await convo.fork(ids[0], { checkout: false, name: "later" });
     assert.equal(r.conversation, undefined);
     const info = (await convo.listBranches()).find((b) => b.name === "later");
     assert.equal(info?.worktree, undefined);
@@ -282,8 +282,8 @@ describe("fork", () => {
   test("listBranches shows every branch, its tip and where it is checked out", async () => {
     const { dir, convo } = await fresh();
     const ids = await talk(convo);
-    const a = await convo.fork(ids[0] as string, { name: "a" });
-    await convo.fork(ids[1] as string, { name: "b", checkout: false });
+    const a = await convo.fork(ids[0], { name: "a" });
+    await convo.fork(ids[1], { name: "b", checkout: false });
     const list = (await convo.listBranches()).sort((x, y) => x.name.localeCompare(y.name));
     assert.deepEqual(
       list.map((b) => [b.name, b.worktree]),
@@ -300,18 +300,18 @@ describe("fork", () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
     await assert.rejects(convo.fork("01K8ZQ3M0A5G2W7Y9C4T1R6B8D"), /no such entry/);
-    await assert.rejects(convo.fork(ids[0] as string, { name: "bad name" }), ConversationError);
-    await assert.rejects(convo.fork(ids[0] as string, { name: "-x" }), ConversationError);
-    await assert.rejects(convo.fork(ids[0] as string, { name: "main" }), /already exists/);
-    await convo.fork(ids[0] as string, { name: "once" });
-    await assert.rejects(convo.fork(ids[0] as string, { name: "once" }), /already exists/);
+    await assert.rejects(convo.fork(ids[0], { name: "bad name" }), ConversationError);
+    await assert.rejects(convo.fork(ids[0], { name: "-x" }), ConversationError);
+    await assert.rejects(convo.fork(ids[0], { name: "main" }), /already exists/);
+    await convo.fork(ids[0], { name: "once" });
+    await assert.rejects(convo.fork(ids[0], { name: "once" }), /already exists/);
     await assert.rejects(convo.openBranch("nope"), /no such branch/);
 
     const taken = join(await tempDir(), "taken");
     await mkdir(taken);
     await writeFile(join(taken, "file"), "x");
     const branchesBefore = (await convo.listBranches()).length;
-    const r = convo.fork(ids[0] as string, { name: "blocked", worktree: taken });
+    const r = convo.fork(ids[0], { name: "blocked", worktree: taken });
     await assert.rejects(r);
     // the branch itself was created (it is a complete, valid branch); only the checkout failed
     assert.equal((await convo.listBranches()).length, branchesBefore + 1);
@@ -330,7 +330,7 @@ describe("fork", () => {
   test("a fork can be appended to while its parent's branch lock is held", async () => {
     const { convo } = await fresh({ lock: { timeoutMs: 0 } });
     const ids = await talk(convo);
-    const { conversation } = await convo.fork(ids[0] as string);
+    const { conversation } = await convo.fork(ids[0]);
     const { acquireLock } = await import("../../src/index.ts");
     const held = await acquireLock(host.fs, join(convo.dir, ".git", "chattree", "locks", "main.lock"), { timeoutMs: 0 });
     try {
@@ -344,7 +344,7 @@ describe("fork", () => {
   test("a deleted worktree directory is recovered by pruning, then opening again", async () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
-    const { conversation, branch } = await convo.fork(ids[0] as string);
+    const { conversation, branch } = await convo.fork(ids[0]);
     await rm((conversation as Conversation).dir, { recursive: true });
     await convo.git.pruneWorktrees();
     const reopened = await convo.openBranch(branch);
@@ -367,7 +367,7 @@ describe("mergeFork", () => {
   test("assertMergeable gives mergeFork's refusals without changing anything", async () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
-    const { conversation: fork, branch } = await convo.fork(ids[1] as string);
+    const { conversation: fork, branch } = await convo.fork(ids[1]);
     assert.ok(fork !== undefined);
     await fork.append(user("in the fork"));
     await convo.assertMergeable(branch);
@@ -384,7 +384,7 @@ describe("mergeFork", () => {
     await files(dir, { "plan.md": "plan\n", "shared.md": "a\nb\nc\n" });
     const ids = await talk(convo);
     const parentTipBefore = (await convo.index()).at(-1);
-    const { conversation: fork, branch, from } = await convo.fork(ids[1] as string);
+    const { conversation: fork, branch, from } = await convo.fork(ids[1]);
     assert.ok(fork !== undefined);
 
     await files(fork.dir, { "plan.md": "plan, revised in the fork\n", "idea.md": "a new idea\n", "shared.md": "a\nB-fork\nc\n" });
@@ -429,7 +429,7 @@ describe("mergeFork", () => {
   test("a fork can be merged again after it moves on, and the second report covers only what is new", async () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
-    const { conversation: fork } = await convo.fork(ids[1] as string);
+    const { conversation: fork } = await convo.fork(ids[1]);
     assert.ok(fork !== undefined);
     await files(fork.dir, { "one.txt": "1\n" });
     await fork.append(user("first piece"));
@@ -448,7 +448,7 @@ describe("mergeFork", () => {
   test("a fork can be merged by name, and conflicting entries stay out of the trunk's transcript", async () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
-    const { conversation: fork, branch } = await convo.fork(ids[0] as string);
+    const { conversation: fork, branch } = await convo.fork(ids[0]);
     await (fork as Conversation).append(user("only in the fork"));
     await convo.mergeFork(branch, { summary: "nothing much" });
     const texts = (await convo.readEntries()).map((e) =>
@@ -466,7 +466,7 @@ describe(slow("crash during a fork"), slowOptions, () => {
     const ids = await talk(probe.convo);
     probeHost.arm(Infinity);
     const base = probeHost.ops;
-    await probe.convo.fork(ids[1] as string, { name: "x" });
+    await probe.convo.fork(ids[1], { name: "x" });
     const total = probeHost.ops - base;
     assert.ok(total >= 5, `expected several operations, saw ${total}`);
 
@@ -475,7 +475,7 @@ describe(slow("crash during a fork"), slowOptions, () => {
       const { dir, convo } = await fresh({}, h);
       const fids = await talk(convo);
       h.arm(k);
-      await assert.rejects(convo.fork(fids[1] as string, { name: "x" }), (e) => e instanceof Error && /injected fault/.test(e.message));
+      await assert.rejects(convo.fork(fids[1], { name: "x" }), (e) => e instanceof Error && /injected fault/.test(e.message));
       const trail = h.log.join(" | ");
 
       const now = Date.now() + 120_000;
@@ -493,7 +493,7 @@ describe(slow("crash during a fork"), slowOptions, () => {
         await assertHistoryInvariants(forked);
         await forked.append(user("usable"));
       } else {
-        await restarted.fork(fids[1] as string, { name: "x" }); // and a retry then works
+        await restarted.fork(fids[1], { name: "x" }); // and a retry then works
       }
     }
   });

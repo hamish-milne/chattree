@@ -96,7 +96,7 @@ async function run(acts: string[], settings: object = { dialect: "toy" }, status
     const def = new AdapterRegistry()
       .register(localModelsDefinition(rt(server), { dialects: [toy], today: () => "2026-11-11" }))
       .get("local-models")!;
-    const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+    const adapter = def.create({ $tag: "local-models" }, { get: () => undefined });
     const result = await collectStream(adapter.stream({ context, setup: setup(settings), signal: new AbortController().signal }));
     return { result, server };
   } finally {
@@ -197,7 +197,7 @@ describe("a model with a dialect", () => {
     );
     try {
       const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [toy] })).get("local-models")!;
-      const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+      const adapter = def.create({ $tag: "local-models" }, { get: () => undefined });
       const ctx = {
         ...context,
         turns: [
@@ -237,7 +237,7 @@ describe("a model with a dialect", () => {
     ]);
     try {
       const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [toy] })).get("local-models")!;
-      const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+      const adapter = def.create({ $tag: "local-models" }, { get: () => undefined });
       await collectStream(adapter.stream({ context, setup: setup({}), signal: new AbortController().signal }));
       assert.equal(server.seen[0]!.url, "/v1/chat/completions");
     } finally {
@@ -273,7 +273,7 @@ describe("pictures to the server", () => {
     render: (i) => {
       const media: (typeof picture)[] = [];
       return {
-        prompt: `${userContent((i.context.turns[0] as unknown as { parts: never[] }).parts, i.marker, media)}`,
+        prompt: userContent((i.context.turns[0] as unknown as { parts: never[] }).parts, i.marker, media),
         stop: [],
         ...(media.length === 0 ? {} : { media }),
       };
@@ -284,7 +284,7 @@ describe("pictures to the server", () => {
     new AdapterRegistry()
       .register(localModelsDefinition(rt(server), { dialects: [seeing], today: () => "2026-11-11" }))
       .get("local-models")!
-      .create({ $tag: "local-models" } as never, { get: () => undefined });
+      .create({ $tag: "local-models" }, { get: () => undefined });
   const ask = (server: FakeServer, c = ctx) =>
     collectStream(adapterFor(server).stream({ context: c, setup: setup({ dialect: "seeing" }), signal: new AbortController().signal }));
 
@@ -462,7 +462,7 @@ describe("a special token the server gives no text", () => {
       const def = new AdapterRegistry()
         .register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" }))
         .get("local-models")!;
-      const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+      const adapter = def.create({ $tag: "local-models" }, { get: () => undefined });
       const result = await collectStream(
         adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }),
       );
@@ -501,7 +501,7 @@ describe("a special token the server gives no text", () => {
       const def = new AdapterRegistry()
         .register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" }))
         .get("local-models")!;
-      const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+      const adapter = def.create({ $tag: "local-models" }, { get: () => undefined });
       const ask = () =>
         collectStream(adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }));
       const first = await ask();
@@ -528,7 +528,7 @@ describe("a special token the server gives no text", () => {
       const def = new AdapterRegistry()
         .register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" }))
         .get("local-models")!;
-      const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
+      const adapter = def.create({ $tag: "local-models" }, { get: () => undefined });
       const result = await collectStream(
         adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }),
       );

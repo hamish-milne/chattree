@@ -650,7 +650,7 @@ describe("background jobs in a session", () => {
                 : x.$tag,
           )
           .join("\n");
-        throw new Error(`${e instanceof Error ? e.message : String(e)}\n--- screen\n${t.screen()}\n--- entries\n${seen}`);
+        throw new Error(`${e instanceof Error ? e.message : String(e)}\n--- screen\n${t.screen()}\n--- entries\n${seen}`, { cause: e });
       }
       assert.match(t.screen(), /background job j1 completed/);
       assert.ok((await entries(dir)).some((e) => e.$tag === "job_event" && e.job === "j1" && e.status === "completed"));

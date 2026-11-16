@@ -131,8 +131,7 @@ export class ControlServer {
       }
       case "POST /pull": {
         const body = await readBody(req);
-        const models =
-          Array.isArray(body["models"]) && body["models"].every((m) => typeof m === "string") ? (body["models"] as string[]) : [];
+        const models = Array.isArray(body["models"]) && body["models"].every((m) => typeof m === "string") ? body["models"] : [];
         t.pull(models, body["force"] === true);
         return json(res, 202, t.status());
       }

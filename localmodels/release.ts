@@ -53,11 +53,7 @@ export function parseAssetName(name: string): ParsedAsset | undefined {
 const OS_NAME: Record<Platform, string> = { windows: "win", linux: "ubuntu", macos: "macos" };
 
 /** `auto` is Metal on a Mac, else the GPU backend the host found (localmodels/gpu.ts), else the CPU. */
-export function resolveBackend(
-  requested: Backend,
-  platform: Platform,
-  gpu?: Exclude<Backend, "auto" | "cpu"> | undefined,
-): Exclude<Backend, "auto"> {
+export function resolveBackend(requested: Backend, platform: Platform, gpu?: Exclude<Backend, "auto" | "cpu">): Exclude<Backend, "auto"> {
   if (requested !== "auto") return requested;
   return platform === "macos" ? "metal" : (gpu ?? "cpu");
 }

@@ -164,7 +164,7 @@ function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => st
       args["background"] === true ? 60 : Math.min((args["timeout_seconds"] as number | undefined) ?? defaultSeconds ?? 120, MAX_TIMEOUT),
     definition: {
       ...tool.definition,
-      input_schema: { ...schema, properties: { ...schema.properties, background: backgroundProp } } as never,
+      input_schema: { ...schema, properties: { ...schema.properties, background: backgroundProp } },
     },
     async execute(args, ctx) {
       if (args["background"] !== true) return inner(args, ctx);

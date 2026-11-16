@@ -112,7 +112,7 @@ export function loadConfigDocument(text: string): { doc: Document.Parsed; issues
 }
 
 function checkRoot(doc: Document.Parsed): Issue | undefined {
-  const c = doc.contents as ParsedNode | null;
+  const c = doc.contents;
   if (c === null || !isMap(c)) return { path: "", message: "a config file must be a map at the top level" };
   return undefined;
 }

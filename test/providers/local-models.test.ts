@@ -42,7 +42,7 @@ function runtime(server: FakeServer | undefined, over: Partial<LocalModelsRuntim
 
 const adapterFor = (rt: LocalModelsRuntime) => {
   const def = new AdapterRegistry().register(localModelsDefinition(rt)).get("local-models")!;
-  return { def, adapter: def.create({ $tag: "local-models" } as never, { get: () => undefined }) };
+  return { def, adapter: def.create({ $tag: "local-models" }, { get: () => undefined }) };
 };
 
 describe("the media a local server takes", () => {

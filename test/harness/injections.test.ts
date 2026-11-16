@@ -56,9 +56,9 @@ describe("harness.yml", () => {
   const ok = async (rules: string) => parseConfig(`providers: {}\ninjections:\n${rules}`, harnessConfig);
   test("defaults, and a valid rule", async () => {
     const r = await parseConfig("providers: {}\n", harnessConfig);
-    assert.ok(r.ok && r.value.injections.usage === true && Object.keys(r.value.injections.rules).length === 0);
+    assert.ok(r.ok && r.value.injections.usage && Object.keys(r.value.injections.rules).length === 0);
     const v = await ok("  usage: false\n  rules:\n    style:\n      every: 10\n      text: Be brief.\n");
-    assert.ok(v.ok && v.value.injections.usage === false && v.value.injections.rules["style"]?.first === false);
+    assert.ok(v.ok && !v.value.injections.usage && v.value.injections.rules["style"]?.first === false);
   });
   test("a rule needs text or a file (not both), a sane key, and a positive interval; a repeated key is a parse error", async () => {
     for (const rules of [

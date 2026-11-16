@@ -78,7 +78,7 @@ export const bashTool: Tool = {
   },
   async execute(args, ctx) {
     const [exe, ...pre] = busybox === undefined ? ["sh"] : [busybox, "sh"];
-    const r = spawnSync(exe as string, [...pre, "-c", String(args["command"])], { cwd: ctx.workspace, encoding: "utf8", timeout: 60_000 });
+    const r = spawnSync(exe, [...pre, "-c", String(args["command"])], { cwd: ctx.workspace, encoding: "utf8", timeout: 60_000 });
     const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trim();
     return { content: out === "" ? "(no output)" : out, is_error: r.status !== 0 };
   },
@@ -133,7 +133,7 @@ const raws: string[] = [];
 export const probeDialect: Dialect = {
   id: "harmony-probe",
   render(input) {
-    const builtins = Object.keys((input.options["builtins"] ?? {}) as Record<string, unknown>);
+    const builtins = Object.keys(input.options["builtins"] ?? {});
     const strings = (input.options["strings"] ?? []) as string[];
     const visible = input.context.tools.filter((t) => !builtins.includes(t.name));
     const kind = input.options["guidance"];

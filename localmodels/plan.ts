@@ -276,9 +276,9 @@ export function presetIni(config: LocalModels, files: Readonly<Record<string, Mo
     if (f.draft !== undefined) lines.push(`model-draft = ${ini(f.draft)}`);
     if (f.template !== undefined) lines.push(`chat-template-file = ${ini(f.template)}`);
     for (const [k, v] of paramLines(m as Params)) lines.push(`${k} = ${ini(v)}`);
-    const s = (m.sampling ?? {}) as Sampling;
+    const s = m.sampling ?? {};
     for (const k of Object.keys(SAMPLING_KEYS) as (keyof Sampling)[])
-      if (s[k] !== undefined) lines.push(`${SAMPLING_KEYS[k]} = ${ini(s[k] as number)}`);
+      if (s[k] !== undefined) lines.push(`${SAMPLING_KEYS[k]} = ${ini(s[k])}`);
     if (m.load_on_startup !== undefined) lines.push(`load-on-startup = ${ini(m.load_on_startup)}`);
     if (m.embeddings === true) lines.push("embeddings = true");
   }

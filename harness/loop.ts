@@ -417,7 +417,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     // A tool that writes harness.yml (the model may) makes the next call wait for the user's approval of the file.
     await convo.assertConfigTrusted();
     const t0 = now();
-    yield { type: "tool.start", callId: call.call_id, name: call.name, args: (call.args ?? {}) as Record<string, unknown> };
+    yield { type: "tool.start", callId: call.call_id, name: call.name, args: call.args ?? {} };
     const checked = registry.check(call);
     if ("error" in checked) {
       yield* record(call, { content: checked.error, is_error: true }, t0);

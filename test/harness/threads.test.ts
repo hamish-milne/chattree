@@ -100,7 +100,7 @@ describe("archiving threads", () => {
       ["main", false],
       ["side", true],
     ]);
-    assert.ok(listed.every((b) => b.lastActivity !== "" && b.running === false));
+    assert.ok(listed.every((b) => b.lastActivity !== "" && !b.running));
     // the entry index and the transcript are unaffected, and the worktree on the branch stays clean
     const thread = side.conversation as Conversation;
     assert.deepEqual(await git(thread.dir, "status", "--porcelain"), "");

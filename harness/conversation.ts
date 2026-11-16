@@ -1665,7 +1665,7 @@ export class Conversation {
         if (wide === undefined || Object.keys(wide).length === 0) return own;
         const merged: Record<string, string> = { ...wide };
         for (const [k, until] of Object.entries(own ?? {}))
-          if (merged[k] === undefined || (untilMs(until) ?? 0) > (untilMs(merged[k] as string) ?? 0)) merged[k] = until;
+          if (merged[k] === undefined || (untilMs(until) ?? 0) > (untilMs(merged[k]) ?? 0)) merged[k] = until;
         return merged;
       },
       grant: async (tool, keys, until, opts) => {

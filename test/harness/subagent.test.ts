@@ -428,7 +428,7 @@ describe(slow("crash during spawn and finish"), slowOptions, () => {
   test("spawning a subagent", async () => {
     await sweep(
       "spawn",
-      async (c) => void (await put(c.dir, { "pending.txt": "p\n" })),
+      async (c) => await put(c.dir, { "pending.txt": "p\n" }),
       (c) => c.spawnSubagent({ brief: "b", callId: "c" }),
     );
   });

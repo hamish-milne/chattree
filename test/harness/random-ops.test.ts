@@ -106,7 +106,7 @@ async function run(seed: number, steps: number): Promise<void> {
         `seed ${seed}: ${[...new Set(log)].join(",")} (${model.length} entries, ${(await convo.listBranches()).length} branches)`,
       );
   } catch (e) {
-    throw new Error(`seed ${seed}: ${log.join(", ")}\n${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
+    throw new Error(`seed ${seed}: ${log.join(", ")}\n${e instanceof Error ? (e.stack ?? e.message) : String(e)}`, { cause: e });
   }
 
   async function check(deep = false): Promise<void> {

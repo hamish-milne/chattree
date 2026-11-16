@@ -37,7 +37,7 @@ export function recordingFetch(
     const res = await real(input, init);
     if (res.body === null) return res;
     const [pass, copy] = res.body.tee();
-    const url = typeof input === "string" ? input : input instanceof URL ? input.href : (input as Request).url;
+    const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
     const body = typeof init?.body === "string" ? init.body : "";
     void (async () => {

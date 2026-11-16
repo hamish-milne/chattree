@@ -133,15 +133,14 @@ describe("the prefix lags an appended change", () => {
     await convo.setupChange({ instructions: await pin("v2") });
     const fork = await convo.fork();
     assert.equal(prefixLags((await fork.conversation?.setup()) as never), true);
-    const e = (apply: object): ChatEntry =>
-      ({
-        $tag: "agent_setup",
-        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
-        reason: "user",
-        model: sonnet,
-        instructions: { hash: "a1".repeat(32), store: "blob" },
-        ...apply,
-      }) as ChatEntry;
+    const e = (apply: object): ChatEntry => ({
+      $tag: "agent_setup",
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      reason: "user",
+      model: sonnet,
+      instructions: { hash: "a1".repeat(32), store: "blob" },
+      ...apply,
+    });
     assert.equal(prefixLags(foldSetup([e({})])), false);
     assert.equal(
       prefixLags(foldSetup([e({ apply: "append" })])),

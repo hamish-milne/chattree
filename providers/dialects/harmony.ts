@@ -180,7 +180,7 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
       const results = new Map((next?.role === "tool_results" ? next.results : []).map((r) => [r.call_id, r]));
       const hasCalls = t.blocks.some((b) => b.type === "tool_call");
       const replay = o.keepReasoning && hasCalls && i > lastUser && sameModel(t, input);
-      for (const b of t.blocks as Block[]) {
+      for (const b of t.blocks) {
         if (b.type === "reasoning") {
           if (replay && b.visible !== undefined && b.visible !== "") out += message("analysis", b.visible);
         } else if (b.type === "text") {

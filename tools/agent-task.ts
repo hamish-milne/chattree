@@ -204,7 +204,7 @@ export async function requireBusybox(given?: string): Promise<string | undefined
   try {
     return await ensureBusybox({ say: (m) => console.error(m) });
   } catch (e) {
-    if (e instanceof BusyboxError) throw new Error(`${e.message}\n${e.hint ?? ""}`.trim());
+    if (e instanceof BusyboxError) throw new Error(`${e.message}\n${e.hint ?? ""}`.trim(), { cause: e });
     throw e;
   }
 }

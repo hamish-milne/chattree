@@ -61,7 +61,7 @@ describe("rendering", () => {
     assert.equal(c.instructions, "be brief");
     assert.equal(c.tools.length, 1);
     const t = c.turns[2];
-    assert.ok(t?.role === "tool_results" && t.results[0]?.content === "done" && t.results[0].truncated === false);
+    assert.ok(t?.role === "tool_results" && t.results[0]?.content === "done" && !t.results[0].truncated);
     assert.deepEqual(c.turns[1], {
       role: "assistant",
       provider: "anthropic",
@@ -236,7 +236,7 @@ describe("blobs and hints", () => {
   test("large texts are read in; without a reader it is an error", async () => {
     const c = ok(await build(entries, { readText: async (r) => `blob:${r.sha256.slice(0, 2)}` }));
     const r = c.turns[2];
-    assert.ok(r?.role === "tool_results" && r.results[0]?.content === "blob:ab" && r.results[0].truncated === true);
+    assert.ok(r?.role === "tool_results" && r.results[0]?.content === "blob:ab" && r.results[0].truncated);
     const a = c.turns[3];
     assert.ok(
       a?.role === "assistant" &&

@@ -11,8 +11,12 @@ import { parseConfig } from "../../src/config.ts";
 const host = nodeHost();
 const SERVER = fileURLToPath(new URL("../support/mcp-server.ts", import.meta.url));
 const deps = { host, cwd: process.cwd(), env: {} };
-const cfg = (over: Partial<McpServerConfig> = {}): McpServerConfig =>
-  ({ command: process.execPath, args: ["--no-warnings", SERVER], allow: {}, ...over }) as McpServerConfig;
+const cfg = (over: Partial<McpServerConfig> = {}): McpServerConfig => ({
+  command: process.execPath,
+  args: ["--no-warnings", SERVER],
+  allow: {},
+  ...over,
+});
 const maker = (name: string, c: McpServerConfig) => ({
   open: () => connectServer(name, c, "accepted", deps),
   list: (client: Parameters<typeof listServer>[0]) => listServer(client, name, c, "accepted", {}),

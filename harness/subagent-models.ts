@@ -166,17 +166,14 @@ export function childModel(
       model: {
         provider: parent.provider,
         id: parent.id,
-        settings: { ...((parent.settings as Record<string, unknown> | undefined) ?? {}), ...(levels[level] as Record<string, unknown>) },
+        settings: { ...(parent.settings ?? {}), ...(levels[level] as Record<string, unknown>) },
       },
       key,
       level,
     };
   }
   const c = chosen as SubagentModel;
-  const parentMax =
-    c.provider === parent.provider
-      ? ((parent.settings as Record<string, unknown> | undefined)?.["max_output_tokens"] as number | undefined)
-      : undefined;
+  const parentMax = c.provider === parent.provider ? (parent.settings?.["max_output_tokens"] as number | undefined) : undefined;
   const cap = c.info.max_output_tokens;
   const max = cap !== undefined && parentMax !== undefined ? Math.min(cap, parentMax) : (cap ?? parentMax);
   if (max === undefined)
@@ -189,7 +186,7 @@ export function childModel(
     model: {
       provider: c.provider,
       id: c.id,
-      settings: { max_output_tokens: max, ...(level === undefined ? {} : (levels[level] as Record<string, unknown>)) },
+      settings: { max_output_tokens: max, ...(level === undefined ? {} : levels[level]) },
     },
     key,
     level,

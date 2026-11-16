@@ -27,7 +27,7 @@ async function setup(files: Record<string, Uint8Array | string>, mmRead = true) 
       workspace: dir,
       host,
       blobs: new MemoryBlobStore(),
-    } as ToolContext)) as ToolOutput;
+    })) as ToolOutput;
   return { run };
 }
 

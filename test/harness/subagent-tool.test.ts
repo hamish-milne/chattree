@@ -345,11 +345,11 @@ describe("the subagent tool", () => {
     assert.equal(q1.length, 1);
     assert.equal(q1[0]?.name, "merge");
     assert.match(q1[0]?.branch ?? "", /^sub\/r-/);
-    assert.deepEqual(await pump.answer(q1[0]?.branch as string, "c1", { allow: false, reason: "not yet" }), { status: "recorded" });
+    assert.deepEqual(await pump.answer(q1[0]?.branch, "c1", { allow: false, reason: "not yet" }), { status: "recorded" });
     await pump.settle();
     const q2 = pump.questions();
     assert.equal(q2[0]?.callId, "c2");
-    await pump.answer(q2[0]?.branch as string, "c2", { allow: true });
+    await pump.answer(q2[0]?.branch, "c2", { allow: true });
     await pump.settle();
     assert.deepEqual(pump.questions(), []);
     const res = (await entries(convo)).find((e) => e.$tag === "subagent_result");
@@ -374,7 +374,7 @@ describe("the subagent tool", () => {
     assert.equal(q.length, 1);
     assert.deepEqual(q[0]?.ancestors, [convo.branch]);
     assert.deepEqual(pump.summary(), { running: 0, blocked: 1, asking: 1, held: 0 });
-    pump.hold(q[0]?.branch as string, "stopped");
+    pump.hold(q[0]?.branch, "stopped");
     assert.equal(pump.summary().held, 1);
   });
 

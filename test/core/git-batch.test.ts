@@ -83,7 +83,7 @@ describe("catFile", () => {
     const { git } = await repoWithHistory();
     const { Git } = await import("../../src/index.ts");
     const { spawn: _unused, ...noSpawn } = nodeHost();
-    const g = await Git.open(noSpawn as Host, { cwd: git.cwd });
+    const g = await Git.open(noSpawn, { cwd: git.cwd });
     const s = await g.catFile();
     assert.equal(dec.decode(await s.read("HEAD:f1.txt")), "content 1\n");
     assert.equal((await s.info("HEAD:f1.txt"))?.type, "blob");

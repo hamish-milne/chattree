@@ -76,7 +76,7 @@ export async function detectMime(name: string, bytes: Uint8Array, override?: { m
     decodeText(bytes, override?.charset);
   } catch (e) {
     if (e instanceof TextAttachmentError && byExt === undefined && bytes.includes(0))
-      throw new Error(`cannot tell what ${name} is (it looks binary); pass --mime if a model can read it`);
+      throw new Error(`cannot tell what ${name} is (it looks binary); pass --mime if a model can read it`, { cause: e });
     throw e instanceof Error ? e : new Error(String(e));
   }
   return { mime: byExt ?? "text/plain", ...(override?.charset === undefined ? {} : { charset: override.charset }) };

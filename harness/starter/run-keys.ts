@@ -243,7 +243,7 @@ const redirectCovered = (
   if (key === undefined) return false;
   const kt = typeof key === "string" ? key : key.target;
   const ct = typeof call === "string" ? call : call.target;
-  if (kind === "out" && typeof call !== "string" && typeof key !== "string" && call.append === false && key.append === true) return false; // `>>` does not allow `>`
+  if (kind === "out" && typeof call !== "string" && typeof key !== "string" && !call.append && key.append) return false; // `>>` does not allow `>`
   return wordMatches(ctx, kt, ct);
 };
 

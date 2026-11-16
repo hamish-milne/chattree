@@ -273,7 +273,7 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
       );
       out += `${spec.results.open ?? ""}${items.join(spec.results.between ?? "")}${spec.results.close ?? ""}`;
     } else {
-      const blocks = t.blocks as Block[];
+      const blocks = t.blocks;
       const content = blocks
         .flatMap((b) => (b.type === "text" ? [b.text] : []))
         .join("")

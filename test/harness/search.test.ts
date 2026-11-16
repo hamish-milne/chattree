@@ -30,7 +30,7 @@ async function world() {
   const sibling = (await main.spawnSubagent({ brief: "check the okapi module", callId: "toolu_2", name: "sub/okapi" }))
     .conversation as Conversation;
   await sibling.append(reply("okapi is fine, ask about the zebra"));
-  const tool = searchTool({ convo: main }) as Tool;
+  const tool = searchTool({ convo: main });
   const run = async (thread: string, args: Record<string, unknown>): Promise<ToolOutput> =>
     (await tool.execute(args, { thread, callId: "c", signal: new AbortController().signal, workspace: dir, host })) as ToolOutput;
   return { dir, main, child, sibling, first, second, tool, run };
@@ -123,7 +123,7 @@ describe("search", () => {
     assert.ok(hit !== undefined);
     const opened = await openEntry(w.main, hit.ref);
     assert.ok("text" in opened && opened.text.includes("the giraffe module has a bug"));
-    const prefix = await openEntry(w.main, `${hit.ref.slice(0, hit.ref.indexOf(":") + 25)}`);
+    const prefix = await openEntry(w.main, hit.ref.slice(0, hit.ref.indexOf(":") + 25));
     assert.ok("text" in prefix, "a prefix of the id is enough when it is unique");
     assert.ok("error" in (await openEntry(w.main, "nonsense")));
     assert.match(

@@ -119,7 +119,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
     } else if (t.role === "assistant") {
       if (!open) out += "<|turn>model\n";
       open = true;
-      const blocks = t.blocks as Block[];
+      const blocks = t.blocks;
       const own = t.provider === input.provider && t.model.split("@")[0] === input.model.split("@")[0];
       const reasoning =
         keep && own && i > lastUser

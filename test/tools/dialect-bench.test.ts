@@ -30,7 +30,7 @@ function model(how: "right" | "no-tools" | "fails"): ProviderAdapter {
           ? reply([{ type: "tool_call", call_id: "b", name: "read", args: { path: "b.txt" } }])
           : reply([{ type: "text", text: "WALRUS and 4417" }], "end_turn");
     },
-  } as unknown as ProviderAdapter;
+  };
 }
 
 const task = TASKS.find((t) => t.name === "read two files")!;

@@ -47,8 +47,8 @@ export const localModelsSettings = compatibleSettings.extend({
 /** What a setup change does: as for any server, and the dialect and its options change the prompt the server sees. */
 export function classifyLocal(from: AgentSetup, to: AgentSetup): Change[] {
   const out = classifyCompatible(from, to);
-  const f = (from.model?.settings ?? {}) as Record<string, unknown>;
-  const t = (to.model?.settings ?? {}) as Record<string, unknown>;
+  const f = from.model?.settings ?? {};
+  const t = to.model?.settings ?? {};
   if (
     from.model !== undefined &&
     to.model !== undefined &&

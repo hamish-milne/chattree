@@ -78,7 +78,7 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
       throw new EditFailed(`${where}: give \`start\` and \`end\` line numbers (to replace or delete lines), or \`after\` (to insert)`);
     if (c.start < 1 || c.end < c.start || c.end > n)
       throw new EditFailed(
-        `${where}: lines ${c.start}-${c.end} are not within the file's ${n} line${n === 1 ? "" : "s"} (start must be at least 1 and end at least start)${n === 0 ? "; the file is empty, so use \`after\`: 0 to add text" : ""}`,
+        `${where}: lines ${c.start}-${c.end} are not within the file's ${n} line${n === 1 ? "" : "s"} (start must be at least 1 and end at least start)${n === 0 ? "; the file is empty, so use `after`: 0 to add text" : ""}`,
       );
     return { index, key: c.start - 1, end: c.end, kind: 1, c };
   });

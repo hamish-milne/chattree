@@ -294,7 +294,7 @@ function coerce(raw: unknown, value: unknown, defs: Schema): unknown {
       // A bare string where an object with one required text property belongs (`files: ["a.txt"]` for `[{path: "a.txt"}]`).
       const only = required.length === 1 ? (required[0] as string) : undefined;
       if (parsed !== undefined) v = parsed;
-      else if (only !== undefined && isObject(props[only]) && (props[only] as Schema)["type"] === "string") return { [only]: v };
+      else if (only !== undefined && isObject(props[only]) && props[only]["type"] === "string") return { [only]: v };
     }
     if (!isObject(v)) return v;
     const out: Record<string, unknown> = {};

@@ -30,7 +30,7 @@ export function samplingSettings(s: Sampling | undefined): { temperature?: numbe
   if (s === undefined) return {};
   const extra: Record<string, number> = {};
   for (const k of ["top_k", "min_p", "repeat_penalty", "presence_penalty", "frequency_penalty"] as const)
-    if (s[k] !== undefined) extra[k] = s[k] as number;
+    if (s[k] !== undefined) extra[k] = s[k];
   return {
     ...(s.temperature === undefined ? {} : { temperature: s.temperature }),
     ...(s.top_p === undefined ? {} : { top_p: s.top_p }),

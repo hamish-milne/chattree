@@ -83,7 +83,7 @@ export class Terminal {
     this.finished = new Promise((r) => (this.#done = r));
     emitKeypressEvents(o.tty.input);
     this.#rl = createInterface({
-      input: o.tty.input as NodeJS.ReadableStream,
+      input: o.tty.input,
       output: this.#gate,
       terminal: true,
       history: [...this.#engine.state.history].reverse(),
@@ -533,7 +533,7 @@ export class Terminal {
     this.#engine.childLine = undefined;
     this.#engine.onResume = undefined;
     this.#engine.onQuestion = undefined;
-    this.#tty.output.write(`${BRACKETED_PASTE_OFF}`);
+    this.#tty.output.write(BRACKETED_PASTE_OFF);
     this.#done();
   }
 }

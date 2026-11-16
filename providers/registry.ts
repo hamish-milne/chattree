@@ -73,7 +73,7 @@ export class AdapterRegistry {
   register<C extends { $tag: string }>(def: AdapterDefinition<C>): this {
     if (this.#defs.has(def.$tag)) throw new Error(`an adapter for $tag ${def.$tag} is already registered`);
     if (!/^[a-z][a-z0-9-]*$/.test(def.$tag)) throw new Error(`invalid adapter $tag ${JSON.stringify(def.$tag)}`);
-    this.#defs.set(def.$tag, def as unknown as AdapterDefinition);
+    this.#defs.set(def.$tag, def);
     return this;
   }
   get(tag: string): AdapterDefinition | undefined {
@@ -190,7 +190,7 @@ export async function validateProviders(
     }
     const r = await def.config["~standard"].validate(p);
     if (r.issues !== undefined) for (const i of r.issues) issues.push({ path: where(name, i.path), message: i.message });
-    else configs.set(name, { def, config: r.value as { $tag: string } });
+    else configs.set(name, { def, config: r.value });
   }
   return { issues, configs };
 }
@@ -225,7 +225,7 @@ export async function buildProviders(
   const { issues, configs } = await validateProviders(providers, registry);
   const values = new Map<string, string>();
   for (const [name, { def, config }] of configs) {
-    for (const env of def.secrets(config as never)) {
+    for (const env of def.secrets(config)) {
       if (values.has(env)) continue;
       const v = await secrets.get(env);
       if (v === undefined || v === "")
@@ -241,9 +241,9 @@ export async function buildProviders(
   const prices = new Map<string, PriceTable>();
   const models = new Map<string, Record<string, ModelInfo>>();
   for (const [name, { def, config }] of configs) {
-    adapters.set(name, def.create(config as never, { get: (n) => values.get(n) }));
-    prices.set(name, def.prices?.(config as never) ?? emptyTable());
-    models.set(name, def.models?.(config as never) ?? {});
+    adapters.set(name, def.create(config, { get: (n) => values.get(n) }));
+    prices.set(name, def.prices?.(config) ?? emptyTable());
+    models.set(name, def.models?.(config) ?? {});
   }
   return { adapters, prices, models, secretValues: [...values.values()] };
 }

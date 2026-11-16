@@ -35,7 +35,7 @@ const problems = async (c: Conversation) => (await verifyHistory(c, { deep: true
 
 describe("folding", () => {
   test("deltas set and remove; the model block is replaced whole; later entries win", () => {
-    const e = (v: object): ChatEntry => ({ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", ...v }) as ChatEntry;
+    const e = (v: object): ChatEntry => ({ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", ...v });
     const s = foldSetup([
       e({ model: sonnet, tools: { set: { a: { hash: H1, store: "blob" }, b: { hash: H1, store: "blob" } } } }),
       e({ tools: { set: { a: { hash: H2, store: "external", ref: "x" } }, remove: ["b"] }, instructions: { hash: H1, store: "blob" } }),

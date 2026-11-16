@@ -24,7 +24,7 @@ export function tapFetch(
   const real = globalThis.fetch;
   const pending = new Set<Promise<void>>();
   let seq = 0;
-  globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+  globalThis.fetch = async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const res = await real(input, init);
     if (!match(url)) return res;
@@ -58,7 +58,7 @@ export function tapFetch(
     pending.add(done);
     void done.finally(() => pending.delete(done));
     return res;
-  }) as typeof fetch;
+  };
   return {
     flush: async () => {
       await Promise.all([...pending]);

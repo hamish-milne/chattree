@@ -38,7 +38,7 @@ describe("continueInterrupted", () => {
 
   test("the wording comes from the agent's renderer", async () => {
     const { convo } = await interrupted();
-    await convo.setupChange({ renderer: "shout" } as never, { allow: ["renderer_changed", "cache_break"] });
+    await convo.setupChange({ renderer: "shout" }, { allow: ["renderer_changed", "cache_break"] });
     await convo.continueInterrupted({ renderers: { shout: { ...chattreeEnglishV1, continueInterrupted: () => "GO ON" } } });
     const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
     assert.match(JSON.stringify(entries.at(-1)), /GO ON/);

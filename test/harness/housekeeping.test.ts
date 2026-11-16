@@ -65,7 +65,7 @@ describe("gcBlobs", () => {
     assert.equal((await convo.gcBlobs()).commit, undefined, "nothing left to collect");
 
     // history is intact: the old commit still has the orphan, the new tip verifies, and the conversation carries on
-    assert.equal((await treeFiles(convo, head!, "blobs")).length, 2);
+    assert.equal((await treeFiles(convo, head, "blobs")).length, 2);
     await convo.append(user("after gc"));
     assert.deepEqual(await verifyHistory(convo, { deep: true }), []);
     await assertHistoryInvariants(convo);
