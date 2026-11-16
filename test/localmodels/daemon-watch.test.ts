@@ -28,7 +28,17 @@ async function setup(o: { serverExtra?: string; idleMinuteMs?: number; models?: 
   const save = async (text: string): Promise<void> => {
     const tmp = `${file}.tmp`; // as an editor does: a new file renamed over the old
     await writeFile(tmp, text);
-    await rename(tmp, file);
+    // Windows refuses to rename over a file that the watcher has open at that moment; an editor retries too
+    for (let attempt = 0; ; attempt++) {
+      try {
+        await rename(tmp, file);
+        return;
+      } catch (e) {
+        const code = (e as NodeJS.ErrnoException).code;
+        if ((code !== "EPERM" && code !== "EBUSY" && code !== "EACCES") || attempt >= 20) throw e;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+    }
   };
   await save(yaml(o.models ?? alpha));
   const daemon = new Daemon({

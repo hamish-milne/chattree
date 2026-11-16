@@ -121,7 +121,7 @@ describe("the ffmpeg setting", () => {
     assert.equal(await initSettingsFile(fresh.io), fresh.path);
     const made = await loadSettings(fresh.io);
     assert.equal(made.ffmpeg, "auto");
-    assert.equal(made.busybox, undefined, "busybox is a Windows setting");
+    assert.equal(made.busybox, process.platform === "win32" ? "auto" : undefined, "busybox is a Windows setting");
     assert.match(await readFile(fresh.path, "utf8"), /# editor:/, "the rest is shown, commented out");
 
     for (const keep of ["# my notes\neditor: code -w\n", "ffmpeg: false\n", ""]) {

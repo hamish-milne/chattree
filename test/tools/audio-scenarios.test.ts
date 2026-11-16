@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { isAbsolute } from "node:path";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -84,7 +85,7 @@ describe("the speech sample set", () => {
     assert.deepEqual(args.slice(args.indexOf("-user_agent"), args.indexOf("-user_agent") + 2), ["-user_agent", USER_AGENT]);
     assert.equal(sourceOf("a b.ogg", "in", () => false), "https://commons.wikimedia.org/wiki/Special:FilePath/a%20b.ogg");
     const local = sourceOf("a.ogg", "in", () => true);
-    assert.ok(local.endsWith("/in/a.ogg") && local.startsWith("/"), "a copy in the input folder is read in place of the URL");
+    assert.ok(local.replaceAll("\\", "/").endsWith("/in/a.ogg") && isAbsolute(local), "a copy in the input folder is read in place of the URL");
     assert.ok(!ffmpegArgs(SAMPLES[1] as (typeof SAMPLES)[number], "o.wav", local).includes("-user_agent"), "no user agent for a file");
     assert.ok(args.includes("-ar") && args.at(-1) === "out.wav" && args[args.indexOf("-i") + 1]?.endsWith("Declaration_of_Independence_Part_1.ogg"));
   });
