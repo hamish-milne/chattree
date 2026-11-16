@@ -43,7 +43,7 @@ developed on 22.23 because that is what the sandbox had.
 | `cli/` | The CLI host (`chattree`; see `docs/cli.md`): project detection, `init`, the engine and command registry, the plain renderer, and the non-interactive verbs (`say`, `show`, `status`, `history`, `threads`, `usage`, `verify`, ...). Session files (`cli/session.ts`), the prompt rules (`cli/prompt.ts`), the readline terminal layer (`cli/terminal.ts`) `chat` (`cli/chat.ts`) and the slash commands (`cli/commands/`) are done; the tool loop is the next big piece |
 
 `src/` uses only web-standard globals (`TextEncoder`, `TextDecoder`, `crypto.subtle`), so it should run
-unchanged on Node, Deno, Bun and browsers. Its tsconfig has `types: []` to enforce that.
+unchanged on Node, Deno, Bun and browsers. `tsconfig.src.json` has `types: []` to enforce that (the root `tsconfig.json` covers everything else, with node types, and is what the linter reads).
 
 ## Tags and the schema pipeline
 

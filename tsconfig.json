@@ -1,10 +1,15 @@
 {
   "compilerOptions": {
     "target": "es2025",
-    "lib": ["es2025", "webworker"],
+    "lib": [
+      "es2025",
+      "webworker"
+    ],
     "module": "nodenext",
     "moduleResolution": "nodenext",
-    "types": [],
+    "types": [
+      "node"
+    ],
     "noEmit": true,
     "strict": true,
     "noUncheckedIndexedAccess": true,
@@ -16,5 +21,16 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "harness",
+    "providers",
+    "test",
+    "bench",
+    "hosts",
+    "cli",
+    "tools",
+    "scripts",
+    "localmodels"
+  ]
 }

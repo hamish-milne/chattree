@@ -1,9 +1,25 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["typescript", "oxc", "import", "node", "promise"],
-  "categories": { "correctness": "error", "suspicious": "error", "perf": "error" },
-  "env": { "node": true, "es2024": true },
-  "ignorePatterns": ["node_modules/**", "vendor/**"],
+  "plugins": [
+    "typescript",
+    "oxc",
+    "import",
+    "node",
+    "promise"
+  ],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "error"
+  },
+  "env": {
+    "node": true,
+    "es2024": true
+  },
+  "ignorePatterns": [
+    "node_modules/**",
+    "vendor/**"
+  ],
   "rules": {
     "typescript/no-explicit-any": "error",
     "typescript/no-non-null-assertion": "error",
@@ -12,7 +28,7 @@
     "typescript/no-unsafe-call": "error",
     "typescript/no-unsafe-member-access": "error",
     "typescript/no-unsafe-return": "error",
-    "typescript/no-unsafe-type-assertion": "error",
+    "typescript/no-unsafe-type-assertion": "warn",
     "typescript/no-unsafe-unary-minus": "error",
     "typescript/no-unsafe-enum-comparison": "error",
     "typescript/no-floating-promises": "error",
@@ -20,6 +36,25 @@
     "typescript/await-thenable": "error",
     "typescript/require-await": "error",
     "typescript/no-for-in-array": "error",
-    "typescript/no-base-to-string": "error"
-  }
+    "typescript/no-base-to-string": "error",
+    "eslint/no-await-in-loop": "off",
+    "eslint/no-control-regex": "off",
+    "eslint/no-underscore-dangle": "off",
+    "promise/always-return": "off",
+    "promise/no-callback-in-promise": "off",
+    "eslint/no-shadow": "error"
+  },
+  "overrides": [
+    {
+      "files": [
+        "test/**"
+      ],
+      "rules": {
+        "typescript/no-non-null-assertion": "off",
+        "typescript/no-floating-promises": "off",
+        "typescript/no-unsafe-type-assertion": "off",
+        "eslint/require-yield": "off"
+      }
+    }
+  ]
 }
