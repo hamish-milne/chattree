@@ -91,7 +91,9 @@ export function findModel(table: PriceTable, id: string): ModelPrice | undefined
   const direct = table.models[id];
   if (direct !== undefined) return direct;
   let best: string | undefined;
-  for (const key of Object.keys(table.models)) if (key !== "*" && id.startsWith(key) && DATED.test(id.slice(key.length)) && (best === undefined || key.length > best.length)) best = key;
+  for (const key of Object.keys(table.models))
+    if (key !== "*" && id.startsWith(key) && DATED.test(id.slice(key.length)) && (best === undefined || key.length > best.length))
+      best = key;
   return best === undefined ? table.models["*"] : table.models[best];
 }
 
@@ -164,7 +166,11 @@ export function costOf(tokens: Tokens, price: ModelPrice | undefined, tier?: str
   if (r === undefined) return { usd: 0, unknown: true };
   let usd = 0;
   let unknown = false;
-  for (const [n, per] of [[tokens.input_tokens, r.input], [tokens.output_tokens, r.output], [read, r.cache_read]] as const) {
+  for (const [n, per] of [
+    [tokens.input_tokens, r.input],
+    [tokens.output_tokens, r.output],
+    [read, r.cache_read],
+  ] as const) {
     if (n === 0) continue;
     if (per === undefined) unknown = true;
     else usd += (n * per) / 1_000_000;

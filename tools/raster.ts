@@ -46,12 +46,14 @@ export class Canvas {
   }
 
   fillRect(x: number, y: number, w: number, h: number, c: Rgb): void {
-    for (let j = Math.max(0, Math.floor(y)); j < Math.min(this.height, Math.ceil(y + h)); j++) for (let i = Math.max(0, Math.floor(x)); i < Math.min(this.width, Math.ceil(x + w)); i++) this.set(i, j, c);
+    for (let j = Math.max(0, Math.floor(y)); j < Math.min(this.height, Math.ceil(y + h)); j++)
+      for (let i = Math.max(0, Math.floor(x)); i < Math.min(this.width, Math.ceil(x + w)); i++) this.set(i, j, c);
   }
 
   /** A disc of radius `r` centred on `cx`, `cy`. */
   fillCircle(cx: number, cy: number, r: number, c: Rgb): void {
-    for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i - cx) ** 2 + (j - cy) ** 2 <= r * r) this.set(i, j, c);
+    for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++)
+      for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i - cx) ** 2 + (j - cy) ** 2 <= r * r) this.set(i, j, c);
   }
 
   /** An upright triangle that fits a box of `size` centred on `cx`, `cy`: apex at the top, base at the bottom. */
@@ -169,7 +171,12 @@ export function encodePng(width: number, height: number, rgb: Uint8Array): Uint8
   const stride = width * 3;
   const raw = new Uint8Array((stride + 1) * height); // each row starts with its filter byte, 0 (none)
   for (let y = 0; y < height; y++) raw.set(rgb.subarray(y * stride, (y + 1) * stride), y * (stride + 1) + 1);
-  const parts = [Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk("IHDR", header), chunk("IDAT", deflateSync(raw)), chunk("IEND", new Uint8Array(0))];
+  const parts = [
+    Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10]),
+    chunk("IHDR", header),
+    chunk("IDAT", deflateSync(raw)),
+    chunk("IEND", new Uint8Array(0)),
+  ];
   const out = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
   let at = 0;
   for (const p of parts) {

@@ -6,8 +6,16 @@ import { scenarios } from "../../tools/vision-scenarios.ts";
 import { FakeServer, type Reply, type Seen } from "../support/fake-server.ts";
 
 const have = spawnSync("ffmpeg", ["-version"]).status === 0;
-const chunk = (delta: object, finish: string | null = null): string => `data: ${JSON.stringify({ id: "c1", model: "fake", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
-const say = (t: string): Reply => ({ acts: [chunk({ content: t }), chunk({}, "stop"), `data: ${JSON.stringify({ id: "c1", model: "fake", choices: [], usage: { prompt_tokens: 10, completion_tokens: 3 } })}\n\n`, "data: [DONE]\n\n"] });
+const chunk = (delta: object, finish: string | null = null): string =>
+  `data: ${JSON.stringify({ id: "c1", model: "fake", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+const say = (t: string): Reply => ({
+  acts: [
+    chunk({ content: t }),
+    chunk({}, "stop"),
+    `data: ${JSON.stringify({ id: "c1", model: "fake", choices: [], usage: { prompt_tokens: 10, completion_tokens: 3 } })}\n\n`,
+    "data: [DONE]\n\n",
+  ],
+});
 const expected = (seed: number, n: number): string[] => scenarios({ kinds: ["shape"], count: n, seed }).map((s) => s.expected);
 
 /** A pretend model that can see: it answers each picture it is sent, in order, with what the scenario made it hold. */
@@ -17,17 +25,30 @@ function sighted(answers: string[], opts: { blind?: boolean } = {}) {
     const body = JSON.parse(seen.body) as { messages: { role: string; content?: unknown }[]; tools?: unknown[] };
     const all = JSON.stringify(body.messages);
     if (all.includes("image_url")) {
-      if (opts.blind === true) return { status: 400, acts: [JSON.stringify({ error: { message: "image input is not supported by this model", type: "invalid_request_error" } })] };
+      if (opts.blind === true)
+        return {
+          status: 400,
+          acts: [JSON.stringify({ error: { message: "image input is not supported by this model", type: "invalid_request_error" } })],
+        };
       return say(answers[n++] ?? "nothing");
     }
-    if (body.tools !== undefined && !all.includes('"role":"tool"')) return { acts: [chunk({ tool_calls: [{ index: 0, id: "t1", type: "function", function: { name: "show_picture", arguments: "{}" } }] }), chunk({}, "tool_calls"), "data: [DONE]\n\n"] };
+    if (body.tools !== undefined && !all.includes('"role":"tool"'))
+      return {
+        acts: [
+          chunk({ tool_calls: [{ index: 0, id: "t1", type: "function", function: { name: "show_picture", arguments: "{}" } }] }),
+          chunk({}, "tool_calls"),
+          "data: [DONE]\n\n",
+        ],
+      };
     return say("pong");
   };
 }
 const run = async (script: ReturnType<typeof sighted>, only: string[]) => {
   const server = await FakeServer.start(script);
   try {
-    return Object.fromEntries((await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only })).map((r) => [r.name, r]));
+    return Object.fromEntries(
+      (await runLiveChecks({ flavor: "openai-compatible", baseUrl: `${server.url}/v1`, model: "fake", only })).map((r) => [r.name, r]),
+    );
   } finally {
     await server.close();
   }

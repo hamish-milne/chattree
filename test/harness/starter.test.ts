@@ -4,7 +4,17 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { findBusybox, nodeHost } from "../../hosts/node.ts";
 import { MemoryBlobStore } from "../../src/index.ts";
-import { PathRefused, applyChanges, versionOf, type Change, expandEnv, expandGlob, GlobError, leafTools, resolveInWorkspace } from "../../harness/starter/index.ts";
+import {
+  PathRefused,
+  applyChanges,
+  versionOf,
+  type Change,
+  expandEnv,
+  expandGlob,
+  GlobError,
+  leafTools,
+  resolveInWorkspace,
+} from "../../harness/starter/index.ts";
 import { expandBraces } from "../../harness/starter/glob.ts";
 import { ToolRegistry, isStarted, type Tool, type ToolContext, type ToolOutput } from "../../harness/tools.ts";
 import { tempDir } from "../support/tmp.ts";
@@ -24,7 +34,12 @@ async function workspace(files: Record<string, string> = {}) {
   }
   const blobs = new MemoryBlobStore();
   const bb = await findBusybox(); // Windows only: the utilities and sh come from the busybox that CI (or tools/fetch-busybox.ts) installed
-  const registry = new ToolRegistry(leafTools({ env: { allow: ["CT_ALLOWED"], values: { CT_ALLOWED: "yes", CT_OTHER: "no" } }, ...(bb === undefined ? {} : { busybox: bb }) }));
+  const registry = new ToolRegistry(
+    leafTools({
+      env: { allow: ["CT_ALLOWED"], values: { CT_ALLOWED: "yes", CT_OTHER: "no" } },
+      ...(bb === undefined ? {} : { busybox: bb }),
+    }),
+  );
   const ctx = (signal = new AbortController().signal): ToolContext => ({ signal, callId: "c1", workspace: dir, host, blobs });
   const call = async (name: string, args: unknown, signal?: AbortSignal): Promise<ToolOutput> => {
     const checked = registry.check({ name, args });
@@ -38,10 +53,20 @@ describe("the starter tools are valid registry entries", () => {
   test("all six register, with portable schemas, and a bad call is caught before it runs", async () => {
     const { registry } = await workspace();
     assert.deepEqual(registry.names(), ["edit", "mm_read", "read", "run", "script", "write"]);
-    assert.match((registry.check({ name: "read", args: { files: [{ path: "a", bogus: 1 }] } }) as { error: string }).error, /bogus is not a known argument/);
-    assert.match((registry.check({ name: "run", args: { argv: ["ls"] } }) as { error: string }).error, /argv is not a known argument \(known: command, timeout_seconds, background\)/);
+    assert.match(
+      (registry.check({ name: "read", args: { files: [{ path: "a", bogus: 1 }] } }) as { error: string }).error,
+      /bogus is not a known argument/,
+    );
+    assert.match(
+      (registry.check({ name: "run", args: { argv: ["ls"] } }) as { error: string }).error,
+      /argv is not a known argument \(known: command, timeout_seconds, background\)/,
+    );
     assert.match((registry.check({ name: "run", args: {} }) as { error: string }).error, /command is required/);
-    assert.match((registry.check({ name: "write", args: { content: "x" } }) as { error: string }).error, /path is required \(the arguments are: path, content\)/, "a missing argument says what the tool takes");
+    assert.match(
+      (registry.check({ name: "write", args: { content: "x" } }) as { error: string }).error,
+      /path is required \(the arguments are: path, content\)/,
+      "a missing argument says what the tool takes",
+    );
   });
 });
 
@@ -60,19 +85,48 @@ describe("the workspace boundary", () => {
     await writeFile(join(outside, "secret.txt"), "s");
     await symlink(join(outside, "secret.txt"), join(dir, "link.txt"));
     await symlink(outside, join(dir, "linkdir"));
-    for (const p of ["../x", "a/../../x", outside, join(outside, "secret.txt"), "link.txt", "linkdir/secret.txt", "linkdir/new.txt", "linkdir/sub/new.txt"]) {
-      for (const mode of ["read", "write"] as const) await assert.rejects(resolveInWorkspace(host, dir, p, mode), (e) => e instanceof PathRefused && /outside the workspace/.test(e.message), `${p} (${mode})`);
+    for (const p of [
+      "../x",
+      "a/../../x",
+      outside,
+      join(outside, "secret.txt"),
+      "link.txt",
+      "linkdir/secret.txt",
+      "linkdir/new.txt",
+      "linkdir/sub/new.txt",
+    ]) {
+      for (const mode of ["read", "write"] as const)
+        await assert.rejects(
+          resolveInWorkspace(host, dir, p, mode),
+          (e) => e instanceof PathRefused && /outside the workspace/.test(e.message),
+          `${p} (${mode})`,
+        );
     }
     await assert.rejects(resolveInWorkspace(host, dir, "", "read"), PathRefused);
     await assert.rejects(resolveInWorkspace(host, dir, "a\0b", "read"), PathRefused);
   });
 
   test("the conversation, its config, git's files, local state and blobs cannot be written; git and local state cannot be read", async () => {
-    const { dir } = await workspace({ "chat.yml": "x", "harness.yml": "x", ".git/config": "x", ".chattree/env": "K=v", "blobs/ab/cd": "x" });
+    const { dir } = await workspace({
+      "chat.yml": "x",
+      "harness.yml": "x",
+      ".git/config": "x",
+      ".chattree/env": "K=v",
+      "blobs/ab/cd": "x",
+    });
     for (const p of ["chat.yml", "harness.yml", ".git/config", ".git/hooks/pre-commit", ".chattree/env", "blobs/ab/cd", "blobs/new"]) {
-      await assert.rejects(resolveInWorkspace(host, dir, p, "write"), (e) => e instanceof PathRefused && /cannot be written/.test(e.message), p);
+      await assert.rejects(
+        resolveInWorkspace(host, dir, p, "write"),
+        (e) => e instanceof PathRefused && /cannot be written/.test(e.message),
+        p,
+      );
     }
-    for (const p of [".git/config", ".chattree/env"]) await assert.rejects(resolveInWorkspace(host, dir, p, "read"), (e) => e instanceof PathRefused && /cannot be read/.test(e.message), p);
+    for (const p of [".git/config", ".chattree/env"])
+      await assert.rejects(
+        resolveInWorkspace(host, dir, p, "read"),
+        (e) => e instanceof PathRefused && /cannot be read/.test(e.message),
+        p,
+      );
     assert.equal(await resolveInWorkspace(host, dir, "chat.yml", "read"), join(dir, "chat.yml"));
     assert.equal(await resolveInWorkspace(host, dir, "blobs/ab/cd", "read"), join(dir, "blobs/ab/cd"));
   });
@@ -85,7 +139,10 @@ describe("read", () => {
     const whole = await call("read", { path: "b.txt" });
     assert.match(whole.content, /^=== b.txt \(1 line, version [0-9a-f]{8}\) ===\n1\tonly$/);
     const part = await call("read", { path: "a.txt", offset: 2, limit: 3 });
-    assert.match(part.content, /^=== a.txt \(lines 3-5 of 12, version [0-9a-f]{8}\) ===\n3\tline 3\n4\tline 4\n5\tline 5\n\.\.\. 7 more lines; read again with offset 5 for the rest$/);
+    assert.match(
+      part.content,
+      /^=== a.txt \(lines 3-5 of 12, version [0-9a-f]{8}\) ===\n3\tline 3\n4\tline 4\n5\tline 5\n\.\.\. 7 more lines; read again with offset 5 for the rest$/,
+    );
     const tail = await call("read", { path: "a.txt", offset: 9 });
     assert.match(tail.content, /lines 10-12 of 12/);
     assert.match(tail.content, /^ ?10\tline 10$/m.source.replace("^ ?", "") ? /10\tline 10/ : /x/);
@@ -139,8 +196,14 @@ describe("write", () => {
     const created = await call("write", { path: "new/deep/a.txt", content: "héllo" });
     assert.equal(created.is_error, undefined);
     assert.match(created.content, /^created new\/deep\/a.txt \(6 bytes, version [0-9a-f]{8}\)$/);
-    assert.match((await call("write", { path: "old.txt", content: "x" })).content, /^replaced old.txt \(1 bytes, was 5, version [0-9a-f]{8}\)$/);
-    assert.match((await call("write", { path: "run.sh", content: "#!/bin/sh\necho\n" })).content, /^replaced run.sh \(15 bytes, was 10, version [0-9a-f]{8}\)$/);
+    assert.match(
+      (await call("write", { path: "old.txt", content: "x" })).content,
+      /^replaced old.txt \(1 bytes, was 5, version [0-9a-f]{8}\)$/,
+    );
+    assert.match(
+      (await call("write", { path: "run.sh", content: "#!/bin/sh\necho\n" })).content,
+      /^replaced run.sh \(15 bytes, was 10, version [0-9a-f]{8}\)$/,
+    );
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "new/deep/a.txt"))), "héllo");
     if (process.platform !== "win32") assert.equal((await stat(join(dir, "run.sh"))).mode & 0o777, 0o755); // Windows has no executable bit
   });
@@ -189,15 +252,24 @@ describe("edit", () => {
   });
 
   test("all changes in a call use the numbering as read, in any order, however they shift one another", () => {
-    const r = apply(L, { start: 4, end: 4, content: "D" }, { start: 1, end: 1, content: "A1\nA2" }, { after: 2, content: "mid" }, { start: 3, end: 3, content: "" });
+    const r = apply(
+      L,
+      { start: 4, end: 4, content: "D" },
+      { start: 1, end: 1, content: "A1\nA2" },
+      { after: 2, content: "mid" },
+      { start: 3, end: 3, content: "" },
+    );
     assert.equal(r.text, "A1\nA2\nb\nmid\nD\n");
     assert.equal(r.lines, 5);
-    assert.deepEqual(r.report.map((x) => x.split("\n")[0]), [
-      "change 2: replaced lines 1-1 with 2 lines; now lines 1-2; the lines after it moved down by 1",
-      "change 3: inserted 1 line after line 2; now lines 4-4; the lines after it moved down by 1",
-      "change 4: deleted lines 3-3; line 5 is now what followed them; the lines after it moved up by 1",
-      "change 1: replaced lines 4-4 with 1 line; now lines 5-5",
-    ]);
+    assert.deepEqual(
+      r.report.map((x) => x.split("\n")[0]),
+      [
+        "change 2: replaced lines 1-1 with 2 lines; now lines 1-2; the lines after it moved down by 1",
+        "change 3: inserted 1 line after line 2; now lines 4-4; the lines after it moved down by 1",
+        "change 4: deleted lines 3-3; line 5 is now what followed them; the lines after it moved up by 1",
+        "change 1: replaced lines 4-4 with 1 line; now lines 5-5",
+      ],
+    );
   });
 
   test("the report shows what was removed and what was added, with the new numbers, and clips long ones", () => {
@@ -209,10 +281,22 @@ describe("edit", () => {
   test("the report shows the line before and after each change as the file now is, so a doubled line is visible", () => {
     const code = "function add(a, b) {\n  // TODO\n  return 0;\n}\n";
     const r = apply(code, { start: 1, end: 3, content: "function add(a, b) {\n  return a + b;\n}" });
-    assert.equal(r.report[0], "change 1: replaced lines 1-3 with 3 lines; now lines 1-3\n- 1\tfunction add(a, b) {\n- 2\t  // TODO\n- 3\t  return 0;\n+ 1\tfunction add(a, b) {\n+ 2\t  return a + b;\n+ 3\t}\n  4\t}");
-    assert.equal(apply(L, { after: 0, content: "top" }).report[0], "change 1: inserted 1 line after line 0; now lines 1-1; the lines after it moved down by 1\n+ 1\ttop\n  2\ta");
-    assert.equal(apply(L, { after: 4, content: "end" }).report[0], "change 1: inserted 1 line after line 4; now lines 5-5\n  4\td\n+ 5\tend");
-    assert.equal(apply(L, { start: 2, end: 3, content: "" }).report[0], "change 1: deleted lines 2-3; line 2 is now what followed them; the lines after it moved up by 2\n- 2\tb\n- 3\tc\n  1\ta\n  2\td");
+    assert.equal(
+      r.report[0],
+      "change 1: replaced lines 1-3 with 3 lines; now lines 1-3\n- 1\tfunction add(a, b) {\n- 2\t  // TODO\n- 3\t  return 0;\n+ 1\tfunction add(a, b) {\n+ 2\t  return a + b;\n+ 3\t}\n  4\t}",
+    );
+    assert.equal(
+      apply(L, { after: 0, content: "top" }).report[0],
+      "change 1: inserted 1 line after line 0; now lines 1-1; the lines after it moved down by 1\n+ 1\ttop\n  2\ta",
+    );
+    assert.equal(
+      apply(L, { after: 4, content: "end" }).report[0],
+      "change 1: inserted 1 line after line 4; now lines 5-5\n  4\td\n+ 5\tend",
+    );
+    assert.equal(
+      apply(L, { start: 2, end: 3, content: "" }).report[0],
+      "change 1: deleted lines 2-3; line 2 is now what followed them; the lines after it moved up by 2\n- 2\tb\n- 3\tc\n  1\ta\n  2\td",
+    );
   });
 
   test("bad numbers, both shapes at once, an empty insert, and overlaps are refused with the file's size", () => {
@@ -227,13 +311,21 @@ describe("edit", () => {
     assert.throws(() => apply(L, { after: 2, content: "" }), /insert needs `content`/);
     assert.throws(() => apply("", { start: 1, end: 1, content: "x" }), /file is empty, so use `after`: 0/);
     assert.equal(apply("", { after: 0, content: "hi" }).text, "hi\n");
-    assert.equal(apply(L, { after: 1, content: "x" }, { start: 2, end: 2, content: "y" }).text, "a\nx\ny\nc\nd\n", "touching changes do not overlap");
+    assert.equal(
+      apply(L, { after: 1, content: "x" }, { start: 2, end: 2, content: "y" }).text,
+      "a\nx\ny\nc\nd\n",
+      "touching changes do not overlap",
+    );
   });
 
   test("line endings are kept: CRLF files, and a file with no final newline", () => {
     assert.equal(apply("a\r\nb\r\nc\r\n", { start: 2, end: 2, content: "X\nY" }).text, "a\r\nX\r\nY\r\nc\r\n");
     assert.equal(apply("a\nb\nc", { start: 3, end: 3, content: "Z" }).text, "a\nb\nZ");
-    assert.equal(apply("a\nb\nc", { after: 3, content: "d" }).text, "a\nb\nc\nd", "appending to an unterminated file terminates the old last line only");
+    assert.equal(
+      apply("a\nb\nc", { after: 3, content: "d" }).text,
+      "a\nb\nc\nd",
+      "appending to an unterminated file terminates the old last line only",
+    );
     assert.equal(apply("a\nb\nc", { start: 1, end: 3, content: "" }).text, "");
   });
 
@@ -259,7 +351,10 @@ describe("edit", () => {
     assert.equal(outside.is_error, true);
     assert.match(outside.content, /failed: a.txt: change 1: lines 9-9 are not within.*nothing in it was changed/);
     assert.equal(await disk(), "alpha\nBETA\ngamma\n");
-    assert.match((await call("edit", { path: "missing.txt", version: "x", after: 0, content: "x" })).content, /does not exist \(use write to create it\)/);
+    assert.match(
+      (await call("edit", { path: "missing.txt", version: "x", after: 0, content: "x" })).content,
+      /does not exist \(use write to create it\)/,
+    );
     assert.match((await call("edit", { path: "harness.yml", version: "x", after: 0, content: "x" })).content, /cannot be written/);
   });
 
@@ -270,19 +365,35 @@ describe("edit", () => {
     assert.equal(echoed.is_error, true);
     assert.match(echoed.content, /starts every line with its line number and a tab.*nothing in it was changed/);
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "alpha\nbeta\n");
-    assert.equal((await call("edit", { path: "a.txt", version: v, after: 2, content: "3\tthree" })).is_error, true, "an insert is numbered from the line after");
-    assert.equal((await call("edit", { path: "a.txt", version: v, start: 1, end: 1, content: "7\tseven" })).is_error, undefined, "other numbers are the user's text");
+    assert.equal(
+      (await call("edit", { path: "a.txt", version: v, after: 2, content: "3\tthree" })).is_error,
+      true,
+      "an insert is numbered from the line after",
+    );
+    assert.equal(
+      (await call("edit", { path: "a.txt", version: v, start: 1, end: 1, content: "7\tseven" })).is_error,
+      undefined,
+      "other numbers are the user's text",
+    );
   });
 
   test("another change to the same file uses the version and numbers the last result gave", async () => {
     const { dir, call } = await workspace({ "a.txt": "1\n2\n3\n4\n" });
     let v = await versionOf(new TextEncoder().encode("1\n2\n3\n4\n"));
-    for (const change of [{ start: 4, end: 4, content: "four" }, { after: 2, content: "two and a half" }, { start: 1, end: 1 }]) {
+    for (const change of [
+      { start: 4, end: 4, content: "four" },
+      { after: 2, content: "two and a half" },
+      { start: 1, end: 1 },
+    ]) {
       const r = await call("edit", { path: "a.txt", version: v, ...change });
       assert.equal(r.is_error, undefined, r.content);
       v = /version ([0-9a-f]{8})\)/.exec(r.content)?.[1] as string;
     }
-    assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "2\ntwo and a half\n3\nfour\n", "content may be left out to delete");
+    assert.equal(
+      new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))),
+      "2\ntwo and a half\n3\nfour\n",
+      "content may be left out to delete",
+    );
   });
 
   test("end defaults to start, so one line needs only start; end alone is still an error", async () => {
@@ -294,7 +405,12 @@ describe("edit", () => {
     const nv = /version ([0-9a-f]{8})\)/.exec(r.content)?.[1] as string;
     const del = await call("edit", { path: "a.txt", version: nv, start: 1 });
     assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "TWO\nthree\n", del.content);
-    const bad = await call("edit", { path: "a.txt", version: await versionOf(new TextEncoder().encode("TWO\nthree\n")), end: 2, content: "x" });
+    const bad = await call("edit", {
+      path: "a.txt",
+      version: await versionOf(new TextEncoder().encode("TWO\nthree\n")),
+      end: 2,
+      content: "x",
+    });
     assert.match(bad.content, /give `start` and `end`/);
   });
 
@@ -330,7 +446,17 @@ describe("edit", () => {
       assert.equal(new TextDecoder().decode(await host.fs.read(join(dir, "a.txt"))), "one\nTWO\n");
       await redo();
     }
-    await assert.rejects(call("edit", { path: "a.txt", version: v, changes: [{ start: 1, end: 1, content: "x" }, { start: 2, end: 2, content: "y" }] }), /changes is not a known argument \(known: path, version, start, end, after, content\)/);
+    await assert.rejects(
+      call("edit", {
+        path: "a.txt",
+        version: v,
+        changes: [
+          { start: 1, end: 1, content: "x" },
+          { start: 2, end: 2, content: "y" },
+        ],
+      }),
+      /changes is not a known argument \(known: path, version, start, end, after, content\)/,
+    );
     assert.equal((await call("read", { files: ["a.txt"] })).is_error, false, "a lone path in a list is a path");
     assert.equal((await call("read", { file: "a.txt" })).is_error, false);
     await assert.rejects(call("read", { files: ["a.txt", "b.txt"] }), /files is not a known argument \(known: path, offset, limit\)/);
@@ -349,7 +475,17 @@ describe("edit", () => {
 
 describe("glob", () => {
   async function tree() {
-    return workspace({ "a.ts": "", "b.ts": "", "c.js": "", ".hidden.ts": "", "src/x.ts": "", "src/y.js": "", "src/deep/z.ts": "", "src/.dot/w.ts": "", "docs/readme.md": "" });
+    return workspace({
+      "a.ts": "",
+      "b.ts": "",
+      "c.js": "",
+      ".hidden.ts": "",
+      "src/x.ts": "",
+      "src/y.js": "",
+      "src/deep/z.ts": "",
+      "src/.dot/w.ts": "",
+      "docs/readme.md": "",
+    });
   }
 
   test("braces expand, and a lone {x} stays literal", () => {
@@ -401,25 +537,49 @@ describe("run", () => {
     assert.equal(fail.content, "exit 4\nbad");
     assert.equal(fail.is_error, true);
     assert.equal((await call("run", { command: `${q} -e ""` })).content, "exit 0\n(no output)");
-    assert.match((await call("run", { command: "no-such-program-xyz --flag" })).content, /exit 127\nno-such-program-xyz: command not found/);
+    assert.match(
+      (await call("run", { command: "no-such-program-xyz --flag" })).content,
+      /exit 127\nno-such-program-xyz: command not found/,
+    );
   });
 
   test("git is refused by default, with the reason, and allowed by tools.run.git", async () => {
     const { call, dir } = await workspace();
     const r = await call("run", { command: "git log --oneline" });
     assert.equal(r.is_error, true);
-    assert.match(r.content, /git is not used here: the working directory is a repository that stores a log of this conversation.*saved automatically.*tools\.run\.git/);
-    assert.match((await call("run", { command: "echo hi | git hash-object --stdin" })).content, /git is not used here/, "in a pipeline too");
+    assert.match(
+      r.content,
+      /git is not used here: the working directory is a repository that stores a log of this conversation.*saved automatically.*tools\.run\.git/,
+    );
+    assert.match(
+      (await call("run", { command: "echo hi | git hash-object --stdin" })).content,
+      /git is not used here/,
+      "in a pipeline too",
+    );
     const tools = new ToolRegistry(leafTools({ git: true }));
     const checked = tools.check({ name: "run", args: { command: "git --version" } });
     if ("error" in checked) throw new Error(checked.error);
-    const out = text(await checked.tool.execute(checked.args, { signal: new AbortController().signal, callId: "c2", workspace: dir, host, blobs: new MemoryBlobStore() }));
+    const out = text(
+      await checked.tool.execute(checked.args, {
+        signal: new AbortController().signal,
+        callId: "c2",
+        workspace: dir,
+        host,
+        blobs: new MemoryBlobStore(),
+      }),
+    );
     assert.doesNotMatch(out.content, /not used here/);
   });
 
   test("syntax run does not do is an error result that says what to use instead", async () => {
     const { call } = await workspace();
-    for (const [command, re] of [["echo a; echo b", /`;` is not supported by run \(use the script tool/], ["echo a && echo b", /`&&`/], ["echo $(date)", /\$\(\.\.\.\)/], ["", /empty/], ["FOO=1 node -v", /setting a variable/]] as const) {
+    for (const [command, re] of [
+      ["echo a; echo b", /`;` is not supported by run \(use the script tool/],
+      ["echo a && echo b", /`&&`/],
+      ["echo $(date)", /\$\(\.\.\.\)/],
+      ["", /empty/],
+      ["FOO=1 node -v", /setting a variable/],
+    ] as const) {
       const r = await call("run", { command });
       assert.equal(r.is_error, true, command);
       assert.match(r.content, re, command);
@@ -449,7 +609,10 @@ describe("run", () => {
     assert.equal(ok.content, "exit 0\nv=yes/yes|$CT_OTHER|yes");
     const denied = await call("run", { command: `${q} -e "" $CT_OTHER` });
     assert.equal(denied.is_error, true);
-    assert.match(denied.content, /\$CT_OTHER is not an allowed environment variable \(names are listed under tools\.env in harness\.yml\); for a literal \$ use the script tool/);
+    assert.match(
+      denied.content,
+      /\$CT_OTHER is not an allowed environment variable \(names are listed under tools\.env in harness\.yml\); for a literal \$ use the script tool/,
+    );
     assert.match((await call("run", { command: `${q} -e "" $NOT_THERE` })).content, /\$NOT_THERE is not an allowed/);
     assert.equal(expandEnv("$A-$B", { allow: "*", values: { A: "1", B: "2" } }), "1-2");
     assert.throws(() => expandEnv("$A", { allow: "*", values: {} }), /\$A is not set/);
@@ -498,7 +661,9 @@ describe("run", () => {
     process.env["CT_FAKE_API_KEY"] = "k1";
     process.env["CT_PLAIN_VAR"] = "p1";
     try {
-      const r = await call("run", { command: `${q} -e "console.log(process.cwd(), process.env.CT_FAKE_API_KEY ?? '-', process.env.CT_PLAIN_VAR ?? '-')"` });
+      const r = await call("run", {
+        command: `${q} -e "console.log(process.cwd(), process.env.CT_FAKE_API_KEY ?? '-', process.env.CT_PLAIN_VAR ?? '-')"`,
+      });
       assert.equal(r.content, `exit 0\n${dir} - p1`);
     } finally {
       delete process.env["CT_FAKE_API_KEY"];
@@ -509,11 +674,22 @@ describe("run", () => {
   test("on a Windows host the utilities are started as busybox applets, and without busybox the model is told", async () => {
     const dir = await tempDir();
     const started: (readonly (readonly string[])[])[] = [];
-    const windows = { ...host, platform: "windows" as const, run: async (spec: Parameters<NonNullable<typeof host.run>>[0]) => (started.push(spec.stages), { exitCode: 0, stageCodes: [0], output: new Uint8Array(), dropped: 0, timedOut: false, aborted: false }) };
+    const windows = {
+      ...host,
+      platform: "windows" as const,
+      run: async (spec: Parameters<NonNullable<typeof host.run>>[0]) => (
+        started.push(spec.stages),
+        { exitCode: 0, stageCodes: [0], output: new Uint8Array(), dropped: 0, timedOut: false, aborted: false }
+      ),
+    };
     const ctx: ToolContext = { signal: new AbortController().signal, callId: "c", workspace: dir, host: windows };
     const withBb = new ToolRegistry(leafTools({ busybox: "C:\\tools\\busybox.exe" })).get("run") as Tool;
     await withBb.execute({ command: "cat a.txt | sort | node -v" }, ctx);
-    assert.deepEqual(started[0], [["C:\\tools\\busybox.exe", "cat", "a.txt"], ["C:\\tools\\busybox.exe", "sort"], ["node", "-v"]]);
+    assert.deepEqual(started[0], [
+      ["C:\\tools\\busybox.exe", "cat", "a.txt"],
+      ["C:\\tools\\busybox.exe", "sort"],
+      ["node", "-v"],
+    ]);
     const without = new ToolRegistry(leafTools()).get("run") as Tool;
     const r = (await without.execute({ command: "ls -la" }, ctx)) as ToolOutput;
     assert.equal(r.is_error, true);
@@ -526,9 +702,19 @@ describe("script", () => {
   test("is POSIX sh everywhere: on a Windows host it is busybox's sh, and without busybox the model is told", async () => {
     const dir = await tempDir();
     const started: (readonly (readonly string[])[])[] = [];
-    const windows = { ...host, platform: "windows" as const, run: async (spec: Parameters<NonNullable<typeof host.run>>[0]) => (started.push(spec.stages), { exitCode: 0, stageCodes: [0], output: new Uint8Array(), dropped: 0, timedOut: false, aborted: false }) };
+    const windows = {
+      ...host,
+      platform: "windows" as const,
+      run: async (spec: Parameters<NonNullable<typeof host.run>>[0]) => (
+        started.push(spec.stages),
+        { exitCode: 0, stageCodes: [0], output: new Uint8Array(), dropped: 0, timedOut: false, aborted: false }
+      ),
+    };
     const ctx: ToolContext = { signal: new AbortController().signal, callId: "c", workspace: dir, host: windows };
-    await (new ToolRegistry(leafTools({ busybox: "C:\\bb\\busybox.exe" })).get("script") as Tool).execute({ script: "for i in 1 2; do echo $i; done" }, ctx);
+    await (new ToolRegistry(leafTools({ busybox: "C:\\bb\\busybox.exe" })).get("script") as Tool).execute(
+      { script: "for i in 1 2; do echo $i; done" },
+      ctx,
+    );
     assert.deepEqual(started[0], [["C:\\bb\\busybox.exe", "sh", "-c", "for i in 1 2; do echo $i; done"]]);
     const r = (await (new ToolRegistry(leafTools()).get("script") as Tool).execute({ script: "echo hi" }, ctx)) as ToolOutput;
     assert.equal(r.is_error, true);
@@ -544,7 +730,9 @@ describe("script", () => {
 
   test("runs shell syntax, with stderr merged in order and the exit code first", async () => {
     const { call } = await workspace({ "x.txt": "hi" });
-    const r = await call("script", { script: "echo start && cat x.txt && echo && sleep 0.2 && echo oops >&2; sleep 0.2; for i in 1 2; do echo $i; done; exit 3" });
+    const r = await call("script", {
+      script: "echo start && cat x.txt && echo && sleep 0.2 && echo oops >&2; sleep 0.2; for i in 1 2; do echo $i; done; exit 3",
+    });
     assert.equal(r.is_error, true);
     assert.equal(r.content, "exit 3\nstart\nhi\noops\n1\n2");
   });
@@ -562,7 +750,12 @@ import { test as t2 } from "node:test";
 t2("a write to a name Windows cannot keep is refused, a read is not", async () => {
   const dir = await tempDir();
   const host = nodeHost();
-  for (const p of ["calc..", "dir /x.txt", "a.txt ", "sub/b.", 'q"x', "what?"]) await assert.rejects(resolveInWorkspace(host, dir, p, "write"), (e) => e instanceof PathRefused && /not a usable file name/.test(e.message), p);
+  for (const p of ["calc..", "dir /x.txt", "a.txt ", "sub/b.", 'q"x', "what?"])
+    await assert.rejects(
+      resolveInWorkspace(host, dir, p, "write"),
+      (e) => e instanceof PathRefused && /not a usable file name/.test(e.message),
+      p,
+    );
   for (const p of ["calc.js", ".gitignore", "a b/c.txt", "./x/../y.txt", "..data/x"]) await resolveInWorkspace(host, dir, p, "write");
   await resolveInWorkspace(host, dir, "calc..", "read");
 });
@@ -570,15 +763,50 @@ t2("a write to a name Windows cannot keep is refused, a read is not", async () =
 t2("a rename that Windows refuses for a moment is tried again, and one that is refused for good is raised", async () => {
   let calls = 0;
   const eperm = Object.assign(new Error("EPERM"), { code: "EPERM" });
-  await renameReplacing("a", "b", { windows: true, sleep: async () => {}, rename: async () => { if (++calls < 30) throw eperm; } });
+  await renameReplacing("a", "b", {
+    windows: true,
+    sleep: async () => {},
+    rename: async () => {
+      if (++calls < 30) throw eperm;
+    },
+  });
   assert.equal(calls, 30);
   calls = 0;
-  await assert.rejects(renameReplacing("a", "b", { windows: true, sleep: async () => {}, rename: async () => { calls++; throw eperm; } }), /EPERM/);
+  await assert.rejects(
+    renameReplacing("a", "b", {
+      windows: true,
+      sleep: async () => {},
+      rename: async () => {
+        calls++;
+        throw eperm;
+      },
+    }),
+    /EPERM/,
+  );
   assert.equal(calls, 50);
   calls = 0;
-  await assert.rejects(renameReplacing("a", "b", { windows: false, rename: async () => { calls++; throw eperm; } }), /EPERM/);
+  await assert.rejects(
+    renameReplacing("a", "b", {
+      windows: false,
+      rename: async () => {
+        calls++;
+        throw eperm;
+      },
+    }),
+    /EPERM/,
+  );
   assert.equal(calls, 1);
   calls = 0;
-  await assert.rejects(renameReplacing("a", "b", { windows: true, sleep: async () => {}, rename: async () => { calls++; throw Object.assign(new Error("ENOENT"), { code: "ENOENT" }); } }), /ENOENT/);
+  await assert.rejects(
+    renameReplacing("a", "b", {
+      windows: true,
+      sleep: async () => {},
+      rename: async () => {
+        calls++;
+        throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+      },
+    }),
+    /ENOENT/,
+  );
   assert.equal(calls, 1);
 });

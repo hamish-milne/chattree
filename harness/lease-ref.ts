@@ -62,7 +62,10 @@ export function refLeaseBackend(git: Git, o: RefLeaseOptions): LeaseBackend {
     const c = looked.get(ref);
     if (c !== undefined && now() - c.at < cacheMs) return c.rev;
     const out = (await git.run(["ls-remote", o.remote, ref], { readOnly: true })).stdout;
-    const line = dec.decode(out).split("\n").find((l) => l.endsWith(`\t${ref}`));
+    const line = dec
+      .decode(out)
+      .split("\n")
+      .find((l) => l.endsWith(`\t${ref}`));
     const rev = line === undefined ? undefined : (line.split("\t")[0] as string);
     looked.set(ref, { rev, at: now() });
     return rev;
@@ -72,7 +75,9 @@ export function refLeaseBackend(git: Git, o: RefLeaseOptions): LeaseBackend {
   const push = async (branch: string, source: string, expected: string): Promise<boolean> => {
     const ref = leaseRef(branch);
     looked.delete(ref);
-    const r = await git.run(["push", "--porcelain", "--quiet", o.remote, `${source}:${ref}`, `--force-with-lease=${ref}:${expected}`], { ok: [1] });
+    const r = await git.run(["push", "--porcelain", "--quiet", o.remote, `${source}:${ref}`, `--force-with-lease=${ref}:${expected}`], {
+      ok: [1],
+    });
     return r.exitCode === 0;
   };
 

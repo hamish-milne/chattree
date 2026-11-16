@@ -36,7 +36,10 @@ describe("run leases kept as refs on a shared remote", () => {
     const s = await b.inspect("main", env);
     assert.equal(s.state, "live");
     if (s.state === "live") assert.deepEqual([s.owner, s.holding], [me, ["loop"]]);
-    await assert.rejects(b.hold("main", you, env, "loop", now() + 5000), (e: unknown) => e instanceof ThreadBusy && e.holder.owner.session === "one");
+    await assert.rejects(
+      b.hold("main", you, env, "loop", now() + 5000),
+      (e: unknown) => e instanceof ThreadBusy && e.holder.owner.session === "one",
+    );
     assert.equal(await a.hold("main", me, env, "job:j1", now() + 60_000), "ours", "renewing is a compare-and-swap on what it wrote");
     await a.drop("main", "loop");
     assert.equal((await b.inspect("main", env)).state, "live", "a job keeps it");
@@ -50,13 +53,16 @@ describe("run leases kept as refs on a shared remote", () => {
     await a.hold("main", me, env, "loop", now() + 5000);
     clock.advance(5001);
     assert.equal((await b.inspect("main", env)).state, "stale");
-    const results = await Promise.allSettled([b.hold("main", you, env, "loop", now() + 5000), c.hold("main", { pid: 3, host: "c", session: "three" }, env, "loop", now() + 5000)]);
+    const results = await Promise.allSettled([
+      b.hold("main", you, env, "loop", now() + 5000),
+      c.hold("main", { pid: 3, host: "c", session: "three" }, env, "loop", now() + 5000),
+    ]);
     assert.equal(results.filter((r) => r.status === "fulfilled").length, 1, "one took it");
     const lost = results.find((r) => r.status === "rejected");
     assert.ok(lost?.status === "rejected" && lost.reason instanceof ThreadBusy);
     const winner = results.find((r) => r.status === "fulfilled");
     // Of two clones taking a stale lease over, the one whose create lands after the other has removed it (and before the other's create) finds
-  // nothing there and is told "free": the answer is informational (what the thread's state is comes from reading the lease), so either is right.
+    // nothing there and is told "free": the answer is informational (what the thread's state is comes from reading the lease), so either is right.
     assert.ok(winner?.status === "fulfilled" && (winner.value === "stale" || winner.value === "free"), "the winner is told what it found");
   });
 
@@ -104,6 +110,10 @@ describe("leases.remote in harness.yml", () => {
     assert.equal((await a.leaseState()).state, "live");
     await store.releaseAll();
     assert.deepEqual(await a.leaseState(), { state: "free" });
-    assert.equal(new TextDecoder().decode((await host.exec("git", ["ls-remote", remote], { cwd: root })).stdout).includes("leases"), false, "released: the ref is gone");
+    assert.equal(
+      new TextDecoder().decode((await host.exec("git", ["ls-remote", remote], { cwd: root })).stdout).includes("leases"),
+      false,
+      "released: the ref is gone",
+    );
   });
 });

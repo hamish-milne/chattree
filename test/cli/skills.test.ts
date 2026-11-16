@@ -30,7 +30,8 @@ type Msg = { role: string; content: string };
 const sent = (server: FakeServer, n: number): Msg[] => (JSON.parse(server.seen[n]?.body ?? "") as { messages: Msg[] }).messages;
 const system = (server: FakeServer, n: number): string => sent(server, n)[0]?.content ?? "";
 const dialogue = (server: FakeServer, n: number): string => JSON.stringify(sent(server, n).slice(1));
-const md = (name: string, description: string, body = `${name} body`): string => `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
+const md = (name: string, description: string, body = `${name} body`): string =>
+  `---\nname: ${name}\ndescription: ${description}\n---\n\n${body}\n`;
 async function skill(dir: string, name: string, text: string, where = ".agents/skills"): Promise<void> {
   await mkdir(join(dir, where, name), { recursive: true });
   await writeFile(join(dir, where, name, "SKILL.md"), text);
@@ -51,7 +52,11 @@ describe("/skills and /skill", () => {
       assert.match(r.all, /on disk: 1 added \(greet\); \/skills sync takes them \(skills\.follow is ask\)/);
       assert.match(r.all, /bad-one[\\/]SKILL\.md: it does not start with a ---/);
       assert.match(r.all, /skills updated: 1 added \(greet\)/);
-      assert.match(r.out, /greet {2}\[in the catalog\] {2}Say hello nicely/, "no request has been made yet, so it went straight into the prefix");
+      assert.match(
+        r.out,
+        /greet {2}\[in the catalog\] {2}Say hello nicely/,
+        "no request has been made yet, so it went straight into the prefix",
+      );
       assert.match(r.all, /the skills are already what is on disk/);
       assert.match(system(server, 0), /\[Skills\][\s\S]*- greet: Say hello nicely/);
     } finally {
@@ -67,9 +72,21 @@ describe("/skills and /skill", () => {
       assert.match(r.all, /there is no skill nope pinned to this thread/);
       assert.match(r.err, /which skill\?/);
       const last = sent(server, 0).at(-1)?.content ?? "";
-      assert.equal(last, "[The user invoked the skill greet; follow it]\nSkill: greet\nDirectory: .agents/skills/greet (relative to the workspace). Files this skill mentions are in that directory.\n\nGreet warmly.\n\nThe user's request: to the new colleague");
+      assert.equal(
+        last,
+        "[The user invoked the skill greet; follow it]\nSkill: greet\nDirectory: .agents/skills/greet (relative to the workspace). Files this skill mentions are in that directory.\n\nGreet warmly.\n\nThe user's request: to the new colleague",
+      );
       const entries = (await (await Conversation.open(host, dir)).readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-      assert.ok(entries.some((e) => e.$tag === "user" && e.content.some((c) => c.$tag === "text" && typeof c.text === "string" && c.text.startsWith("[The user invoked the skill greet"))), "recorded as a user entry");
+      assert.ok(
+        entries.some(
+          (e) =>
+            e.$tag === "user" &&
+            e.content.some(
+              (c) => c.$tag === "text" && typeof c.text === "string" && c.text.startsWith("[The user invoked the skill greet"),
+            ),
+        ),
+        "recorded as a user entry",
+      );
     } finally {
       await server.close();
     }
@@ -129,7 +146,10 @@ describe("following the disk", () => {
       const lastN = server.seen.length - 1;
       assert.equal(system(server, lastN), system(server, lastN - 1), "the cached prefix is untouched");
       assert.doesNotMatch(system(server, lastN), /second/);
-      assert.match(dialogue(server, lastN), /The skills changed[\s\S]*Added:\\n- second: A skill added later\\nChanged[\s\S]*- first: The first skill/);
+      assert.match(
+        dialogue(server, lastN),
+        /The skills changed[\s\S]*Added:\\n- second: A skill added later\\nChanged[\s\S]*- first: The first skill/,
+      );
       assert.match(r2.all, /skills updated: 1 added \(second\), 1 changed \(first\)/);
     } finally {
       await server.close();
@@ -149,7 +169,10 @@ describe("following the disk", () => {
       const r2 = await session(dir, ["again"]);
       assert.match(r2.all, /skills followed the disk: 1 added \(second\), 1 removed \(first\)/);
       assert.equal(system(server, 1), system(server, 0));
-      assert.match(dialogue(server, 1), /Added:\\n- second: Added while running\\nRemoved \(the skill tool no longer serves these\):\\n- first/);
+      assert.match(
+        dialogue(server, 1),
+        /Added:\\n- second: Added while running\\nRemoved \(the skill tool no longer serves these\):\\n- first/,
+      );
       const setup = await (await Conversation.open(host, dir)).setup();
       assert.deepEqual(Object.keys(setup.skills), ["second"]);
       assert.deepEqual(Object.keys(setup.prefix.skills).sort(), ["first"], "the old catalog line stays until a rebuild");
@@ -203,7 +226,10 @@ describe("following the disk", () => {
   test("without the skill tool in harness.yml the model is not shown a catalog it could not use, and /skills says why", async () => {
     const { server, dir } = await started([answer("ok")]);
     try {
-      await writeFile(join(dir, "harness.yml"), (await readFile(join(dir, "harness.yml"), "utf8")).replace("  skill:\n    allow: { all: 2999-01-01 }\n", ""));
+      await writeFile(
+        join(dir, "harness.yml"),
+        (await readFile(join(dir, "harness.yml"), "utf8")).replace("  skill:\n    allow: { all: 2999-01-01 }\n", ""),
+      );
       await approve(dir);
       await skill(dir, "greet", md("greet", "Say hello"));
       const r = await session(dir, ["/skills sync", "hello", "/skills"]);
@@ -242,7 +268,10 @@ describe("the status line and the setting", () => {
   test("skills.follow is auto, ask or off; anything else is refused", async () => {
     const ok = await parseConfig("skills:\n  follow: auto\n", harnessConfig);
     assert.ok(ok.ok && ok.value.skills.follow === "auto");
-    assert.ok((await parseConfig("providers: {}\n", harnessConfig)).ok && ((await parseConfig("providers: {}\n", harnessConfig)) as { value: { skills: { follow: string } } }).value.skills.follow === "ask");
+    assert.ok(
+      (await parseConfig("providers: {}\n", harnessConfig)).ok &&
+        ((await parseConfig("providers: {}\n", harnessConfig)) as { value: { skills: { follow: string } } }).value.skills.follow === "ask",
+    );
     assert.ok(!(await parseConfig("skills:\n  follow: sometimes\n", harnessConfig)).ok);
   });
 });

@@ -86,7 +86,12 @@ export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
     const offset = (await sizeOf(part)) ?? 0;
     const hash = createHash("sha256");
     if (offset > 0) await feed(part, hash);
-    const res = await fetchFollow(o.url, { fetch: o.fetch, token: o.token, signal: o.signal, headers: offset > 0 ? { range: `bytes=${offset}-` } : {} });
+    const res = await fetchFollow(o.url, {
+      fetch: o.fetch,
+      token: o.token,
+      signal: o.signal,
+      headers: offset > 0 ? { range: `bytes=${offset}-` } : {},
+    });
 
     const start = async (): Promise<boolean> => {
       // a part that cannot be continued is thrown away, once
@@ -122,10 +127,17 @@ export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
       } catch (e) {
         await fh.close();
         if (o.signal?.aborted === true) throw e;
-        throw new DownloadError(`the download of ${o.url} stopped after ${received} bytes (${e instanceof Error ? e.message : String(e)}); running it again continues from there`, "network");
+        throw new DownloadError(
+          `the download of ${o.url} stopped after ${received} bytes (${e instanceof Error ? e.message : String(e)}); running it again continues from there`,
+          "network",
+        );
       }
       await fh.close();
-      if (expected !== undefined && received < expected) throw new DownloadError(`the download of ${o.url} ended early (${received} of ${expected} bytes); running it again continues from there`, "network");
+      if (expected !== undefined && received < expected)
+        throw new DownloadError(
+          `the download of ${o.url} ended early (${received} of ${expected} bytes); running it again continues from there`,
+          "network",
+        );
     }
 
     const size = (await sizeOf(part)) ?? 0;

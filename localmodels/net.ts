@@ -37,10 +37,17 @@ export async function fetchFollow(url: string, o: FollowOptions = {}): Promise<R
     if (o.token !== undefined && new URL(at).host === first) headers["authorization"] = `Bearer ${o.token}`;
     let res: Response;
     try {
-      res = await doFetch(at, { method: o.method ?? "GET", headers, redirect: "manual", ...(o.signal === undefined ? {} : { signal: o.signal }) });
+      res = await doFetch(at, {
+        method: o.method ?? "GET",
+        headers,
+        redirect: "manual",
+        ...(o.signal === undefined ? {} : { signal: o.signal }),
+      });
     } catch (e) {
       if (o.signal?.aborted === true) throw e;
-      throw new FetchError(`could not reach ${new URL(at).host}: ${e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e)}`);
+      throw new FetchError(
+        `could not reach ${new URL(at).host}: ${e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e)}`,
+      );
     }
     if (res.status >= 300 && res.status < 400 && res.headers.has("location")) {
       if (o.manual === true && hop === 0) return res;
@@ -50,7 +57,12 @@ export async function fetchFollow(url: string, o: FollowOptions = {}): Promise<R
     }
     if (res.status >= 400 && res.status !== 416) {
       await res.body?.cancel();
-      const why = res.status === 401 || res.status === 403 ? " (a private or gated repository needs a token: set hf_token_env)" : res.status === 404 ? " (not found)" : "";
+      const why =
+        res.status === 401 || res.status === 403
+          ? " (a private or gated repository needs a token: set hf_token_env)"
+          : res.status === 404
+            ? " (not found)"
+            : "";
       throw new FetchError(`${new URL(at).host} answered ${res.status}${why} for ${url}`, res.status);
     }
     return res;

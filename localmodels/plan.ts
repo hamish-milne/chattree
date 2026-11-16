@@ -1,6 +1,16 @@
 import { createHash } from "node:crypto";
 import type { Host } from "../src/host.ts";
-import { hfUrl, isDraftType, modelSource, type LocalModels, type ModelEntry, type ModelSource, type Sampling, type Sidecar, type Speculative } from "./config.ts";
+import {
+  hfUrl,
+  isDraftType,
+  modelSource,
+  type LocalModels,
+  type ModelEntry,
+  type ModelSource,
+  type Sampling,
+  type Sidecar,
+  type Speculative,
+} from "./config.ts";
 
 /**
  * From settings to what the host has to do (docs/local-models.md, section 6): the files to have, the preset file and the arguments
@@ -20,7 +30,10 @@ export function dataDir(
   const set = env["CHATTREE_DATA"];
   if (set !== undefined && set !== "") return host.path.resolve(set);
   const home = env["HOME"] === undefined || env["HOME"] === "" ? undefined : env["HOME"];
-  const base = host.platform === "windows" ? env["LOCALAPPDATA"] : (env["XDG_DATA_HOME"] ?? (home === undefined ? undefined : host.path.join(home, ".local", "share")));
+  const base =
+    host.platform === "windows"
+      ? env["LOCALAPPDATA"]
+      : (env["XDG_DATA_HOME"] ?? (home === undefined ? undefined : host.path.join(home, ".local", "share")));
   return base === undefined || base === "" ? undefined : host.path.join(base, "chattree");
 }
 
@@ -60,7 +73,8 @@ export interface PlanIssue {
 /** Where every downloaded file is kept: `files/<16 hex digits of the SHA-256 of its address>/<file name>`, so models that name the same file share it. */
 export const filesDir = (path: PathApi, data: string): string => path.join(data, "files");
 export const sourceHash = (url: string): string => createHash("sha256").update(url).digest("hex").slice(0, 16);
-export const fileDest = (path: PathApi, data: string, url: string, file: string): string => path.join(filesDir(path, data), sourceHash(url), file);
+export const fileDest = (path: PathApi, data: string, url: string, file: string): string =>
+  path.join(filesDir(path, data), sourceHash(url), file);
 /** The directory the files of a model were kept in before they were shared (`models/<name>/`); only read, to bring them across. */
 export const legacyDir = (path: PathApi, data: string, model: string): string => path.join(data, "models", model);
 
@@ -77,12 +91,32 @@ export function downloadList(config: LocalModels, path: PathApi, data: string): 
       continue;
     }
     if (source.kind === "hf-quant") {
-      downloads.push({ model, role: "model", url: undefined, file: undefined, sha256: m.sha256, dir, dest: undefined, resolve: { repo: source.repo, revision: source.revision, quant: source.quant } });
+      downloads.push({
+        model,
+        role: "model",
+        url: undefined,
+        file: undefined,
+        sha256: m.sha256,
+        dir,
+        dest: undefined,
+        resolve: { repo: source.repo, revision: source.revision, quant: source.quant },
+      });
     } else {
       const url = source.kind === "url" ? source.url : hfUrl(source.repo, source.revision, source.file);
-      downloads.push({ model, role: "model", url, file: source.file, sha256: m.sha256, dir, dest: fileDest(path, data, url, source.file.split("/").at(-1) as string) });
+      downloads.push({
+        model,
+        role: "model",
+        url,
+        file: source.file,
+        sha256: m.sha256,
+        dir,
+        dest: fileDest(path, data, url, source.file.split("/").at(-1) as string),
+      });
     }
-    for (const [role, spec] of [["mmproj", m.mmproj], ["draft", m.speculative !== undefined && isDraftType(m.speculative.type) ? m.speculative.draft : undefined]] as const) {
+    for (const [role, spec] of [
+      ["mmproj", m.mmproj],
+      ["draft", m.speculative !== undefined && isDraftType(m.speculative.type) ? m.speculative.draft : undefined],
+    ] as const) {
       if (spec !== undefined) downloads.push(sidecarDownload(model, role, spec, source, dir, path, data));
     }
   }
@@ -90,12 +124,47 @@ export function downloadList(config: LocalModels, path: PathApi, data: string): 
 }
 
 /** The download of a file that goes with a model (`Sidecar`): fetched from where the settings say, or looked for in a repository. */
-function sidecarDownload(model: string, role: "mmproj" | "draft", spec: Sidecar, source: ModelSource, dir: string, path: PathApi, data: string): Download {
-  const direct = (url: string, file: string, sha256: string | undefined): Download => ({ model, role, url, file, sha256, dir, dest: fileDest(path, data, url, file.split("/").at(-1) as string) });
-  const lookup = (resolve: Resolve, sha256: string | undefined): Download => ({ model, role, url: undefined, file: undefined, sha256, dir, dest: undefined, resolve });
+function sidecarDownload(
+  model: string,
+  role: "mmproj" | "draft",
+  spec: Sidecar,
+  source: ModelSource,
+  dir: string,
+  path: PathApi,
+  data: string,
+): Download {
+  const direct = (url: string, file: string, sha256: string | undefined): Download => ({
+    model,
+    role,
+    url,
+    file,
+    sha256,
+    dir,
+    dest: fileDest(path, data, url, file.split("/").at(-1) as string),
+  });
+  const lookup = (resolve: Resolve, sha256: string | undefined): Download => ({
+    model,
+    role,
+    url: undefined,
+    file: undefined,
+    sha256,
+    dir,
+    dest: undefined,
+    resolve,
+  });
   const own = source.kind === "url" ? undefined : { repo: source.repo, revision: source.revision };
   if (spec === "auto") return lookup({ ...(own as { repo: string; revision: string }), quant: undefined, pick: role }, undefined);
-  if (spec.url !== undefined) return direct(spec.url, decodeURIComponent(new URL(spec.url).pathname.split("/").filter((s) => s !== "").at(-1) ?? ""), spec.sha256);
+  if (spec.url !== undefined)
+    return direct(
+      spec.url,
+      decodeURIComponent(
+        new URL(spec.url).pathname
+          .split("/")
+          .filter((s) => s !== "")
+          .at(-1) ?? "",
+      ),
+      spec.sha256,
+    );
   if (spec.hf === undefined) {
     const o = own as { repo: string; revision: string };
     return direct(hfUrl(o.repo, o.revision, spec.file as string), spec.file as string, spec.sha256);
@@ -156,7 +225,9 @@ function specLines(sp: Speculative): [string, number | string][] {
   return out;
 }
 
-type Params = Partial<Record<keyof typeof PARAM_KEYS, string | number | boolean>> & { speculative?: Speculative | undefined } & { options?: Record<string, string | number | boolean> | undefined };
+type Params = Partial<Record<keyof typeof PARAM_KEYS, string | number | boolean>> & { speculative?: Speculative | undefined } & {
+  options?: Record<string, string | number | boolean> | undefined;
+};
 
 function paramLines(p: Params): [string, string | number | boolean][] {
   const out: [string, string | number | boolean][] = [];
@@ -165,7 +236,8 @@ function paramLines(p: Params): [string, string | number | boolean][] {
     if (v !== undefined) out.push([PARAM_KEYS[k], v]);
   }
   if (p.speculative !== undefined) out.push(...specLines(p.speculative));
-  for (const k of Object.keys(p.options ?? {}).sort()) out.push([k, (p.options as Record<string, string | number | boolean>)[k] as string | number | boolean]);
+  for (const k of Object.keys(p.options ?? {}).sort())
+    out.push([k, (p.options as Record<string, string | number | boolean>)[k] as string | number | boolean]);
   return out;
 }
 
@@ -205,7 +277,8 @@ export function presetIni(config: LocalModels, files: Readonly<Record<string, Mo
     if (f.template !== undefined) lines.push(`chat-template-file = ${ini(f.template)}`);
     for (const [k, v] of paramLines(m as Params)) lines.push(`${k} = ${ini(v)}`);
     const s = (m.sampling ?? {}) as Sampling;
-    for (const k of Object.keys(SAMPLING_KEYS) as (keyof Sampling)[]) if (s[k] !== undefined) lines.push(`${SAMPLING_KEYS[k]} = ${ini(s[k] as number)}`);
+    for (const k of Object.keys(SAMPLING_KEYS) as (keyof Sampling)[])
+      if (s[k] !== undefined) lines.push(`${SAMPLING_KEYS[k]} = ${ini(s[k] as number)}`);
     if (m.load_on_startup !== undefined) lines.push(`load-on-startup = ${ini(m.load_on_startup)}`);
     if (m.embeddings === true) lines.push("embeddings = true");
   }

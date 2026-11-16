@@ -97,8 +97,10 @@ async function partsOf(convo: Conversation, e: ChatEntry, reasoning: boolean, no
     case "assistant":
       for (const b of e.blocks) {
         if (b.$tag === "text") out.push({ kind: "assistant", text: await read(b.text) });
-        else if (b.$tag === "tool_call") out.push({ kind: "tool call", text: `${b.name} ${JSON.stringify(await inlineBlobs(b.args ?? {}, read))}` });
-        else if (b.$tag === "reasoning" && reasoning && b.visible !== undefined) out.push({ kind: "reasoning", text: await read(b.visible) });
+        else if (b.$tag === "tool_call")
+          out.push({ kind: "tool call", text: `${b.name} ${JSON.stringify(await inlineBlobs(b.args ?? {}, read))}` });
+        else if (b.$tag === "reasoning" && reasoning && b.visible !== undefined)
+          out.push({ kind: "reasoning", text: await read(b.visible) });
       }
       break;
     case "tool_result":
@@ -146,7 +148,10 @@ export function terms(query: string): string[] {
 /** A pattern whose shape can take exponential time is refused: a regular expression from a model must not hang the process. */
 function safeRegex(query: string): RegExp {
   if (query.length > MAX_QUERY) throw new SearchError(`a regular expression may be at most ${MAX_QUERY} characters`);
-  if (/\([^)]*[+*][^)]*\)[+*{]/.test(query) || /\\[1-9]/.test(query) || /\(\?<?[=!]/.test(query)) throw new SearchError("that expression repeats a group, uses a back-reference or looks around, which can take very long: write it more simply, or search for words");
+  if (/\([^)]*[+*][^)]*\)[+*{]/.test(query) || /\\[1-9]/.test(query) || /\(\?<?[=!]/.test(query))
+    throw new SearchError(
+      "that expression repeats a group, uses a back-reference or looks around, which can take very long: write it more simply, or search for words",
+    );
   try {
     return new RegExp(query, "gi");
   } catch (e) {
@@ -188,7 +193,10 @@ function matcher(opts: SearchOptions): (text: string) => { score: number; at: nu
 const EXCERPT = 200;
 function excerpt(text: string, at: number): string {
   const from = Math.max(0, at - 60);
-  const piece = text.slice(from, from + EXCERPT).replace(/\s+/g, " ").trim();
+  const piece = text
+    .slice(from, from + EXCERPT)
+    .replace(/\s+/g, " ")
+    .trim();
   return `${from > 0 ? "…" : ""}${piece}${from + EXCERPT < text.length ? "…" : ""}`;
 }
 
@@ -201,7 +209,8 @@ function arrange(asker: string, tree: Tree, branches: readonly string[]): Map<st
   const out = new Map<string, { relation: Hit["relation"]; rank: number }>();
   out.set(asker, { relation: "self", rank: 0 });
   const chain: string[] = [];
-  for (let at = tree.origin.get(asker); at !== undefined && !chain.includes(at) && chain.length < 50; at = tree.origin.get(at)) chain.push(at);
+  for (let at = tree.origin.get(asker); at !== undefined && !chain.includes(at) && chain.length < 50; at = tree.origin.get(at))
+    chain.push(at);
   chain.forEach((b, i) => out.set(b, { relation: i === 0 ? "parent" : "ancestor", rank: 1 + i }));
   const depth = (b: string): number | undefined => {
     for (let at = tree.origin.get(b), d = 1; at !== undefined && d < 50; at = tree.origin.get(at), d++) if (at === asker) return d;
@@ -213,7 +222,8 @@ function arrange(asker: string, tree: Tree, branches: readonly string[]): Map<st
     if (d !== undefined) out.set(b, { relation: d === 1 ? "child" : "descendant", rank: 100 + d });
   }
   const mine = tree.origin.get(asker);
-  for (const b of branches) if (!out.has(b) && mine !== undefined && tree.origin.get(b) === mine) out.set(b, { relation: "sibling", rank: 200 });
+  for (const b of branches)
+    if (!out.has(b) && mine !== undefined && tree.origin.get(b) === mine) out.set(b, { relation: "sibling", rank: 200 });
   for (const b of branches) if (!out.has(b)) out.set(b, { relation: "other", rank: 300 });
   return out;
 }
@@ -238,7 +248,9 @@ async function load(convo: Conversation, asker: string, notes: Set<string>) {
 
 /** Which threads a scope covers, for the asker. */
 function inScope(scope: Scope, asker: string, order: Map<string, { relation: Hit["relation"]; rank: number }>): Set<string> {
-  const names = [...order.entries()].filter(([name, o]) => (scope === "project" ? true : scope === "family" ? o.relation !== "other" : name === asker)).map(([n]) => n);
+  const names = [...order.entries()]
+    .filter(([name, o]) => (scope === "project" ? true : scope === "family" ? o.relation !== "other" : name === asker))
+    .map(([n]) => n);
   return new Set(names);
 }
 
@@ -266,9 +278,11 @@ export async function search(convo: Conversation, asker: string, opts: SearchOpt
   }
   const candidates: { thread: string; n: number; e: ChatEntry }[] = [];
   if (scope === "thread") {
-    for (const [n, e] of mine.entries()) candidates.push({ thread: "id" in e && typeof e.id === "string" ? (owner.get(e.id) ?? asker) : asker, n, e });
+    for (const [n, e] of mine.entries())
+      candidates.push({ thread: "id" in e && typeof e.id === "string" ? (owner.get(e.id) ?? asker) : asker, n, e });
   } else {
-    for (const name of covered) for (const [n, e] of (own.get(name) as ChatEntry[]).entries()) candidates.push({ thread: name, n: n + 1, e });
+    for (const name of covered)
+      for (const [n, e] of (own.get(name) as ChatEntry[]).entries()) candidates.push({ thread: name, n: n + 1, e });
   }
   const hits: Hit[] = [];
   const claimed = new Set<string>();
@@ -285,9 +299,17 @@ export async function search(convo: Conversation, asker: string, opts: SearchOpt
     }
     if (best === undefined) continue;
     claimed.add(e.id);
-    hits.push({ ref: `${thread}:${e.id}`, thread, n, kind: best.part.kind, relation: (order.get(thread) ?? { relation: "other" }).relation, excerpt: excerpt(best.text, best.at), score: total });
+    hits.push({
+      ref: `${thread}:${e.id}`,
+      thread,
+      n,
+      kind: best.part.kind,
+      relation: (order.get(thread) ?? { relation: "other" }).relation,
+      excerpt: excerpt(best.text, best.at),
+      score: total,
+    });
   }
-  const rank = (h: Hit): number => (order.get(h.thread)?.rank ?? 999);
+  const rank = (h: Hit): number => order.get(h.thread)?.rank ?? 999;
   hits.sort((a, b) => rank(a) - rank(b) || (a.thread === b.thread ? b.score - a.score || b.ref.localeCompare(a.ref) : 0));
   return { hits: hits.slice(0, limit), total: hits.length, threads: covered.size, notes: [...notes] };
 }
@@ -311,7 +333,13 @@ export async function openEntry(convo: Conversation, ref: string): Promise<{ tex
   if (tip === undefined) return { error: `there is no thread ${r.thread}` };
   const entries = await entriesAt(convo, r.thread, tip);
   const hits = entries.filter((e) => "id" in e && typeof e.id === "string" && e.id.startsWith(r.id));
-  if (hits.length !== 1) return { error: hits.length === 0 ? `thread ${r.thread} has no entry ${r.id}` : `${r.id} matches ${hits.length} entries of ${r.thread}: give more of the id` };
+  if (hits.length !== 1)
+    return {
+      error:
+        hits.length === 0
+          ? `thread ${r.thread} has no entry ${r.id}`
+          : `${r.id} matches ${hits.length} entries of ${r.thread}: give more of the id`,
+    };
   const e = hits[0] as ChatEntry & { id: string };
   const notes = new Set<string>();
   const parts = await partsOf(convo, e, true, notes);
@@ -324,11 +352,14 @@ export async function openEntry(convo: Conversation, ref: string): Promise<{ tex
     used += Math.min(p.text.length, room);
   }
   const blobs = blobNames(e);
-  return { text: `${r.thread}:${e.id} (${e.$tag})\n${lines.length === 0 ? "(nothing to show as text)" : lines.join("\n")}${blobs.length > 0 ? `\n(stored output can be read with the read tool: ${blobs.map((s) => `blob:${s}`).join(", ")})` : ""}${[...notes].map((n) => `\n(${n})`).join("")}` };
+  return {
+    text: `${r.thread}:${e.id} (${e.$tag})\n${lines.length === 0 ? "(nothing to show as text)" : lines.join("\n")}${blobs.length > 0 ? `\n(stored output can be read with the read tool: ${blobs.map((s) => `blob:${s}`).join(", ")})` : ""}${[...notes].map((n) => `\n(${n})`).join("")}`,
+  };
 }
 
 function blobNames(e: ChatEntry): string[] {
-  if (e.$tag === "tool_result") return [e.full?.sha256, typeof e.content === "object" ? e.content.sha256 : undefined].filter((x): x is string => x !== undefined);
+  if (e.$tag === "tool_result")
+    return [e.full?.sha256, typeof e.content === "object" ? e.content.sha256 : undefined].filter((x): x is string => x !== undefined);
   return [];
 }
 

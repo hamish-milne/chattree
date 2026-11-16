@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { nightlyTagIn, parseAssetName, resolveBackend, resolveVersionTag, selectAsset, type ReleaseAsset } from "../../localmodels/release.ts";
+import {
+  nightlyTagIn,
+  parseAssetName,
+  resolveBackend,
+  resolveVersionTag,
+  selectAsset,
+  type ReleaseAsset,
+} from "../../localmodels/release.ts";
 
 const names = `cudart-llama-b12110-bin-ubuntu-cuda-12.8-x64.tar.gz
 cudart-llama-b12110-bin-ubuntu-cuda-13.4-x64.tar.gz
@@ -27,8 +34,24 @@ const assets: ReleaseAsset[] = names.map((name) => ({ name, url: `https://exampl
 
 describe("asset names", () => {
   test("are taken apart", () => {
-    assert.deepEqual(parseAssetName("llama-b12110-bin-win-cuda-12.4-x64.zip"), { kind: "llama", tag: "b12110", os: "win", arch: "x64", backend: "cuda", cuda: "12.4", ext: "zip" });
-    assert.deepEqual(parseAssetName("cudart-llama-bin-win-cuda-12.4-x64.zip"), { kind: "cudart", tag: undefined, os: "win", arch: "x64", backend: "cuda", cuda: "12.4", ext: "zip" });
+    assert.deepEqual(parseAssetName("llama-b12110-bin-win-cuda-12.4-x64.zip"), {
+      kind: "llama",
+      tag: "b12110",
+      os: "win",
+      arch: "x64",
+      backend: "cuda",
+      cuda: "12.4",
+      ext: "zip",
+    });
+    assert.deepEqual(parseAssetName("cudart-llama-bin-win-cuda-12.4-x64.zip"), {
+      kind: "cudart",
+      tag: undefined,
+      os: "win",
+      arch: "x64",
+      backend: "cuda",
+      cuda: "12.4",
+      ext: "zip",
+    });
     assert.equal(parseAssetName("llama-b12110-bin-macos-arm64.tar.gz")?.backend, "metal");
     assert.equal(parseAssetName("llama-b12110-bin-ubuntu-x64.tar.gz")?.backend, "cpu");
     assert.equal(parseAssetName("llama-b12110-bin-ubuntu-sycl-fp16-x64.tar.gz")?.backend, "sycl");
@@ -57,15 +80,33 @@ describe("choosing the file", () => {
     assert.equal(resolveBackend("auto", "macos", "cuda"), "metal");
     assert.equal(resolveBackend("cpu", "linux", "cuda"), "cpu");
     assert.equal(resolveBackend("vulkan", "windows", "cuda"), "vulkan");
-    assert.deepEqual(pick({ platform: "macos", arch: "arm64", backend: "auto" }), { program: "llama-b12110-bin-macos-arm64.tar.gz", runtime: undefined });
-    assert.deepEqual(pick({ platform: "windows", arch: "x64", backend: "auto" }), { program: "llama-b12110-bin-win-cpu-x64.zip", runtime: undefined });
-    assert.deepEqual(pick({ platform: "linux", arch: "x64", backend: "auto" }), { program: "llama-b12110-bin-ubuntu-x64.tar.gz", runtime: undefined });
+    assert.deepEqual(pick({ platform: "macos", arch: "arm64", backend: "auto" }), {
+      program: "llama-b12110-bin-macos-arm64.tar.gz",
+      runtime: undefined,
+    });
+    assert.deepEqual(pick({ platform: "windows", arch: "x64", backend: "auto" }), {
+      program: "llama-b12110-bin-win-cpu-x64.zip",
+      runtime: undefined,
+    });
+    assert.deepEqual(pick({ platform: "linux", arch: "x64", backend: "auto" }), {
+      program: "llama-b12110-bin-ubuntu-x64.tar.gz",
+      runtime: undefined,
+    });
   });
 
   test("cuda takes the newest version, or the one asked for, with its runtime", () => {
-    assert.deepEqual(pick({ platform: "windows", arch: "x64", backend: "cuda" }), { program: "llama-b12110-bin-win-cuda-13.4-x64.zip", runtime: "cudart-llama-bin-win-cuda-13.4-x64.zip" });
-    assert.deepEqual(pick({ platform: "windows", arch: "x64", backend: "cuda", cuda: "12" }), { program: "llama-b12110-bin-win-cuda-12.4-x64.zip", runtime: "cudart-llama-bin-win-cuda-12.4-x64.zip" });
-    assert.deepEqual(pick({ platform: "linux", arch: "x64", backend: "cuda", cuda: "12.8" }), { program: "llama-b12110-bin-ubuntu-cuda-12.8-x64.tar.gz", runtime: "cudart-llama-b12110-bin-ubuntu-cuda-12.8-x64.tar.gz" });
+    assert.deepEqual(pick({ platform: "windows", arch: "x64", backend: "cuda" }), {
+      program: "llama-b12110-bin-win-cuda-13.4-x64.zip",
+      runtime: "cudart-llama-bin-win-cuda-13.4-x64.zip",
+    });
+    assert.deepEqual(pick({ platform: "windows", arch: "x64", backend: "cuda", cuda: "12" }), {
+      program: "llama-b12110-bin-win-cuda-12.4-x64.zip",
+      runtime: "cudart-llama-bin-win-cuda-12.4-x64.zip",
+    });
+    assert.deepEqual(pick({ platform: "linux", arch: "x64", backend: "cuda", cuda: "12.8" }), {
+      program: "llama-b12110-bin-ubuntu-cuda-12.8-x64.tar.gz",
+      runtime: "cudart-llama-b12110-bin-ubuntu-cuda-12.8-x64.tar.gz",
+    });
     assert.match(String(pick({ platform: "linux", arch: "x64", backend: "cuda", cuda: "11" })), /no CUDA 11 build.*12\.8, 13\.4/);
   });
 
@@ -77,7 +118,8 @@ describe("choosing the file", () => {
 
 describe("version tags", () => {
   test("lead to the build the release links", () => {
-    const body = "Release notes.\nBuilds: https://github.com/ggml-org/llama.cpp/releases/tag/b12110\nand older https://github.com/ggml-org/llama.cpp/releases/tag/b9";
+    const body =
+      "Release notes.\nBuilds: https://github.com/ggml-org/llama.cpp/releases/tag/b12110\nand older https://github.com/ggml-org/llama.cpp/releases/tag/b9";
     assert.equal(nightlyTagIn(body), "b12110");
     assert.deepEqual(resolveVersionTag("v0.9.0", body), { ok: true, tag: "b12110" });
     const none = resolveVersionTag("v0.9.0", "nothing here");

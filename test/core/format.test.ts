@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { BlobData, BlobRef, EmitError, ParseError, emitEntry, fromPlain, parseEntry, valueEquals, type Entry, type Value } from "../../src/index.ts";
+import {
+  BlobData,
+  BlobRef,
+  EmitError,
+  ParseError,
+  emitEntry,
+  fromPlain,
+  parseEntry,
+  valueEquals,
+  type Entry,
+  type Value,
+} from "../../src/index.ts";
 import { cp } from "../support/gen.ts";
 
 const entry = (o: unknown) => fromPlain(o) as Map<string, Value>;
@@ -46,7 +57,12 @@ describe("canonical output", () => {
   });
 
   test("insertion order is preserved, including integer-like keys", () => {
-    const m = new Map<string, Value>([["10", 1], ["2", 2], ["b", 3], ["a", 4]]);
+    const m = new Map<string, Value>([
+      ["10", 1],
+      ["2", 2],
+      ["b", 3],
+      ["a", 4],
+    ]);
     const t = emitEntry(m);
     assert.deepEqual([...asMap(parseEntry(t)).keys()], ["10", "2", "b", "a"]);
   });
@@ -77,7 +93,7 @@ describe("string forms", () => {
     [cp(0x2028), '- k: "\\u2028"\n\n'],
     [cp(0xfeff), '- k: "\\ufeff"\n\n'],
     [cp(0x85), '- k: "\\u0085"\n\n'],
-    ["q\"uote\\", '- k: "q\\"uote\\\\"\n\n'],
+    ['q"uote\\', '- k: "q\\"uote\\\\"\n\n'],
     [cp(0x1f600), "- k: " + '"' + cp(0x1f600) + '"' + "\n\n"], // astral characters stay raw
   ];
   for (const [input, expected] of cases) {
@@ -88,7 +104,16 @@ describe("string forms", () => {
   }
 
   test("keys: bare when safe, quoted otherwise", () => {
-    const t = emitEntry(new Map<string, Value>([["a.b-c", 1], ["on", 2], ["", 3], ["a b", 4], ["-n", 5], ["1", 6]]));
+    const t = emitEntry(
+      new Map<string, Value>([
+        ["a.b-c", 1],
+        ["on", 2],
+        ["", 3],
+        ["a b", 4],
+        ["-n", 5],
+        ["1", 6],
+      ]),
+    );
     assert.equal(t, '- a.b-c: 1\n  "on": 2\n  "": 3\n  "a b": 4\n  "-n": 5\n  "1": 6\n\n');
     assert.deepEqual([...asMap(parseEntry(t)).keys()], ["a.b-c", "on", "", "a b", "-n", "1"]);
   });

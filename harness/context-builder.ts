@@ -10,7 +10,8 @@ export async function inlineBlobs(v: unknown, text: (t: { sha256: string; bytes:
   if (Array.isArray(v)) return Promise.all(v.map((x) => inlineBlobs(x, text)));
   if (v === null || typeof v !== "object") return v;
   const o = v as Record<string, unknown>;
-  if (o["$tag"] === "blob" && typeof o["sha256"] === "string" && typeof o["bytes"] === "number") return text({ sha256: o["sha256"], bytes: o["bytes"] });
+  if (o["$tag"] === "blob" && typeof o["sha256"] === "string" && typeof o["bytes"] === "number")
+    return text({ sha256: o["sha256"], bytes: o["bytes"] });
   const out: Record<string, unknown> = {};
   for (const [k, x] of Object.entries(o)) out[k] = await inlineBlobs(x, text);
   return out;
@@ -32,13 +33,35 @@ export type Block =
 type BlobRef = { $tag: "blob"; sha256: string; bytes: number; mime?: string | undefined };
 
 /** A file for the model to see. Text files never get here: they are inlined as text (see `Renderer.textAttachment`). */
-export type AttachmentPart = { type: "attachment"; kind: "image" | "pdf" | "audio"; name: string | undefined; mime: string; sha256: string; bytes: Uint8Array };
+export type AttachmentPart = {
+  type: "attachment";
+  kind: "image" | "pdf" | "audio";
+  name: string | undefined;
+  mime: string;
+  sha256: string;
+  bytes: Uint8Array;
+};
 export type UserPart = { type: "text"; text: string } | AttachmentPart;
 
 export type Turn =
   | { role: "user"; parts: UserPart[] }
-  | { role: "assistant"; provider: string; model: string; blocks: Block[]; /** The entry's `ext`: the response id and prefix digest an adapter chains from. */ ext?: Record<string, unknown> }
-  | { role: "tool_results"; results: { call_id: string; is_error: boolean; content: string; truncated: boolean; /** What the tool showed besides its text. */ media?: AttachmentPart[] }[] };
+  | {
+      role: "assistant";
+      provider: string;
+      model: string;
+      blocks: Block[];
+      /** The entry's `ext`: the response id and prefix digest an adapter chains from. */ ext?: Record<string, unknown>;
+    }
+  | {
+      role: "tool_results";
+      results: {
+        call_id: string;
+        is_error: boolean;
+        content: string;
+        truncated: boolean;
+        /** What the tool showed besides its text. */ media?: AttachmentPart[];
+      }[];
+    };
 
 export interface ModelContext {
   /** The harness's own prompt: part of the pinned prefix. */
@@ -98,19 +121,47 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     if (input.readText === undefined) throw new Error(`a blob-backed text (${t.sha256.slice(0, 12)}) needs readText`);
     return input.readText(t);
   };
-  const keepReasoning = (provider: string, model: string, b: EntryBlock): boolean => (b.$tag !== "reasoning" && b.$tag !== "provider_compaction") || (provider === input.target.provider && model === input.target.model && b.provider === input.target.provider);
+  const keepReasoning = (provider: string, model: string, b: EntryBlock): boolean =>
+    (b.$tag !== "reasoning" && b.$tag !== "provider_compaction") ||
+    (provider === input.target.provider && model === input.target.model && b.provider === input.target.provider);
   const block = async (b: EntryBlock, rule?: TrimRule): Promise<Block> => {
     const ext = b.ext === undefined ? {} : { ext: b.ext };
     if (b.$tag === "text") return { type: "text", text: await text(b.text), ...ext };
-    if (b.$tag === "provider_compaction") return { type: "provider_compaction", provider: b.provider, payload: await text(b.payload), ...ext };
-    if (b.$tag === "reasoning") return { type: "reasoning", provider: b.provider, ...(b.payload === undefined ? {} : { payload: b.payload }), ...(b.visible === undefined ? {} : { visible: await text(b.visible) }), ...ext };
+    if (b.$tag === "provider_compaction")
+      return { type: "provider_compaction", provider: b.provider, payload: await text(b.payload), ...ext };
+    if (b.$tag === "reasoning")
+      return {
+        type: "reasoning",
+        provider: b.provider,
+        ...(b.payload === undefined ? {} : { payload: b.payload }),
+        ...(b.visible === undefined ? {} : { visible: await text(b.visible) }),
+        ...ext,
+      };
     const min = rule?.tool_args;
     // A trim keeps the shape of the arguments and leaves out the long texts (before any blob is read); the provider's raw string would show them again, so it goes.
-    if (min !== undefined) return { type: "tool_call", call_id: b.call_id, name: b.name, args: (await inlineBlobs(elideArgs(b.args, min), text)) as Record<string, unknown>, ...ext };
-    return { type: "tool_call", call_id: b.call_id, name: b.name, args: (await inlineBlobs(b.args, text)) as Record<string, unknown>, ...(b.args_raw === undefined ? {} : { args_raw: await text(b.args_raw) }), ...ext };
+    if (min !== undefined)
+      return {
+        type: "tool_call",
+        call_id: b.call_id,
+        name: b.name,
+        args: (await inlineBlobs(elideArgs(b.args, min), text)) as Record<string, unknown>,
+        ...ext,
+      };
+    return {
+      type: "tool_call",
+      call_id: b.call_id,
+      name: b.name,
+      args: (await inlineBlobs(b.args, text)) as Record<string, unknown>,
+      ...(b.args_raw === undefined ? {} : { args_raw: await text(b.args_raw) }),
+      ...ext,
+    };
   };
 
-  type Raw = (Extract<Turn, { role: "user" }> & { queued?: string }) | (Extract<Turn, { role: "assistant" }> & { tip?: string }) | Extract<Turn, { role: "tool_results" }> | { role: "result"; result: Pending };
+  type Raw =
+    | (Extract<Turn, { role: "user" }> & { queued?: string })
+    | (Extract<Turn, { role: "assistant" }> & { tip?: string })
+    | Extract<Turn, { role: "tool_results" }>
+    | { role: "result"; result: Pending };
   const raw: Raw[] = [];
   const userText = (s: string): void => void raw.push({ role: "user", parts: [{ type: "text", text: s }] });
 
@@ -155,10 +206,17 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
           const ref = p.data as BlobRef;
           const mime = ref.mime;
           const kind = mime === undefined ? undefined : attachmentKind(mime);
-          if (mime === undefined || kind === undefined) throw new Error(`attachment ${p.name ?? ref.sha256.slice(0, 12)} has ${mime === undefined ? "no media type" : `the media type ${mime}, which no model is given`}`);
+          if (mime === undefined || kind === undefined)
+            throw new Error(
+              `attachment ${p.name ?? ref.sha256.slice(0, 12)} has ${mime === undefined ? "no media type" : `the media type ${mime}, which no model is given`}`,
+            );
           if (input.readBytes === undefined) throw new Error(`an attachment (${ref.sha256.slice(0, 12)}) needs readBytes`);
           const bytes = await input.readBytes(ref);
-          if (bytes.length === 0 && kind !== "text") parts.push({ type: "text", text: `[Attached ${kind === "image" ? "picture" : kind === "audio" ? "sound" : "file"}${p.name === undefined ? "" : `: ${p.name}`} is empty (0 bytes), so nothing was sent to you]` });
+          if (bytes.length === 0 && kind !== "text")
+            parts.push({
+              type: "text",
+              text: `[Attached ${kind === "image" ? "picture" : kind === "audio" ? "sound" : "file"}${p.name === undefined ? "" : `: ${p.name}`} is empty (0 bytes), so nothing was sent to you]`,
+            });
           else if (kind === "text") parts.push({ type: "text", text: render.textAttachment(p.name, decodeText(bytes, p.charset)) });
           else parts.push({ type: "attachment", kind, name: p.name, mime: normalizeMime(mime) as string, sha256: ref.sha256, bytes });
         }
@@ -167,8 +225,18 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       }
       case "assistant": {
         const blocks: Block[] = [];
-        for (const b of e.blocks) if (keepReasoning(e.provider, e.model, b) && !(rule?.reasoning === true && b.$tag === "reasoning")) blocks.push(await block(b, rule));
-        if (blocks.length > 0) raw.push({ role: "assistant", provider: e.provider, model: e.model, blocks, ...(isObject(e.ext) ? { ext: e.ext } : {}), ...(e.context_tip === undefined ? {} : { tip: e.context_tip }) });
+        for (const b of e.blocks)
+          if (keepReasoning(e.provider, e.model, b) && !(rule?.reasoning === true && b.$tag === "reasoning"))
+            blocks.push(await block(b, rule));
+        if (blocks.length > 0)
+          raw.push({
+            role: "assistant",
+            provider: e.provider,
+            model: e.model,
+            blocks,
+            ...(isObject(e.ext) ? { ext: e.ext } : {}),
+            ...(e.context_tip === undefined ? {} : { tip: e.context_tip }),
+          });
         break;
       }
       case "tool_result": {
@@ -180,16 +248,34 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
           const mime = m.data.mime;
           const kind = mime === undefined ? undefined : attachmentKind(mime);
           const name = m.name ?? m.data.sha256.slice(0, 12);
-          if (mime === undefined || kind === undefined || kind === "text") notes.push(`[${name}: a file of type ${mime ?? "unknown"}, which no model is given]`);
+          if (mime === undefined || kind === undefined || kind === "text")
+            notes.push(`[${name}: a file of type ${mime ?? "unknown"}, which no model is given]`);
           else if (rule?.tool_results !== undefined) notes.push(render.mediaLeftOut(name));
           else if (m.data.bytes === 0) notes.push(`[${name} is empty (0 bytes), so nothing was sent to you]`);
           else {
-            if (input.readBytes === undefined) throw new Error(`a tool result's attachment (${m.data.sha256.slice(0, 12)}) needs readBytes`);
-            shown.push({ type: "attachment", kind, name: m.name, mime: normalizeMime(mime) as string, sha256: m.data.sha256, bytes: await input.readBytes(m.data) });
+            if (input.readBytes === undefined)
+              throw new Error(`a tool result's attachment (${m.data.sha256.slice(0, 12)}) needs readBytes`);
+            shown.push({
+              type: "attachment",
+              kind,
+              name: m.name,
+              mime: normalizeMime(mime) as string,
+              sha256: m.data.sha256,
+              bytes: await input.readBytes(m.data),
+            });
           }
         }
         const body = left ? outputLeftOut(textBytes(e.content)) : await text(e.content);
-        raw.push({ role: "result", result: { call_id: e.call_id, is_error: e.is_error, content: notes.length === 0 ? body : `${body}\n${notes.join("\n")}`, truncated: !left && e.truncated === true, ...(shown.length === 0 ? {} : { media: shown }) } });
+        raw.push({
+          role: "result",
+          result: {
+            call_id: e.call_id,
+            is_error: e.is_error,
+            content: notes.length === 0 ? body : `${body}\n${notes.join("\n")}`,
+            truncated: !left && e.truncated === true,
+            ...(shown.length === 0 ? {} : { media: shown }),
+          },
+        });
         break;
       }
       case "compaction":
@@ -197,13 +283,32 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
         break;
       case "subagent_result": {
         const summary = await text(e.summary);
-        raw.push({ role: "result", result: { call_id: e.call_id, is_error: false, content: render.subagentResult(summary, e.files), truncated: false, fallback: render.subagentResultUnattached(summary, e.files) } });
+        raw.push({
+          role: "result",
+          result: {
+            call_id: e.call_id,
+            is_error: false,
+            content: render.subagentResult(summary, e.files),
+            truncated: false,
+            fallback: render.subagentResultUnattached(summary, e.files),
+          },
+        });
         break;
       }
       case "fork_merge": {
         const summary = await text(e.summary);
         if (e.call_id === undefined) userText(render.forkMerge(summary, e.files));
-        else raw.push({ role: "result", result: { call_id: e.call_id, is_error: false, content: render.subagentResult(summary, e.files), truncated: false, fallback: render.forkMerge(summary, e.files) } });
+        else
+          raw.push({
+            role: "result",
+            result: {
+              call_id: e.call_id,
+              is_error: false,
+              content: render.subagentResult(summary, e.files),
+              truncated: false,
+              fallback: render.forkMerge(summary, e.files),
+            },
+          });
         break;
       }
       case "job_event":

@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { ANTHROPIC_PRICES, OPENAI_PRICES } from "../../providers/pricing-data.ts";
-import { cacheWriteRate, costOf, effectiveTable, emptyTable, findModel, parseTable, priceTable, tableBytes, tableHash, ttlMinutes, type PriceTable } from "../../providers/pricing.ts";
+import {
+  cacheWriteRate,
+  costOf,
+  effectiveTable,
+  emptyTable,
+  findModel,
+  parseTable,
+  priceTable,
+  tableBytes,
+  tableHash,
+  ttlMinutes,
+  type PriceTable,
+} from "../../providers/pricing.ts";
 
 const table = (models: PriceTable["models"]): PriceTable => ({ ...emptyTable(), as_of: "2026-10-25", source: "test", models });
 const M = 1_000_000;
@@ -13,14 +25,21 @@ describe("costOf", () => {
   };
 
   test("every meter, in dollars per million tokens", () => {
-    assert.deepEqual(costOf({ input_tokens: M, output_tokens: M / 2, cache_read_tokens: M, cache_write_tokens: M }, { rates: price.rates }), { usd: 2 + 5 + 0.2 + 2.5, unknown: false });
+    assert.deepEqual(
+      costOf({ input_tokens: M, output_tokens: M / 2, cache_read_tokens: M, cache_write_tokens: M }, { rates: price.rates }),
+      { usd: 2 + 5 + 0.2 + 2.5, unknown: false },
+    );
     assert.deepEqual(costOf({ input_tokens: 0, output_tokens: 0 }, price), { usd: 0, unknown: false });
   });
 
   test("a meter with tokens but no price makes the cost unknown, not cheaper", () => {
     const c = costOf({ input_tokens: M, output_tokens: 0, cache_read_tokens: 5 }, { rates: { standard: { input: 2, output: 10 } } });
     assert.equal(c.unknown, true);
-    assert.equal(costOf({ input_tokens: M, output_tokens: 0, cache_read_tokens: 0 }, { rates: { standard: { input: 2 } } }).unknown, false, "meters with no tokens need no price");
+    assert.equal(
+      costOf({ input_tokens: M, output_tokens: 0, cache_read_tokens: 0 }, { rates: { standard: { input: 2 } } }).unknown,
+      false,
+      "meters with no tokens need no price",
+    );
     assert.deepEqual(costOf({ input_tokens: 1, output_tokens: 1 }, undefined), { usd: 0, unknown: true });
   });
 
@@ -33,7 +52,11 @@ describe("costOf", () => {
     for (const tier of [undefined, "standard", "default", "auto"]) assert.equal(costOf(t, price, tier).usd, 0.6);
     assert.equal(costOf(t, price, "flex").usd, 0.3);
     assert.equal(costOf(t, price, "priority").unknown, true);
-    assert.equal(costOf(t, { rates: { flex: { input: 1, output: 1 } } }).unknown, true, "no standard tier, none asked for: unknown rather than a guess");
+    assert.equal(
+      costOf(t, { rates: { flex: { input: 1, output: 1 } } }).unknown,
+      true,
+      "no standard tier, none asked for: unknown rather than a guess",
+    );
   });
 
   test("the long-context band counts the whole prompt: input, cache read and write; a tier missing from the band is unknown", () => {
@@ -45,12 +68,26 @@ describe("costOf", () => {
 
   test("cache writes by lifetime: each window at its own rate; the rest at the shortest; an unpriced window is unknown", () => {
     const p = { rates: { standard: { input: 1, output: 1, cache_write: { 30: 12.5, 720: 25 } } } };
-    const w = (total: number, by?: Record<string, number>) => costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: total, ...(by === undefined ? {} : { cache_write_by_minutes: by }) }, p);
+    const w = (total: number, by?: Record<string, number>) =>
+      costOf(
+        { input_tokens: 0, output_tokens: 0, cache_write_tokens: total, ...(by === undefined ? {} : { cache_write_by_minutes: by }) },
+        p,
+      );
     assert.equal(w(M, { "30": M }).usd, 12.5);
     assert.equal(w(M, { "720": M }).usd, 25);
     assert.equal(w(2 * M, { "30": M, "720": M }).usd, 37.5);
     assert.equal(w(M).usd, 12.5, "no breakdown and none asked for: the shortest lifetime, which is the default");
-    const asked = (total: number, minutes: number, by?: Record<string, number>) => costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: total, default_cache_minutes: minutes, ...(by === undefined ? {} : { cache_write_by_minutes: by }) }, p);
+    const asked = (total: number, minutes: number, by?: Record<string, number>) =>
+      costOf(
+        {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_write_tokens: total,
+          default_cache_minutes: minutes,
+          ...(by === undefined ? {} : { cache_write_by_minutes: by }),
+        },
+        p,
+      );
     assert.equal(asked(M, 720).usd, 25, "no breakdown: the lifetime the request asked for");
     assert.equal(asked(2 * M, 720, { "30": M }).usd, 12.5 + 25, "what the breakdown leaves out is the requested lifetime");
     assert.equal(asked(M, 60).unknown, true, "a requested lifetime the table does not price");
@@ -58,7 +95,14 @@ describe("costOf", () => {
     assert.equal(w(M, { "60": M }).unknown, true, "a lifetime the table does not price");
     assert.equal(w(0).usd, 0);
     assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M }, { rates: { standard: { input: 1 } } }).unknown, true);
-    assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "30": M } }, { rates: { standard: { cache_write: 3 } } }).usd, 3, "a single rate ignores the lifetime");
+    assert.equal(
+      costOf(
+        { input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "30": M } },
+        { rates: { standard: { cache_write: 3 } } },
+      ).usd,
+      3,
+      "a single rate ignores the lifetime",
+    );
   });
 });
 
@@ -74,7 +118,11 @@ test("lifetimes as the providers write them", () => {
 
 describe("tables", () => {
   test("a dated id finds the entry it extends; the longest wins; * is the fallback; near misses do not match", () => {
-    const t = table({ "gpt-5": { free: true }, "gpt-5.4": { rates: { standard: { input: 1 } } }, "*": { rates: { standard: { input: 9 } } } });
+    const t = table({
+      "gpt-5": { free: true },
+      "gpt-5.4": { rates: { standard: { input: 1 } } },
+      "*": { rates: { standard: { input: 9 } } },
+    });
     assert.equal(findModel(t, "gpt-5.4-2026-03-05")?.rates?.["standard"]?.input, 1);
     assert.equal(findModel(t, "gpt-5-20260301")?.free, true);
     assert.equal(findModel(t, "gpt-5.4-mini")?.rates?.["standard"]?.input, 9, "-mini is another model, not a dated one");
@@ -104,7 +152,8 @@ describe("tables", () => {
   });
 
   test("cache lifetimes must be whole minutes", () => {
-    const t = (cache_write: unknown) => priceTable.safeParse({ ...emptyTable(), models: { m: { rates: { standard: { cache_write } } } } }).success;
+    const t = (cache_write: unknown) =>
+      priceTable.safeParse({ ...emptyTable(), models: { m: { rates: { standard: { cache_write } } } } }).success;
     assert.equal(t({ 30: 1, 720: 2 }), true);
     assert.equal(t(1), true);
     assert.equal(t({ "0": 1 }), false);
@@ -131,16 +180,36 @@ describe("tables", () => {
     assert.ok(Math.abs(luna.usd - (0.1 + 0.5 + 0.01) / 10) < 1e-9);
     const longLuna = costOf({ input_tokens: M, output_tokens: M, cache_read_tokens: M }, findModel(OPENAI_PRICES, "gpt-6-luna"));
     assert.ok(Math.abs(longLuna.usd - (0.2 + 0.75 + 0.02)) < 1e-9, "past the threshold the long-context rates apply");
-    assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "60": M } }, findModel(ANTHROPIC_PRICES, "claude-sonnet-5-5")).usd, 4);
-    assert.equal(costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M }, findModel(ANTHROPIC_PRICES, "claude-sonnet-5-5")).usd, 2.5, "the default lifetime is the 5-minute one");
-    assert.equal(costOf({ input_tokens: M, output_tokens: 0 }, findModel(OPENAI_PRICES, "gpt-6-luna"), "ultrafast").unknown, true, "gpt-6-luna has no ultrafast price");
+    assert.equal(
+      costOf(
+        { input_tokens: 0, output_tokens: 0, cache_write_tokens: M, cache_write_by_minutes: { "60": M } },
+        findModel(ANTHROPIC_PRICES, "claude-sonnet-5-5"),
+      ).usd,
+      4,
+    );
+    assert.equal(
+      costOf({ input_tokens: 0, output_tokens: 0, cache_write_tokens: M }, findModel(ANTHROPIC_PRICES, "claude-sonnet-5-5")).usd,
+      2.5,
+      "the default lifetime is the 5-minute one",
+    );
+    assert.equal(
+      costOf({ input_tokens: M, output_tokens: 0 }, findModel(OPENAI_PRICES, "gpt-6-luna"), "ultrafast").unknown,
+      true,
+      "gpt-6-luna has no ultrafast price",
+    );
     const w12 = { input_tokens: 0, output_tokens: 0, cache_write_tokens: k, cache_write_by_minutes: { "720": k } };
     assert.ok(Math.abs(costOf(w12, findModel(OPENAI_PRICES, "gpt-6-astra")).usd - 2.5) < 1e-9);
     assert.ok(Math.abs(costOf(w12, findModel(OPENAI_PRICES, "gpt-6-astra"), "fast").usd - 5) < 1e-9);
     assert.equal(costOf({ input_tokens: M, output_tokens: M }, findModel(OPENAI_PRICES, "gpt-5.3-codex")).usd, 1.75 + 14);
-    for (const [model, price] of Object.entries(OPENAI_PRICES.models)) for (const [tier, r] of Object.entries(price.rates ?? {})) {
-      const w = r.cache_write;
-      if (typeof w === "object" && r.input !== undefined) assert.deepEqual([w[30] === r.input * 1.25, w[720] === r.input * 2.5], [true, true], `${model} ${tier}: writes are 1.25x and 2.5x input`);
-    }
+    for (const [model, price] of Object.entries(OPENAI_PRICES.models))
+      for (const [tier, r] of Object.entries(price.rates ?? {})) {
+        const w = r.cache_write;
+        if (typeof w === "object" && r.input !== undefined)
+          assert.deepEqual(
+            [w[30] === r.input * 1.25, w[720] === r.input * 2.5],
+            [true, true],
+            `${model} ${tier}: writes are 1.25x and 2.5x input`,
+          );
+      }
   });
 });

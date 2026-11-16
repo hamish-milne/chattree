@@ -96,7 +96,15 @@ export async function readCommitGraph(convo: Conversation, trunk = convo.branch)
 
   const commits: GraphCommit[] = [];
   for (const c of byHash.values()) {
-    const kind = c.trailers["Chattree-Kind"]?.[0] ?? (c.trailers["Chattree-Snapshot"] !== undefined ? "snapshot" : c.trailers["Chattree-Gc"] !== undefined ? "gc" : c.trailers["Chattree-Archived"] !== undefined ? "archive" : "commit");
+    const kind =
+      c.trailers["Chattree-Kind"]?.[0] ??
+      (c.trailers["Chattree-Snapshot"] !== undefined
+        ? "snapshot"
+        : c.trailers["Chattree-Gc"] !== undefined
+          ? "gc"
+          : c.trailers["Chattree-Archived"] !== undefined
+            ? "archive"
+            : "commit");
     const offset = Number(c.trailers["Chattree-Offset"]?.[0]);
     commits.push({
       hash: c.hash,
@@ -156,7 +164,12 @@ const TAGGED: Record<string, string> = {
   gc: "blob gc",
 };
 
-const clean = (s: string): string => s.replace(/[^\x20-\x7e]/g, "").replace(/["\\]/g, "'").replace(/\s+/g, " ").trim();
+const clean = (s: string): string =>
+  s
+    .replace(/[^\x20-\x7e]/g, "")
+    .replace(/["\\]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
 const branchId = (name: string): string => `"${name.replace(/[^A-Za-z0-9_./-]/g, "-")}"`;
 
 /**
@@ -183,7 +196,16 @@ export function toMermaid(graph: CommitGraph, opts: MermaidOptions = {}): string
     if (parent !== undefined) children.set(parent, [...(children.get(parent) ?? []), b.name]);
   }
 
-  const lines = ["---", `config:`, `  gitGraph:`, `    mainBranchName: ${graph.trunk.replace(/[^A-Za-z0-9_-]/g, "-")}`, `    showCommitLabel: true`, `    rotateCommitLabel: true`, "---", "gitGraph"];
+  const lines = [
+    "---",
+    `config:`,
+    `  gitGraph:`,
+    `    mainBranchName: ${graph.trunk.replace(/[^A-Za-z0-9_-]/g, "-")}`,
+    `    showCommitLabel: true`,
+    `    rotateCommitLabel: true`,
+    "---",
+    "gitGraph",
+  ];
   const label = (c: GraphCommit): string => {
     const what = c.kind === "snapshot" ? "workspace snapshot" : c.summary;
     const text = clean(`${number.get(c.hash)} ${what}`);
@@ -196,7 +218,13 @@ export function toMermaid(graph: CommitGraph, opts: MermaidOptions = {}): string
     for (const c of chain.get(branch) ?? []) {
       if ((c.kind !== "snapshot" && c.kind !== "gc" && c.kind !== "archive") || showSnapshots) {
         const tag = c.recovered ? "recovered" : c.kind === "snapshot" ? undefined : TAGGED[c.kind];
-        const type = c.recovered ? "REVERSE" : c.kind === "snapshot" || c.kind === "gc" || c.kind === "archive" ? "REVERSE" : c.parents.length > 1 || c.kind === "compaction" || c.kind === "agent_setup" || c.kind === "interrupted" ? "HIGHLIGHT" : "NORMAL";
+        const type = c.recovered
+          ? "REVERSE"
+          : c.kind === "snapshot" || c.kind === "gc" || c.kind === "archive"
+            ? "REVERSE"
+            : c.parents.length > 1 || c.kind === "compaction" || c.kind === "agent_setup" || c.kind === "interrupted"
+              ? "HIGHLIGHT"
+              : "NORMAL";
         const attrs = `id: "${label(c)}"${tag === undefined ? "" : ` tag: "${tag}"`} type: ${type}`;
         const second = c.parents[1] === undefined ? undefined : byHash.get(c.parents[1]);
         if (second !== undefined && second.branch !== branch) lines.push(`  merge ${mainName(second.branch)} ${attrs}`);

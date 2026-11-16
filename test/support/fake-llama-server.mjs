@@ -66,7 +66,8 @@ const server = createServer((req, res) => {
       if (process.env.FAKE_LLAMA_LOG) appendFileSync(process.env.FAKE_LLAMA_LOG, `${body}\n`);
       if (!state.has(request.model)) return json(res, { error: { message: `no such model ${request.model}` } }, 404);
       state.set(request.model, "loaded");
-      const chunk = (delta, finish = null) => `data: ${JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion.chunk", model: request.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+      const chunk = (delta, finish = null) =>
+        `data: ${JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion.chunk", model: request.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write(chunk({ role: "assistant", content: `hello from ${request.model}` }));
       res.write(chunk({}, "stop"));

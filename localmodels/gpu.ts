@@ -23,6 +23,13 @@ export const runProgram: RunProgram = (program, args) =>
 export async function findGpu(run: RunProgram = runProgram): Promise<GpuFinding> {
   const out = await run("nvidia-smi", ["-L"]);
   const gpus = (out ?? "").split("\n").filter((l) => /^GPU \d+:/.test(l.trim()));
-  if (gpus.length > 0) return { backend: "cuda", note: `found ${gpus[0]?.replace(/\s*\(UUID:.*$/, "").trim()}${gpus.length > 1 ? ` and ${gpus.length - 1} more` : ""}` };
-  return { backend: undefined, note: "no NVIDIA GPU found (nvidia-smi did not list one), so llama.cpp runs on the CPU, which is slow and loads every core; for an AMD or Intel GPU set local_models.llama_cpp.backend to vulkan, for NVIDIA to cuda" };
+  if (gpus.length > 0)
+    return {
+      backend: "cuda",
+      note: `found ${gpus[0]?.replace(/\s*\(UUID:.*$/, "").trim()}${gpus.length > 1 ? ` and ${gpus.length - 1} more` : ""}`,
+    };
+  return {
+    backend: undefined,
+    note: "no NVIDIA GPU found (nvidia-smi did not list one), so llama.cpp runs on the CPU, which is slow and loads every core; for an AMD or Intel GPU set local_models.llama_cpp.backend to vulkan, for NVIDIA to cuda",
+  };
 }

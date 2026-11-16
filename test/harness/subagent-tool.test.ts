@@ -9,12 +9,28 @@ import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
 import { JobRegistry, jobTools } from "../../harness/jobs.ts";
 import { deliverForks, forkTool, mergeTool } from "../../harness/fork-tools.ts";
-import { deliverSubagents, subagentBranch, subagentChildRegistry, subagentGrants, subagentNudge, subagentTool } from "../../harness/subagent.ts";
+import {
+  deliverSubagents,
+  subagentBranch,
+  subagentChildRegistry,
+  subagentGrants,
+  subagentNudge,
+  subagentTool,
+} from "../../harness/subagent.ts";
 import { Pump } from "../../harness/pump.ts";
 import { ALL, FOREVER } from "../../harness/approvals.ts";
 import { resolveSubagentModels } from "../../harness/subagent-models.ts";
 import { ThreadRuns } from "../../harness/runs.ts";
-import { runLoop, syncTools, type GrantStore, toolDrift, ToolsNotSupported, ToolsOutOfSync, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
+import {
+  runLoop,
+  syncTools,
+  type GrantStore,
+  toolDrift,
+  ToolsNotSupported,
+  ToolsOutOfSync,
+  type LoopEvent,
+  type LoopOptions,
+} from "../../harness/loop.ts";
 import { leafTools } from "../../harness/starter/index.ts";
 import { ToolRegistry, type Tool, type ToolOutput } from "../../harness/tools.ts";
 import { envSource } from "../../harness/secrets.ts";
@@ -33,7 +49,13 @@ let queue: Reply[] = [];
 let requests = 0;
 
 const usage = { input_tokens: 10, output_tokens: 5 };
-const answer = (t: string): Completed => ({ blocks: [{ type: "text", text: t }], stop_reason: "end_turn", usage, observed: { model: "m1" }, ext: {} });
+const answer = (t: string): Completed => ({
+  blocks: [{ type: "text", text: t }],
+  stop_reason: "end_turn",
+  usage,
+  observed: { model: "m1" },
+  ext: {},
+});
 const calls = (...cs: { id: string; name: string; args: unknown }[]): Completed => ({
   blocks: cs.map((c) => ({ type: "tool_call" as const, call_id: c.id, name: c.name, args: c.args as never })),
   stop_reason: "tool_use",
@@ -52,8 +74,20 @@ const adapters = new AdapterRegistry().register(
     jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
     secrets: () => [],
     models: () => ({
-      m1: { ...(convention === undefined ? {} : { tool_convention: convention }), description: "the everyday model", cost_tier: "medium" as const, reasoning: { low: { effort: "low" }, high: { effort: "high" } }, default_reasoning: "low" },
-      m2: { max_output_tokens: 1000, description: "a small, cheap model", cost_tier: "low" as const, context_window: 200_000, reasoning: { low: { effort: "low" }, high: { effort: "high" } } },
+      m1: {
+        ...(convention === undefined ? {} : { tool_convention: convention }),
+        description: "the everyday model",
+        cost_tier: "medium" as const,
+        reasoning: { low: { effort: "low" }, high: { effort: "high" } },
+        default_reasoning: "low",
+      },
+      m2: {
+        max_output_tokens: 1000,
+        description: "a small, cheap model",
+        cost_tier: "low" as const,
+        context_window: 200_000,
+        reasoning: { low: { effort: "low" }, high: { effort: "high" } },
+      },
       m3: { description: "no known output cap" },
     }),
     create: () => ({
@@ -72,7 +106,9 @@ const adapters = new AdapterRegistry().register(
 );
 
 const hangUntilAborted = (signal: AbortSignal): Promise<Completed> =>
-  new Promise((_, reject) => signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }));
+  new Promise((_, reject) =>
+    signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }),
+  );
 
 // ---- tools ------------------------------------------------------------------------------------------------------
 
@@ -97,7 +133,10 @@ async function drive(convo: Conversation, registry: ToolRegistry, extra: Partial
 
 async function fresh(registry: ToolRegistry) {
   const dir = join(await tempDir(), "c");
-  const convo = await Conversation.create(host, dir, { providers: { registry: adapters, secrets: envSource({}) }, config: "providers:\n  f:\n    $tag: fake\n" });
+  const convo = await Conversation.create(host, dir, {
+    providers: { registry: adapters, secrets: envSource({}) },
+    config: "providers:\n  f:\n    $tag: fake\n",
+  });
   await convo.setupChange({ model: { provider: "f", id: "m1", settings: {} } });
   await syncTools(convo, registry);
   await convo.append({ $tag: "user", content: [{ $tag: "text", text: "go" }] });
@@ -126,7 +165,12 @@ afterEach(async () => {
 });
 
 /** A pump over the project the parent `convo` is in: the parent runs the `tools`, a subagent the child registry made from `base`. */
-function pumpFor(convo: Conversation, tools: ToolRegistry, base: ToolRegistry, o: { merge?: "auto" | "review"; resume?: boolean; grants?: GrantStore; onEvent?: (branch: string, e: LoopEvent) => void } = {}): Pump {
+function pumpFor(
+  convo: Conversation,
+  tools: ToolRegistry,
+  base: ToolRegistry,
+  o: { merge?: "auto" | "review"; resume?: boolean; grants?: GrantStore; onEvent?: (branch: string, e: LoopEvent) => void } = {},
+): Pump {
   const grants = o.grants ?? yes;
   const pump = new Pump({
     open: (b) => convo.openBranch(b),
@@ -134,7 +178,17 @@ function pumpFor(convo: Conversation, tools: ToolRegistry, base: ToolRegistry, o
       const merged = await convo.mergedBranches();
       return (await convo.listBranches()).filter((b) => !b.archived && !merged.has(b.name)).map((b) => b.name);
     },
-    loop: (c) => Promise.resolve(c.branch === convo.branch ? { system: "s", cost: false, registry: tools, grants } : { system: "s", cost: false, registry: c.branch.startsWith("sub/") ? subagentChildRegistry(base) : base, grants: c.branch.startsWith("sub/") ? subagentGrants(grants, o.merge) : grants }),
+    loop: (c) =>
+      Promise.resolve(
+        c.branch === convo.branch
+          ? { system: "s", cost: false, registry: tools, grants }
+          : {
+              system: "s",
+              cost: false,
+              registry: c.branch.startsWith("sub/") ? subagentChildRegistry(base) : base,
+              grants: c.branch.startsWith("sub/") ? subagentGrants(grants, o.merge) : grants,
+            },
+      ),
     idle: subagentNudge,
     ...(o.resume === undefined ? {} : { resume: () => o.resume === true }),
     deliver: async (c) => (await deliverSubagents(c)) + (await deliverForks(c)),
@@ -144,7 +198,11 @@ function pumpFor(convo: Conversation, tools: ToolRegistry, base: ToolRegistry, o
   return pump;
 }
 
-async function withSubagent(over: Partial<Parameters<typeof subagentTool>[0]> = {}, childTools: Tool[] = [writer("made-by-child.txt", "hi\n")], pumpOver: { grants?: GrantStore; resume?: boolean; onEvent?: (branch: string, e: LoopEvent) => void } = {}) {
+async function withSubagent(
+  over: Partial<Parameters<typeof subagentTool>[0]> = {},
+  childTools: Tool[] = [writer("made-by-child.txt", "hi\n")],
+  pumpOver: { grants?: GrantStore; resume?: boolean; onEvent?: (branch: string, e: LoopEvent) => void } = {},
+) {
   const { convo } = await fresh(new ToolRegistry());
   const base = new ToolRegistry(childTools);
   const tools = new ToolRegistry([subagentTool({ convo, childRegistry: base, ...over })]);
@@ -159,7 +217,9 @@ async function runAll(convo: Conversation, tools: ToolRegistry, pump: Pump, extr
   return first;
 }
 const assistantTexts = async (c: Conversation): Promise<string[]> =>
-  (await entries(c)).flatMap((e) => (e.$tag === "assistant" ? e.blocks.flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : [])) : []));
+  (await entries(c)).flatMap((e) =>
+    e.$tag === "assistant" ? e.blocks.flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : [])) : [],
+  );
 
 describe("the subagent tool", () => {
   test("the parent's call hands over to the child's thread, which works and hands back with merge; the parent then runs again and the merge answers the call", async () => {
@@ -195,7 +255,11 @@ describe("the subagent tool", () => {
     const during: { parent?: unknown; child?: unknown } = {};
     queue = [
       calls(call("s1", "subagent", { brief: "make the file", name: "w" })),
-      async () => ((during.parent = await convo.leaseState()), (during.child = await convo.leaseState(name)), calls(call("c2", "merge", { summary: "done" }))),
+      async () => (
+        (during.parent = await convo.leaseState()),
+        (during.child = await convo.leaseState(name)),
+        calls(call("c2", "merge", { summary: "done" }))
+      ),
       answer("parent is done"),
     ];
     await runAll(convo, tools, pump);
@@ -210,7 +274,12 @@ describe("the subagent tool", () => {
 
   test("a child that answers with text is nudged once; after the nudge it hands back", async () => {
     const { convo, tools, pump } = await withSubagent();
-    queue = [calls(call("s1", "subagent", { brief: "x", name: "n" })), answer("I am done"), calls(call("c2", "merge", { summary: "done after a nudge" })), answer("parent done")];
+    queue = [
+      calls(call("s1", "subagent", { brief: "x", name: "n" })),
+      answer("I am done"),
+      calls(call("c2", "merge", { summary: "done after a nudge" })),
+      answer("parent done"),
+    ];
     await runAll(convo, tools, pump);
     const res = (await entries(convo)).find((e) => e.$tag === "subagent_result");
     assert.ok(res?.$tag === "subagent_result");
@@ -241,7 +310,10 @@ describe("the subagent tool", () => {
     pump.runs.abort(branch);
     await until(() => (pump.held().has(branch) ? true : undefined));
     await pump.settle();
-    assert.equal((await entries(convo)).some((e) => e.$tag === "subagent_result"), false);
+    assert.equal(
+      (await entries(convo)).some((e) => e.$tag === "subagent_result"),
+      false,
+    );
     // the user speaks in the child's branch and lets it carry on
     const child = await convo.openBranch(branch);
     await child.append({ $tag: "user", content: [{ $tag: "text", text: "please finish up" }] });
@@ -256,9 +328,17 @@ describe("the subagent tool", () => {
 
   test("review: the report is a question for the user, and a refusal lets the child carry on", async () => {
     // harness.yml covers everything but handing back
-    const grants: GrantStore = { allow: (tool) => Promise.resolve(tool === "merge" ? undefined : { [ALL]: FOREVER }), grant: () => Promise.resolve() };
+    const grants: GrantStore = {
+      allow: (tool) => Promise.resolve(tool === "merge" ? undefined : { [ALL]: FOREVER }),
+      grant: () => Promise.resolve(),
+    };
     const { convo, tools, pump } = await withSubagent({ merge: "review" }, undefined, { grants });
-    queue = [calls(call("s1", "subagent", { brief: "x", name: "r" })), calls(call("c1", "merge", { summary: "first try" })), calls(call("c2", "merge", { summary: "second try" })), answer("parent done")];
+    queue = [
+      calls(call("s1", "subagent", { brief: "x", name: "r" })),
+      calls(call("c1", "merge", { summary: "first try" })),
+      calls(call("c2", "merge", { summary: "second try" })),
+      answer("parent done"),
+    ];
     await drive(convo, tools, { grants });
     await pump.settle();
     const q1 = pump.questions();
@@ -278,9 +358,16 @@ describe("the subagent tool", () => {
   });
 
   test("a question knows the threads it blocks, and the pump counts threads by state", async () => {
-    const grants: GrantStore = { allow: (tool) => Promise.resolve(tool === "merge" ? undefined : { [ALL]: FOREVER }), grant: () => Promise.resolve() };
+    const grants: GrantStore = {
+      allow: (tool) => Promise.resolve(tool === "merge" ? undefined : { [ALL]: FOREVER }),
+      grant: () => Promise.resolve(),
+    };
     const { convo, tools, pump } = await withSubagent({ merge: "review" }, undefined, { grants });
-    queue = [calls(call("s1", "subagent", { brief: "x", name: "r" })), calls(call("c1", "merge", { summary: "done" })), answer("parent done")];
+    queue = [
+      calls(call("s1", "subagent", { brief: "x", name: "r" })),
+      calls(call("c1", "merge", { summary: "done" })),
+      answer("parent done"),
+    ];
     await drive(convo, tools, { grants });
     await pump.settle();
     const q = pump.questions();
@@ -294,7 +381,14 @@ describe("the subagent tool", () => {
   test("a call the process died in the middle of finds its branch and carries on", async () => {
     const { convo, tools, pump } = await withSubagent();
     // The state a crash leaves: the assistant asked for a subagent, the child branch exists with its brief, the call has no answer.
-    await convo.append({ $tag: "assistant", provider: "f", model: "m1", blocks: [{ $tag: "tool_call", call_id: "s1", name: "subagent", args: { brief: "make the file", name: "w" } }], stop_reason: "tool_use", usage } as never);
+    await convo.append({
+      $tag: "assistant",
+      provider: "f",
+      model: "m1",
+      blocks: [{ $tag: "tool_call", call_id: "s1", name: "subagent", args: { brief: "make the file", name: "w" } }],
+      stop_reason: "tool_use",
+      usage,
+    } as never);
     await convo.spawnSubagent({ brief: "make the file", callId: "s1", name: subagentBranch("w", "s1") });
     queue = [calls(call("c1", "put")), calls(call("c2", "merge", { summary: "resumed and finished" })), answer("parent done")];
     const { result } = await runAll(convo, tools, pump);
@@ -310,12 +404,20 @@ describe("the subagent tool", () => {
 
   test("background: the call is answered at once; the report is delivered as a merge when the child has handed back", async () => {
     const { convo, tools, pump } = await withSubagent();
-    queue = [calls(call("s1", "subagent", { brief: "x", name: "bg", background: true })), answer("started it"), calls(call("c1", "put")), calls(call("c2", "merge", { summary: "background work done" }))];
+    queue = [
+      calls(call("s1", "subagent", { brief: "x", name: "bg", background: true })),
+      answer("started it"),
+      calls(call("c1", "put")),
+      calls(call("c2", "merge", { summary: "background work done" })),
+    ];
     const { result } = await runAll(convo, tools, pump);
     assert.equal(result.status, "completed", "the parent was not held up");
     const all = await entries(convo);
     const started = all.find((e) => e.$tag === "tool_result" && e.call_id === "s1");
-    assert.match(started?.$tag === "tool_result" && typeof started.content === "string" ? started.content : "", /^started subagent sub\/bg-/);
+    assert.match(
+      started?.$tag === "tool_result" && typeof started.content === "string" ? started.content : "",
+      /^started subagent sub\/bg-/,
+    );
     const res = all.find((e) => e.$tag === "subagent_result");
     assert.ok(res?.$tag === "subagent_result", "merged when the child was done");
     assert.match(typeof res.summary === "string" ? res.summary : "", /background work done/);
@@ -328,9 +430,18 @@ describe("the subagent tool", () => {
   test("background.resume: a delivered report makes the parent run again; without it the report waits for the next message", async () => {
     for (const resume of [true, false]) {
       const { convo, tools, pump } = await withSubagent({}, undefined, { resume });
-      queue = [calls(call("s1", "subagent", { brief: "x", name: "bg", background: true })), answer("started it"), calls(call("c1", "put")), calls(call("c2", "merge", { summary: "done" })), answer("saw the report")];
+      queue = [
+        calls(call("s1", "subagent", { brief: "x", name: "bg", background: true })),
+        answer("started it"),
+        calls(call("c1", "put")),
+        calls(call("c2", "merge", { summary: "done" })),
+        answer("saw the report"),
+      ];
       await runAll(convo, tools, pump);
-      assert.ok((await entries(convo)).some((e) => e.$tag === "subagent_result"), "delivered either way");
+      assert.ok(
+        (await entries(convo)).some((e) => e.$tag === "subagent_result"),
+        "delivered either way",
+      );
       assert.deepEqual(await assistantTexts(convo), resume ? ["started it", "saw the report"] : ["started it"], `resume ${resume}`);
     }
   });
@@ -410,7 +521,10 @@ describe("the fork and merge tools", () => {
     const { convo } = await fresh(new ToolRegistry());
     const tools = new ToolRegistry([mergeTool({ convo })]);
     await syncTools(convo, tools);
-    queue = [calls(call("m1", "merge", { branch: "nope", summary: "x" }), call("m2", "merge", { branch: "nope", summary: "  " })), answer("ok")];
+    queue = [
+      calls(call("m1", "merge", { branch: "nope", summary: "x" }), call("m2", "merge", { branch: "nope", summary: "  " })),
+      answer("ok"),
+    ];
     await drive(convo, tools);
     const rs = (await entries(convo)).flatMap((e) => (e.$tag === "tool_result" ? [e] : []));
     assert.equal(rs.length, 2);
@@ -433,7 +547,11 @@ describe("the fork and merge tools", () => {
     ]);
     await syncTools(convo, tools);
     const pump = pumpFor(convo, tools, base);
-    queue = [calls(call("f1", "fork", { name: "side", message: "work on it", auto_run: true })), answer("started the fork"), answer("the fork's findings")];
+    queue = [
+      calls(call("f1", "fork", { name: "side", message: "work on it", auto_run: true })),
+      answer("started the fork"),
+      answer("the fork's findings"),
+    ];
     const { result } = await runAll(convo, tools, pump);
     assert.equal(result.status, "completed");
     const all = await entries(convo);
@@ -449,7 +567,9 @@ describe("the fork and merge tools", () => {
 
   test("auto_run without a message is refused", async () => {
     const { convo } = await fresh(new ToolRegistry());
-    const tools = new ToolRegistry([forkTool({ convo, createFork: () => Promise.reject(new Error("no")), auto: { childRegistry: new ToolRegistry() } })]);
+    const tools = new ToolRegistry([
+      forkTool({ convo, createFork: () => Promise.reject(new Error("no")), auto: { childRegistry: new ToolRegistry() } }),
+    ]);
     await syncTools(convo, tools);
     queue = [calls(call("f1", "fork", { auto_run: true })), answer("ok")];
     await drive(convo, tools);
@@ -459,7 +579,10 @@ describe("the fork and merge tools", () => {
 });
 
 describe("choosing the subagent's model", () => {
-  const choices = async (convo: Conversation, listed: Record<string, { description?: string; reasoning?: string[] }> = { "f/m1": {}, "f/m2": {}, "f/m3": {} }) => {
+  const choices = async (
+    convo: Conversation,
+    listed: Record<string, { description?: string; reasoning?: string[] }> = { "f/m1": {}, "f/m2": {}, "f/m3": {} },
+  ) => {
     const r = resolveSubagentModels(listed, new Set(["f"]), (p, id) => convo.modelInfo(p, id));
     assert.deepEqual(r.problems, []);
     return r.models;
@@ -500,7 +623,11 @@ describe("choosing the subagent's model", () => {
 
   test("the child runs on the model and level the call chose, with the output cap of that model", async () => {
     const { convo, tools, pump } = await withModels();
-    queue = [calls(call("s1", "subagent", { brief: "x", name: "n", model: "f/m2", reasoning: "high" })), calls(call("c1", "merge", { summary: "ok" })), answer("parent done")];
+    queue = [
+      calls(call("s1", "subagent", { brief: "x", name: "n", model: "f/m2", reasoning: "high" })),
+      calls(call("c1", "merge", { summary: "ok" })),
+      answer("parent done"),
+    ];
     await runAll(convo, tools, pump);
     const res = (await entries(convo)).find((e) => e.$tag === "subagent_result");
     assert.ok(res?.$tag === "subagent_result");
@@ -511,7 +638,11 @@ describe("choosing the subagent's model", () => {
 
   test("a model without a level uses its default; a level alone changes only the level of the parent's model", async () => {
     const { convo, tools, pump } = await withModels();
-    queue = [calls(call("s1", "subagent", { brief: "x", name: "a", reasoning: "high" })), calls(call("c1", "merge", { summary: "ok" })), answer("parent done")];
+    queue = [
+      calls(call("s1", "subagent", { brief: "x", name: "a", reasoning: "high" })),
+      calls(call("c1", "merge", { summary: "ok" })),
+      answer("parent done"),
+    ];
     await runAll(convo, tools, pump);
     const res = (await entries(convo)).find((e) => e.$tag === "subagent_result");
     assert.ok(res?.$tag === "subagent_result");
@@ -534,7 +665,10 @@ describe("choosing the subagent's model", () => {
     // `max` is not in the schema's enum, so the registry refuses it before the tool sees it
     assert.match(text("s1"), /max|reasoning/);
     assert.match(text("s2"), /output cap for f\/m3 is not known/);
-    assert.deepEqual((await convo.listBranches()).filter((b) => b.name.startsWith("sub/")), []);
+    assert.deepEqual(
+      (await convo.listBranches()).filter((b) => b.name.startsWith("sub/")),
+      [],
+    );
   });
 
   test("approval keys: inherit, provider/model@level, and globs that let a cheap model through without a dear one", async () => {
@@ -557,7 +691,11 @@ describe("choosing the subagent's model", () => {
   test("a child inherits what the parent has spent: the turn and conversation figures it is limited by start from the parent's", async () => {
     const { convo, tools, pump } = await withModels();
     // the parent's turn so far: this request (the one that makes the call); the child then makes one request of its own
-    queue = [calls(call("s1", "subagent", { brief: "x", name: "n" })), calls(call("c1", "merge", { summary: "ok" })), answer("parent done")];
+    queue = [
+      calls(call("s1", "subagent", { brief: "x", name: "n" })),
+      calls(call("c1", "merge", { summary: "ok" })),
+      answer("parent done"),
+    ];
     await runAll(convo, tools, pump);
     const res = (await entries(convo)).find((e) => e.$tag === "subagent_result");
     assert.ok(res?.$tag === "subagent_result");
@@ -592,9 +730,16 @@ describe("the pump", () => {
     const b = pumpFor(convo, tools, new ToolRegistry(), { grants: none });
     await a.tick();
     await b.tick();
-    for (const p of [a, b]) assert.deepEqual(p.questions().map((q) => [q.branch, q.callId, q.name]), [[convo.branch, "p1", "put"]]);
+    for (const p of [a, b])
+      assert.deepEqual(
+        p.questions().map((q) => [q.branch, q.callId, q.name]),
+        [[convo.branch, "p1", "put"]],
+      );
     const since = a.questions()[0]?.since;
-    assert.ok(since !== undefined && Date.now() - since >= 0 && Date.now() - since < 60_000, "how long it has been waiting comes from the call's entry");
+    assert.ok(
+      since !== undefined && Date.now() - since >= 0 && Date.now() - since < 60_000,
+      "how long it has been waiting comes from the call's entry",
+    );
     assert.deepEqual(await a.answer(convo.branch, "p1", { allow: true }), { status: "recorded" });
     const second = await b.answer(convo.branch, "p1", { allow: true });
     assert.notEqual(second.status, "recorded", "the first answer wins");

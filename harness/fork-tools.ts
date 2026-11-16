@@ -43,11 +43,27 @@ export async function deliverForks(convo: Conversation): Promise<number> {
     const theirs = (await convo.readEntriesAt(`refs/heads/${name}`)).flatMap((x) => (x.ok ? [x.value] : []));
     const last = [...theirs].reverse().find((x) => x.$tag !== "agent_setup" && x.$tag !== "approval" && x.$tag !== "injection");
     if (last?.$tag === "assistant" && !last.blocks.some((b) => b.$tag === "tool_call")) {
-      const text = last.blocks.flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : [])).join("").trim();
-      await convo.append({ $tag: "job_event", job: name, call_id: e.call_id, status: "completed", summary: `${name} finished its first run`, ...(text === "" ? {} : { output: text }) });
+      const text = last.blocks
+        .flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : []))
+        .join("")
+        .trim();
+      await convo.append({
+        $tag: "job_event",
+        job: name,
+        call_id: e.call_id,
+        status: "completed",
+        summary: `${name} finished its first run`,
+        ...(text === "" ? {} : { output: text }),
+      });
       delivered++;
     } else if (last?.$tag === "interrupted") {
-      await convo.append({ $tag: "job_event", job: name, call_id: e.call_id, status: "failed", summary: `${name} stopped (${last.by === "user" ? "stopped by the user" : "an error"}); its work is on branch ${name}` });
+      await convo.append({
+        $tag: "job_event",
+        job: name,
+        call_id: e.call_id,
+        status: "failed",
+        summary: `${name} stopped (${last.by === "user" ? "stopped by the user" : "an error"}); its work is on branch ${name}`,
+      });
       delivered++;
     }
   }
@@ -66,9 +82,23 @@ export function forkTool(deps: ForkDeps): Tool {
         type: "object",
         additionalProperties: false,
         properties: {
-          name: { type: "string", description: "A short branch name (letters, digits, - _ /). Optional: forks are numbered fork/1, fork/2 ..." },
-          message: { type: "string", description: "What the fork should do first, written for the model that will read it there. Optional." },
-          ...(deps.auto === undefined ? {} : { auto_run: { type: "boolean", description: "Send `message` in the fork at once and let it work by itself in the background; you are told when it stops. Needs `message`. Default false: the message waits there for the user to send it." } }),
+          name: {
+            type: "string",
+            description: "A short branch name (letters, digits, - _ /). Optional: forks are numbered fork/1, fork/2 ...",
+          },
+          message: {
+            type: "string",
+            description: "What the fork should do first, written for the model that will read it there. Optional.",
+          },
+          ...(deps.auto === undefined
+            ? {}
+            : {
+                auto_run: {
+                  type: "boolean",
+                  description:
+                    "Send `message` in the fork at once and let it work by itself in the background; you are told when it stops. Needs `message`. Default false: the message waits there for the user to send it.",
+                },
+              }),
         },
       },
     },
@@ -77,8 +107,10 @@ export function forkTool(deps: ForkDeps): Tool {
       const name = args["name"] as string | undefined;
       const message = args["message"] as string | undefined;
       const autoRun = args["auto_run"] === true;
-      if (autoRun && (deps.auto === undefined || message === undefined || message.trim() === "")) return { content: "auto_run needs a message to send", is_error: true };
-      if (name !== undefined && !SAFE_NAME.test(name)) return { content: "name must be letters, digits, - _ and / (at most 61 characters)", is_error: true };
+      if (autoRun && (deps.auto === undefined || message === undefined || message.trim() === ""))
+        return { content: "auto_run needs a message to send", is_error: true };
+      if (name !== undefined && !SAFE_NAME.test(name))
+        return { content: "name must be letters, digits, - _ and / (at most 61 characters)", is_error: true };
       const made = await deps.createFork(name);
       // In the fork this call has no answer yet: say there what happened, so the model there knows where it is.
       await made.conversation.append({
@@ -91,10 +123,14 @@ export function forkTool(deps: ForkDeps): Tool {
         // Tools first, so the message is not split from the reply by a setup entry; then the message is the request that makes the thread run.
         await syncTools(made.conversation, deps.auto.childRegistry);
         await made.conversation.append({ $tag: "user", content: [{ $tag: "text", text: message.trim() }] });
-        return { content: `${FORK_STARTED} ${made.branch}. It is working on your message; you will be told when it stops. Merge it with the merge tool when you want its work here.` };
+        return {
+          content: `${FORK_STARTED} ${made.branch}. It is working on your message; you will be told when it stops. Merge it with the merge tool when you want its work here.`,
+        };
       }
       if (message !== undefined && message.trim() !== "") deps.onDraft?.(made.branch, message.trim());
-      return { content: `Forked ${made.branch}. ${message === undefined ? "" : "Your message is waiting there for the user to send. "}The user moves there with /thread ${made.branch}; bring it back with merge.` };
+      return {
+        content: `Forked ${made.branch}. ${message === undefined ? "" : "Your message is waiting there for the user to send. "}The user moves there with /thread ${made.branch}; bring it back with merge.`,
+      };
     },
   };
 }

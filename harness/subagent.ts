@@ -49,7 +49,8 @@ export function callHash(callId: string): string {
 export const subagentBranch = (label: string | undefined, callId: string): string => `sub/${label ?? "task"}-${callHash(callId)}`;
 
 /** Added to every brief, so the child knows how its work is handed back. */
-export const HAND_BACK = "When your task is done, call the merge tool with a summary of what you did and found. That is how your work is handed back; do not end with a plain reply.";
+export const HAND_BACK =
+  "When your task is done, call the merge tool with a summary of what you did and found. That is how your work is handed back; do not end with a plain reply.";
 
 /** What a child's `merge` tool takes and what it does: nothing but end the child's loop; the report is read from the call. */
 function reportTool(): Tool {
@@ -58,7 +59,12 @@ function reportTool(): Tool {
       name: "merge",
       description:
         "Hand your work back. Call this when your task is done (or cannot be done), instead of replying with text: `summary` is what the one who gave you the task will read, so say what you did, what you found and what to do next. Your file changes are merged into theirs.",
-      input_schema: { type: "object", additionalProperties: false, required: ["summary"], properties: { summary: { type: "string", description: "Your report: what you did, what you found, anything left." } } },
+      input_schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["summary"],
+        properties: { summary: { type: "string", description: "Your report: what you did, what you found, anything left." } },
+      },
     },
     allowKeys: () => null,
     execute: (args) => {
@@ -112,7 +118,9 @@ export async function childState(child: Conversation, entries: readonly ChatEntr
     if (call?.$tag === "tool_call") {
       const result = own.slice(i + 1).find((x) => x.$tag === "tool_result" && x.call_id === call.call_id);
       if (result?.$tag === "tool_result" && !result.is_error) {
-        const args = (await inlineBlobs(call.args, async (ref) => dec.decode((await child.store.get(ref.sha256)) ?? new Uint8Array()))) as { summary?: unknown };
+        const args = (await inlineBlobs(call.args, async (ref) => dec.decode((await child.store.get(ref.sha256)) ?? new Uint8Array()))) as {
+          summary?: unknown;
+        };
         return { state: "handed_back", summary: typeof args.summary === "string" ? args.summary.trim() : "" };
       }
     }
@@ -120,7 +128,10 @@ export async function childState(child: Conversation, entries: readonly ChatEntr
   }
   const last = [...own].reverse().find((e) => e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection");
   const spoke = own.some((e) => e.$tag === "user" && !isNudge(e));
-  if (last?.$tag === "interrupted") return last.by === "user" ? { state: "working" } : { state: "gave_up", why: `it stopped with an error${last.error === undefined ? "" : `: ${last.error}`}` };
+  if (last?.$tag === "interrupted")
+    return last.by === "user"
+      ? { state: "working" }
+      : { state: "gave_up", why: `it stopped with an error${last.error === undefined ? "" : `: ${last.error}`}` };
   if (last?.$tag === "assistant" && !last.blocks.some((b) => b.$tag === "tool_call") && !spoke) {
     return own.some(isNudge) ? { state: "gave_up", why: "it ended without handing its work back" } : { state: "needs_nudge" };
   }
@@ -169,7 +180,13 @@ export async function deliverSubagents(convo: Conversation, opts: { review?: boo
       await convo.finishSubagent(name, { summary: st.summary, callId: e.call_id });
       delivered++;
     } else if (st.state === "gave_up") {
-      await convo.append({ $tag: "job_event", job: name, call_id: e.call_id, status: "failed", summary: `subagent ${name} ${st.why}, so nothing was merged. Its work is on branch ${name}.` });
+      await convo.append({
+        $tag: "job_event",
+        job: name,
+        call_id: e.call_id,
+        status: "failed",
+        summary: `subagent ${name} ${st.why}, so nothing was merged. Its work is on branch ${name}.`,
+      });
       delivered++;
     }
   }
@@ -212,7 +229,12 @@ export function subagentTool(deps: SubagentDeps): Tool {
   const choose = async (args: Record<string, unknown>): Promise<ChildModel> => {
     const parent = (await deps.convo.setup()).model;
     const info = parent === undefined ? undefined : deps.convo.modelInfo(parent.provider, parent.id);
-    return childModel({ model: args["model"] as string | undefined, reasoning: args["reasoning"] as string | undefined }, models, parent, info);
+    return childModel(
+      { model: args["model"] as string | undefined, reasoning: args["reasoning"] as string | undefined },
+      models,
+      parent,
+      info,
+    );
   };
 
   return {
@@ -223,16 +245,23 @@ export function subagentTool(deps: SubagentDeps): Tool {
     definition: {
       name: "subagent",
       description:
-        "Hand a self-contained task to a subagent: a fresh assistant that has the file tools but none of this conversation, works on its own copy of the workspace, and reports back. Its file changes are merged into yours when it finishes (where both changed the same file, yours is kept). Put everything it needs in `brief`: it knows nothing else. Good for work that is large, or independent of what you are doing, or that would fill this conversation with detail you do not need. The call returns the subagent's report and the files that changed. With `background: true` it returns at once and you are told when the subagent is done." + describeModels(models),
+        "Hand a self-contained task to a subagent: a fresh assistant that has the file tools but none of this conversation, works on its own copy of the workspace, and reports back. Its file changes are merged into yours when it finishes (where both changed the same file, yours is kept). Put everything it needs in `brief`: it knows nothing else. Good for work that is large, or independent of what you are doing, or that would fill this conversation with detail you do not need. The call returns the subagent's report and the files that changed. With `background: true` it returns at once and you are told when the subagent is done." +
+        describeModels(models),
       input_schema: {
         type: "object",
         additionalProperties: false,
         required: ["brief"],
         properties: {
-          brief: { type: "string", description: "The task, complete in itself: the goal, the files and constraints that matter, and what to report back." },
+          brief: {
+            type: "string",
+            description: "The task, complete in itself: the goal, the files and constraints that matter, and what to report back.",
+          },
           name: { type: "string", description: "A short label for the subagent's branch (letters, digits, - and _). Optional." },
           ...modelProperties(models),
-          background: { type: "boolean", description: "Return at once and carry on while the subagent works; you are told when it is done. Default false." },
+          background: {
+            type: "boolean",
+            description: "Return at once and carry on while the subagent works; you are told when it is done. Default false.",
+          },
         },
       },
     },
@@ -251,7 +280,10 @@ export function subagentTool(deps: SubagentDeps): Tool {
       const hit = keys.find((k) => k === want || (want !== "inherit" && k !== "inherit" && globRegex(k).test(want)));
       return hit === undefined ? undefined : [hit];
     },
-    validateKey: (key) => (key === "inherit" || /^[^\s@]+\/[^\s@]*@[^\s@]+$/.test(key) ? undefined : "write it as provider/model@level (globs allowed, for example anthropic/claude-haiku-*@*), or inherit"),
+    validateKey: (key) =>
+      key === "inherit" || /^[^\s@]+\/[^\s@]*@[^\s@]+$/.test(key)
+        ? undefined
+        : "write it as provider/model@level (globs allowed, for example anthropic/claude-haiku-*@*), or inherit",
     waitingOn: async (args, callId) => {
       const name = subagentBranch(args["name"] as string | undefined, callId);
       if (args["background"] === true) return undefined;
@@ -261,7 +293,8 @@ export function subagentTool(deps: SubagentDeps): Tool {
     execute: async (args, ctx): Promise<ToolOutput | StartedJob> => {
       const brief = args["brief"] as string;
       const label = args["name"] as string | undefined;
-      if (label !== undefined && !SAFE_NAME.test(label)) return { content: "name must be letters, digits, - and _ (at most 31 characters)", is_error: true };
+      if (label !== undefined && !SAFE_NAME.test(label))
+        return { content: "name must be letters, digits, - and _ (at most 31 characters)", is_error: true };
       const choice = await choose(args);
       if (!choice.ok) return { content: choice.message, is_error: true };
       // Everything that can be refused is refused before the branch is made, so a bad choice leaves nothing behind.
@@ -269,17 +302,23 @@ export function subagentTool(deps: SubagentDeps): Tool {
         const issues = (await deps.validateSettings?.(choice.model.provider, choice.model.settings)) ?? [];
         if (issues.length > 0) return { content: `the settings for ${choice.key} are not valid: ${issues.join("; ")}`, is_error: true };
         const unsupported = toolConventionProblems(deps.convo, deps.childRegistry, choice.model);
-        if (unsupported.tools.length > 0) return { content: `${choice.key} cannot be given the subagent's tools (its tool convention is ${unsupported.convention}: ${unsupported.tools.map((t) => `${t.name}: ${t.why.join(", ")}`).join("; ")})`, is_error: true };
+        if (unsupported.tools.length > 0)
+          return {
+            content: `${choice.key} cannot be given the subagent's tools (its tool convention is ${unsupported.convention}: ${unsupported.tools.map((t) => `${t.name}: ${t.why.join(", ")}`).join("; ")})`,
+            is_error: true,
+          };
       }
       const name = subagentBranch(label, ctx.callId);
-      if (!(await prepare(brief, name, ctx.callId, choice.model))) return { content: "the subagent's workspace could not be made", is_error: true };
+      if (!(await prepare(brief, name, ctx.callId, choice.model)))
+        return { content: "the subagent's workspace could not be made", is_error: true };
       if (args["background"] === true) return { content: `started subagent ${name}. You will be told when it is done.` };
       const st = await lookChild(deps.convo, name);
       if (!st.found || st.state === "working" || st.state === "needs_nudge") {
         // The child is somebody else's turn now: this thread lets go, and runs again when the child has handed back.
         return { content: "", waiting: name };
       }
-      if (st.state === "gave_up") return { content: `subagent ${name} ${st.why}, so nothing was merged. Its work is on branch ${name}.`, is_error: true };
+      if (st.state === "gave_up")
+        return { content: `subagent ${name} ${st.why}, so nothing was merged. Its work is on branch ${name}.`, is_error: true };
       await deps.convo.finishSubagent(name, { summary: st.summary, callId: ctx.callId });
       return { content: st.summary, recorded: true };
     },

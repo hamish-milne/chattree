@@ -14,7 +14,10 @@ const host = nodeHost();
 const H1 = "a1".repeat(32);
 const H2 = "b2".repeat(32);
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (model = "claude-sonnet-5-5", blocks: Extract<NewEntry, { $tag: "assistant" }>["blocks"] = [{ $tag: "text", text: "ok" }]): Extract<NewEntry, { $tag: "assistant" }> => ({
+const reply = (
+  model = "claude-sonnet-5-5",
+  blocks: Extract<NewEntry, { $tag: "assistant" }>["blocks"] = [{ $tag: "text", text: "ok" }],
+): Extract<NewEntry, { $tag: "assistant" }> => ({
   $tag: "assistant",
   provider: "anthropic",
   model,
@@ -45,9 +48,22 @@ describe("folding", () => {
   });
 
   test("minimizeChange drops what is already in force", () => {
-    const base = foldSetup([{ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: sonnet, tools: { set: { a: { hash: H1, store: "blob" } } } }]);
-    assert.deepEqual(minimizeChange(base, { model: { ...sonnet }, tools: { set: { a: { hash: H1, store: "blob" } }, remove: ["nope"] } }), {});
-    assert.deepEqual(minimizeChange(base, { tools: { set: { a: { hash: H1, store: "blob" }, c: { hash: H2, store: "blob" } } } }), { tools: { set: { c: { hash: H2, store: "blob" } } } });
+    const base = foldSetup([
+      {
+        $tag: "agent_setup",
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        reason: "user",
+        model: sonnet,
+        tools: { set: { a: { hash: H1, store: "blob" } } },
+      },
+    ]);
+    assert.deepEqual(
+      minimizeChange(base, { model: { ...sonnet }, tools: { set: { a: { hash: H1, store: "blob" } }, remove: ["nope"] } }),
+      {},
+    );
+    assert.deepEqual(minimizeChange(base, { tools: { set: { a: { hash: H1, store: "blob" }, c: { hash: H2, store: "blob" } } } }), {
+      tools: { set: { c: { hash: H2, store: "blob" } } },
+    });
     assert.deepEqual(minimizeChange(emptySetup(), {}), {});
   });
 
@@ -59,14 +75,26 @@ describe("folding", () => {
     assert.deepEqual(await fork.conversation?.setup(), await convo.setup());
     const sub = await convo.spawnSubagent({ brief: "look", callId: "c1" });
     assert.equal((await sub.conversation?.setup())?.model, undefined);
-    assert.equal(await sub.conversation?.setupChange({ model: { provider: "anthropic", id: "claude-haiku-5-5" } }, { reason: "subagent" }).then((a) => a?.tag), "agent_setup");
+    assert.equal(
+      await sub.conversation
+        ?.setupChange({ model: { provider: "anthropic", id: "claude-haiku-5-5" } }, { reason: "subagent" })
+        .then((a) => a?.tag),
+      "agent_setup",
+    );
     assert.equal((await sub.conversation?.setup())?.model?.id, "claude-haiku-5-5");
     assert.equal((await convo.setup()).model?.id, "claude-sonnet-5-5", "the parent is unaffected");
     assert.deepEqual(await problems(sub.conversation as Conversation), []);
   });
 
   test("inToolLoop: a call with no result yet", () => {
-    const call: ChatEntry = { $tag: "assistant", id: "01ARZ3NDEKTSV4RRFFQ69G5FA1", provider: "p", model: "m", stop_reason: "tool_use", blocks: [{ $tag: "tool_call", call_id: "c", name: "t", args: {} }] };
+    const call: ChatEntry = {
+      $tag: "assistant",
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FA1",
+      provider: "p",
+      model: "m",
+      stop_reason: "tool_use",
+      blocks: [{ $tag: "tool_call", call_id: "c", name: "t", args: {} }],
+    };
     const res: ChatEntry = { $tag: "tool_result", id: "01ARZ3NDEKTSV4RRFFQ69G5FA2", call_id: "c", is_error: false, content: "x" };
     assert.equal(inToolLoop([call]), true);
     assert.equal(inToolLoop([call, res]), false);
@@ -100,24 +128,37 @@ describe("setupChange", () => {
     const last = (await entries(convo)).at(-1);
     assert.ok(last?.$tag === "agent_setup" && last.reason === "user");
     assert.deepEqual(last.allow, ["model_changed"]);
-    await assert.rejects(convo.setupChange({ model: { provider: "openai", id: "gpt-5.4" } }, { allow: ["model_changed"] }), (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("provider_changed"));
+    await assert.rejects(
+      convo.setupChange({ model: { provider: "openai", id: "gpt-5.4" } }, { allow: ["model_changed"] }),
+      (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("provider_changed"),
+    );
   });
 
   test("settings-only changes are free unless the adapter classifies them", async () => {
     const classify = (from: { model?: { settings?: unknown } }, to: { model?: { settings?: unknown } }): Change[] =>
-      JSON.stringify(from.model?.settings) === JSON.stringify(to.model?.settings) ? [] : [{ kind: "cache_break", message: "settings invalidate the cache", estimatedCost: 0.5 }];
+      JSON.stringify(from.model?.settings) === JSON.stringify(to.model?.settings)
+        ? []
+        : [{ kind: "cache_break", message: "settings invalidate the cache", estimatedCost: 0.5 }];
     const free = await fresh();
     await free.convo.setupChange({ model: sonnet });
     await free.convo.setupChange({ model: { ...sonnet, settings: { max_output_tokens: 1 } } });
     const { convo } = await fresh({ classify });
     await convo.setupChange({ model: sonnet });
-    await assert.rejects(convo.setupChange({ model: { ...sonnet, settings: { max_output_tokens: 1 } } }), (e) => e instanceof ChangeNotAllowed && e.changes[0]?.estimatedCost === 0.5);
+    await assert.rejects(
+      convo.setupChange({ model: { ...sonnet, settings: { max_output_tokens: 1 } } }),
+      (e) => e instanceof ChangeNotAllowed && e.changes[0]?.estimatedCost === 0.5,
+    );
     await convo.setupChange({ model: { ...sonnet, settings: { max_output_tokens: 1 } } }, { allow: ["cache_break"] });
   });
 
   test("tools, instructions and pricing changes are classified", async () => {
     const { convo } = await fresh();
-    await convo.setupChange({ model: sonnet, tools: { set: { a: { hash: H1, store: "blob" } } }, instructions: { hash: H1, store: "blob" }, pricing: { table: H1 } });
+    await convo.setupChange({
+      model: sonnet,
+      tools: { set: { a: { hash: H1, store: "blob" } } },
+      instructions: { hash: H1, store: "blob" },
+      pricing: { table: H1 },
+    });
     await convo.append(user("hi"));
     await convo.append(reply());
     const kinds = async (c: Parameters<Conversation["setupChange"]>[0]) =>
@@ -127,11 +168,19 @@ describe("setupChange", () => {
       );
     assert.deepEqual(await kinds({ tools: { set: { a: { hash: H2, store: "blob" } } } }), ["tools_changed"]);
     assert.deepEqual(await kinds({ tools: { remove: ["a"] } }), ["tools_changed"]);
-    assert.deepEqual(await kinds({ instructions: { hash: H2, store: "blob" } }), [], "the prefix keeps its text, so nothing is lost and nothing is asked");
+    assert.deepEqual(
+      await kinds({ instructions: { hash: H2, store: "blob" } }),
+      [],
+      "the prefix keeps its text, so nothing is lost and nothing is asked",
+    );
     const last = (await entries(convo)).at(-1);
     assert.ok(last?.$tag === "agent_setup" && last.apply === "append");
     assert.deepEqual(await kinds({ pricing: { table: H2 } }), ["pricing_changed"]);
-    assert.deepEqual(await kinds({ skills: { set: { s: { hash: H1, store: "external", ref: "skills/s" } } } }), [], "skills are appended like instructions: nothing is lost and nothing is asked");
+    assert.deepEqual(
+      await kinds({ skills: { set: { s: { hash: H1, store: "external", ref: "skills/s" } } } }),
+      [],
+      "skills are appended like instructions: nothing is lost and nothing is asked",
+    );
   });
 
   test("inside a tool loop any model or tool change also needs mid_loop", async () => {
@@ -139,8 +188,14 @@ describe("setupChange", () => {
     await convo.setupChange({ model: sonnet });
     await convo.append(user("go"));
     await convo.append(reply("claude-sonnet-5-5", [{ $tag: "tool_call", call_id: "c1", name: "run", args: {} }]));
-    await assert.rejects(convo.setupChange({ model: { ...sonnet, settings: { max_output_tokens: 1 } } }), (e) => e instanceof ChangeNotAllowed && e.allowWith.join() === "mid_loop");
-    await assert.rejects(convo.setupChange({ model: { provider: "anthropic", id: "x" } }), (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("mid_loop") && e.allowWith.includes("model_changed"));
+    await assert.rejects(
+      convo.setupChange({ model: { ...sonnet, settings: { max_output_tokens: 1 } } }),
+      (e) => e instanceof ChangeNotAllowed && e.allowWith.join() === "mid_loop",
+    );
+    await assert.rejects(
+      convo.setupChange({ model: { provider: "anthropic", id: "x" } }),
+      (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("mid_loop") && e.allowWith.includes("model_changed"),
+    );
     await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "ok" });
     await convo.setupChange({ model: { ...sonnet, settings: { max_output_tokens: 1 } } });
   });
@@ -173,9 +228,17 @@ describe("responses and provider-observed changes", () => {
     const { convo } = await fresh();
     await convo.setupChange({ model: { provider: "openai", id: "gpt-5.4" } });
     const out = await convo.appendResponse({ ...reply(), provider: "openai" }, { model: "gpt-5.4-2026-03-05" });
-    assert.deepEqual(out.map((a) => a.tag), ["agent_setup", "assistant"]);
+    assert.deepEqual(
+      out.map((a) => a.tag),
+      ["agent_setup", "assistant"],
+    );
     const [setup, resp] = await entries(convo).then((e) => e.slice(-2));
-    assert.ok(setup?.$tag === "agent_setup" && setup.reason === "resolved" && setup.model?.resolved === "gpt-5.4-2026-03-05" && setup.changes === undefined);
+    assert.ok(
+      setup?.$tag === "agent_setup" &&
+        setup.reason === "resolved" &&
+        setup.model?.resolved === "gpt-5.4-2026-03-05" &&
+        setup.changes === undefined,
+    );
     assert.ok(resp?.$tag === "assistant" && resp.model === "gpt-5.4-2026-03-05", "the assistant entry records the served model");
     const s = await convo.checkRequest();
     assert.deepEqual(s.unacknowledged, [], "an alias resolving is not gated");
@@ -189,7 +252,10 @@ describe("responses and provider-observed changes", () => {
     const { convo } = await fresh({ onEvent: (e) => void events.push(e) });
     await convo.setupChange({ model: { provider: "openai", id: "gpt-5.4", resolved: "gpt-5.4-2026-03-05" } });
     const out = await convo.appendResponse({ ...reply(), provider: "openai" }, { model: "gpt-5.4-2026-06-01" });
-    assert.deepEqual(out.map((a) => a.tag), ["agent_setup", "assistant"]);
+    assert.deepEqual(
+      out.map((a) => a.tag),
+      ["agent_setup", "assistant"],
+    );
     await convo.flushEvents();
     const changed = events.filter((e) => e.type === "setup_changed");
     assert.equal(changed.length, 2, "one for the setup, one for the provider change");
@@ -199,7 +265,10 @@ describe("responses and provider-observed changes", () => {
 
     // Recorded as fact; the next request is refused until acknowledged or covered.
     assert.equal((await convo.setup()).model?.resolved, "gpt-5.4-2026-06-01");
-    await assert.rejects(convo.checkRequest(), (e) => e instanceof ChangeNotAllowed && e.allowWith.join() === "resolved_model_changed" && /request not allowed/.test(e.message));
+    await assert.rejects(
+      convo.checkRequest(),
+      (e) => e instanceof ChangeNotAllowed && e.allowWith.join() === "resolved_model_changed" && /request not allowed/.test(e.message),
+    );
     await convo.checkRequest(["resolved_model_changed"]);
     await assert.rejects(convo.setupChange({}, { acknowledges: ["01ARZ3NDEKTSV4RRFFQ69G5FAV"] }), ConversationError);
     const ack = await convo.setupChange({}, { acknowledges: [out[0]?.id as string] });
@@ -260,7 +329,10 @@ describe("crash safety", () => {
       const h = faultyHost(host, Infinity);
       const { dir, convo } = await run(h);
       h.arm(k);
-      await assert.rejects(convo.appendResponse({ ...reply(), provider: "openai" }, { model: "b" }), (e) => e instanceof Error && /injected fault/.test(e.message));
+      await assert.rejects(
+        convo.appendResponse({ ...reply(), provider: "openai" }, { model: "b" }),
+        (e) => e instanceof Error && /injected fault/.test(e.message),
+      );
       const now = Date.now() + 120_000;
       const reopened = await Conversation.open(host, dir, { now: () => now, lock: { staleAfterMs: 1000, timeoutMs: 0 } });
       await assertHistoryInvariants(reopened);

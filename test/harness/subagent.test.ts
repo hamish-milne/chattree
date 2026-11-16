@@ -54,7 +54,10 @@ describe("spawnSubagent", () => {
     const { dir, convo } = await fresh();
     const before = await convo.readTranscript();
     const head = await convo.git.head();
-    const { branch, start, conversation, from } = await convo.spawnSubagent({ brief: "Find every caller of tokenize().", callId: "toolu_01" });
+    const { branch, start, conversation, from } = await convo.spawnSubagent({
+      brief: "Find every caller of tokenize().",
+      callId: "toolu_01",
+    });
     assert.match(branch, /^sub\/[0-9A-Z]{26}$/);
     assert.equal(from, head, "no pending changes, so no snapshot commit");
     assert.ok(conversation !== undefined);
@@ -90,7 +93,11 @@ describe("spawnSubagent", () => {
     assert.equal(snap?.hash, sub.from);
     assert.equal(entryCommit?.trailers["Chattree-Kind"]?.[0], "user");
     assert.equal(await convo.git.isClean(), true);
-    assert.deepEqual((await convo.index()).map((r) => r.tag), ["header", "user"], "a snapshot is not an entry");
+    assert.deepEqual(
+      (await convo.index()).map((r) => r.tag),
+      ["header", "user"],
+      "a snapshot is not an entry",
+    );
     await assertHistoryInvariants(convo);
     await convo.append(reply("parent carries on after a snapshot"));
   });
@@ -176,7 +183,10 @@ describe("finishSubagent", () => {
     // the parent's transcript holds no child entries; the child's branch is kept
     const tags = (await convo.readEntries()).map((e) => (e.ok ? e.tag : "?"));
     assert.deepEqual(tags, ["header", "user", "assistant", "subagent_result"]);
-    assert.equal((await convo.listBranches()).some((b) => b.name === branch), true);
+    assert.equal(
+      (await convo.listBranches()).some((b) => b.name === branch),
+      true,
+    );
     assert.equal((await convo.index()).at(-1)?.id, out.entry.id);
     await assertHistoryInvariants(convo);
     await convo.append(reply("and on"));
@@ -185,16 +195,34 @@ describe("finishSubagent", () => {
 
   test("conflicts take the parent's version and are reported exactly", async () => {
     const { dir, convo } = await fresh();
-    await put(dir, { "modified-both.txt": "a\nb\nc\n", "child-deletes.txt": "x\n", "parent-deletes.txt": "y\n", "kind/inner": "1\n", keep: "k\n" });
+    await put(dir, {
+      "modified-both.txt": "a\nb\nc\n",
+      "child-deletes.txt": "x\n",
+      "parent-deletes.txt": "y\n",
+      "kind/inner": "1\n",
+      keep: "k\n",
+    });
     await convo.append(reply("more files"));
     const { conversation: child, branch } = await convo.spawnSubagent({ brief: "b", callId: "c" });
     assert.ok(child !== undefined);
 
-    await put(child.dir, { "modified-both.txt": "a\nB-child\nc\n", "child-deletes.txt": null, "parent-deletes.txt": "child edit\n", "child-new.txt": "n\n", kind: null });
+    await put(child.dir, {
+      "modified-both.txt": "a\nB-child\nc\n",
+      "child-deletes.txt": null,
+      "parent-deletes.txt": "child edit\n",
+      "child-new.txt": "n\n",
+      kind: null,
+    });
     await put(child.dir, { kind: "now a file\n" });
     await child.append(reply("child done"));
 
-    await put(dir, { "modified-both.txt": "a\nB-parent\nc\n", "child-deletes.txt": "parent edit\n", "parent-deletes.txt": null, "parent-new.txt": "p\n", "kind/other": "2\n" });
+    await put(dir, {
+      "modified-both.txt": "a\nB-parent\nc\n",
+      "child-deletes.txt": "parent edit\n",
+      "parent-deletes.txt": null,
+      "parent-new.txt": "p\n",
+      "kind/other": "2\n",
+    });
     await convo.append(reply("parent done"));
 
     const out = await convo.finishSubagent(child, { summary: "done", callId: "c" });
@@ -207,7 +235,7 @@ describe("finishSubagent", () => {
     assert.equal(await read(dir, "child-new.txt"), "n\n", "non-conflicting child work still lands");
     assert.equal(await read(dir, "parent-new.txt"), "p\n");
     assert.equal(await read(dir, "keep"), "k\n");
-    assert.deepEqual((await convo.git.status()), []);
+    assert.deepEqual(await convo.git.status(), []);
 
     assert.deepEqual(out.report.discarded, ["child-deletes.txt", "kind", "modified-both.txt", "parent-deletes.txt"]);
     assert.deepEqual(out.report.added, ["child-new.txt"]);
@@ -266,7 +294,10 @@ describe("finishSubagent", () => {
       assert.deepEqual(out.report.added, [`out/${i}.txt`]);
     }
     for (let i = 0; i < 3; i++) assert.equal(await read(dir, `out/${i}.txt`), `result ${i}\n`);
-    assert.deepEqual((await convo.readEntries()).slice(-3).map((e) => (e.ok && e.value.$tag === "subagent_result" ? e.value.call_id : "?")), ["c0", "c1", "c2"]);
+    assert.deepEqual(
+      (await convo.readEntries()).slice(-3).map((e) => (e.ok && e.value.$tag === "subagent_result" ? e.value.call_id : "?")),
+      ["c0", "c1", "c2"],
+    );
     await assertHistoryInvariants(convo);
   });
 
@@ -324,29 +355,42 @@ describe("summarizeMerge", () => {
   const change = (status: string, path: string): DiffEntry => ({ status, path });
 
   test("sorts, splits added from changed, and ignores the transcript and blobs", () => {
-    const r = summarizeMerge([change("M", "b"), change("A", "a"), change("D", "c"), change("M", CHAT_FILE), change("A", "blobs/ab/cd"), change("T", "d")], merge([], []));
+    const r = summarizeMerge(
+      [change("M", "b"), change("A", "a"), change("D", "c"), change("M", CHAT_FILE), change("A", "blobs/ab/cd"), change("T", "d")],
+      merge([], []),
+    );
     assert.deepEqual(r, { changed: ["b", "c", "d"], added: ["a"], discarded: [], conflicts: [] });
   });
 
   test("a conflicted path is discarded whatever the kind, and conflicts are listed once per kind", () => {
     const r = summarizeMerge(
       [change("M", "f"), change("A", "g"), change("M", "ok")],
-      merge(["f", "g~side", CHAT_FILE], [
-        { paths: ["f"], type: "Auto-merging" },
-        { paths: ["f"], type: "CONFLICT (contents)" },
-        { paths: ["g~side", "g"], type: "CONFLICT (file/directory)" },
-        { paths: [CHAT_FILE], type: "CONFLICT (contents)" },
-      ]),
+      merge(
+        ["f", "g~side", CHAT_FILE],
+        [
+          { paths: ["f"], type: "Auto-merging" },
+          { paths: ["f"], type: "CONFLICT (contents)" },
+          { paths: ["g~side", "g"], type: "CONFLICT (file/directory)" },
+          { paths: [CHAT_FILE], type: "CONFLICT (contents)" },
+        ],
+      ),
     );
     assert.deepEqual(r.discarded, ["f", "g"]);
     assert.deepEqual(r.changed, ["ok"]);
     assert.deepEqual(r.added, []);
-    assert.deepEqual(r.conflicts, [{ path: "f", kind: "content" }, { path: "g", kind: "file/directory" }]);
+    assert.deepEqual(r.conflicts, [
+      { path: "f", kind: "content" },
+      { path: "g", kind: "file/directory" },
+    ]);
   });
 });
 
 describe(slow("crash during spawn and finish"), slowOptions, () => {
-  async function sweep(name: string, setup: (c: Conversation) => Promise<unknown>, act: (c: Conversation, ctx: unknown) => Promise<unknown>): Promise<void> {
+  async function sweep(
+    name: string,
+    setup: (c: Conversation) => Promise<unknown>,
+    act: (c: Conversation, ctx: unknown) => Promise<unknown>,
+  ): Promise<void> {
     const probeHost = faultyHost(host, Infinity);
     const probe = await fresh({}, probeHost);
     const probeCtx = await setup(probe.convo);
@@ -362,7 +406,11 @@ describe(slow("crash during spawn and finish"), slowOptions, () => {
       const ctx = await setup(convo);
       const before = (await convo.readEntries()).length;
       h.arm(k);
-      await assert.rejects(act(convo, ctx), (e) => e instanceof Error && /injected fault/.test(e.message), `${name}: operation ${k}/${total} should fail`);
+      await assert.rejects(
+        act(convo, ctx),
+        (e) => e instanceof Error && /injected fault/.test(e.message),
+        `${name}: operation ${k}/${total} should fail`,
+      );
       const trail = h.log.join(" | ");
 
       const now = Date.now() + 120_000;
@@ -378,7 +426,11 @@ describe(slow("crash during spawn and finish"), slowOptions, () => {
   }
 
   test("spawning a subagent", async () => {
-    await sweep("spawn", async (c) => void (await put(c.dir, { "pending.txt": "p\n" })), (c) => c.spawnSubagent({ brief: "b", callId: "c" }));
+    await sweep(
+      "spawn",
+      async (c) => void (await put(c.dir, { "pending.txt": "p\n" })),
+      (c) => c.spawnSubagent({ brief: "b", callId: "c" }),
+    );
   });
 
   test("finishing a subagent", async () => {

@@ -96,7 +96,10 @@ describe("archiving threads", () => {
     assert.equal(await convo.archive("side"), false, "already archived");
     assert.equal(await git(convo.dir, "rev-parse", "side^{tree}"), treeBefore, "the commit changes nothing");
     const listed = await convo.listBranches();
-    assert.deepEqual(listed.map((b) => [b.name, b.archived]).sort(), [["main", false], ["side", true]]);
+    assert.deepEqual(listed.map((b) => [b.name, b.archived]).sort(), [
+      ["main", false],
+      ["side", true],
+    ]);
     assert.ok(listed.every((b) => b.lastActivity !== "" && b.running === false));
     // the entry index and the transcript are unaffected, and the worktree on the branch stays clean
     const thread = side.conversation as Conversation;
@@ -144,7 +147,10 @@ describe("new threads", () => {
     assert.notEqual(thread.dir, convo.dir);
     assert.equal(thread.branch, "ideas");
     const es = await entries(thread);
-    assert.deepEqual(es.map((e) => e.$tag), ["header", "branch_start", "agent_setup"]);
+    assert.deepEqual(
+      es.map((e) => e.$tag),
+      ["header", "branch_start", "agent_setup"],
+    );
     assert.deepEqual((await thread.setup()).model?.id, "m");
     assert.equal((await readFile(join(thread.dir, "harness.yml"), "utf8")).includes("max_request_usd: 2"), true);
     await assert.rejects(readFile(join(thread.dir, "notes.txt")), /ENOENT/, "workspace edits belong to the thread they were made in");

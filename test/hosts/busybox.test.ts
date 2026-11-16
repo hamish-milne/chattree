@@ -38,7 +38,6 @@ describe("fetching busybox", () => {
     assert.match(BUSYBOX_RELEASE.sha256, /^[0-9a-f]{64}$/);
   });
 
-
   test("the pinned zip is fetched, checked, unpacked and installed, and the user is told", async () => {
     const dir = await tempDir();
     const said: string[] = [];
@@ -52,16 +51,28 @@ describe("fetching busybox", () => {
 
   test("a download with another hash is refused and nothing is installed", async () => {
     const dir = await tempDir();
-    await assert.rejects(ensureBusybox({ env: {}, deps: deps({ bytes: new TextEncoder().encode("tampered") }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /not the expected file/.test(e.message) && /tools\.run\.busybox/.test(e.hint));
+    await assert.rejects(
+      ensureBusybox({ env: {}, deps: deps({ bytes: new TextEncoder().encode("tampered") }).deps, release, dir }),
+      (e: unknown) => e instanceof BusyboxError && /not the expected file/.test(e.message) && /tools\.run\.busybox/.test(e.hint),
+    );
     await assert.rejects(access(join(dir, "busybox.exe")));
   });
 
   test("a failed download, an exe that is not busybox and a missing pin are BusyboxErrors with a hint", async () => {
     const dir = await tempDir();
-    await assert.rejects(ensureBusybox({ env: {}, deps: deps({ fail: true }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /could not fetch.*503/.test(e.message));
-    await assert.rejects(ensureBusybox({ env: {}, deps: deps({ applets: undefined }).deps, release, dir }), (e: unknown) => e instanceof BusyboxError && /does not look like busybox/.test(e.message));
+    await assert.rejects(
+      ensureBusybox({ env: {}, deps: deps({ fail: true }).deps, release, dir }),
+      (e: unknown) => e instanceof BusyboxError && /could not fetch.*503/.test(e.message),
+    );
+    await assert.rejects(
+      ensureBusybox({ env: {}, deps: deps({ applets: undefined }).deps, release, dir }),
+      (e: unknown) => e instanceof BusyboxError && /does not look like busybox/.test(e.message),
+    );
     const d = deps();
-    await assert.rejects(ensureBusybox({ env: {}, deps: d.deps, release: { url: release.url, sha256: "" }, dir }), (e: unknown) => e instanceof BusyboxError && /no pinned busybox/.test(e.message));
+    await assert.rejects(
+      ensureBusybox({ env: {}, deps: d.deps, release: { url: release.url, sha256: "" }, dir }),
+      (e: unknown) => e instanceof BusyboxError && /no pinned busybox/.test(e.message),
+    );
     assert.deepEqual(d.downloads, [], "nothing is downloaded without a pin");
   });
 });
@@ -91,10 +102,17 @@ describe("tools.run.busybox", () => {
 
   test("a path must be a file, and off never fetches", async () => {
     const io = await windows();
-    await assert.rejects(resolveBusybox(io, join(io.cwd, "missing.exe"), async () => assert.fail("no fetch")), (e: unknown) => e instanceof CliError && /not a file/.test(e.message));
+    await assert.rejects(
+      resolveBusybox(io, join(io.cwd, "missing.exe"), async () => assert.fail("no fetch")),
+      (e: unknown) => e instanceof CliError && /not a file/.test(e.message),
+    );
     const file = join(io.cwd, "bb.exe");
     await writeFile(file, "x");
     assert.equal(await resolveBusybox(io, file, async () => assert.fail("no fetch")), file);
-    assert.equal(await resolveBusybox(io, "off", async () => assert.fail("no fetch")), await findBusybox(io.env), "off uses one that is already there and never fetches");
+    assert.equal(
+      await resolveBusybox(io, "off", async () => assert.fail("no fetch")),
+      await findBusybox(io.env),
+      "off uses one that is already there and never fetches",
+    );
   });
 });

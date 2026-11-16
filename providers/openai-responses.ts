@@ -7,9 +7,26 @@ import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
 import { OPENAI_MODELS, OPENAI_PRICES } from "./pricing-data.ts";
-import { classifyStatus, httpStream, jsonRequest, requestHeaders, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
+import {
+  classifyStatus,
+  httpStream,
+  jsonRequest,
+  requestHeaders,
+  type HttpMapper,
+  type HttpOptions,
+  type HttpRequestSpec,
+} from "./http.ts";
 import type { SseEvent } from "./sse.ts";
-import { ProviderError, type Completed, type ErrorKind, type ModelStream, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
+import {
+  ProviderError,
+  type Completed,
+  type ErrorKind,
+  type ModelStream,
+  type ProviderAdapter,
+  type StreamEvent,
+  type StreamRequest,
+  type Usage,
+} from "./types.ts";
 
 /**
  * The OpenAI Responses API (docs/providers.md), and the servers that speak it (Ollama and others). Checked against
@@ -56,14 +73,31 @@ export type OpenAISettings = z.infer<typeof openaiSettings>;
 
 export function parseOpenAISettings(settings: unknown): OpenAISettings {
   const r = openaiSettings.safeParse(settings ?? {});
-  if (!r.success) throw new ProviderError({ kind: "invalid_request", message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}` });
+  if (!r.success)
+    throw new ProviderError({
+      kind: "invalid_request",
+      message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
+    });
   return r.data;
 }
 
 // ---- request --------------------------------------------------------------------------------------------------
 
 type Json = Record<string, unknown>;
-const OWNED = new Set(["model", "input", "instructions", "tools", "stream", "store", "include", "max_output_tokens", "reasoning", "previous_response_id", "context_management", "prompt_cache_options"]);
+const OWNED = new Set([
+  "model",
+  "input",
+  "instructions",
+  "tools",
+  "stream",
+  "store",
+  "include",
+  "max_output_tokens",
+  "reasoning",
+  "previous_response_id",
+  "context_management",
+  "prompt_cache_options",
+]);
 
 export interface RequestOptions {
   /** Let the provider keep the response (30 days at OpenAI): needed for retrieval and provider-side features. Default true. */
@@ -98,7 +132,13 @@ export function planChain(ctx: ModelContext, setup: AgentSetup, opts: RequestOpt
     if (t.role !== "assistant") continue;
     // The latest assistant turn decides: an earlier response is not the end of the history.
     const ext = t.ext;
-    if (t.provider !== setup.model.provider || typeof ext?.["response_id"] !== "string" || ext["store"] !== true || typeof ext["prefix_digest"] !== "string") return undefined;
+    if (
+      t.provider !== setup.model.provider ||
+      typeof ext?.["response_id"] !== "string" ||
+      ext["store"] !== true ||
+      typeof ext["prefix_digest"] !== "string"
+    )
+      return undefined;
     if (sha({ model, items: prune(toItems(ctx.turns.slice(0, i + 1), opts).flat(), opts) }) !== ext["prefix_digest"]) return undefined;
     const input = toItems(ctx.turns.slice(i + 1), opts).flat();
     return input.length === 0 ? undefined : { previous_response_id: ext["response_id"], input };
@@ -131,11 +171,21 @@ export function buildResponsesBody(ctx: ModelContext, setup: AgentSetup, opts: R
   return body;
 }
 
-const toTool = (t: ToolDefinition): Json => ({ type: "function", name: t.name, description: t.description, parameters: t.input_schema, strict: false });
+const toTool = (t: ToolDefinition): Json => ({
+  type: "function",
+  name: t.name,
+  description: t.description,
+  parameters: t.input_schema,
+  strict: false,
+});
 
 /** A picture or a document as an input part, in a user turn or in a tool result; this adapter sends no audio. */
 function mediaPart(p: AttachmentPart): Json {
-  if (p.kind === "audio") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Responses API takes no audio input here` });
+  if (p.kind === "audio")
+    throw new ProviderError({
+      kind: "invalid_request",
+      message: `${p.name ?? "sound"} cannot be sent: the Responses API takes no audio input here`,
+    });
   if (p.kind === "image") return { type: "input_image", image_url: dataUrl(p.mime, p.bytes) };
   return { type: "input_file", filename: p.name ?? "document.pdf", file_data: dataUrl(p.mime, p.bytes) };
 }
@@ -154,7 +204,12 @@ function toItems(turns: readonly Turn[], opts: RequestOptions): Json[][] {
         },
       ];
     }
-    if (t.role === "tool_results") return t.results.map((r): Json => ({ type: "function_call_output", call_id: r.call_id, output: r.media === undefined ? r.content : [{ type: "input_text", text: r.content }, ...r.media.map(mediaPart)] }));
+    if (t.role === "tool_results")
+      return t.results.map((r): Json => ({
+        type: "function_call_output",
+        call_id: r.call_id,
+        output: r.media === undefined ? r.content : [{ type: "input_text", text: r.content }, ...r.media.map(mediaPart)],
+      }));
     return assistantItems(t.blocks, opts);
   });
 }
@@ -179,8 +234,23 @@ function assistantItems(blocks: readonly Block[], opts: RequestOptions): Json[] 
       const item = opaqueItem(b.payload);
       if (item !== undefined) items.push(item);
     } else if (b.type === "text") {
-      if (b.text !== "") items.push({ type: "message", ...id, role: "assistant", status: "completed", content: [{ type: "output_text", text: b.text, annotations: [] }] });
-    } else items.push({ type: "function_call", ...id, call_id: b.call_id, name: b.name, arguments: b.args_raw ?? JSON.stringify(b.args), status: "completed" });
+      if (b.text !== "")
+        items.push({
+          type: "message",
+          ...id,
+          role: "assistant",
+          status: "completed",
+          content: [{ type: "output_text", text: b.text, annotations: [] }],
+        });
+    } else
+      items.push({
+        type: "function_call",
+        ...id,
+        call_id: b.call_id,
+        name: b.name,
+        arguments: b.args_raw ?? JSON.stringify(b.args),
+        status: "completed",
+      });
   }
   return items;
 }
@@ -289,8 +359,13 @@ function finishBlock(s: State, i: number, o: Open, item?: Json): StreamEvent[] {
     const args = typeof item?.["arguments"] === "string" ? item["arguments"] : o.args;
     block = toolBlock(o.call_id, o.name, args, o.item_id);
   } else {
-    const original = item ?? { ...o.item, summary: o.summary === "" ? (o.item["summary"] ?? []) : [{ type: "summary_text", text: o.summary }] };
-    const visible = Array.isArray(original["summary"]) ? (original["summary"] as Json[]).map((x) => (typeof x["text"] === "string" ? x["text"] : "")).join("\n\n") : o.summary;
+    const original = item ?? {
+      ...o.item,
+      summary: o.summary === "" ? (o.item["summary"] ?? []) : [{ type: "summary_text", text: o.summary }],
+    };
+    const visible = Array.isArray(original["summary"])
+      ? (original["summary"] as Json[]).map((x) => (typeof x["text"] === "string" ? x["text"] : "")).join("\n\n")
+      : o.summary;
     block = { type: "reasoning", provider: s.provider, payload: original, ...(visible === "" ? {} : { visible }) };
   }
   s.open.delete(i);
@@ -315,9 +390,19 @@ function outputBlocks(output: unknown, provider: string): { blocks: Block[]; ref
       const p = partsText(item["content"]);
       refused ||= p.refused;
       blocks.push({ type: "text", text: p.text, ext: { item_id: String(item["id"] ?? "") } });
-    } else if (item["type"] === "function_call") blocks.push(toolBlock(String(item["call_id"] ?? item["id"] ?? ""), String(item["name"] ?? ""), String(item["arguments"] ?? ""), String(item["id"] ?? "")));
+    } else if (item["type"] === "function_call")
+      blocks.push(
+        toolBlock(
+          String(item["call_id"] ?? item["id"] ?? ""),
+          String(item["name"] ?? ""),
+          String(item["arguments"] ?? ""),
+          String(item["id"] ?? ""),
+        ),
+      );
     else if (item["type"] === "reasoning") {
-      const visible = Array.isArray(item["summary"]) ? (item["summary"] as Json[]).map((x) => (typeof x["text"] === "string" ? x["text"] : "")).join("\n\n") : "";
+      const visible = Array.isArray(item["summary"])
+        ? (item["summary"] as Json[]).map((x) => (typeof x["text"] === "string" ? x["text"] : "")).join("\n\n")
+        : "";
       blocks.push({ type: "reasoning", provider, payload: item, ...(visible === "" ? {} : { visible }) });
     } else if (item["type"] === "compaction") blocks.push({ type: "provider_compaction", provider, payload: JSON.stringify(item) });
   }
@@ -327,7 +412,11 @@ function outputBlocks(output: unknown, provider: string): { blocks: Block[]; ref
 export function openaiResponsesMapper(baseUrl: string, request: RequestOptions): HttpMapper<State> {
   return {
     request(req: StreamRequest): HttpRequestSpec {
-      return { url: `${baseUrl.replace(/\/$/, "")}/responses`, headers: { "content-type": "application/json" }, body: buildResponsesBody(req.context, req.setup, request, planChain(req.context, req.setup, request)) };
+      return {
+        url: `${baseUrl.replace(/\/$/, "")}/responses`,
+        headers: { "content-type": "application/json" },
+        body: buildResponsesBody(req.context, req.setup, request, planChain(req.context, req.setup, request)),
+      };
     },
     start: (req) => ({
       provider: req.setup.model?.provider ?? "openai",
@@ -360,13 +449,25 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
           s.id = r["id"] as string | undefined;
           s.model = r["model"] as string | undefined;
           if (r["store"] === true) s.stored = true;
-          return [{ type: "started" }, { type: "observed", observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) } }];
+          return [
+            { type: "started" },
+            {
+              type: "observed",
+              observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) },
+            },
+          ];
         }
         case "response.output_item.added": {
           const item = (d["item"] ?? {}) as Json;
           if (item["type"] === "message") s.open.set(index, { kind: "message", item_id: String(item["id"] ?? ""), text: "" });
           else if (item["type"] === "function_call") {
-            const o: Open = { kind: "call", item_id: String(item["id"] ?? ""), call_id: String(item["call_id"] ?? item["id"] ?? ""), name: String(item["name"] ?? ""), args: "" };
+            const o: Open = {
+              kind: "call",
+              item_id: String(item["id"] ?? ""),
+              call_id: String(item["call_id"] ?? item["id"] ?? ""),
+              name: String(item["name"] ?? ""),
+              args: "",
+            };
             s.open.set(index, o);
             return [{ type: "tool_call.start", index, call_id: o.call_id, name: o.name }];
           } else if (item["type"] === "reasoning") s.open.set(index, { kind: "reasoning", item, summary: "" });
@@ -446,8 +547,17 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
       const observed = { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) };
       const blocks = s.out.filter((b): b is Block => b !== undefined);
       // Only what the server confirmed it kept can be continued; the digest says exactly what that response saw and produced.
-      const digest = s.stored && s.id !== undefined ? { prefix_digest: sha({ model: s.served, items: prune([...s.input, ...assistantItems(blocks, request)], request) }) } : {};
-      return { blocks, stop_reason: s.stop as string, usage: s.usage, observed, ext: { ...(s.id === undefined ? {} : { response_id: s.id }), store: s.stored, ...digest, ...(s.chained ? { chained: true } : {}) } };
+      const digest =
+        s.stored && s.id !== undefined
+          ? { prefix_digest: sha({ model: s.served, items: prune([...s.input, ...assistantItems(blocks, request)], request) }) }
+          : {};
+      return {
+        blocks,
+        stop_reason: s.stop as string,
+        usage: s.usage,
+        observed,
+        ext: { ...(s.id === undefined ? {} : { response_id: s.id }), store: s.stored, ...digest, ...(s.chained ? { chained: true } : {}) },
+      };
     },
     classify({ status, body }) {
       try {
@@ -465,7 +575,10 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
 
 function errorFrom(code: unknown, message: unknown): ProviderError {
   const known = typeof code === "string" ? ERROR_CODES[code] : undefined;
-  return new ProviderError({ ...(known ?? { kind: "server" as const, retryable: false }), message: `${typeof code === "string" ? code : "error"}: ${String(message ?? "")}` });
+  return new ProviderError({
+    ...(known ?? { kind: "server" as const, retryable: false }),
+    message: `${typeof code === "string" ? code : "error"}: ${String(message ?? "")}`,
+  });
 }
 
 // ---- adapter --------------------------------------------------------------------------------------------------
@@ -488,7 +601,12 @@ export interface OpenAIResponsesOptions {
 
 export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): ProviderAdapter {
   const baseUrl = opts.baseUrl ?? "https://api.openai.com/v1";
-  const request: RequestOptions = { store: opts.store ?? true, replayItemIds: opts.replayItemIds ?? true, chain: opts.chain ?? true, pruneAtCompaction: opts.pruneAtCompaction ?? true };
+  const request: RequestOptions = {
+    store: opts.store ?? true,
+    replayItemIds: opts.replayItemIds ?? true,
+    chain: opts.chain ?? true,
+    pruneAtCompaction: opts.pruneAtCompaction ?? true,
+  };
   const mapper = openaiResponsesMapper(baseUrl, request);
   const replayOnly = openaiResponsesMapper(baseUrl, { ...request, chain: false });
   const auth = async (spec: HttpRequestSpec): Promise<Record<string, string>> => {
@@ -497,7 +615,11 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
     const key = typeof opts.apiKey === "string" ? opts.apiKey : await opts.apiKey();
     return { ...base, authorization: `Bearer ${key}` };
   };
-  const http: HttpOptions = { ...opts.http, auth, secrets: [...(opts.http?.secrets ?? []), ...(typeof opts.apiKey === "string" ? [opts.apiKey] : [])] };
+  const http: HttpOptions = {
+    ...opts.http,
+    auth,
+    secrets: [...(opts.http?.secrets ?? []), ...(typeof opts.apiKey === "string" ? [opts.apiKey] : [])],
+  };
 
   /** Continue from the stored response when that is safe; if the server no longer has it, replay everything instead. */
   async function* stream(req: StreamRequest): ModelStream {
@@ -513,7 +635,14 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
       }
     } catch (e) {
       // Nothing has reached the caller yet, so the request can be made again without the chain.
-      if (yielded === 0 && e instanceof ProviderError && e.kind === "invalid_request" && /previous_response/i.test(e.message) && !req.signal.aborted) return yield* httpStream(replayOnly, req, http);
+      if (
+        yielded === 0 &&
+        e instanceof ProviderError &&
+        e.kind === "invalid_request" &&
+        /previous_response/i.test(e.message) &&
+        !req.signal.aborted
+      )
+        return yield* httpStream(replayOnly, req, http);
       throw e;
     } finally {
       await first.return(undefined as never);
@@ -521,20 +650,38 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
   }
 
   async function retrieve(r: { responseId: string; setup: AgentSetup; signal: AbortSignal }): Promise<Completed | undefined> {
-    const spec: HttpRequestSpec = { url: `${baseUrl.replace(/\/$/, "")}/responses/${encodeURIComponent(r.responseId)}`, method: "GET", headers: {} };
+    const spec: HttpRequestSpec = {
+      url: `${baseUrl.replace(/\/$/, "")}/responses/${encodeURIComponent(r.responseId)}`,
+      method: "GET",
+      headers: {},
+    };
     const signal = AbortSignal.any([r.signal, AbortSignal.timeout(opts.http?.timeouts?.totalMs ?? 60_000)]);
     const scrub = (t: string): string => (http.secrets ?? []).reduce((acc, k) => (k === "" ? acc : acc.split(k).join("[redacted]")), t);
     let res: Response;
     try {
-      res = await (opts.http?.fetch ?? fetch)(spec.url, { method: "GET", headers: { ...requestHeaders(spec.headers, opts.http ?? {}), ...(await auth(spec)) }, signal });
+      res = await (opts.http?.fetch ?? fetch)(spec.url, {
+        method: "GET",
+        headers: { ...requestHeaders(spec.headers, opts.http ?? {}), ...(await auth(spec)) },
+        signal,
+      });
     } catch (e) {
-      throw new ProviderError({ kind: r.signal.aborted ? "aborted" : "network", message: scrub(`retrieving ${r.responseId}: ${e instanceof Error ? e.message : String(e)}`), retryable: !r.signal.aborted, cause: e });
+      throw new ProviderError({
+        kind: r.signal.aborted ? "aborted" : "network",
+        message: scrub(`retrieving ${r.responseId}: ${e instanceof Error ? e.message : String(e)}`),
+        retryable: !r.signal.aborted,
+        cause: e,
+      });
     }
     const body = await res.text();
     if (res.status === 404) return undefined;
     if (!res.ok) {
       const c = mapper.classify?.({ status: res.status, headers: res.headers, body });
-      throw new ProviderError({ ...classifyStatus(res.status), ...c, message: scrub(c?.message ?? `HTTP ${res.status}: ${body.slice(0, 500)}`), status: res.status });
+      throw new ProviderError({
+        ...classifyStatus(res.status),
+        ...c,
+        message: scrub(c?.message ?? `HTTP ${res.status}: ${body.slice(0, 500)}`),
+        status: res.status,
+      });
     }
     let d: Json;
     try {
@@ -548,12 +695,20 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
       throw errorFrom(e["code"], e["message"]);
     }
     if (status === "cancelled") return undefined;
-    if (status !== "completed" && status !== "incomplete") throw new ProviderError({ kind: "server", message: `response ${r.responseId} is still ${String(status)}`, retryable: true });
+    if (status !== "completed" && status !== "incomplete")
+      throw new ProviderError({ kind: "server", message: `response ${r.responseId} is still ${String(status)}`, retryable: true });
     const provider = r.setup.model?.provider ?? "openai";
     const { blocks, refused } = outputBlocks(d["output"], provider);
-    const usage = d["usage"] === undefined || d["usage"] === null ? { input_tokens: 0, output_tokens: 0 } : normaliseUsage(d["usage"] as Json);
+    const usage =
+      d["usage"] === undefined || d["usage"] === null ? { input_tokens: 0, output_tokens: 0 } : normaliseUsage(d["usage"] as Json);
     const model = typeof d["model"] === "string" ? d["model"] : undefined;
-    return { blocks, stop_reason: stopReason(d, blocks, refused), usage, observed: { ...(model === undefined ? {} : { model }), response_id: r.responseId }, ext: { response_id: r.responseId, store: d["store"] === true, retrieved: true } };
+    return {
+      blocks,
+      stop_reason: stopReason(d, blocks, refused),
+      usage,
+      observed: { ...(model === undefined ? {} : { model }), response_id: r.responseId },
+      ext: { response_id: r.responseId, store: d["store"] === true, retrieved: true },
+    };
   }
 
   async function countTokens(r: { context: ModelContext; setup: AgentSetup; signal: AbortSignal }): Promise<number> {
@@ -561,7 +716,11 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
     const full = buildResponsesBody(r.context, r.setup, request);
     const body: Json = {};
     for (const k of ["model", "input", "instructions", "tools"]) if (full[k] !== undefined) body[k] = full[k];
-    const d = await jsonRequest({ url: `${baseUrl.replace(/\/$/, "")}/responses/input_tokens`, headers: { "content-type": "application/json" }, body }, http, { signal: r.signal, classify: mapper.classify });
+    const d = await jsonRequest(
+      { url: `${baseUrl.replace(/\/$/, "")}/responses/input_tokens`, headers: { "content-type": "application/json" }, body },
+      http,
+      { signal: r.signal, classify: mapper.classify },
+    );
     const n = (d as Json | undefined)?.["input_tokens"];
     if (typeof n !== "number" || !Number.isFinite(n)) throw protocol("the token count response has no input_tokens");
     return n;
@@ -589,7 +748,10 @@ export const openaiDefinition = defineAdapter({
   $tag: "openai",
   config: openaiProviderConfig,
   settings: openaiSettings,
-  jsonSchema: () => ({ config: z.toJSONSchema(openaiProviderConfig, { io: "input" }), settings: z.toJSONSchema(openaiSettings, { io: "input" }) }),
+  jsonSchema: () => ({
+    config: z.toJSONSchema(openaiProviderConfig, { io: "input" }),
+    settings: z.toJSONSchema(openaiSettings, { io: "input" }),
+  }),
   secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
   prices: (c) => pricesFor(OPENAI_PRICES, c),
   models: (c) => modelsFor(OPENAI_MODELS, c),
@@ -615,10 +777,17 @@ export function classifyOpenAI(from: AgentSetup, to: AgentSetup): Change[] {
   if (f !== undefined && t !== undefined) {
     const fs = (f.settings ?? {}) as Json;
     const ts = (t.settings ?? {}) as Json;
-    if (f.id !== t.id || (f.resolved ?? f.id) !== (t.resolved ?? t.id)) out.push({ kind: "cache_break", message: "the prompt cache is per model: the conversation is read again at the full input price" });
-    else if (["effort", "reasoning", "reasoning_summary"].some((k) => stable(fs[k] ?? null) !== stable(ts[k] ?? null))) out.push({ kind: "cache_break", message: "changing reasoning settings changes the cached prefix" });
+    if (f.id !== t.id || (f.resolved ?? f.id) !== (t.resolved ?? t.id))
+      out.push({ kind: "cache_break", message: "the prompt cache is per model: the conversation is read again at the full input price" });
+    else if (["effort", "reasoning", "reasoning_summary"].some((k) => stable(fs[k] ?? null) !== stable(ts[k] ?? null)))
+      out.push({ kind: "cache_break", message: "changing reasoning settings changes the cached prefix" });
   }
-  if (from.model !== undefined && (stable(from.tools) !== stable(to.tools) || stable(from.instructions ?? null) !== stable(to.instructions ?? null) || (from.renderer ?? null) !== (to.renderer ?? null))) {
+  if (
+    from.model !== undefined &&
+    (stable(from.tools) !== stable(to.tools) ||
+      stable(from.instructions ?? null) !== stable(to.instructions ?? null) ||
+      (from.renderer ?? null) !== (to.renderer ?? null))
+  ) {
     out.push({ kind: "cache_break", message: "instructions, tools and rendering come before the conversation in the cached prefix" });
   }
   return out;

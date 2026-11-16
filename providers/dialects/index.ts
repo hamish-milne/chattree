@@ -18,6 +18,15 @@ export function dialectForModel(name: string): string | undefined {
   // fine-tune's (DeepSeek-R1-Distill-Qwen) does not make it that base model.
   const m = (name.toLowerCase().split("/").at(-1) as string).replace(/^[-_.\s]+/, "");
   // Only the generations whose format a dialect reproduces: older models of the same makers (DeepSeek-MoE-16B, ChatGLM, Mistral 7B) were not trained for these calls.
-  const by: [RegExp, string][] = [[/^gpt-oss/, "harmony"], [/^qwen/, "qwen-xml"], [/^gemma/, "gemma"], [/^glm-?4\.[56]/, "glm46"], [/^glm-?4\.[789]|^glm-?[5-9]/, "glm"], [/^devstral|^mistral-small-3/, "mistral"], [/^kimi-vl/, "kimi-vl"], [/^deepseek-r1/, "deepseek-r1"]];
+  const by: [RegExp, string][] = [
+    [/^gpt-oss/, "harmony"],
+    [/^qwen/, "qwen-xml"],
+    [/^gemma/, "gemma"],
+    [/^glm-?4\.[56]/, "glm46"],
+    [/^glm-?4\.[789]|^glm-?[5-9]/, "glm"],
+    [/^devstral|^mistral-small-3/, "mistral"],
+    [/^kimi-vl/, "kimi-vl"],
+    [/^deepseek-r1/, "deepseek-r1"],
+  ];
   return by.find(([re]) => re.test(m))?.[1];
 }

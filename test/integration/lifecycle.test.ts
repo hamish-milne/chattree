@@ -21,7 +21,8 @@ import { tempDir } from "../support/tmp.ts";
  */
 
 const COMMITTER = { name: "chattree", email: "chattree@localhost.invalid" };
-const CONFIG = "# outside-world configuration; the agent itself is set up in the transcript\nproviders:\n  main:\n    $tag: anthropic\n    api_key_env: ANTHROPIC_API_KEY\n";
+const CONFIG =
+  "# outside-world configuration; the agent itself is set up in the transcript\nproviders:\n  main:\n    $tag: anthropic\n    api_key_env: ANTHROPIC_API_KEY\n";
 
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
 const say = (text: string, ...calls: [id: string, name: string, args: Record<string, unknown>][]): NewEntry => ({
@@ -50,7 +51,11 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
 
   // ---- 1. a session of work -----------------------------------------------------------------------------------
   let main = await Conversation.create(host, dir, { ...opts, config: CONFIG });
-  await put(dir, { "README.md": "# wc\nCounts words.\n", "notes.md": "plan:\n- parse args\n- count\n", "src/wc.ts": "export const wc = (s: string) => s.split(/\\s+/).length;\n" });
+  await put(dir, {
+    "README.md": "# wc\nCounts words.\n",
+    "notes.md": "plan:\n- parse args\n- count\n",
+    "src/wc.ts": "export const wc = (s: string) => s.split(/\\s+/).length;\n",
+  });
   // The agent's own state lives in the transcript: model, settings, pinned tools.
   const H = "ab".repeat(32);
   await main.setupChange({
@@ -64,7 +69,10 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   await main.append(result("t1", bigOutput)); // large: becomes a blob
   await main.append(say("Done. `node src/cli.ts 'a b c'` prints 3."));
   assert.ok((await main.index()).length >= 5);
-  assert.ok((await main.git.text(["ls-tree", "-r", "--name-only", "HEAD", "--", "blobs"])).length > 0, "the large tool output is a blob in the tree");
+  assert.ok(
+    (await main.git.text(["ls-tree", "-r", "--name-only", "HEAD", "--", "blobs"])).length > 0,
+    "the large tool output is a blob in the tree",
+  );
 
   // ---- 2. import an earlier exchange in bulk, then compact it ---------------------------------------------------
   const imported = await main.appendMany([
@@ -74,13 +82,20 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
     say("Yes, when no argument is given."),
   ]);
   assert.equal(imported.length, 4);
-  await main.compact({ from: imported[0]!.id, to: imported[3]!.id, summary: "Decided: UTF-8, Unicode whitespace, read stdin when no argument." });
+  await main.compact({
+    from: imported[0]!.id,
+    to: imported[3]!.id,
+    summary: "Decided: UTF-8, Unicode whitespace, read stdin when no argument.",
+  });
   const values = (await main.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const seen = contextEntries(values);
   assert.ok(!seen.some((e) => "id" in e && e.id === imported[1]!.id), "imported turns are summarised away");
 
   // ---- 3. config change, interruption ---------------------------------------------------------------------------
-  await assert.rejects(main.setupChange({ model: { provider: "anthropic", id: "claude-opus-5-5" } }), (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("model_changed"));
+  await assert.rejects(
+    main.setupChange({ model: { provider: "anthropic", id: "claude-opus-5-5" } }),
+    (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("model_changed"),
+  );
   await main.setupChange({ model: { provider: "anthropic", id: "claude-opus-5-5" } }, { allow: ["model_changed"] });
   assert.equal((await main.setup()).model?.id, "claude-opus-5-5");
   assert.match((await read(dir, "harness.yml")) ?? "", /outside-world configuration/);
@@ -88,7 +103,10 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   await main.interrupt({ by: "user", partial: [{ $tag: "text", text: "Sure, I'll start by" }] });
   await main.append(user("Sorry, hit enter early. Add the --lines flag please."));
   await main.append(say("Adding it.", ["t2", "write_file", { path: "src/cli.ts" }]));
-  await put(dir, { "src/cli.ts": "import { wc } from './wc.ts';\nconst lines = process.argv.includes('--lines');\nconsole.log(lines ? 1 : wc(process.argv[2] ?? ''));\n" });
+  await put(dir, {
+    "src/cli.ts":
+      "import { wc } from './wc.ts';\nconst lines = process.argv.includes('--lines');\nconsole.log(lines ? 1 : wc(process.argv[2] ?? ''));\n",
+  });
   await main.append(result("t2", "ok"));
   const afterFlag = await main.append(say("The flag is in."));
 
@@ -105,7 +123,9 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   // main moves on and touches the same file the fork changed
   await put(dir, { "notes.md": "plan:\n- parse args\n- count\n- flags\n" });
   await main.append(user("Let's keep the simple version for now."));
-  const forkOutcome = await main.mergeFork(rethinkConvo, { summary: "Discussed streaming; decided to keep reading whole input for now, sketch kept in fork-only.txt." });
+  const forkOutcome = await main.mergeFork(rethinkConvo, {
+    summary: "Discussed streaming; decided to keep reading whole input for now, sketch kept in fork-only.txt.",
+  });
   assert.deepEqual(forkOutcome.report.added, ["fork-only.txt"]);
   assert.deepEqual(forkOutcome.report.discarded, ["notes.md"], "both sides edited notes.md: the trunk's version won");
   assert.equal(await read(dir, "notes.md"), "plan:\n- parse args\n- count\n- flags\n");
@@ -115,7 +135,9 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   await put(dir, { "src/util.ts": "export const words = (s: string) => s.trim().split(/\\s+/);\n" }); // uncommitted work the subagents must see
   const tests = await main.spawnSubagent({ brief: "Write tests for wc().", callId: "t3", name: "sub/tests" });
   const docs = await main.spawnSubagent({ brief: "Document the CLI in the README.", callId: "t4", name: "sub/docs" });
-  await put(tests.conversation!.dir, { "test/wc.test.ts": "import { wc } from '../src/wc.ts';\nif (wc('a b') !== 2) throw new Error();\n" });
+  await put(tests.conversation!.dir, {
+    "test/wc.test.ts": "import { wc } from '../src/wc.ts';\nif (wc('a b') !== 2) throw new Error();\n",
+  });
   await tests.conversation!.append(say("Writing tests.", ["c1", "write_file", { path: "test/wc.test.ts" }]));
   await tests.conversation!.append(result("c1", "ok"));
   await put(docs.conversation!.dir, { "README.md": "# wc\nCounts words.\n\n## Usage\n`wc <text> [--lines]`\n" });
@@ -125,7 +147,11 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   await main.append(user("How are the helpers doing?"));
   const testsOutcome = await main.finishSubagent(tests.conversation!, { summary: "Added a test for wc().", callId: "t3" });
   const docsOutcome = await main.finishSubagent(docs.branch, { summary: "Wrote a Usage section.", callId: "t4" });
-  assert.equal(await read(tests.conversation!.dir, "src/util.ts"), "export const words = (s: string) => s.trim().split(/\\s+/);\n", "the subagent started from the snapshot of the workspace");
+  assert.equal(
+    await read(tests.conversation!.dir, "src/util.ts"),
+    "export const words = (s: string) => s.trim().split(/\\s+/);\n",
+    "the subagent started from the snapshot of the workspace",
+  );
   assert.deepEqual(testsOutcome.report.added, ["test/wc.test.ts"]);
   assert.deepEqual(docsOutcome.report.discarded, ["README.md"], "the README conflict resolved to the trunk's version");
   assert.equal(await read(dir, "README.md"), "# wc\nA word counter.\n");
@@ -144,7 +170,10 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   assert.equal(main.recovery.recovered.length, 1);
   assert.ok(main.recovery.truncatedBytes > 0);
   await main.flushEvents();
-  assert.deepEqual(events.map((e) => e.type), ["recovery", "entry"]);
+  assert.deepEqual(
+    events.map((e) => e.type),
+    ["recovery", "entry"],
+  );
   await main.append(user("Great, ship it."));
   await main.append(say("Shipped."));
 
@@ -157,7 +186,11 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   assert.ok(gc.commit !== undefined);
   const cleanup = await main.pruneWorktrees();
   assert.deepEqual(cleanup.removed.map((r) => r.branch).sort(), ["fork/rethink", "sub/docs", "sub/tests"]);
-  assert.deepEqual(cleanup.kept.map((k) => k.branch), ["fork/abandoned"], "an unmerged branch keeps its worktree");
+  assert.deepEqual(
+    cleanup.kept.map((k) => k.branch),
+    ["fork/abandoned"],
+    "an unmerged branch keeps its worktree",
+  );
   const objects = await main.git.catFile(); // a long-lived reader left open on purpose
   assert.ok((await objects.read("HEAD:chat.yml")) !== undefined);
   await main.close(); // ends it
@@ -169,13 +202,20 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   assert.deepEqual(branches, ["fork/abandoned", "fork/rethink", "main", "sub/docs", "sub/tests"]);
   for (const b of branches) assert.deepEqual(await verifyHistory(main, { rev: b, deep: true }), [], `branch ${b} verifies`);
   for (const b of branches) await assertContextBuilds(main, b);
-  await real.exec("git", ["fsck", "--strict", "--no-dangling"], { cwd: dir }).then((r) => assert.equal(r.exitCode, 0, new TextDecoder().decode(r.stderr)));
+  await real
+    .exec("git", ["fsck", "--strict", "--no-dangling"], { cwd: dir })
+    .then((r) => assert.equal(r.exitCode, 0, new TextDecoder().decode(r.stderr)));
 
   // The events, delivered across a crash and a reopen, add up to the history of every branch.
-  const entryEvents = (b: string) => events.filter((e): e is Extract<ConversationEvent, { type: "entry" }> => e.type === "entry" && e.branch === b);
+  const entryEvents = (b: string) =>
+    events.filter((e): e is Extract<ConversationEvent, { type: "entry" }> => e.type === "entry" && e.branch === b);
   const mainIds = (await main.index()).map((r) => r.id).filter((x): x is string => x !== undefined);
   assert.ok(entryEvents("main").length > 0);
-  assert.deepEqual(entryEvents("main").map((e) => e.entry.id), mainIds.slice(-entryEvents("main").length), "the events seen after the reopen are the tail of main");
+  assert.deepEqual(
+    entryEvents("main").map((e) => e.entry.id),
+    mainIds.slice(-entryEvents("main").length),
+    "the events seen after the reopen are the tail of main",
+  );
   const merges = events.filter((e) => e.type === "merge");
   assert.equal(merges.length, 0, "the merges happened before events were cleared for the crash");
 
@@ -201,7 +241,13 @@ test("a whole conversation: work, import, compaction, forks, subagents, a crash,
   assert.equal((mermaid.match(/^ {2}merge /gm) ?? []).length, 3);
   assert.equal((mermaid.match(/^ {2}branch /gm) ?? []).length, 4);
   for (const name of ["fork/rethink", "fork/abandoned", "sub/tests", "sub/docs"]) assert.ok(mermaid.includes(`"${name}"`));
-  assert.ok(mermaid.includes('tag: "blob gc"') && mermaid.includes('tag: "recovered"') && mermaid.includes('tag: "compaction"') && mermaid.includes('tag: "setup"') && mermaid.includes('tag: "interrupted"'));
+  assert.ok(
+    mermaid.includes('tag: "blob gc"') &&
+      mermaid.includes('tag: "recovered"') &&
+      mermaid.includes('tag: "compaction"') &&
+      mermaid.includes('tag: "setup"') &&
+      mermaid.includes('tag: "interrupted"'),
+  );
 
   const out = process.env["CHATTREE_GRAPH_OUT"];
   if (out !== undefined) {

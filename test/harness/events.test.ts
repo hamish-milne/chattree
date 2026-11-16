@@ -11,7 +11,13 @@ import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "m", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
+const reply = (text: string): NewEntry => ({
+  $tag: "assistant",
+  provider: "anthropic",
+  model: "m",
+  blocks: [{ $tag: "text", text }],
+  stop_reason: "end_turn",
+});
 
 const CONFIG = "# my agent\nproviders:\n  main:\n    $tag: anthropic # the provider\n    api_key_env: ANTHROPIC_API_KEY\n";
 
@@ -30,7 +36,10 @@ describe("interrupt", () => {
     await convo.interrupt({ by: "user", partial: [{ $tag: "text", text: "Let me" }] });
     await convo.interrupt({ by: "error", error: "connection reset" });
     const last = (await convo.readEntries()).slice(-2).map((e) => (e.ok ? e.value : undefined));
-    assert.deepEqual(last.map((v) => v?.$tag), ["interrupted", "interrupted"]);
+    assert.deepEqual(
+      last.map((v) => v?.$tag),
+      ["interrupted", "interrupted"],
+    );
     assert.deepEqual((last[0] as { partial: unknown }).partial, [{ $tag: "text", text: "Let me" }]);
     assert.equal((last[1] as { error?: string }).error, "connection reset");
     await assertHistoryInvariants(convo);
@@ -54,7 +63,10 @@ describe("compact", () => {
     const ctx = contextEntries(values);
     assert.ok(ctx.some((e) => e.$tag === "compaction" && "id" in e && e.id === at.id));
     assert.ok(!ctx.some((e) => "id" in e && e.id === id[2]), "replaced entries are hidden");
-    assert.ok(ctx.some((e) => "id" in e && e.id === id[5]), "later entries stay");
+    assert.ok(
+      ctx.some((e) => "id" in e && e.id === id[5]),
+      "later entries stay",
+    );
   });
 
   test("a later compaction may contain an earlier summary whole", async () => {

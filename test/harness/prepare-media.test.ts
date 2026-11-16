@@ -12,10 +12,44 @@ import { tempDir } from "../support/tmp.ts";
 const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
 const pad = (a: number[], n = 600): Uint8Array => Uint8Array.from([...a, ...new Array<number>(Math.max(0, n - a.length)).fill(0)]);
-const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, ...ascii("IHDR"), 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0]);
+const PNG = Uint8Array.from([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+  0,
+  0,
+  0,
+  13,
+  ...ascii("IHDR"),
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  1,
+  8,
+  2,
+  0,
+  0,
+  0,
+]);
 const BMP = pad([...ascii("BM"), ...le32(600), 0, 0, 0, 0, ...le32(54), ...le32(40), ...le32(2), ...le32(2), 1, 0, 24, 0]);
 
-const att = (name: string, mime: string, bytes: Uint8Array, kind: AttachmentPart["kind"] = "image"): AttachmentPart => ({ type: "attachment", kind, name, mime, sha256: `${name}-${bytes.length}`, bytes });
+const att = (name: string, mime: string, bytes: Uint8Array, kind: AttachmentPart["kind"] = "image"): AttachmentPart => ({
+  type: "attachment",
+  kind,
+  name,
+  mime,
+  sha256: `${name}-${bytes.length}`,
+  bytes,
+});
 const ctx = (turns: ModelContext["turns"]): ModelContext => ({ system: "s", instructions: undefined, turns, tools: [], cacheHints: [] });
 const SPEC: MediaSpec = { image: [{ mime: "image/png" }] };
 
@@ -50,7 +84,10 @@ describe("prepareMedia", () => {
   test("a file it does not take is converted, once, and then comes from the cache", async () => {
     const calls: string[] = [];
     const cache = memoryCache();
-    const c = ctx([{ role: "user", parts: [att("a.bmp", "image/bmp", BMP)] }, { role: "user", parts: [att("a.bmp", "image/bmp", BMP)] }]);
+    const c = ctx([
+      { role: "user", parts: [att("a.bmp", "image/bmp", BMP)] },
+      { role: "user", parts: [att("a.bmp", "image/bmp", BMP)] },
+    ]);
     const r = await prepareMedia(c, { spec: SPEC, converter: async () => converter({ calls }), cache });
     assert.deepEqual(calls, ["image/bmp->image/png"], "same file twice, converted once");
     const first = r.context.turns[0] as { parts: AttachmentPart[] };
@@ -78,7 +115,9 @@ describe("prepareMedia", () => {
   test("media in a tool result: converted, or left out with a note in the result's text", async () => {
     const good = att("g.bmp", "image/bmp", BMP);
     const bad = att("x.bin", "application/x-foo", new Uint8Array([1, 2, 3]));
-    const c = ctx([{ role: "tool_results", results: [{ call_id: "1", is_error: false, content: "ok", truncated: false, media: [good, bad] }] }]);
+    const c = ctx([
+      { role: "tool_results", results: [{ call_id: "1", is_error: false, content: "ok", truncated: false, media: [good, bad] }] },
+    ]);
     const r = await prepareMedia(c, { spec: SPEC, converter: async () => converter() });
     const res = (r.context.turns[0] as { results: { content: string; media?: AttachmentPart[] }[] }).results[0];
     assert.equal(res?.media?.length, 1);
@@ -87,7 +126,12 @@ describe("prepareMedia", () => {
   });
 
   test("a result whose media all fail has none left", async () => {
-    const c = ctx([{ role: "tool_results", results: [{ call_id: "1", is_error: false, content: "ok", truncated: false, media: [att("a.bmp", "image/bmp", BMP)] }] }]);
+    const c = ctx([
+      {
+        role: "tool_results",
+        results: [{ call_id: "1", is_error: false, content: "ok", truncated: false, media: [att("a.bmp", "image/bmp", BMP)] }],
+      },
+    ]);
     const r = await prepareMedia(c, { spec: SPEC, converter: async () => undefined });
     const res = (r.context.turns[0] as { results: { content: string; media?: AttachmentPart[] }[] }).results[0];
     assert.equal("media" in (res ?? {}), false);
@@ -95,8 +139,13 @@ describe("prepareMedia", () => {
   });
 
   test("a converter that cannot be had (the setting) stops the request, but only when something needs converting", async () => {
-    const boom = async (): Promise<never> => { throw new Error("the ffmpeg setting is not set"); };
-    await assert.rejects(prepareMedia(ctx([{ role: "user", parts: [att("a.bmp", "image/bmp", BMP)] }]), { spec: SPEC, converter: boom }), /ffmpeg setting/);
+    const boom = async (): Promise<never> => {
+      throw new Error("the ffmpeg setting is not set");
+    };
+    await assert.rejects(
+      prepareMedia(ctx([{ role: "user", parts: [att("a.bmp", "image/bmp", BMP)] }]), { spec: SPEC, converter: boom }),
+      /ffmpeg setting/,
+    );
     await prepareMedia(ctx([{ role: "user", parts: [att("a.png", "image/png", PNG)] }]), { spec: SPEC, converter: boom });
   });
 
@@ -107,7 +156,10 @@ describe("prepareMedia", () => {
   });
 
   test("the type is found from the content, not the declared type", async () => {
-    const r = await prepareMedia(ctx([{ role: "user", parts: [att("lie.png", "image/png", BMP)] }]), { spec: SPEC, converter: async () => converter() });
+    const r = await prepareMedia(ctx([{ role: "user", parts: [att("lie.png", "image/png", BMP)] }]), {
+      spec: SPEC,
+      converter: async () => converter(),
+    });
     assert.equal(r.converted[0]?.from, "image/bmp");
   });
 });

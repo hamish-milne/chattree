@@ -229,14 +229,17 @@ export function parseCommand(input: string, expand: (name: string) => string): P
       }
     }
   }
-  if ((stages[stages.length - 1] as Word[]).length === 0) throw new CommandSyntax(stages.length === 1 ? "the command is empty" : "a `|` needs a command after it");
+  if ((stages[stages.length - 1] as Word[]).length === 0)
+    throw new CommandSyntax(stages.length === 1 ? "the command is empty" : "a `|` needs a command after it");
   if (stdinStage > 0) throw new CommandSyntax("`<` only works on the first command of a pipeline");
   if (stdoutStage !== -1 && stdoutStage !== stages.length - 1) throw new CommandSyntax("`>` only works on the last command of a pipeline");
   if (stdin?.text === "/dev/null") stdin = undefined;
 
   const first = tokens.find((t) => t.kind === "word") as Extract<Token, { kind: "word" }> | undefined;
   if (first !== undefined && !first.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(first.word.text) && stages[0]?.[0] === first.word) {
-    throw new CommandSyntax(`setting a variable before a command (${first.word.text.split("=")[0]}=...) is not supported by run (${SCRIPT})`);
+    throw new CommandSyntax(
+      `setting a variable before a command (${first.word.text.split("=")[0]}=...) is not supported by run (${SCRIPT})`,
+    );
   }
   for (const stage of stages) if ((stage[0] as Word).glob) throw new CommandSyntax("the program name cannot be a wildcard");
   return { stages, ...(stdin === undefined ? {} : { stdin }), ...(stdout === undefined ? {} : { stdout }) };

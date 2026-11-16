@@ -54,7 +54,10 @@ const jobNumber = (id: string): number => Number(id.slice(1));
 export class JobRegistry {
   readonly #convo: Conversation;
   readonly #opts: JobsOptions;
-  readonly #jobs = new Map<string, JobInfo & { stop: () => void; stopped: boolean; settle?: NonNullable<StartedJob["started"]["settle"]> }>();
+  readonly #jobs = new Map<
+    string,
+    JobInfo & { stop: () => void; stopped: boolean; settle?: NonNullable<StartedJob["started"]["settle"]> }
+  >();
   readonly #uncommitted: string[] = [];
   #next = 1;
   #loops = 0;
@@ -88,7 +91,16 @@ export class JobRegistry {
   async start(call_id: string, started: StartedJob["started"]): Promise<string> {
     await this.#syncNumber();
     const id = `j${this.#next++}`;
-    const job = { id, call_id, label: started.summary, status: "running" as JobStatus, startedAt: this.#convo.now(), stop: () => started.stop(), stopped: false, ...(started.settle === undefined ? {} : { settle: started.settle }) };
+    const job = {
+      id,
+      call_id,
+      label: started.summary,
+      status: "running" as JobStatus,
+      startedAt: this.#convo.now(),
+      stop: () => started.stop(),
+      stopped: false,
+      ...(started.settle === undefined ? {} : { settle: started.settle }),
+    };
     this.#jobs.set(id, job);
     // The job holds the thread's run lease until it ends or its time is up, so the thread is known to be busy after the loop has stopped.
     try {
@@ -121,12 +133,16 @@ export class JobRegistry {
     const convo = this.#convo;
     const store = await convo.leaseStore();
     const owner = this.#opts.owner ?? {};
-    if ("seconds" in lease) await store.hold(convo.branch, owner, convo.leaseEnv, `job:${id}`, convo.now() + lease.seconds * 1000 + JOB_HEADROOM_MS);
+    if ("seconds" in lease)
+      await store.hold(convo.branch, owner, convo.leaseEnv, `job:${id}`, convo.now() + lease.seconds * 1000 + JOB_HEADROOM_MS);
     else await store.follow(convo.branch, owner, convo.leaseEnv, `job:${id}`, lease.follows);
   }
 
   #ended(job: JobInfo & { stopped: boolean }, out: ToolOutput): void {
-    void this.#convo.leaseStore().then((store) => store.drop(this.#convo.branch, `job:${job.id}`)).catch(() => undefined);
+    void this.#convo
+      .leaseStore()
+      .then((store) => store.drop(this.#convo.branch, `job:${job.id}`))
+      .catch(() => undefined);
     job.status = job.stopped ? "stopped" : out.is_error === true ? "failed" : "completed";
     job.endedAt = this.#convo.now();
     job.output = out.content;
@@ -179,7 +195,12 @@ export class JobRegistry {
     if (live !== undefined) return { status: live.status, output: live.output };
     for (const e of (await this.#entries()).reverse()) {
       if (e.$tag === "job_event" && e.job === id) {
-        const out = e.output === undefined ? undefined : typeof e.output === "string" ? e.output : new TextDecoder().decode(await this.#convo.store.get(e.output.sha256));
+        const out =
+          e.output === undefined
+            ? undefined
+            : typeof e.output === "string"
+              ? e.output
+              : new TextDecoder().decode(await this.#convo.store.get(e.output.sha256));
         return { status: e.status, output: out };
       }
     }
@@ -206,12 +227,20 @@ export class JobRegistry {
             }
           } catch (e) {
             job.status = "failed";
-            job.output = `${job.output ?? ""}\n[what should have followed the job failed: ${e instanceof Error ? e.message : String(e)}]`.trim();
+            job.output =
+              `${job.output ?? ""}\n[what should have followed the job failed: ${e instanceof Error ? e.message : String(e)}]`.trim();
           }
         }
         const secs = Math.max(0, Math.round(((job.endedAt ?? job.startedAt) - job.startedAt) / 1000));
         const summary = `${job.label} ${job.status} after ${secs}s`;
-        await this.#convo.append({ $tag: "job_event", job: id, call_id: job.call_id, status: job.status as "completed", summary, ...(job.output === undefined ? {} : { output: job.output }) });
+        await this.#convo.append({
+          $tag: "job_event",
+          job: id,
+          call_id: job.call_id,
+          status: job.status as "completed",
+          summary,
+          ...(job.output === undefined ? {} : { output: job.output }),
+        });
         this.#uncommitted.shift();
         done.push({ job: id, status: job.status, summary });
       }
@@ -271,19 +300,40 @@ export function jobTools(registry: JobRegistry): Tool[] {
   const jobArg = { type: "string", description: "The job id, for example j1." };
   return [
     {
-      definition: { name: "jobs", description: "List the background jobs started in this session: id, what it is, whether it is still running, and how long.", input_schema: noArgs },
+      definition: {
+        name: "jobs",
+        description: "List the background jobs started in this session: id, what it is, whether it is still running, and how long.",
+        input_schema: noArgs,
+      },
       allowKeys: () => [ALL],
       execute: async () => {
         const jobs = registry.list();
         const now = registry.now();
-        return { content: jobs.length === 0 ? "No background jobs." : jobs.map((j) => `${j.id}  ${j.status}  ${j.label}${j.status === "running" ? `  (running ${ago(now - j.startedAt)})` : ""}`).join("\n") };
+        return {
+          content:
+            jobs.length === 0
+              ? "No background jobs."
+              : jobs
+                  .map((j) => `${j.id}  ${j.status}  ${j.label}${j.status === "running" ? `  (running ${ago(now - j.startedAt)})` : ""}`)
+                  .join("\n"),
+        };
       },
     },
     {
       definition: {
         name: "job_output",
-        description: "Read what a finished background job printed, from a character offset. A job that is still running has nothing to read yet; you are told when it ends. Returns the text and the offset to continue from.",
-        input_schema: { type: "object", additionalProperties: false, required: ["job"], properties: { job: jobArg, offset: { type: "integer", minimum: 0, description: "Characters to skip. Default 0." }, limit: { type: "integer", minimum: 1, maximum: 30000, description: "Most characters to return. Default 8000." } } },
+        description:
+          "Read what a finished background job printed, from a character offset. A job that is still running has nothing to read yet; you are told when it ends. Returns the text and the offset to continue from.",
+        input_schema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["job"],
+          properties: {
+            job: jobArg,
+            offset: { type: "integer", minimum: 0, description: "Characters to skip. Default 0." },
+            limit: { type: "integer", minimum: 1, maximum: 30000, description: "Most characters to return. Default 8000." },
+          },
+        },
       },
       allowKeys: () => [ALL],
       execute: async (args) => {
@@ -295,17 +345,25 @@ export function jobTools(registry: JobRegistry): Tool[] {
         const limit = (args["limit"] as number | undefined) ?? 8000;
         const part = found.output.slice(offset, offset + limit);
         const end = offset + part.length;
-        return { content: `${part === "" ? "(nothing at that offset)" : part}\n[job ${id} ${found.status}; ${end >= found.output.length ? `end of output at ${end}` : `continue from offset ${end}`}]` };
+        return {
+          content: `${part === "" ? "(nothing at that offset)" : part}\n[job ${id} ${found.status}; ${end >= found.output.length ? `end of output at ${end}` : `continue from offset ${end}`}]`,
+        };
       },
     },
     {
-      definition: { name: "job_stop", description: "Stop a running background job. It ends with status stopped and you are told what it had printed.", input_schema: { type: "object", additionalProperties: false, required: ["job"], properties: { job: jobArg } } },
+      definition: {
+        name: "job_stop",
+        description: "Stop a running background job. It ends with status stopped and you are told what it had printed.",
+        input_schema: { type: "object", additionalProperties: false, required: ["job"], properties: { job: jobArg } },
+      },
       allowKeys: () => [ALL],
       execute: async (args) => {
         const id = args["job"] as string;
         const info = registry.get(id);
         if (info === undefined) return { content: `There is no job ${id}.`, is_error: true };
-        return registry.stop(id) ? { content: `Asked job ${id} to stop.` } : { content: `Job ${id} is not running (${info.status}).`, is_error: true };
+        return registry.stop(id)
+          ? { content: `Asked job ${id} to stop.` }
+          : { content: `Job ${id} is not running (${info.status}).`, is_error: true };
       },
     },
   ];

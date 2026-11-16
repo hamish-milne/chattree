@@ -31,7 +31,10 @@ export function skillTool(): Tool {
       const pin = skills[name];
       if (pin === undefined) {
         const names = Object.keys(skills).sort();
-        return { content: `there is no skill called ${JSON.stringify(name)}${names.length === 0 ? "; no skills are available" : `; the skills are: ${names.slice(0, LISTED).join(", ")}${names.length > LISTED ? `, and ${names.length - LISTED} more` : ""}`}`, is_error: true };
+        return {
+          content: `there is no skill called ${JSON.stringify(name)}${names.length === 0 ? "; no skills are available" : `; the skills are: ${names.slice(0, LISTED).join(", ")}${names.length > LISTED ? `, and ${names.length - LISTED} more` : ""}`}`,
+          is_error: true,
+        };
       }
       try {
         const value = asSkill(await loadPinned("skill", name, pin, { blobs: ctx.blobs }));

@@ -24,7 +24,8 @@ async function setup(llama: Record<string, unknown> | "path" = "path") {
   const binary = join(data, "fake-llama-server");
   await writeFile(binary, "");
   let models: Record<string, unknown> = { alpha: { url: `${server.base}/alpha.gguf` } };
-  const parse = (): LocalModels => localModelsSchema.parse({ llama_cpp: llama === "path" ? { path: binary } : llama, server: { health_timeout: 10 }, models });
+  const parse = (): LocalModels =>
+    localModelsSchema.parse({ llama_cpp: llama === "path" ? { path: binary } : llama, server: { health_timeout: 10 }, models });
   let fail: string | undefined;
   const daemon = new Daemon({
     data,
@@ -59,7 +60,19 @@ async function setup(llama: Record<string, unknown> | "path" = "path") {
     await daemon.close();
     await server.close();
   };
-  return { server, data, daemon, port, info, client, events, until, close, setModels: (m: Record<string, unknown>) => (models = m), setFail: (m: string | undefined) => (fail = m) };
+  return {
+    server,
+    data,
+    daemon,
+    port,
+    info,
+    client,
+    events,
+    until,
+    close,
+    setModels: (m: Record<string, unknown>) => (models = m),
+    setFail: (m: string | undefined) => (fail = m),
+  };
 }
 
 describe("the daemon", () => {
@@ -70,7 +83,11 @@ describe("the daemon", () => {
       if (process.platform !== "win32") assert.equal((await stat(stateFile(data))).mode & 0o777, 0o600);
       assert.equal((await findDaemon(data))?.info.port, port);
       assert.equal((await client.status()).state.phase, "idle");
-      const second = new Daemon({ data, loadSettings: async () => assert.fail("must not read settings"), host: { platform: "linux", arch: "x64" } });
+      const second = new Daemon({
+        data,
+        loadSettings: async () => assert.fail("must not read settings"),
+        host: { platform: "linux", arch: "x64" },
+      });
       await assert.rejects(second.open(), DaemonRunning);
       await close();
       assert.equal(await stat(stateFile(data)).catch(() => undefined), undefined);
@@ -91,7 +108,10 @@ describe("the daemon", () => {
       assert.equal((await fetch(url, { headers: { authorization: "Bearer wrong" } })).status, 401);
       assert.equal((await fetch(url, { headers: { authorization: `Bearer ${info.token}`, origin: "http://evil.test" } })).status, 403);
       const status = await new Promise<number>((resolve, reject) => {
-        const req = request({ host: "127.0.0.1", port, path: "/status", headers: { authorization: `Bearer ${info.token}`, host: "evil.test" } }, (res) => (res.resume(), resolve(res.statusCode ?? 0)));
+        const req = request(
+          { host: "127.0.0.1", port, path: "/status", headers: { authorization: `Bearer ${info.token}`, host: "evil.test" } },
+          (res) => (res.resume(), resolve(res.statusCode ?? 0)),
+        );
         req.on("error", reject).end();
       });
       assert.equal(status, 403);
@@ -107,7 +127,10 @@ describe("the daemon", () => {
       const started = await client.start({ yes: true });
       assert.equal(started.pid, process.pid);
       await until(() => daemon.status().state.phase === "ready");
-      assert.deepEqual(daemon.status().state.models.map((m) => m.name), ["alpha"]);
+      assert.deepEqual(
+        daemon.status().state.models.map((m) => m.name),
+        ["alpha"],
+      );
       await until(() => events.some((e) => e.type === "store" && e.event.type === "done"));
       assert.equal(events[0]?.type, "status");
       await client.load("alpha");

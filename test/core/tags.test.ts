@@ -30,12 +30,18 @@ describe("tag layout", () => {
       "user",
       new Map<string, Value>([
         ["id", "x"],
-        ["content", [new Tagged("text", m({ text: "hi" })), new Tagged("attachment", new Map<string, Value>([["data", new BlobRef(H, 1)]]))]],
+        [
+          "content",
+          [new Tagged("text", m({ text: "hi" })), new Tagged("attachment", new Map<string, Value>([["data", new BlobRef(H, 1)]]))],
+        ],
         ["note", new Tagged("n", "plain")],
         ["body", new Tagged("md", "a\nb")],
         ["empty", new Tagged("e", new Map())],
         ["items", new Tagged("list", [1, "a"])],
-        ["nested", [new Tagged("md", "p\nq\n"), new Tagged("s", "word"), new Tagged("l", [new Tagged("t", m({ k: 1 }))]), new Tagged("z", [])]],
+        [
+          "nested",
+          [new Tagged("md", "p\nq\n"), new Tagged("s", "word"), new Tagged("l", [new Tagged("t", m({ k: 1 }))]), new Tagged("z", [])],
+        ],
       ]),
     ) as Entry;
     const expected =

@@ -55,14 +55,21 @@ const enc = new TextEncoder();
 async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promise<InjectionRule[]> {
   const config = await convo.readConfig();
   const dec = new TextDecoder();
-  const fromConfig = config?.ok === true ? rulesFromConfig(config.value.injections, async (file) => {
-    const path = convo.host.path.resolve(convo.dir, file);
-    const rel = convo.host.path.relative(convo.dir, path);
-    if (rel === "" || rel.startsWith("..") || convo.host.path.isAbsolute(rel)) throw new Error(`${file} is outside the thread's workspace`);
-    return dec.decode(await convo.host.fs.read(path));
-  }) : [];
+  const fromConfig =
+    config?.ok === true
+      ? rulesFromConfig(config.value.injections, async (file) => {
+          const path = convo.host.path.resolve(convo.dir, file);
+          const rel = convo.host.path.relative(convo.dir, path);
+          if (rel === "" || rel.startsWith("..") || convo.host.path.isAbsolute(rel))
+            throw new Error(`${file} is outside the thread's workspace`);
+          return dec.decode(await convo.host.fs.read(path));
+        })
+      : [];
   const compaction = await compactionSettings(convo);
-  const where = opts.environment === undefined || (config?.ok === true && !config.value.injections.environment) ? [] : [environmentRule({ ...opts.environment, thread: convo.branch, workspace: convo.dir })];
+  const where =
+    opts.environment === undefined || (config?.ok === true && !config.value.injections.environment)
+      ? []
+      : [environmentRule({ ...opts.environment, thread: convo.branch, workspace: convo.dir })];
   return [...where, ...fromConfig, ...(compaction.auto === "off" ? [] : [compactionRule(compaction)]), ...(opts.injections ?? [])];
 }
 
@@ -136,14 +143,29 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
 
   // Another process can ask for an abort by leaving a marker beside the journal (`Conversation.requestAbort`).
   let polling = false;
-  const poll = journal === undefined ? undefined : setInterval(() => {
-    if (polling) return;
-    polling = true;
-    void journal.abortRequested().then((yes) => { if (yes) stop("user"); }).finally(() => { polling = false; });
-  }, opts.abortPollMs ?? 250);
+  const poll =
+    journal === undefined
+      ? undefined
+      : setInterval(() => {
+          if (polling) return;
+          polling = true;
+          void journal
+            .abortRequested()
+            .then((yes) => {
+              if (yes) stop("user");
+            })
+            .finally(() => {
+              polling = false;
+            });
+        }, opts.abortPollMs ?? 250);
 
   const acc = new StreamAccumulator();
-  const gen = adapter.stream({ context, setup, signal: controller.signal, session: (await sha256Hex(enc.encode(`${convo.dir}\n${convo.branch}`))).slice(0, 32) });
+  const gen = adapter.stream({
+    context,
+    setup,
+    signal: controller.signal,
+    session: (await sha256Hex(enc.encode(`${convo.dir}\n${convo.branch}`))).slice(0, 32),
+  });
   let completed: Completed | undefined;
   let failure: unknown;
   let finished = false;
@@ -157,7 +179,24 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
       if (completed !== undefined) {
         journal?.write({ t: "done", completed });
         await journal?.flush();
-        const entries = await convo.appendResponse({ ...assistantFromCompleted(model.provider, servedModelId(model), completed), ...(prepared.tip === undefined ? {} : { context_tip: prepared.tip }), ...(prepared.converted === undefined ? {} : { converted: prepared.converted.map(({ name, from, to, converter }) => ({ ...(name === undefined ? {} : { name }), from, to, converter })) }) }, { model: completed.observed.model ?? servedModelId(model) }, guard);
+        const entries = await convo.appendResponse(
+          {
+            ...assistantFromCompleted(model.provider, servedModelId(model), completed),
+            ...(prepared.tip === undefined ? {} : { context_tip: prepared.tip }),
+            ...(prepared.converted === undefined
+              ? {}
+              : {
+                  converted: prepared.converted.map(({ name, from, to, converter }) => ({
+                    ...(name === undefined ? {} : { name }),
+                    from,
+                    to,
+                    converter,
+                  })),
+                }),
+          },
+          { model: completed.observed.model ?? servedModelId(model) },
+          guard,
+        );
         await journal?.discard();
         return { status: "completed", entries, completed, prepared };
       }
@@ -165,9 +204,17 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
       if (!acc.hasContent) {
         await journal?.discard();
         if (user) return { status: "cancelled", prepared };
-        throw stopped === "deadline" ? new ProviderError({ kind: "timeout", message: "the turn's time limit passed before anything arrived" }) : failure;
+        throw stopped === "deadline"
+          ? new ProviderError({ kind: "timeout", message: "the turn's time limit passed before anything arrived" })
+          : failure;
       }
-      const error = user ? undefined : stopped === "deadline" ? "the turn's time limit passed" : failure instanceof Error ? failure.message : "the response ended early";
+      const error = user
+        ? undefined
+        : stopped === "deadline"
+          ? "the turn's time limit passed"
+          : failure instanceof Error
+            ? failure.message
+            : "the response ended early";
       const entry = await convo.interrupt({
         guard,
         by: user ? "user" : "error",
@@ -176,7 +223,13 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
         ...(acc.usage === undefined ? {} : { usage: usageRecord(acc.usage) }),
       });
       await journal?.discard();
-      return { status: "interrupted", by: user ? "user" : "error", entry, ...(user ? {} : { error: failure ?? new ProviderError({ kind: "timeout", message: error as string }) }), prepared };
+      return {
+        status: "interrupted",
+        by: user ? "user" : "error",
+        entry,
+        ...(user ? {} : { error: failure ?? new ProviderError({ kind: "timeout", message: error as string }) }),
+        prepared,
+      };
     } catch (e) {
       await journal?.abandon(); // the commit failed: the journal is what recovery will use (a file that is no longer ours is left alone)
       throw e;
@@ -210,9 +263,11 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
   return settle();
 }
 
-
 /** `requestStream`, drained: `onEvent` sees each event (awaited, so it can apply backpressure), the result says how it ended. */
-export async function runRequest(convo: Conversation, opts: TurnOptions & { onEvent?: (event: StreamEvent) => void | Promise<void> }): Promise<TurnResult> {
+export async function runRequest(
+  convo: Conversation,
+  opts: TurnOptions & { onEvent?: (event: StreamEvent) => void | Promise<void> },
+): Promise<TurnResult> {
   const gen = requestStream(convo, opts);
   while (true) {
     const r = await gen.next();

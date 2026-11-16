@@ -31,13 +31,24 @@ export async function askModel(convo: Conversation, prompt: string, opts: OneSho
   if (setup.model === undefined) throw new Error("this thread has no model; set one with /model");
   const model: ModelSetup = opts.model === undefined ? setup.model : { provider: setup.model.provider, id: opts.model };
   const adapter = convo.provider(model.provider);
-  const context = { system: opts.system ?? "You write short, faithful summaries.", instructions: undefined, turns: [{ role: "user" as const, parts: [{ type: "text" as const, text: prompt }] }], tools: [], cacheHints: [] };
+  const context = {
+    system: opts.system ?? "You write short, faithful summaries.",
+    instructions: undefined,
+    turns: [{ role: "user" as const, parts: [{ type: "text" as const, text: prompt }] }],
+    tools: [],
+    cacheHints: [],
+  };
   if (opts.limits === true) {
     const config = await convo.readConfig();
     const current = convo.priceTable(model.provider);
     const pinned = setup.pricing === undefined ? undefined : await convo.priceResolver().table(setup.pricing.table);
     const table = pinned ?? current;
-    const estimate = estimateRequest(context, { id: servedModelId(model), settings: model.settings }, table, convo.modelInfo(model.provider, servedModelId(model)));
+    const estimate = estimateRequest(
+      context,
+      { id: servedModelId(model), settings: model.settings },
+      table,
+      convo.modelInfo(model.provider, servedModelId(model)),
+    );
     const { violations } = checkLimits({ limits: config?.ok === true ? config.value.limits : {}, ledger: await convo.ledger(), estimate });
     if (violations.length > 0) throw new LimitExceeded(violations);
   }
@@ -47,7 +58,13 @@ export async function askModel(convo: Conversation, prompt: string, opts: OneSho
   let text = "";
   for (;;) {
     const n = await stream.next();
-    if (n.done) return { text: text.trim(), model: servedModelId(model), usage: { input: n.value.usage.input_tokens, output: n.value.usage.output_tokens }, record: usageRecord(n.value.usage) };
+    if (n.done)
+      return {
+        text: text.trim(),
+        model: servedModelId(model),
+        usage: { input: n.value.usage.input_tokens, output: n.value.usage.output_tokens },
+        record: usageRecord(n.value.usage),
+      };
     if (n.value.type === "text.delta") text += n.value.text;
   }
 }

@@ -50,7 +50,14 @@ export function callsIn(entries: readonly ChatEntry[]): Map<string, Call> {
   const calls = new Map<string, Call>();
   for (const e of entries) {
     if (e.$tag !== "assistant") continue;
-    for (const b of e.blocks) if (b.$tag === "tool_call") calls.set(b.call_id, { call_id: b.call_id, name: b.name, args: b.args, ...(typeof b.args_raw === "string" ? { args_raw: b.args_raw } : {}) });
+    for (const b of e.blocks)
+      if (b.$tag === "tool_call")
+        calls.set(b.call_id, {
+          call_id: b.call_id,
+          name: b.name,
+          args: b.args,
+          ...(typeof b.args_raw === "string" ? { args_raw: b.args_raw } : {}),
+        });
   }
   return calls;
 }
@@ -61,7 +68,8 @@ export type Decision = { allow: true } | { allow: false; reason?: string };
 export function decisionsIn(entries: readonly ChatEntry[]): Map<string, Decision> {
   const out = new Map<string, Decision>();
   for (const e of entries) {
-    if (e.$tag === "approval") out.set(e.call_id, e.allow ? { allow: true } : { allow: false, ...(e.reason === undefined ? {} : { reason: e.reason }) });
+    if (e.$tag === "approval")
+      out.set(e.call_id, e.allow ? { allow: true } : { allow: false, ...(e.reason === undefined ? {} : { reason: e.reason }) });
   }
   return out;
 }
@@ -184,9 +192,15 @@ export async function classifyCalls(input: TipInput, callIds: readonly string[])
     const hit = await permitted(checked.tool, checked.args, allow, input.nowMs, input.ctx);
     if (hit.permitted) {
       const on = await checked.tool.waitingOn?.(checked.args, id);
-      out.push({ ...base, args: checked.args, status: on === undefined ? "covered" : "blocked", keys: hit.keys, ...(on === undefined ? {} : { on }) });
-    }
-    else out.push({ ...base, args: checked.args, status: "ask", keys: (await checked.tool.allowKeys?.(checked.args, input.ctx)) ?? null });
+      out.push({
+        ...base,
+        args: checked.args,
+        status: on === undefined ? "covered" : "blocked",
+        keys: hit.keys,
+        ...(on === undefined ? {} : { on }),
+      });
+    } else
+      out.push({ ...base, args: checked.args, status: "ask", keys: (await checked.tool.allowKeys?.(checked.args, input.ctx)) ?? null });
   }
   return out;
 }
@@ -203,7 +217,9 @@ export async function foldTip(input: TipInput): Promise<TipState> {
     const on = calls.flatMap((c) => (c.status === "blocked" && c.on !== undefined ? [c.on] : []));
     return on.length > 0 ? { kind: "blocked", calls, on } : { kind: "run", calls };
   }
-  const last = [...entries].reverse().find((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection");
+  const last = [...entries]
+    .reverse()
+    .find((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection");
   switch (last?.$tag) {
     case "user":
       return { kind: "ready", cause: "human" };

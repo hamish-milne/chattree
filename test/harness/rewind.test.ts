@@ -11,7 +11,8 @@ import { tempDir } from "../support/tmp.ts";
 const host = nodeHost();
 const say = (t: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text: t }] });
 const entries = async (c: Conversation): Promise<ChatEntry[]> => (await c.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-const texts = async (c: Conversation): Promise<string[]> => (await entries(c)).flatMap((e) => (e.$tag === "user" ? [e.content.map((p) => (p.$tag === "text" ? p.text : "")).join("")] : []));
+const texts = async (c: Conversation): Promise<string[]> =>
+  (await entries(c)).flatMap((e) => (e.$tag === "user" ? [e.content.map((p) => (p.$tag === "text" ? p.text : "")).join("")] : []));
 
 async function fresh() {
   const dir = join(await tempDir(), "p");
@@ -46,7 +47,10 @@ describe("rewind", () => {
     await convo.append(say("three"));
     assert.deepEqual(await texts(convo), ["one", "three"]);
     assert.equal((await convo.index()).filter((e) => e.tag === "user").length, 2);
-    assert.deepEqual((await verifyHistory(convo)).filter((p) => p.severity === "error"), []);
+    assert.deepEqual(
+      (await verifyHistory(convo)).filter((p) => p.severity === "error"),
+      [],
+    );
     const reopened = await Conversation.open(host, dir);
     assert.deepEqual(await texts(reopened), ["one", "three"]);
   });

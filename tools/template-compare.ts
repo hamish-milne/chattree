@@ -31,8 +31,24 @@ const fn = (name: string, description: string, properties: Json, required: strin
   function: { name, description, parameters: { type: "object", additionalProperties: false, properties, required } },
 });
 
-export const READ = fn("read", "Read a file. Returns its lines, numbered, and its version.", { path: { type: "string", description: "Path of the file, relative to the workspace root." }, limit: { type: "integer", description: "At most this many lines." } }, ["path"]);
-export const WRITE = fn("write", "Create a file, or replace one whole. Give the complete new content.", { path: { type: "string", description: "Path of the file." }, content: { type: "string", description: "The complete new content of the file." } }, ["path", "content"]);
+export const READ = fn(
+  "read",
+  "Read a file. Returns its lines, numbered, and its version.",
+  {
+    path: { type: "string", description: "Path of the file, relative to the workspace root." },
+    limit: { type: "integer", description: "At most this many lines." },
+  },
+  ["path"],
+);
+export const WRITE = fn(
+  "write",
+  "Create a file, or replace one whole. Give the complete new content.",
+  {
+    path: { type: "string", description: "Path of the file." },
+    content: { type: "string", description: "The complete new content of the file." },
+  },
+  ["path", "content"],
+);
 export const RECORD = fn(
   "record_items",
   "Record the items of an order.",
@@ -44,7 +60,11 @@ export const RECORD = fn(
       items: {
         type: "object",
         additionalProperties: false,
-        properties: { sku: { type: "string", description: "The product code." }, quantity: { type: "integer", description: "How many." }, options: { type: "array", description: "Chosen options.", items: { type: "string" } } },
+        properties: {
+          sku: { type: "string", description: "The product code." },
+          quantity: { type: "integer", description: "How many." },
+          options: { type: "array", description: "Chosen options.", items: { type: "string" } },
+        },
         required: ["sku", "quantity"],
       },
     },
@@ -52,19 +72,33 @@ export const RECORD = fn(
   ["customer", "items"],
 );
 
-const SYSTEM = { role: "system", content: "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents." };
+const SYSTEM = {
+  role: "system",
+  content: "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.",
+};
 const user = (content: string): Json => ({ role: "user", content });
-const call = (id: string, name: string, args: unknown, extra: Json = {}): Json => ({ role: "assistant", content: null, ...extra, tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }] });
+const call = (id: string, name: string, args: unknown, extra: Json = {}): Json => ({
+  role: "assistant",
+  content: null,
+  ...extra,
+  tool_calls: [{ id, type: "function", function: { name, arguments: JSON.stringify(args) } }],
+});
 const result = (id: string, content: string): Json => ({ role: "tool", tool_call_id: id, content });
 
-const MULTILINE = 'def greet(name):\n    """Say "hello" to name."""\n    print(f"hello, {name}!\\n")\n\nif __name__ == "__main__":\n    greet("world")\n';
+const MULTILINE =
+  'def greet(name):\n    """Say "hello" to name."""\n    print(f"hello, {name}!\\n")\n\nif __name__ == "__main__":\n    greet("world")\n';
 
 export function scenarios(): Scenario[] {
   return [
     {
       name: "one-call",
       about: "A call and its result, then the model's turn.",
-      messages: [SYSTEM, user("In notes.txt change the word draft to final."), call("c1", "read", { path: "notes.txt" }), result("c1", "=== notes.txt (1 line, version 1f08cd1f) ===\n1\tstatus: draft")],
+      messages: [
+        SYSTEM,
+        user("In notes.txt change the word draft to final."),
+        call("c1", "read", { path: "notes.txt" }),
+        result("c1", "=== notes.txt (1 line, version 1f08cd1f) ===\n1\tstatus: draft"),
+      ],
       tools: [READ, WRITE],
       reasoningMarks: [],
     },
@@ -76,7 +110,12 @@ export function scenarios(): Scenario[] {
         user("Copy a.txt to b.txt."),
         call("c1", "read", { path: "a.txt" }, { reasoning_content: "MARK-ALPHA I should read a.txt first, to know what to copy." }),
         result("c1", "=== a.txt (1 line, version 11111111) ===\n1\thello"),
-        call("c2", "write", { path: "b.txt", content: "hello\n" }, { reasoning_content: "MARK-BETA The file says hello, so b.txt gets the same line." }),
+        call(
+          "c2",
+          "write",
+          { path: "b.txt", content: "hello\n" },
+          { reasoning_content: "MARK-BETA The file says hello, so b.txt gets the same line." },
+        ),
         result("c2", "wrote b.txt (1 line)"),
       ],
       tools: [READ, WRITE],
@@ -85,7 +124,12 @@ export function scenarios(): Scenario[] {
     {
       name: "after-final-answer",
       about: "A finished exchange with its reasoning, then a new user message. Is the old reasoning dropped?",
-      messages: [SYSTEM, user("What is 2 + 2?"), { role: "assistant", content: "4.", reasoning_content: "MARK-GAMMA Simple arithmetic: two and two is four." }, user("And 9 / 2?")],
+      messages: [
+        SYSTEM,
+        user("What is 2 + 2?"),
+        { role: "assistant", content: "4.", reasoning_content: "MARK-GAMMA Simple arithmetic: two and two is four." },
+        user("And 9 / 2?"),
+      ],
       tools: [READ, WRITE],
       reasoningMarks: ["MARK-GAMMA"],
     },
@@ -99,14 +143,25 @@ export function scenarios(): Scenario[] {
     {
       name: "multiline-argument",
       about: "A call whose argument has newlines, quotes and backslashes, in the history. How is it written?",
-      messages: [SYSTEM, user("Write hello.py"), call("c1", "write", { path: "hello.py", content: MULTILINE }), result("c1", "wrote hello.py (6 lines)"), user("Now read it back.")],
+      messages: [
+        SYSTEM,
+        user("Write hello.py"),
+        call("c1", "write", { path: "hello.py", content: MULTILINE }),
+        result("c1", "wrote hello.py (6 lines)"),
+        user("Now read it back."),
+      ],
       tools: [READ, WRITE],
       reasoningMarks: [],
     },
     {
       name: "error-result",
       about: "A tool result that is an error.",
-      messages: [SYSTEM, user("Read missing.txt"), call("c1", "read", { path: "missing.txt" }), result("c1", "error: missing.txt does not exist")],
+      messages: [
+        SYSTEM,
+        user("Read missing.txt"),
+        call("c1", "read", { path: "missing.txt" }),
+        result("c1", "error: missing.txt does not exist"),
+      ],
       tools: [READ, WRITE],
       reasoningMarks: [],
     },
@@ -116,10 +171,14 @@ export function scenarios(): Scenario[] {
       messages: [
         SYSTEM,
         user("Read a.txt and b.txt."),
-        { role: "assistant", content: null, tool_calls: [
-          { id: "c1", type: "function", function: { name: "read", arguments: JSON.stringify({ path: "a.txt" }) } },
-          { id: "c2", type: "function", function: { name: "read", arguments: JSON.stringify({ path: "b.txt" }) } },
-        ] },
+        {
+          role: "assistant",
+          content: null,
+          tool_calls: [
+            { id: "c1", type: "function", function: { name: "read", arguments: JSON.stringify({ path: "a.txt" }) } },
+            { id: "c2", type: "function", function: { name: "read", arguments: JSON.stringify({ path: "b.txt" }) } },
+          ],
+        },
         result("c1", "=== a.txt (1 line, version 11111111) ===\n1\talpha"),
         result("c2", "=== b.txt (1 line, version 22222222) ===\n1\tbeta"),
       ],
@@ -137,7 +196,12 @@ export interface CompareOptions {
 }
 
 async function post(f: typeof fetch, url: string, body: unknown): Promise<{ status: number; json: unknown; text: string }> {
-  const res = await f(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal: AbortSignal.timeout(900_000) });
+  const res = await f(url, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(900_000),
+  });
   const text = await res.text();
   let json: unknown;
   try {
@@ -166,10 +230,14 @@ export async function compare(baseUrl: string, models: string[], o: CompareOptio
     const dir = join(o.out, model.replace(/[^\w.-]+/g, "_"));
     await mkdir(dir, { recursive: true });
     log(`\n######## ${model}`);
-    const props = await f(`${baseUrl}/props?model=${encodeURIComponent(model)}`).then((r) => r.json() as Promise<Json>).catch((e: unknown): Json => ({ error: String(e) }));
+    const props = await f(`${baseUrl}/props?model=${encodeURIComponent(model)}`)
+      .then((r) => r.json() as Promise<Json>)
+      .catch((e: unknown): Json => ({ error: String(e) }));
     await writeFile(join(dir, "props.json"), JSON.stringify(props, null, 2));
     if (typeof props["chat_template"] === "string") await writeFile(join(dir, "chat-template.jinja"), props["chat_template"]);
-    log(`template: ${typeof props["chat_template"] === "string" ? `${props["chat_template"].length} characters` : "not given"}; capabilities: ${JSON.stringify(props["chat_template_caps"] ?? "not given")}`);
+    log(
+      `template: ${typeof props["chat_template"] === "string" ? `${props["chat_template"].length} characters` : "not given"}; capabilities: ${JSON.stringify(props["chat_template_caps"] ?? "not given")}`,
+    );
     for (const s of all) {
       await writeFile(join(dir, `${s.name}.request.json`), JSON.stringify({ model, messages: s.messages, tools: s.tools }, null, 2));
       const r = await post(f, `${baseUrl}/apply-template`, { model, messages: s.messages, tools: s.tools });
@@ -190,17 +258,33 @@ export async function compare(baseUrl: string, models: string[], o: CompareOptio
       if (s.name === "nested-schema") log(`  the schema as declared:\n${declarationOf(prompt, "record_items").replace(/^/gm, "    ")}`);
       else log(`  the prompt ends: ${JSON.stringify(prompt.slice(-260))}`);
       if (!o.live) continue;
-      const c = await post(f, `${baseUrl}/completion`, { model, prompt, n_predict: 300, temperature: 0, cache_prompt: false, stream: false, special: true, n_probs: 3 });
-      const j = c.json as { content?: string; stop_type?: string; tokens_predicted?: number; completion_probabilities?: Json[] } | undefined;
+      const c = await post(f, `${baseUrl}/completion`, {
+        model,
+        prompt,
+        n_predict: 300,
+        temperature: 0,
+        cache_prompt: false,
+        stream: false,
+        special: true,
+        n_probs: 3,
+      });
+      const j = c.json as
+        | { content?: string; stop_type?: string; tokens_predicted?: number; completion_probabilities?: Json[] }
+        | undefined;
       const text = j?.content ?? c.text;
       await writeFile(join(dir, `${s.name}.raw.txt`), text);
-      if (j?.completion_probabilities !== undefined) await writeFile(join(dir, `${s.name}.probs.json`), JSON.stringify(j.completion_probabilities, null, 2));
-      log(`  the model writes (greedy, ${j?.stop_type ?? `HTTP ${c.status}`}, ${j?.tokens_predicted ?? "?"} tokens): ${JSON.stringify(clip(text, 260))}`);
+      if (j?.completion_probabilities !== undefined)
+        await writeFile(join(dir, `${s.name}.probs.json`), JSON.stringify(j.completion_probabilities, null, 2));
+      log(
+        `  the model writes (greedy, ${j?.stop_type ?? `HTTP ${c.status}`}, ${j?.tokens_predicted ?? "?"} tokens): ${JSON.stringify(clip(text, 260))}`,
+      );
       const first = (j?.completion_probabilities ?? []).slice(0, 4).map((p) => `${JSON.stringify(p["token"] ?? p["content"])}`);
       if (first.length > 0) log(`  its first tokens: ${first.join(" ")}`);
     }
   }
-  log(`\nFiles are in ${o.out}/: scenarios.json, then per model: props.json, chat-template.jinja, <scenario>.request.json, <scenario>.prompt.txt${o.live ? ", <scenario>.raw.txt, <scenario>.probs.json" : ""}`);
+  log(
+    `\nFiles are in ${o.out}/: scenarios.json, then per model: props.json, chat-template.jinja, <scenario>.request.json, <scenario>.prompt.txt${o.live ? ", <scenario>.raw.txt, <scenario>.probs.json" : ""}`,
+  );
 }
 
 async function main(): Promise<void> {

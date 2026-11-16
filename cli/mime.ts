@@ -2,12 +2,51 @@ import { decodeText, normalizeMime, TextAttachmentError } from "../harness/attac
 import { sniffFormat } from "../harness/formats.ts";
 
 const BY_EXTENSION: Record<string, string> = {
-  png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", pdf: "application/pdf",
-  json: "application/json", xml: "application/xml", yaml: "application/yaml", yml: "application/yaml", toml: "application/toml",
-  md: "text/markdown", markdown: "text/markdown", html: "text/html", htm: "text/html", css: "text/css", csv: "text/csv", tsv: "text/tab-separated-values",
-  js: "text/javascript", mjs: "text/javascript", ts: "text/plain", tsx: "text/plain", jsx: "text/plain", py: "text/plain", rs: "text/plain", go: "text/plain",
-  java: "text/plain", c: "text/plain", h: "text/plain", cpp: "text/plain", hpp: "text/plain", cs: "text/plain", rb: "text/plain", php: "text/plain", swift: "text/plain",
-  kt: "text/plain", sh: "text/plain", bash: "text/plain", zsh: "text/plain", sql: "application/sql", txt: "text/plain", log: "text/plain", ini: "text/plain", cfg: "text/plain", conf: "text/plain",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  webp: "image/webp",
+  pdf: "application/pdf",
+  json: "application/json",
+  xml: "application/xml",
+  yaml: "application/yaml",
+  yml: "application/yaml",
+  toml: "application/toml",
+  md: "text/markdown",
+  markdown: "text/markdown",
+  html: "text/html",
+  htm: "text/html",
+  css: "text/css",
+  csv: "text/csv",
+  tsv: "text/tab-separated-values",
+  js: "text/javascript",
+  mjs: "text/javascript",
+  ts: "text/plain",
+  tsx: "text/plain",
+  jsx: "text/plain",
+  py: "text/plain",
+  rs: "text/plain",
+  go: "text/plain",
+  java: "text/plain",
+  c: "text/plain",
+  h: "text/plain",
+  cpp: "text/plain",
+  hpp: "text/plain",
+  cs: "text/plain",
+  rb: "text/plain",
+  php: "text/plain",
+  swift: "text/plain",
+  kt: "text/plain",
+  sh: "text/plain",
+  bash: "text/plain",
+  zsh: "text/plain",
+  sql: "application/sql",
+  txt: "text/plain",
+  log: "text/plain",
+  ini: "text/plain",
+  cfg: "text/plain",
+  conf: "text/plain",
 };
 
 export interface Detected {
@@ -36,7 +75,8 @@ export async function detectMime(name: string, bytes: Uint8Array, override?: { m
   try {
     decodeText(bytes, override?.charset);
   } catch (e) {
-    if (e instanceof TextAttachmentError && byExt === undefined && bytes.includes(0)) throw new Error(`cannot tell what ${name} is (it looks binary); pass --mime if a model can read it`);
+    if (e instanceof TextAttachmentError && byExt === undefined && bytes.includes(0))
+      throw new Error(`cannot tell what ${name} is (it looks binary); pass --mime if a model can read it`);
     throw e instanceof Error ? e : new Error(String(e));
   }
   return { mime: byExt ?? "text/plain", ...(override?.charset === undefined ? {} : { charset: override.charset }) };

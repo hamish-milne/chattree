@@ -14,8 +14,15 @@ import { tempDir } from "../support/tmp.ts";
 const host = nodeHost();
 const sonnet = { provider: "anthropic", id: "claude-sonnet-5-5", settings: { max_output_tokens: 8000 } };
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (text: string, blocks?: Extract<NewEntry, { $tag: "assistant" }>["blocks"]): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "claude-sonnet-5-5", blocks: blocks ?? [{ $tag: "text", text }], stop_reason: blocks === undefined ? "end_turn" : "tool_use" });
-const texts = (turns: { role: string; parts?: { type: string; text?: string }[] }[]): string[] => turns.map((t) => `${t.role}:${(t.parts ?? []).map((p) => p.text ?? "").join("|")}`);
+const reply = (text: string, blocks?: Extract<NewEntry, { $tag: "assistant" }>["blocks"]): NewEntry => ({
+  $tag: "assistant",
+  provider: "anthropic",
+  model: "claude-sonnet-5-5",
+  blocks: blocks ?? [{ $tag: "text", text }],
+  stop_reason: blocks === undefined ? "end_turn" : "tool_use",
+});
+const texts = (turns: { role: string; parts?: { type: string; text?: string }[] }[]): string[] =>
+  turns.map((t) => `${t.role}:${(t.parts ?? []).map((p) => p.text ?? "").join("|")}`);
 
 async function fresh(instructions = "v1") {
   const convo = await Conversation.create(host, join(await tempDir(), "c"), {});
@@ -37,7 +44,11 @@ describe("the prefix lags an appended change", () => {
     const { context, setup } = await prepareContext(convo, { system: "s", cost: false });
     assert.equal(context.instructions, "v1", "the cached prefix is untouched");
     assert.equal(prefixLags(setup), true);
-    assert.deepEqual(texts(context.turns as never), ["user:hi", "assistant:", "user:[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\nv2|again"]);
+    assert.deepEqual(texts(context.turns as never), [
+      "user:hi",
+      "assistant:",
+      "user:[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\nv2|again",
+    ]);
   });
 
   test("an update made while a tool call is open waits for its result", async () => {
@@ -47,7 +58,10 @@ describe("the prefix lags an appended change", () => {
     await convo.setupChange({ instructions: await pin("v2") }, { allow: ["mid_loop"] });
     await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "done" });
     const { context } = await prepareContext(convo, { system: "s", cost: false });
-    assert.deepEqual(context.turns.map((t) => t.role), ["user", "assistant", "tool_results", "user"]);
+    assert.deepEqual(
+      context.turns.map((t) => t.role),
+      ["user", "assistant", "tool_results", "user"],
+    );
   });
 
   test("a rebuild folds the change into the prefix and drops the update", async () => {
@@ -56,7 +70,7 @@ describe("the prefix lags an appended change", () => {
     await convo.append(reply("hello"));
     await convo.setupChange({ instructions: await pin("v2") });
     await assert.rejects(convo.rebuildPrefix(), (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("cache_break"));
-    assert.equal(prefixLags((await convo.setup())), true, "a refused rebuild changes nothing");
+    assert.equal(prefixLags(await convo.setup()), true, "a refused rebuild changes nothing");
     await convo.rebuildPrefix({ allow: ["cache_break", "instructions_changed"] });
     const { context, setup } = await prepareContext(convo, { system: "s", cost: false });
     assert.equal(context.instructions, "v2");
@@ -119,9 +133,21 @@ describe("the prefix lags an appended change", () => {
     await convo.setupChange({ instructions: await pin("v2") });
     const fork = await convo.fork();
     assert.equal(prefixLags((await fork.conversation?.setup()) as never), true);
-    const e = (apply: object): ChatEntry => ({ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: sonnet, instructions: { hash: "a1".repeat(32), store: "blob" }, ...apply }) as ChatEntry;
+    const e = (apply: object): ChatEntry =>
+      ({
+        $tag: "agent_setup",
+        id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+        reason: "user",
+        model: sonnet,
+        instructions: { hash: "a1".repeat(32), store: "blob" },
+        ...apply,
+      }) as ChatEntry;
     assert.equal(prefixLags(foldSetup([e({})])), false);
-    assert.equal(prefixLags(foldSetup([e({ apply: "append" })])), true, "an append with nothing before it is a lag against an empty prefix");
+    assert.equal(
+      prefixLags(foldSetup([e({ apply: "append" })])),
+      true,
+      "an append with nothing before it is a lag against an empty prefix",
+    );
   });
 });
 
@@ -145,12 +171,19 @@ describe("injections", () => {
     await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "done" });
     await convo.inject("usage", "80% of the budget is spent");
     const first = (await prepareContext(convo, { system: "s", cost: false })).context;
-    assert.deepEqual(first.turns.map((t) => t.role), ["user", "assistant", "tool_results", "user"]);
+    assert.deepEqual(
+      first.turns.map((t) => t.role),
+      ["user", "assistant", "tool_results", "user"],
+    );
     assert.match(JSON.stringify(first.turns.at(-1)), /\[Note from the harness\]\\n80% of the budget is spent/);
     await convo.append(reply("ok"));
     await convo.append(user("next"));
     const later = (await prepareContext(convo, { system: "s", cost: false })).context;
-    assert.deepEqual(JSON.stringify(later.turns.slice(0, first.turns.length)), JSON.stringify(first.turns), "the prefix of the context does not change");
+    assert.deepEqual(
+      JSON.stringify(later.turns.slice(0, first.turns.length)),
+      JSON.stringify(first.turns),
+      "the prefix of the context does not change",
+    );
   });
 
   test("do not change what the thread is waiting for, and survive verification", async () => {
@@ -160,6 +193,9 @@ describe("injections", () => {
     await convo.inject("nudge", "remember the style guide");
     const all = await entries(convo);
     assert.deepEqual(await foldTip({ entries: all, lease: undefined, now: 0 } as never), { kind: "awaiting_user" });
-    assert.deepEqual((await verifyHistory(convo, { deep: true })).map((p) => `${p.severity}:${p.code}`), []);
+    assert.deepEqual(
+      (await verifyHistory(convo, { deep: true })).map((p) => `${p.severity}:${p.code}`),
+      [],
+    );
   });
 });

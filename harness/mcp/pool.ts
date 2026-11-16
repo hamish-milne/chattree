@@ -93,6 +93,13 @@ export class McpPool {
   async closeAll(): Promise<void> {
     const all = [...this.#entries.values()];
     this.#entries.clear();
-    await Promise.all(all.map((e) => e.ready.then((s) => s.client.close(), () => undefined)));
+    await Promise.all(
+      all.map((e) =>
+        e.ready.then(
+          (s) => s.client.close(),
+          () => undefined,
+        ),
+      ),
+    );
   }
 }

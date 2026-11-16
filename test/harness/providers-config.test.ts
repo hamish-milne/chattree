@@ -36,7 +36,16 @@ const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "tex
 describe("secrets", () => {
   test("dotenv syntax", () => {
     const m = parseDotenv(`# comment\nA=1\nexport B = two words # trailing\nC="quoted # not a comment"\nD='single'\n\nbad line\nE=\n`);
-    assert.deepEqual([...m], [["A", "1"], ["B", "two words"], ["C", "quoted # not a comment"], ["D", "single"], ["E", ""]]);
+    assert.deepEqual(
+      [...m],
+      [
+        ["A", "1"],
+        ["B", "two words"],
+        ["C", "quoted # not a comment"],
+        ["D", "single"],
+        ["E", ""],
+      ],
+    );
   });
 
   test("the first non-empty source wins", async () => {
@@ -60,7 +69,10 @@ describe("secrets", () => {
     await mkdir(join(dir, ".chattree"), { recursive: true });
     await writeFile(join(dir, ".chattree", "env"), "W=from-worktree\nE=worktree-loses\n");
     const s = repoSecretSource(host, dir, { E: "from-env" });
-    assert.deepEqual([await s.get("E"), await s.get("W"), await s.get("S"), await s.get("N")], ["from-env", "from-worktree", "from-git-dir", undefined]);
+    assert.deepEqual(
+      [await s.get("E"), await s.get("W"), await s.get("S"), await s.get("N")],
+      ["from-env", "from-worktree", "from-git-dir", undefined],
+    );
   });
 
   test("a worktree secrets file that git does not ignore is refused, with the reason", async () => {
@@ -70,34 +82,73 @@ describe("secrets", () => {
     await convo.snapshot();
     await mkdir(join(dir, ".chattree"), { recursive: true });
     await writeFile(join(dir, ".chattree", "env"), "K=v\n");
-    await assert.rejects(repoSecretSource(host, dir, {}).get("K"), (e) => e instanceof SecretFileError && /does not ignore it/.test(e.message));
+    await assert.rejects(
+      repoSecretSource(host, dir, {}).get("K"),
+      (e) => e instanceof SecretFileError && /does not ignore it/.test(e.message),
+    );
   });
 });
 
 describe("registry and providers", () => {
   test("headers: strings and nulls are accepted for any provider, a bad name is not", async () => {
-    const ok = await validateProviders({ a: { $tag: "anthropic", headers: { "user-agent": null, "x-team": "t" }, session_header: "x-session" } as never }, registry);
+    const ok = await validateProviders(
+      { a: { $tag: "anthropic", headers: { "user-agent": null, "x-team": "t" }, session_header: "x-session" } as never },
+      registry,
+    );
     assert.deepEqual(ok.issues, []);
-    const bad = await validateProviders({ a: { $tag: "openai-compatible", base_url: "http://x/v1", headers: { "bad name": "v" } } as never, b: { $tag: "openai-compatible", base_url: "http://x/v1", headers: { x: 1 } } as never }, registry);
+    const bad = await validateProviders(
+      {
+        a: { $tag: "openai-compatible", base_url: "http://x/v1", headers: { "bad name": "v" } } as never,
+        b: { $tag: "openai-compatible", base_url: "http://x/v1", headers: { x: 1 } } as never,
+      },
+      registry,
+    );
     assert.equal(bad.issues.length, 2);
   });
 
   test("every provider is checked against its adapter; all problems at once", async () => {
-    const { issues } = await validateProviders({ a: { $tag: "nope" }, b: { $tag: "anthropic", api_key_env: "sk-ant-abc", extra: 1 } as never, c: { $tag: "openai", max_concurrent: 0 } as never }, registry);
+    const { issues } = await validateProviders(
+      {
+        a: { $tag: "nope" },
+        b: { $tag: "anthropic", api_key_env: "sk-ant-abc", extra: 1 } as never,
+        c: { $tag: "openai", max_concurrent: 0 } as never,
+      },
+      registry,
+    );
     const by = Object.fromEntries(issues.map((i) => [i.path, i.message]));
-    assert.match(by["providers.a.$tag"] ?? "", /no adapter for "nope" \(known: anthropic, gemini, openai, openai-compatible, opencode-go\)/);
+    assert.match(
+      by["providers.a.$tag"] ?? "",
+      /no adapter for "nope" \(known: anthropic, gemini, openai, openai-compatible, opencode-go\)/,
+    );
     assert.match(by["providers.b.api_key_env"] ?? "", /NAME of an environment variable/);
-    assert.ok(Object.keys(by).some((k) => k.startsWith("providers.b") && /nrecognized|extra/.test(by[k] ?? "")), JSON.stringify(by));
+    assert.ok(
+      Object.keys(by).some((k) => k.startsWith("providers.b") && /nrecognized|extra/.test(by[k] ?? "")),
+      JSON.stringify(by),
+    );
     assert.ok("providers.c.max_concurrent" in by);
   });
 
   test("missing variables are reported by name and provider, all of them", async () => {
-    await assert.rejects(buildProviders({ claude: { $tag: "anthropic", api_key_env: "A_KEY" } as never, gpt: { $tag: "openai", api_key_env: "B_KEY" } as never, local: { $tag: "openai" } }, registry, envSource({})), (e) => {
-      assert.ok(e instanceof ProviderSetupError);
-      assert.deepEqual(e.issues.map((i) => i.path), ["providers.claude", "providers.gpt"]);
-      assert.match(e.issues[0]?.message ?? "", /A_KEY is not set/);
-      return true;
-    });
+    await assert.rejects(
+      buildProviders(
+        {
+          claude: { $tag: "anthropic", api_key_env: "A_KEY" } as never,
+          gpt: { $tag: "openai", api_key_env: "B_KEY" } as never,
+          local: { $tag: "openai" },
+        },
+        registry,
+        envSource({}),
+      ),
+      (e) => {
+        assert.ok(e instanceof ProviderSetupError);
+        assert.deepEqual(
+          e.issues.map((i) => i.path),
+          ["providers.claude", "providers.gpt"],
+        );
+        assert.match(e.issues[0]?.message ?? "", /A_KEY is not set/);
+        return true;
+      },
+    );
   });
 
   test("a provider that needs no key builds without one; adapters carry their tag", async () => {
@@ -114,7 +165,12 @@ describe("registry and providers", () => {
         settings: z.strictObject({ n: z.number() }),
         jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
         secrets: (c) => [c.token_env],
-        create: (_c, s) => ({ $tag: "toy", stream: (() => { throw new Error(String(s.get("T"))); }) as never }),
+        create: (_c, s) => ({
+          $tag: "toy",
+          stream: (() => {
+            throw new Error(String(s.get("T")));
+          }) as never,
+        }),
       }),
     );
     assert.throws(() => reg.register(reg.get("toy") as never), /already registered/);
@@ -124,12 +180,34 @@ describe("registry and providers", () => {
 });
 
 describe("JSON Schema", () => {
-  const schema = configJsonSchema(registry) as { properties: Record<string, { additionalProperties?: { oneOf: { title: string; properties: Record<string, unknown>; required: string[] }[] } }> };
+  const schema = configJsonSchema(registry) as {
+    properties: Record<
+      string,
+      { additionalProperties?: { oneOf: { title: string; properties: Record<string, unknown>; required: string[] }[] } }
+    >;
+  };
 
   test("core keys, and one variant per adapter discriminated by a $tag const", () => {
-    assert.deepEqual(Object.keys(schema.properties).sort(), ["attachments", "background", "compaction", "injections", "leases", "limits", "maintenance", "mcp", "providers", "skills", "subagent", "threads", "tools"]);
+    assert.deepEqual(Object.keys(schema.properties).sort(), [
+      "attachments",
+      "background",
+      "compaction",
+      "injections",
+      "leases",
+      "limits",
+      "maintenance",
+      "mcp",
+      "providers",
+      "skills",
+      "subagent",
+      "threads",
+      "tools",
+    ]);
     const variants = schema.properties["providers"]?.additionalProperties?.oneOf ?? [];
-    assert.deepEqual(variants.map((v) => v.title), ["anthropic", "gemini", "openai", "openai-compatible", "opencode-go"]);
+    assert.deepEqual(
+      variants.map((v) => v.title),
+      ["anthropic", "gemini", "openai", "openai-compatible", "opencode-go"],
+    );
     for (const v of variants) {
       assert.equal((v.properties["$tag"] as { const: string }).const, v.title);
       assert.ok(v.required.includes("$tag"));
@@ -146,7 +224,8 @@ describe("JSON Schema", () => {
 });
 
 describe("a model's tool convention", () => {
-  const withModels = (convention: string): string => `providers:\n  local:\n    $tag: openai-compatible\n    base_url: http://localhost:11434/v1\n    models:\n      "gpt-oss:20b":\n        tool_convention: ${convention}\n`;
+  const withModels = (convention: string): string =>
+    `providers:\n  local:\n    $tag: openai-compatible\n    base_url: http://localhost:11434/v1\n    models:\n      "gpt-oss:20b":\n        tool_convention: ${convention}\n`;
   test("is set per model in harness.yml, read back by modelInfo, and unknown for a model that was not named", async () => {
     const dir = await dirOf();
     const convo = await Conversation.create(host, dir, { ...opts(), config: withModels("flat") });
@@ -167,11 +246,14 @@ describe("create and open", () => {
     const schema = JSON.parse(await readFile(join(dir, SCHEMA_PATH), "utf8")) as { title: string };
     assert.equal(schema.title, "chattree harness.yml");
     assert.equal(await convo.git.isClean(), true);
-    assert.deepEqual((await convo.git.listFiles([".chattree"], "tracked")), []);
+    assert.deepEqual(await convo.git.listFiles([".chattree"], "tracked"), []);
     assert.equal(await readFile(join(dir, ".gitignore"), "utf8").then((t) => t.includes("/.chattree/")), true);
     assert.deepEqual([...convo.providers.keys()].sort(), ["claude", "gpt", "local"]);
     assert.equal(convo.provider("claude").$tag, "anthropic");
-    assert.throws(() => convo.provider("nope"), (e) => e instanceof ConversationError && /have: claude, gpt, local/.test(e.message));
+    assert.throws(
+      () => convo.provider("nope"),
+      (e) => e instanceof ConversationError && /have: claude, gpt, local/.test(e.message),
+    );
     const r = await convo.readConfig();
     assert.ok(r?.ok);
   });
@@ -182,18 +264,32 @@ describe("create and open", () => {
     await Conversation.create(host, dir, { ...opts(), config: mine });
     assert.equal(await readFile(join(dir, CONFIG_FILE), "utf8"), mine);
     const dir2 = await dirOf();
-    await assert.rejects(Conversation.create(host, dir2, { ...opts(), config: "providers:\n  x:\n    $tag: nope\n" }), (e) => e instanceof ConversationError && /no adapter for "nope"/.test(e.message));
-    await assert.rejects(Conversation.create(host, dir2, { ...opts({}), config: CONFIG }), (e) => e instanceof ConversationError && /ANTHROPIC_API_KEY is not set/.test(e.message) && /OPENAI_API_KEY is not set/.test(e.message));
+    await assert.rejects(
+      Conversation.create(host, dir2, { ...opts(), config: "providers:\n  x:\n    $tag: nope\n" }),
+      (e) => e instanceof ConversationError && /no adapter for "nope"/.test(e.message),
+    );
+    await assert.rejects(
+      Conversation.create(host, dir2, { ...opts({}), config: CONFIG }),
+      (e) =>
+        e instanceof ConversationError && /ANTHROPIC_API_KEY is not set/.test(e.message) && /OPENAI_API_KEY is not set/.test(e.message),
+    );
     assert.equal(await readFile(join(dir2, CONFIG_FILE), "utf8").catch(() => undefined), undefined);
   });
 
   test("open builds the providers, fails early on a missing variable, and forks share the adapters", async () => {
     const dir = await dirOf();
     await Conversation.create(host, dir, { config: CONFIG });
-    await assert.rejects(Conversation.open(host, dir, opts({ ANTHROPIC_API_KEY: KEY })), (e) => e instanceof ConversationError && /providers\.gpt: the environment variable OPENAI_API_KEY is not set/.test(e.message));
+    await assert.rejects(
+      Conversation.open(host, dir, opts({ ANTHROPIC_API_KEY: KEY })),
+      (e) => e instanceof ConversationError && /providers\.gpt: the environment variable OPENAI_API_KEY is not set/.test(e.message),
+    );
     const convo = await Conversation.open(host, dir, opts());
     assert.equal(convo.providers.size, 3);
-    assert.equal(JSON.parse(await readFile(join(dir, SCHEMA_PATH), "utf8")).title, "chattree harness.yml", "open regenerates the schema in every worktree");
+    assert.equal(
+      JSON.parse(await readFile(join(dir, SCHEMA_PATH), "utf8")).title,
+      "chattree harness.yml",
+      "open regenerates the schema in every worktree",
+    );
     await convo.append(user("hi"));
     const child = (await convo.fork(undefined, { name: "side" })).conversation;
     assert.ok(child !== undefined);

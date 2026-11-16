@@ -21,7 +21,11 @@ export interface Task {
   environment?: true;
 }
 
-const noIndent = (t: string | undefined): string | undefined => t?.split("\n").map((l) => l.trim()).join("\n");
+const noIndent = (t: string | undefined): string | undefined =>
+  t
+    ?.split("\n")
+    .map((l) => l.trim())
+    .join("\n");
 const same = (r: AgentTaskResult, want: Record<string, string>, ignoreIndent = false): string | undefined => {
   for (const [f, text] of Object.entries(want)) {
     const got = r.after[f];
@@ -32,7 +36,13 @@ const same = (r: AgentTaskResult, want: Record<string, string>, ignoreIndent = f
 const ranOk = (r: AgentTaskResult, tool: string): boolean => r.steps.some((s) => s.name === tool && s.is_error === false);
 
 export const EDIT_TASKS: Task[] = [
-  { name: "one line", group: "edit", files: { "notes.txt": "status: draft\n" }, prompt: "In notes.txt change the word draft to final.", check: (r) => same(r, { "notes.txt": "status: final\n" }) },
+  {
+    name: "one line",
+    group: "edit",
+    files: { "notes.txt": "status: draft\n" },
+    prompt: "In notes.txt change the word draft to final.",
+    check: (r) => same(r, { "notes.txt": "status: final\n" }),
+  },
   {
     name: "two places",
     group: "edit",
@@ -51,7 +61,8 @@ export const EDIT_TASKS: Task[] = [
     name: "insert and append",
     group: "edit",
     files: { "main.py": "import os\n\ndef main():\n    print('hi')\n" },
-    prompt: "In main.py add the line `import sys` right after `import os` without removing any existing line (the blank line stays), and add a final line `main()` directly after the last line (no blank line before it).",
+    prompt:
+      "In main.py add the line `import sys` right after `import os` without removing any existing line (the blank line stays), and add a final line `main()` directly after the last line (no blank line before it).",
     check: (r) => same(r, { "main.py": "import os\nimport sys\n\ndef main():\n    print('hi')\nmain()\n" }),
   },
   {
@@ -78,7 +89,8 @@ export const TASKS: Task[] = [
     group: "read",
     files: { "a.txt": "the code word is WALRUS\n", "b.txt": "the number is 4417\n" },
     prompt: "What is the code word in a.txt and the number in b.txt? Answer with both.",
-    check: (r) => (/WALRUS/.test(r.answer) && /4417/.test(r.answer) ? undefined : `the answer was ${JSON.stringify(r.answer.slice(0, 100))}`),
+    check: (r) =>
+      /WALRUS/.test(r.answer) && /4417/.test(r.answer) ? undefined : `the answer was ${JSON.stringify(r.answer.slice(0, 100))}`,
   },
   {
     name: "read a window",
@@ -102,9 +114,14 @@ export const TASKS: Task[] = [
     name: "three files at once",
     group: "write",
     files: { "seed.txt": "x\n" },
-    prompt: "Create three files: a.txt containing exactly `alpha`, b.txt containing exactly `beta`, and c.txt containing exactly `gamma`. Make the three write calls together, in one turn.",
+    prompt:
+      "Create three files: a.txt containing exactly `alpha`, b.txt containing exactly `beta`, and c.txt containing exactly `gamma`. Make the three write calls together, in one turn.",
     check: async (r) => {
-      for (const [f, want] of [["a.txt", "alpha"], ["b.txt", "beta"], ["c.txt", "gamma"]] as const) {
+      for (const [f, want] of [
+        ["a.txt", "alpha"],
+        ["b.txt", "beta"],
+        ["c.txt", "gamma"],
+      ] as const) {
         const t = await r.read(f);
         if (t?.trim() !== want) return `${f} is ${JSON.stringify(t)}`;
       }
@@ -115,13 +132,19 @@ export const TASKS: Task[] = [
     // The answer is mostly the text of the file just read, which is what n-gram speculation drafts from.
     name: "copy with a rename",
     group: "write",
-    files: { "util.py": "import json\n\n\ndef load_records(path):\n    with open(path) as f:\n        return [json.loads(line) for line in f if line.strip()]\n\n\ndef total_by_name(records):\n    totals = {}\n    for r in records:\n        totals[r[\"name\"]] = totals.get(r[\"name\"], 0) + r[\"amount\"]\n    return totals\n\n\ndef main():\n    print(total_by_name(load_records(\"data.jsonl\")))\n" },
-    prompt: "Read util.py, then create util2.py with the same content, except that the function total_by_name is renamed sum_by_name everywhere. Leave util.py as it is.",
+    files: {
+      "util.py":
+        'import json\n\n\ndef load_records(path):\n    with open(path) as f:\n        return [json.loads(line) for line in f if line.strip()]\n\n\ndef total_by_name(records):\n    totals = {}\n    for r in records:\n        totals[r["name"]] = totals.get(r["name"], 0) + r["amount"]\n    return totals\n\n\ndef main():\n    print(total_by_name(load_records("data.jsonl")))\n',
+    },
+    prompt:
+      "Read util.py, then create util2.py with the same content, except that the function total_by_name is renamed sum_by_name everywhere. Leave util.py as it is.",
     check: async (r) => {
       const t = await r.read("util2.py");
       if (t === undefined) return "util2.py was not created";
       if (/total_by_name/.test(t) || (t.match(/sum_by_name/g) ?? []).length !== 2) return `util2.py is ${JSON.stringify(t.slice(0, 200))}`;
-      return t.replaceAll("sum_by_name", "total_by_name").trimEnd() === (r.after["util.py"] ?? "").trimEnd() ? undefined : "util2.py differs from util.py in more than the name";
+      return t.replaceAll("sum_by_name", "total_by_name").trimEnd() === (r.after["util.py"] ?? "").trimEnd()
+        ? undefined
+        : "util2.py differs from util.py in more than the name";
     },
   },
   {
@@ -129,7 +152,12 @@ export const TASKS: Task[] = [
     group: "run",
     files: {},
     prompt: "Run `node --version` with the run tool and tell me what it prints.",
-    check: (r) => (ranOk(r, "run") && /v\d+\.\d+/.test(r.answer) ? undefined : ranOk(r, "run") ? `the answer was ${JSON.stringify(r.answer.slice(0, 100))}` : "no successful run call"),
+    check: (r) =>
+      ranOk(r, "run") && /v\d+\.\d+/.test(r.answer)
+        ? undefined
+        : ranOk(r, "run")
+          ? `the answer was ${JSON.stringify(r.answer.slice(0, 100))}`
+          : "no successful run call",
   },
   {
     name: "run with redirect",
@@ -138,22 +166,31 @@ export const TASKS: Task[] = [
     prompt: "Use the run tool to run `node --version` and save its output to the file version.txt (not by writing the file yourself).",
     check: async (r) => {
       const t = await r.read("version.txt");
-      return ranOk(r, "run") && /^v\d+\.\d+/.test(t ?? "") ? undefined : `version.txt is ${JSON.stringify(t)}, run succeeded: ${ranOk(r, "run")}`;
+      return ranOk(r, "run") && /^v\d+\.\d+/.test(t ?? "")
+        ? undefined
+        : `version.txt is ${JSON.stringify(t)}, run succeeded: ${ranOk(r, "run")}`;
     },
   },
   {
     name: "run with pipe",
     group: "run",
     files: { "words.txt": "pear\napple\nfig\n" },
-    prompt: "Use one run call to run `node -p \"require('fs').readFileSync('words.txt','utf8')\"` and pipe its output into `node -e \"process.stdin.on('data',d=>process.stdout.write(String(d).toUpperCase()))\"`, then tell me what came out.",
-    check: (r) => (ranOk(r, "run") && /PEAR/.test(r.answer) && /APPLE/.test(r.answer) ? undefined : `the answer was ${JSON.stringify(r.answer.slice(0, 100))}, run succeeded: ${ranOk(r, "run")}`),
+    prompt:
+      "Use one run call to run `node -p \"require('fs').readFileSync('words.txt','utf8')\"` and pipe its output into `node -e \"process.stdin.on('data',d=>process.stdout.write(String(d).toUpperCase()))\"`, then tell me what came out.",
+    check: (r) =>
+      ranOk(r, "run") && /PEAR/.test(r.answer) && /APPLE/.test(r.answer)
+        ? undefined
+        : `the answer was ${JSON.stringify(r.answer.slice(0, 100))}, run succeeded: ${ranOk(r, "run")}`,
   },
   {
     name: "run node version",
     group: "run",
     files: {},
     prompt: "Use the run tool to run `node --version` and tell me what it printed.",
-    check: (r) => (ranOk(r, "run") && /v?\d+\.\d+/.test(r.answer) ? undefined : `run succeeded: ${ranOk(r, "run")}, answer ${JSON.stringify(r.answer.slice(0, 80))}`),
+    check: (r) =>
+      ranOk(r, "run") && /v?\d+\.\d+/.test(r.answer)
+        ? undefined
+        : `run succeeded: ${ranOk(r, "run")}, answer ${JSON.stringify(r.answer.slice(0, 80))}`,
   },
   {
     name: "utility pipe",
@@ -168,7 +205,8 @@ export const TASKS: Task[] = [
     group: "run",
     needs: ["utils"],
     files: { "a.txt": "1\n2\n", "b.txt": "1\n2\n3\n", "c.md": "x\n" },
-    prompt: "Use the run tool to count the lines in every .txt file in this directory with `wc -l *.txt` and tell me the number on the `total` line.",
+    prompt:
+      "Use the run tool to count the lines in every .txt file in this directory with `wc -l *.txt` and tell me the number on the `total` line.",
     check: (r) => (ranOk(r, "run") && /\b5\b/.test(r.answer) ? undefined : `answer ${JSON.stringify(r.answer.slice(0, 80))}`),
   },
   {
@@ -186,8 +224,12 @@ export const TASKS: Task[] = [
     name: "edit then run",
     group: "mixed",
     files: { "notes.txt": "status: draft\n" },
-    prompt: "Read notes.txt, then use the edit tool to change the word draft to final, then use the run tool to run `node --version` and tell me what it printed.",
-    check: (r) => (r.after["notes.txt"] === "status: final\n" && ranOk(r, "run") && r.status === "completed" ? undefined : `notes.txt is ${JSON.stringify(r.after["notes.txt"])}, run succeeded: ${ranOk(r, "run")}, status ${r.status}`),
+    prompt:
+      "Read notes.txt, then use the edit tool to change the word draft to final, then use the run tool to run `node --version` and tell me what it printed.",
+    check: (r) =>
+      r.after["notes.txt"] === "status: final\n" && ranOk(r, "run") && r.status === "completed"
+        ? undefined
+        : `notes.txt is ${JSON.stringify(r.after["notes.txt"])}, run succeeded: ${ranOk(r, "run")}, status ${r.status}`,
   },
 ];
 
@@ -219,7 +261,8 @@ export const CONTEXT_TASKS: Task[] = [
     name: "riddle with a twist",
     group: "context",
     files: {},
-    prompt: "A farmer has 17 sheep. All but 9 die, and then he buys 3 more. Write how many sheep he has now into answer.txt (just the number).",
+    prompt:
+      "A farmer has 17 sheep. All but 9 die, and then he buys 3 more. Write how many sheep he has now into answer.txt (just the number).",
     check: async (r) => {
       const t = (await r.read("answer.txt"))?.trim();
       return t === "12" ? undefined : `answer.txt is ${JSON.stringify(t)}, wanted 12`;
@@ -256,5 +299,8 @@ export const MEDIA_TASKS: Task[] = ["red", "blue"].map((colour) => ({
   media: true as const,
   files: { "make.cjs": MAKE_PNG },
   prompt: `Run \`node make.cjs ${colour}\`, which writes picture.png, then look at picture.png with mm_read and tell me the colour of the square in it. Answer with just the colour.`,
-  check: (r: AgentTaskResult) => (ranOk(r, "mm_read") && new RegExp(`\\b${colour}\\b`, "i").test(r.answer) ? undefined : `mm_read ran: ${ranOk(r, "mm_read")}, answer ${JSON.stringify(r.answer.slice(0, 80))}`),
+  check: (r: AgentTaskResult) =>
+    ranOk(r, "mm_read") && new RegExp(`\\b${colour}\\b`, "i").test(r.answer)
+      ? undefined
+      : `mm_read ran: ${ranOk(r, "mm_read")}, answer ${JSON.stringify(r.answer.slice(0, 80))}`,
 }));

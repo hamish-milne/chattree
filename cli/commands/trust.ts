@@ -14,9 +14,12 @@ const MAX_LINES = 120;
  */
 async function describeFile(ctx: Ctx, approved: string | undefined): Promise<string> {
   const git = ctx.engine.project.git.withCwd(ctx.convo.dir);
-  const out = async (args: string[], ok: number[] = [0]): Promise<string> => dec.decode((await git.run(args, { ok, readOnly: true })).stdout).trim();
+  const out = async (args: string[], ok: number[] = [0]): Promise<string> =>
+    dec.decode((await git.run(args, { ok, readOnly: true })).stdout).trim();
   if (approved !== undefined) {
-    for (const commit of (await out(["log", "-n", "100", "--format=%h", "--", "harness.yml"], [0, 128])).split("\n").filter((c) => c !== "")) {
+    for (const commit of (await out(["log", "-n", "100", "--format=%h", "--", "harness.yml"], [0, 128]))
+      .split("\n")
+      .filter((c) => c !== "")) {
       const then = await git.readFileAt(commit, "harness.yml");
       if (then !== undefined && configHash(then) === approved) {
         const diff = await out(["diff", commit, "--", "harness.yml"], [0, 1, 128]);
@@ -31,7 +34,9 @@ async function describeFile(ctx: Ctx, approved: string | undefined): Promise<str
     const last = await out(["log", "-1", "--format=%h  %an, %ad: %s", "--date=short", "--", "harness.yml"], [0, 128]);
     parts.push(last === "" ? "not committed yet" : `last changed by commit ${last}`);
     const lines = dec.decode(await ctx.io.host.fs.read(ctx.io.host.path.join(ctx.convo.dir, "harness.yml"))).split("\n");
-    parts.push(`${lines.slice(0, MAX_LINES).join("\n")}${lines.length > MAX_LINES ? `\n… ${lines.length - MAX_LINES} more lines (/trust show prints all)` : ""}`);
+    parts.push(
+      `${lines.slice(0, MAX_LINES).join("\n")}${lines.length > MAX_LINES ? `\n… ${lines.length - MAX_LINES} more lines (/trust show prints all)` : ""}`,
+    );
   }
   return parts.join("\n\n");
 }
@@ -58,7 +63,13 @@ const trust: Command = {
       }
       const t = await ctx.convo.configTrust();
       if (t.state === "trusted") {
-        yield { type: "notice", message: t.hash === "none" ? "this thread has no harness.yml, so there is nothing to approve" : `harness.yml is the file you approved for thread ${ctx.convo.branch}` };
+        yield {
+          type: "notice",
+          message:
+            t.hash === "none"
+              ? "this thread has no harness.yml, so there is nothing to approve"
+              : `harness.yml is the file you approved for thread ${ctx.convo.branch}`,
+        };
         return;
       }
       yield {

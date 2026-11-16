@@ -56,7 +56,11 @@ export async function hashDefinition(kind: DefinitionKind, value: unknown): Prom
  * Pin a definition: compute its hash and, for `blob`, put the canonical bytes in the store (the blob's hash is
  * the definition's hash, so the verifier can check it). The result goes into an `agent_setup` change.
  */
-export async function pinDefinition(kind: DefinitionKind, value: unknown, where: { store: "blob"; blobs: BlobStore } | { store: "external"; ref: string }): Promise<PinnedDefinition> {
+export async function pinDefinition(
+  kind: DefinitionKind,
+  value: unknown,
+  where: { store: "blob"; blobs: BlobStore } | { store: "external"; ref: string },
+): Promise<PinnedDefinition> {
   const bytes = encodeDefinition(kind, value);
   if (where.store === "blob") {
     const hash = await where.blobs.put(bytes);
@@ -78,7 +82,8 @@ export function pinnedOf(setup: AgentSetup): { section: DefinitionSection; kind:
   for (const section of ["tools", "skills", "mcp"] as const) {
     for (const [name, pin] of Object.entries(setup[section])) out.push({ section, kind: KIND_OF[section], name, pin });
   }
-  if (setup.instructions !== undefined) out.push({ section: "instructions", kind: "instructions", name: INSTRUCTIONS_NAME, pin: setup.instructions });
+  if (setup.instructions !== undefined)
+    out.push({ section: "instructions", kind: "instructions", name: INSTRUCTIONS_NAME, pin: setup.instructions });
   return out;
 }
 
@@ -96,18 +101,25 @@ export async function checkDefinitions(setup: AgentSetup, source?: DefinitionSou
   for (const { section, kind, name, pin } of pins) {
     const label = `${kind} ${name}`;
     if (listed === undefined) {
-      if (pin.store === "external") out.push({ kind: kindFor(section), message: `${label} is pinned externally but no definition source is configured` });
+      if (pin.store === "external")
+        out.push({ kind: kindFor(section), message: `${label} is pinned externally but no definition source is configured` });
       continue;
     }
     const found = listed.get(`${kind}\0${name}`);
-    if (found === undefined) out.push({ kind: kindFor(section), message: `${label} is pinned but the definition source no longer lists it` });
-    else if (found !== pin.hash) out.push({ kind: kindFor(section), message: `${label} changed: pinned ${pin.hash.slice(0, 12)}, now ${found.slice(0, 12)}` });
+    if (found === undefined)
+      out.push({ kind: kindFor(section), message: `${label} is pinned but the definition source no longer lists it` });
+    else if (found !== pin.hash)
+      out.push({ kind: kindFor(section), message: `${label} changed: pinned ${pin.hash.slice(0, 12)}, now ${found.slice(0, 12)}` });
   }
   return out;
 }
 
 /** `checkDefinitions`, refusing with `ChangeNotAllowed` for anything the caller has not allowed. */
-export async function assertDefinitions(setup: AgentSetup, source: DefinitionSource | undefined, allow: readonly ChangeKind[] = []): Promise<void> {
+export async function assertDefinitions(
+  setup: AgentSetup,
+  source: DefinitionSource | undefined,
+  allow: readonly ChangeKind[] = [],
+): Promise<void> {
   const refused = (await checkDefinitions(setup, source)).filter((c) => !allow.includes(c.kind));
   if (refused.length > 0) throw new ChangeNotAllowed(refused, "definitions drifted");
 }
@@ -130,14 +142,25 @@ type DefinitionFrom = { blobs: BlobStore; source?: DefinitionSource };
 /** The verified value of one pinned definition, from `blobs/` or the host's source. Throws if it is missing or does not match its hash. */
 export async function loadPinned(kind: DefinitionKind, name: string, pin: PinnedDefinition, from: DefinitionFrom): Promise<unknown> {
   const bytes = pin.store === "blob" ? await from.blobs.get(pin.hash) : await from.source?.get(kind, name, pin.hash);
-  if (bytes === undefined) throw new DefinitionError(`${kind} ${name} (${pin.hash.slice(0, 12)}) is not available from ${pin.store === "blob" ? "blobs/" : "the definition source"}`);
-  if ((await sha256Hex(bytes)) !== pin.hash) throw new DefinitionError(`${kind} ${name}: the bytes do not match the pinned hash ${pin.hash.slice(0, 12)}`);
+  if (bytes === undefined)
+    throw new DefinitionError(
+      `${kind} ${name} (${pin.hash.slice(0, 12)}) is not available from ${pin.store === "blob" ? "blobs/" : "the definition source"}`,
+    );
+  if ((await sha256Hex(bytes)) !== pin.hash)
+    throw new DefinitionError(`${kind} ${name}: the bytes do not match the pinned hash ${pin.hash.slice(0, 12)}`);
   return decodeDefinition(kind, bytes);
 }
 
 /** Fetch and verify the bytes of every pinned definition: from `blobs/` or from the host's source. Throws if any does not match its hash. */
 export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): Promise<LoadedDefinitions> {
-  const out: LoadedDefinitions = { tools: [], instructions: undefined, prefixInstructions: undefined, skills: {}, prefixSkills: {}, mcp: {} };
+  const out: LoadedDefinitions = {
+    tools: [],
+    instructions: undefined,
+    prefixInstructions: undefined,
+    skills: {},
+    prefixSkills: {},
+    mcp: {},
+  };
   for (const { section, kind, name, pin } of pinnedOf(setup)) {
     const value = await loadPinned(kind, name, pin, from);
     if (section === "tools") out.tools.push(value as ToolDefinition);
@@ -146,9 +169,15 @@ export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): 
   }
   out.tools.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const shown = setup.prefix.instructions;
-  out.prefixInstructions = shown === undefined ? undefined : stable(shown) === stable(setup.instructions ?? null) ? out.instructions : ((await loadPinned("instructions", INSTRUCTIONS_NAME, shown, from)) as string);
+  out.prefixInstructions =
+    shown === undefined
+      ? undefined
+      : stable(shown) === stable(setup.instructions ?? null)
+        ? out.instructions
+        : ((await loadPinned("instructions", INSTRUCTIONS_NAME, shown, from)) as string);
   for (const [name, pin] of Object.entries(setup.prefix.skills)) {
-    out.prefixSkills[name] = stable(pin) === stable(setup.skills[name] ?? null) ? out.skills[name] : await loadPinned("skill", name, pin, from);
+    out.prefixSkills[name] =
+      stable(pin) === stable(setup.skills[name] ?? null) ? out.skills[name] : await loadPinned("skill", name, pin, from);
   }
   return out;
 }

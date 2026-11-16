@@ -8,7 +8,10 @@ import type { Output } from "./output.ts";
  * what each change does, the user is asked, and the call repeats with exactly those kinds allowed. A changed price table is
  * pinned first, as `/pricing pin` would. Returns what `fn` returned, or `undefined` if the user said no.
  */
-export async function* withConfirmation<T>(ctx: Ctx, fn: (allow: ChangeKind[]) => Promise<T>): AsyncGenerator<Output, { done: true; value: T } | { done: false }> {
+export async function* withConfirmation<T>(
+  ctx: Ctx,
+  fn: (allow: ChangeKind[]) => Promise<T>,
+): AsyncGenerator<Output, { done: true; value: T } | { done: false }> {
   let allow: ChangeKind[] = [];
   for (let attempt = 0; attempt < 3; attempt++) {
     try {

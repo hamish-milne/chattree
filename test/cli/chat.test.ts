@@ -50,7 +50,7 @@ function terminal(dir: string, extra: string[] = [], over: Partial<import("../..
   };
 }
 const entries = async (dir: string) => (await (await Conversation.open(host, dir)).readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-const userText = (e: unknown): string => ((e as { content: { text?: string }[] }).content.map((p) => p.text ?? "").join(""));
+const userText = (e: unknown): string => (e as { content: { text?: string }[] }).content.map((p) => p.text ?? "").join("");
 
 describe("the prompt rules", () => {
   const press = (p: PromptBuffer, ...lines: string[]) => lines.map((l) => p.line(l).kind);
@@ -115,7 +115,10 @@ describe("the interactive session", () => {
       await waitFor(() => t.screen().includes("ok"), "the reply");
       t.type("/quit\n");
       await t.done;
-      assert.equal(userText((await entries(dir)).find((e) => e.$tag === "user")), "first paragraph\n\n/status is not a command here\n\nlast");
+      assert.equal(
+        userText((await entries(dir)).find((e) => e.$tag === "user")),
+        "first paragraph\n\n/status is not a command here\n\nlast",
+      );
     } finally {
       await server.close();
     }
@@ -162,7 +165,10 @@ describe("the interactive session", () => {
   });
 
   test("messages typed during a request wait and are sent in order afterwards", async () => {
-    const { server, dir } = await started([{ acts: [{ wait: 300 }, chunk({ content: "first answer" }), chunk({}, "stop"), "data: [DONE]\n\n"] }, answer("second answer")]);
+    const { server, dir } = await started([
+      { acts: [{ wait: 300 }, chunk({ content: "first answer" }), chunk({}, "stop"), "data: [DONE]\n\n"] },
+      answer("second answer"),
+    ]);
     try {
       const t = terminal(dir);
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
@@ -174,7 +180,10 @@ describe("the interactive session", () => {
       await t.done;
       assert.deepEqual((await entries(dir)).filter((e) => e.$tag === "user").map(userText), ["one", "two"]);
       // "two" was sent while the first request ran: it is queued, and the model saw it with its next request
-      assert.deepEqual((await entries(dir)).filter((e) => e.$tag === "user").map((e) => e.$tag === "user" && e.queued === true), [false, true]);
+      assert.deepEqual(
+        (await entries(dir)).filter((e) => e.$tag === "user").map((e) => e.$tag === "user" && e.queued === true),
+        [false, true],
+      );
       assert.ok(t.screen().indexOf("first answer") < t.screen().indexOf("second answer"));
     } finally {
       await server.close();
@@ -237,7 +246,10 @@ describe("the interactive session", () => {
       b.type("/quit\n");
       await b.done;
       const sent = (await entries(dir)).find((e) => e.$tag === "user") as { content: { $tag: string }[] };
-      assert.deepEqual(sent.content.map((p) => p.$tag), ["text", "attachment"]);
+      assert.deepEqual(
+        sent.content.map((p) => p.$tag),
+        ["text", "attachment"],
+      );
       // nothing pending now: no session file is left behind
       const c = terminal(dir);
       await waitFor(() => c.screen().includes("Ctrl-D leaves"), "the prompt");

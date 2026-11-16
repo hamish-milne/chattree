@@ -27,7 +27,8 @@ export class BusyboxError extends Error {
   }
 }
 
-export const BUSYBOX_HINT = "download it yourself with `node tools/fetch-busybox.ts --from <zip>` or point tools.run.busybox in harness.yml at a busybox.exe; or remove the run and script tools from harness.yml";
+export const BUSYBOX_HINT =
+  "download it yourself with `node tools/fetch-busybox.ts --from <zip>` or point tools.run.busybox in harness.yml at a busybox.exe; or remove the run and script tools from harness.yml";
 
 /** The parts of fetching that touch the outside world, so they can be replaced in tests. */
 export interface BusyboxDeps {
@@ -75,7 +76,8 @@ export async function installBusyboxFromZip(zip: string, dir: string, deps: Busy
     const exe = await find(work, "busybox.exe");
     if (exe === undefined) throw new Error("busybox.exe is not in that zip");
     const applets = await deps.applets(exe);
-    if (applets === undefined || !applets.includes("cat")) throw new Error(`${exe} does not look like busybox (--list gave ${applets?.length ?? 0} applets)`);
+    if (applets === undefined || !applets.includes("cat"))
+      throw new Error(`${exe} does not look like busybox (--list gave ${applets?.length ?? 0} applets)`);
     await mkdir(dir, { recursive: true });
     const dest = join(dir, "busybox.exe");
     await copyFile(exe, dest);
@@ -109,7 +111,11 @@ export async function ensureBusybox(o: EnsureOptions = {}): Promise<string> {
     throw new BusyboxError(`could not fetch busybox from ${release.url}: ${e instanceof Error ? e.message : String(e)}`, BUSYBOX_HINT);
   }
   const got = sha256Of(bytes);
-  if (got !== release.sha256) throw new BusyboxError(`the busybox download is not the expected file (sha256 ${got}, expected ${release.sha256}), so it was not used`, BUSYBOX_HINT);
+  if (got !== release.sha256)
+    throw new BusyboxError(
+      `the busybox download is not the expected file (sha256 ${got}, expected ${release.sha256}), so it was not used`,
+      BUSYBOX_HINT,
+    );
   const work = await mkdtemp(join(tmpdir(), "chattree-busybox-zip-"));
   try {
     const zip = join(work, "busybox.zip");
@@ -121,4 +127,3 @@ export async function ensureBusybox(o: EnsureOptions = {}): Promise<string> {
     await rm(work, { recursive: true, force: true });
   }
 }
-

@@ -21,7 +21,12 @@ const sessions: Command = {
     const rows = all.map((s) => {
       const mark = s.id === ctx.engine.sessionId ? "*" : " ";
       if (s.error !== undefined) return `${mark} ${s.id}  unreadable: ${s.error}`;
-      const pending = [s.draft === true ? "draft" : "", s.attachments === undefined || s.attachments === 0 ? "" : `${s.attachments} file${s.attachments === 1 ? "" : "s"}`].filter((x) => x !== "").join(", ");
+      const pending = [
+        s.draft === true ? "draft" : "",
+        s.attachments === undefined || s.attachments === 0 ? "" : `${s.attachments} file${s.attachments === 1 ? "" : "s"}`,
+      ]
+        .filter((x) => x !== "")
+        .join(", ");
       const who = s.id === ctx.engine.sessionId ? "this session" : s.locked ? "in use" : "";
       return `${mark} ${s.id}  ${(s.thread ?? "").padEnd(16)} ${ago(s.updated ?? "", now).padEnd(8)} ${[pending, who].filter((x) => x !== "").join("  ")}`.trimEnd();
     });

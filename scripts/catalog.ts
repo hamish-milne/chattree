@@ -31,7 +31,9 @@ try {
     } else {
       const rows = parseOpencodeList(body, OPENCODE_GO_ROWS);
       const old = await readFile(new URL("opencode-go-rows.ts", root), "utf8");
-      const comment = old.slice(old.indexOf("/**"), old.indexOf("*/") + 2).replace(/as of \d{4}-\d{2}-\d{2}/, `as of ${new Date().toISOString().slice(0, 10)}`);
+      const comment = old
+        .slice(old.indexOf("/**"), old.indexOf("*/") + 2)
+        .replace(/as of \d{4}-\d{2}-\d{2}/, `as of ${new Date().toISOString().slice(0, 10)}`);
       await write("opencode-go-rows.ts", renderRows(rows, { comment, type: "GoRow", from: "../opencode-go.ts", name: "OPENCODE_GO_ROWS" }));
       console.log(`${rows.length} models (was ${OPENCODE_GO_ROWS.length}). Update "as_of" in providers/opencode-go.ts too.`);
     }
@@ -49,6 +51,10 @@ try {
     process.exitCode = 2;
   }
 } catch (e) {
-  console.error(e instanceof CatalogShapeError ? `the list does not have the shape this expects:\n  ${e.message}\nRun with --dump to see it.` : `error: ${e instanceof Error ? e.message : String(e)}`);
+  console.error(
+    e instanceof CatalogShapeError
+      ? `the list does not have the shape this expects:\n  ${e.message}\nRun with --dump to see it.`
+      : `error: ${e instanceof Error ? e.message : String(e)}`,
+  );
   process.exitCode = 1;
 }

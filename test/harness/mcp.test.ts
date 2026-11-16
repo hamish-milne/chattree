@@ -6,7 +6,16 @@ import { nodeHost } from "../../hosts/node.ts";
 import { harnessConfig } from "../../harness/config.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { runLoop, syncMcpTools, syncTools, toolDrift, ToolsOutOfSync } from "../../harness/loop.ts";
-import { connectServer, McpServers, pinServer, resultText, serverOf, serverState, toolName, type McpServerConfig } from "../../harness/mcp/servers.ts";
+import {
+  connectServer,
+  McpServers,
+  pinServer,
+  resultText,
+  serverOf,
+  serverState,
+  toolName,
+  type McpServerConfig,
+} from "../../harness/mcp/servers.ts";
 import { toPortableSchema } from "../../harness/schema-project.ts";
 import { ToolRegistry } from "../../harness/tools.ts";
 import { checkSchema } from "../../harness/tool-schema.ts";
@@ -17,7 +26,8 @@ import { startHttp, type FakeTool } from "../support/mcp-server.ts";
 const host = nodeHost();
 const SERVER = fileURLToPath(new URL("../support/mcp-server.ts", import.meta.url));
 const deps = { host, cwd: process.cwd(), env: {} };
-const stdioCfg = (over: Partial<McpServerConfig> = {}): McpServerConfig => ({ command: process.execPath, args: ["--no-warnings", SERVER], allow: {}, ...over }) as McpServerConfig;
+const stdioCfg = (over: Partial<McpServerConfig> = {}): McpServerConfig =>
+  ({ command: process.execPath, args: ["--no-warnings", SERVER], allow: {}, ...over }) as McpServerConfig;
 
 describe("narrowing a server's schema to the portable subset", () => {
   const ok = (s: unknown) => {
@@ -27,24 +37,65 @@ describe("narrowing a server's schema to the portable subset", () => {
     return r;
   };
   test("a plain schema passes through, closed", () => {
-    const r = ok({ type: "object", properties: { text: { type: "string", description: "t" }, n: { type: "integer", minimum: 1 }, tags: { type: "array", items: { type: "string" } } }, required: ["text"] });
-    assert.deepEqual(r.schema, { type: "object", properties: { text: { type: "string", description: "t" }, n: { type: "integer", minimum: 1 }, tags: { type: "array", items: { type: "string" } } }, required: ["text"], additionalProperties: false });
+    const r = ok({
+      type: "object",
+      properties: {
+        text: { type: "string", description: "t" },
+        n: { type: "integer", minimum: 1 },
+        tags: { type: "array", items: { type: "string" } },
+      },
+      required: ["text"],
+    });
+    assert.deepEqual(r.schema, {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "t" },
+        n: { type: "integer", minimum: 1 },
+        tags: { type: "array", items: { type: "string" } },
+      },
+      required: ["text"],
+      additionalProperties: false,
+    });
   });
   test("no schema, or an empty one, is a tool with no arguments", () => {
     assert.deepEqual(ok(undefined).schema, { type: "object", properties: {}, additionalProperties: false });
-    assert.deepEqual(ok({ type: "object", additionalProperties: true }).schema, { type: "object", properties: {}, additionalProperties: false });
+    assert.deepEqual(ok({ type: "object", additionalProperties: true }).schema, {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    });
   });
   test("constraints the subset cannot say move into the description", () => {
     const r = ok({ type: "object", properties: { url: { type: "string", format: "uri", description: "where", pattern: "^http" } } });
-    assert.deepEqual((r.schema["properties"] as Record<string, unknown>)["url"], { type: "string", description: 'where (format: "uri", pattern: "^http")' });
+    assert.deepEqual((r.schema["properties"] as Record<string, unknown>)["url"], {
+      type: "string",
+      description: 'where (format: "uri", pattern: "^http")',
+    });
     assert.match(r.notes.join(), /url: format, pattern moved into the description|url: format: "uri"/);
   });
   test("nullable types, a null-or-one-thing choice, local references and const are followed", () => {
-    const r = ok({ type: "object", properties: { a: { type: ["string", "null"] }, b: { anyOf: [{ type: "integer" }, { type: "null" }] }, c: { $ref: "#/$defs/mode" }, d: { const: "x" } }, $defs: { mode: { type: "string", enum: ["fast", "slow"] } } });
-    assert.deepEqual(r.schema["properties"], { a: { type: "string" }, b: { type: "integer" }, c: { type: "string", enum: ["fast", "slow"] }, d: { type: "string", enum: ["x"] } });
+    const r = ok({
+      type: "object",
+      properties: {
+        a: { type: ["string", "null"] },
+        b: { anyOf: [{ type: "integer" }, { type: "null" }] },
+        c: { $ref: "#/$defs/mode" },
+        d: { const: "x" },
+      },
+      $defs: { mode: { type: "string", enum: ["fast", "slow"] } },
+    });
+    assert.deepEqual(r.schema["properties"], {
+      a: { type: "string" },
+      b: { type: "integer" },
+      c: { type: "string", enum: ["fast", "slow"] },
+      d: { type: "string", enum: ["x"] },
+    });
   });
   test("what cannot be said is left out when optional, and refuses the tool when required", () => {
-    const optional = ok({ type: "object", properties: { keep: { type: "string" }, free: { type: "object" }, either: { oneOf: [{ type: "string" }, { type: "number" }] } } });
+    const optional = ok({
+      type: "object",
+      properties: { keep: { type: "string" }, free: { type: "object" }, either: { oneOf: [{ type: "string" }, { type: "number" }] } },
+    });
     assert.deepEqual(Object.keys(optional.schema["properties"] as object), ["keep"]);
     assert.match(optional.notes.join("\n"), /free left out[\s\S]*either left out/);
     const required = toPortableSchema({ type: "object", properties: { free: { type: "object" } }, required: ["free"] });
@@ -70,16 +121,30 @@ describe("a connected server", () => {
   test("its tools become registry tools; calls reach it; errors and non-text content are told plainly", async () => {
     const c = await connectServer("fake", stdioCfg(), "accepted", deps);
     try {
-      assert.deepEqual(c.status.tools.map((t) => t.name), ["mcp__fake__change", "mcp__fake__echo", "mcp__fake__fail", "mcp__fake__picture", "mcp__fake__slow"]);
+      assert.deepEqual(
+        c.status.tools.map((t) => t.name),
+        ["mcp__fake__change", "mcp__fake__echo", "mcp__fake__fail", "mcp__fake__picture", "mcp__fake__slow"],
+      );
       const registry = new ToolRegistry(c.tools);
       const echo = registry.check({ name: "mcp__fake__echo", args: { text: "hi" } });
       assert.ok(!("error" in echo));
       assert.match(registry.get("mcp__fake__echo")?.definition.description ?? "", /^\[MCP server fake\] Repeat the text back\./);
-      assert.deepEqual(await (echo as { tool: { execute(a: object, c: object): Promise<unknown> } }).tool.execute({ text: "hi" }, { signal: new AbortController().signal }), { content: "echo: hi" });
+      assert.deepEqual(
+        await (echo as { tool: { execute(a: object, c: object): Promise<unknown> } }).tool.execute(
+          { text: "hi" },
+          { signal: new AbortController().signal },
+        ),
+        { content: "echo: hi" },
+      );
       assert.match(JSON.stringify(registry.check({ name: "mcp__fake__echo", args: {} })), /text is required/);
-      const fail = (await registry.get("mcp__fake__fail")?.execute({}, { signal: new AbortController().signal } as never)) as { content: string; is_error?: boolean };
+      const fail = (await registry.get("mcp__fake__fail")?.execute({}, { signal: new AbortController().signal } as never)) as {
+        content: string;
+        is_error?: boolean;
+      };
       assert.deepEqual(fail, { content: "it broke", is_error: true });
-      const pic = (await registry.get("mcp__fake__picture")?.execute({}, { signal: new AbortController().signal } as never)) as { content: string };
+      const pic = (await registry.get("mcp__fake__picture")?.execute({}, { signal: new AbortController().signal } as never)) as {
+        content: string;
+      };
       assert.match(pic.content, /^here\n\[image \(image\/png, 3 bytes\) was returned and is not shown\]$/);
       assert.deepEqual(await registry.get("mcp__fake__echo")?.allowKeys?.({}, {} as never), ["all"]);
     } finally {
@@ -91,8 +156,16 @@ describe("a connected server", () => {
     const tools: FakeTool[] = [
       { name: "a", description: "A", inputSchema: { type: "object", properties: {} } },
       { name: "b", description: "B", inputSchema: { type: "object", properties: {} } },
-      { name: "free", description: "needs a free-form object", inputSchema: { type: "object", properties: { o: { type: "object" } }, required: ["o"] } },
-      { name: "broken", description: "refers to another document", inputSchema: { type: "object", properties: { x: { $ref: "https://elsewhere.test/x.json" } } } },
+      {
+        name: "free",
+        description: "needs a free-form object",
+        inputSchema: { type: "object", properties: { o: { type: "object" } }, required: ["o"] },
+      },
+      {
+        name: "broken",
+        description: "refers to another document",
+        inputSchema: { type: "object", properties: { x: { $ref: "https://elsewhere.test/x.json" } } },
+      },
     ];
     const env = { MCP_FAKE_TOOLS: JSON.stringify(tools) };
     const open: { client: { close(): Promise<void> } }[] = [];
@@ -103,13 +176,25 @@ describe("a connected server", () => {
     };
     try {
       const all = await connect({});
-      assert.deepEqual(all.status.tools.map((t) => t.tool), ["a", "b", "free"]);
-      assert.deepEqual(all.status.skipped.map((s) => s.tool), ["broken"]);
+      assert.deepEqual(
+        all.status.tools.map((t) => t.tool),
+        ["a", "b", "free"],
+      );
+      assert.deepEqual(
+        all.status.skipped.map((s) => s.tool),
+        ["broken"],
+      );
       // The definition has the schema as the server wrote it; what a portable-only model would lose is a note.
       assert.deepEqual(all.tools.find((t) => t.definition.name === "mcp__s__free")?.definition.input_schema, tools[2]?.inputSchema);
       assert.match(all.status.notes.find((n) => n.tool === "free")?.note ?? "", /portable subset: .*free-form object/);
-      assert.deepEqual((await connect({ only: ["a", "free"] })).status.tools.map((t) => t.tool), ["a", "free"]);
-      assert.deepEqual((await connect({ skip: ["a"] })).status.tools.map((t) => t.tool), ["b", "free"]);
+      assert.deepEqual(
+        (await connect({ only: ["a", "free"] })).status.tools.map((t) => t.tool),
+        ["a", "free"],
+      );
+      assert.deepEqual(
+        (await connect({ skip: ["a"] })).status.tools.map((t) => t.tool),
+        ["b", "free"],
+      );
     } finally {
       await Promise.all(open.map((c) => c.client.close()));
     }
@@ -141,18 +226,30 @@ describe("a connected server", () => {
 
   test("resultText: structured content stands in for no text; other kinds are named", () => {
     assert.equal(resultText({ content: [], structuredContent: { n: 1 } }), '{"n":1}');
-    assert.equal(resultText({ content: [{ type: "resource", resource: { uri: "file:///a", text: "body" } }, { type: "resource_link", uri: "https://x", name: "X" }] }), "body\n[link: https://x (X)]");
+    assert.equal(
+      resultText({
+        content: [
+          { type: "resource", resource: { uri: "file:///a", text: "body" } },
+          { type: "resource_link", uri: "https://x", name: "X" },
+        ],
+      }),
+      "body\n[link: https://x (X)]",
+    );
   });
 });
 
 describe("acceptance gates everything", () => {
-  const config = (over: object = {}) => ({ command: process.execPath, args: ["--no-warnings", SERVER], allow: {}, ...over }) as McpServerConfig;
+  const config = (over: object = {}) =>
+    ({ command: process.execPath, args: ["--no-warnings", SERVER], allow: {}, ...over }) as McpServerConfig;
 
   test("a server the thread has not accepted is not started; accepted, it is; a changed configuration is not", async () => {
     const convo = await Conversation.create(host, join(await tempDir(), "c"), {});
     const cfg = config();
     const before = await McpServers.connect({ fake: cfg }, await convo.setup(), deps);
-    assert.deepEqual(before.status.map((s) => [s.state, s.connected]), [["new", false]]);
+    assert.deepEqual(
+      before.status.map((s) => [s.state, s.connected]),
+      [["new", false]],
+    );
     assert.equal(before.tools.length, 0);
     await convo.setupChange({ mcp: { set: { fake: await pinServer(convo.store, cfg) } } });
     assert.equal(await serverState(await convo.setup(), "fake", cfg), "accepted");
@@ -166,7 +263,10 @@ describe("acceptance gates everything", () => {
     const other = config({ args: ["--no-warnings", SERVER, "--changed"] });
     assert.equal(await serverState(await convo.setup(), "fake", other), "changed");
     const changed = await McpServers.connect({ fake: other }, await convo.setup(), deps);
-    assert.deepEqual(changed.status.map((s) => [s.state, s.connected]), [["changed", false]]);
+    assert.deepEqual(
+      changed.status.map((s) => [s.state, s.connected]),
+      [["changed", false]],
+    );
   });
 
   test("a server that cannot start is reported, and the others still connect", async () => {
@@ -176,7 +276,13 @@ describe("acceptance gates everything", () => {
     await convo.setupChange({ mcp: { set: { good: await pinServer(convo.store, good), bad: await pinServer(convo.store, bad) } } });
     const set = await McpServers.connect({ good, bad }, await convo.setup(), deps);
     try {
-      assert.deepEqual(set.status.map((s) => [s.name, s.connected]), [["bad", false], ["good", true]]);
+      assert.deepEqual(
+        set.status.map((s) => [s.name, s.connected]),
+        [
+          ["bad", false],
+          ["good", true],
+        ],
+      );
       assert.match(set.status[0]?.error ?? "", /could not start|exited/);
     } finally {
       await set.close();
@@ -215,7 +321,13 @@ describe("pinning the tools", () => {
     const { convo, set, registry } = await accepted();
     await syncMcpTools(convo, registry, ["fake"], ["tools_changed", "cache_break"]);
     await set.close();
-    const changedTools: FakeTool[] = [{ name: "echo", description: "Now it does something else.", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] } }];
+    const changedTools: FakeTool[] = [
+      {
+        name: "echo",
+        description: "Now it does something else.",
+        inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"] },
+      },
+    ];
     const cfg = config();
     const changedCfg = { ...cfg, env: { MCP_FAKE_TOOLS: JSON.stringify(changedTools) } } as McpServerConfig;
     // The environment is part of the configuration, so until the thread accepts it the server is not even started.
@@ -240,9 +352,19 @@ describe("pinning the tools", () => {
 describe("harness.yml", () => {
   const parse = (mcp: string) => parseConfig(`providers: {}\nmcp:\n${mcp}`, harnessConfig);
   test("a command or a url, with what belongs to each", async () => {
-    const good = await parse('  files:\n    command: npx\n    args: ["-y", "x"]\n    env_from: [TOKEN]\n  docs:\n    url: https://example.com/mcp\n    bearer_env: DOCS_TOKEN\n    only: [search]\n');
+    const good = await parse(
+      '  files:\n    command: npx\n    args: ["-y", "x"]\n    env_from: [TOKEN]\n  docs:\n    url: https://example.com/mcp\n    bearer_env: DOCS_TOKEN\n    only: [search]\n',
+    );
     assert.ok(good.ok && good.value.mcp["docs"]?.url === "https://example.com/mcp" && good.value.mcp["files"]?.args.length === 2);
-    for (const bad of ["  a: {}\n", "  a: {command: x, url: 'https://x.test'}\n", "  a: {url: 'https://x.test', args: [y]}\n", "  a: {command: x, bearer_env: T}\n", "  A_b: {command: x}\n", "  a: {command: x, mystery: 1}\n", "  a: {command: x, env_from: ['not a name']}\n"]) {
+    for (const bad of [
+      "  a: {}\n",
+      "  a: {command: x, url: 'https://x.test'}\n",
+      "  a: {url: 'https://x.test', args: [y]}\n",
+      "  a: {command: x, bearer_env: T}\n",
+      "  A_b: {command: x}\n",
+      "  a: {command: x, mystery: 1}\n",
+      "  a: {command: x, env_from: ['not a name']}\n",
+    ]) {
       assert.equal((await parse(bad)).ok, false, bad);
     }
   });

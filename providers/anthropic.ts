@@ -8,7 +8,15 @@ import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor
 import { ANTHROPIC_MODELS, ANTHROPIC_PRICES } from "./pricing-data.ts";
 import { httpStream, jsonRequest, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
-import { ProviderError, type Completed, type ErrorKind, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
+import {
+  ProviderError,
+  type Completed,
+  type ErrorKind,
+  type ProviderAdapter,
+  type StreamEvent,
+  type StreamRequest,
+  type Usage,
+} from "./types.ts";
 
 /**
  * The Anthropic Messages API (docs/providers.md). Also what Ollama and other servers speak as their
@@ -49,13 +57,22 @@ export type AnthropicSettings = z.infer<typeof anthropicSettings>;
 
 /** A picture or a document as the API takes it, in a user turn or in a tool result; the API takes no audio. */
 function mediaBlock(p: AttachmentPart): Json {
-  if (p.kind === "audio") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Anthropic API takes no audio` });
-  return { type: p.kind === "image" ? "image" : "document", source: { type: "base64", media_type: p.mime, data: base64(p.bytes) }, ...(p.kind === "pdf" && p.name !== undefined ? { title: p.name } : {}) };
+  if (p.kind === "audio")
+    throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "sound"} cannot be sent: the Anthropic API takes no audio` });
+  return {
+    type: p.kind === "image" ? "image" : "document",
+    source: { type: "base64", media_type: p.mime, data: base64(p.bytes) },
+    ...(p.kind === "pdf" && p.name !== undefined ? { title: p.name } : {}),
+  };
 }
 
 export function parseAnthropicSettings(settings: unknown): AnthropicSettings {
   const r = anthropicSettings.safeParse(settings ?? {});
-  if (!r.success) throw new ProviderError({ kind: "invalid_request", message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}` });
+  if (!r.success)
+    throw new ProviderError({
+      kind: "invalid_request",
+      message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
+    });
   return r.data;
 }
 
@@ -105,12 +122,25 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: Jso
   };
   turns.forEach((t, i) => {
     if (t.role === "user") {
-      push("user", t.parts.map((p): Json => {
-        if (p.type === "text") return { type: "text", text: p.text };
-        return mediaBlock(p);
-      }), i);
+      push(
+        "user",
+        t.parts.map((p): Json => {
+          if (p.type === "text") return { type: "text", text: p.text };
+          return mediaBlock(p);
+        }),
+        i,
+      );
     } else if (t.role === "tool_results") {
-      push("user", t.results.map((r): Json => ({ type: "tool_result", tool_use_id: r.call_id, content: r.media === undefined ? r.content : [{ type: "text", text: r.content }, ...r.media.map(mediaBlock)], ...(r.is_error ? { is_error: true } : {}) })), i);
+      push(
+        "user",
+        t.results.map((r): Json => ({
+          type: "tool_result",
+          tool_use_id: r.call_id,
+          content: r.media === undefined ? r.content : [{ type: "text", text: r.content }, ...r.media.map(mediaBlock)],
+          ...(r.is_error ? { is_error: true } : {}),
+        })),
+        i,
+      );
     } else {
       const content = t.blocks.flatMap((b): Json[] => {
         if (b.type === "text") return b.text === "" ? [] : [{ type: "text", text: b.text }];
@@ -118,7 +148,9 @@ function toMessages(turns: readonly Turn[], hints: readonly number[], cache: Jso
         if (b.type === "provider_compaction") return []; // another provider's opaque state: never ours to send
         if (b.payload === undefined) return [];
         // A thinking block is stored without its text (that is `visible`); the text goes back in here.
-        return [b.payload["type"] === "thinking" && b.payload["thinking"] === undefined ? { ...b.payload, thinking: b.visible ?? "" } : b.payload];
+        return [
+          b.payload["type"] === "thinking" && b.payload["thinking"] === undefined ? { ...b.payload, thinking: b.visible ?? "" } : b.payload,
+        ];
       });
       if (content.length > 0) push("assistant", content, i);
     }
@@ -168,7 +200,14 @@ const ERROR_TYPES: Record<string, { kind: ErrorKind; retryable: boolean }> = {
   billing_error: { kind: "auth", retryable: false },
 };
 
-const STOP_REASONS: Record<string, string> = { end_turn: "end_turn", stop_sequence: "end_turn", tool_use: "tool_use", max_tokens: "max_tokens", refusal: "refusal", pause_turn: "pause" };
+const STOP_REASONS: Record<string, string> = {
+  end_turn: "end_turn",
+  stop_sequence: "end_turn",
+  tool_use: "tool_use",
+  max_tokens: "max_tokens",
+  refusal: "refusal",
+  pause_turn: "pause",
+};
 
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
@@ -210,7 +249,17 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
       if (betas.length > 0) headers["anthropic-beta"] = betas.join(",");
       return { url: `${baseUrl.replace(/\/$/, "")}/v1/messages`, headers, body: buildAnthropicBody(req.context, req.setup, request) };
     },
-    start: (req) => ({ provider: req.setup.model?.provider ?? "anthropic", id: undefined, model: undefined, usage: { input_tokens: 0, output_tokens: 0 }, open: new Map(), out: [], stop: undefined, done: false, skipped: new Set() }),
+    start: (req) => ({
+      provider: req.setup.model?.provider ?? "anthropic",
+      id: undefined,
+      model: undefined,
+      usage: { input_tokens: 0, output_tokens: 0 },
+      open: new Map(),
+      out: [],
+      stop: undefined,
+      done: false,
+      skipped: new Set(),
+    }),
     event(sse: SseEvent, s: State): StreamEvent[] {
       if (sse.event === "ping") return [];
       let d: Json;
@@ -228,7 +277,13 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           mergeUsage(s.usage, m["usage"] as Json | undefined);
           // The usage in message_start is provisional (Ollama revises its input count, down, in the final message_delta),
           // so it is kept for the result but not reported as an event: reported usage never decreases.
-          return [{ type: "started" }, { type: "observed", observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) } }];
+          return [
+            { type: "started" },
+            {
+              type: "observed",
+              observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) },
+            },
+          ];
         }
         case "content_block_start": {
           const i = d["index"] as number;
@@ -239,7 +294,12 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
               return [];
             case "thinking": {
               const { type: _t, thinking, signature, ...extra } = b;
-              s.open.set(i, { kind: "thinking", thinking: typeof thinking === "string" ? thinking : "", signature: typeof signature === "string" ? signature : "", extra });
+              s.open.set(i, {
+                kind: "thinking",
+                thinking: typeof thinking === "string" ? thinking : "",
+                signature: typeof signature === "string" ? signature : "",
+                extra,
+              });
               return [];
             }
             case "redacted_thinking":
@@ -289,7 +349,13 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           let block: Block;
           if (o.kind === "skip") return [];
           if (o.kind === "text") block = { type: "text", text: o.text };
-          else if (o.kind === "thinking") block = { type: "reasoning", provider: s.provider, payload: { type: "thinking", signature: o.signature, ...o.extra }, visible: o.thinking };
+          else if (o.kind === "thinking")
+            block = {
+              type: "reasoning",
+              provider: s.provider,
+              payload: { type: "thinking", signature: o.signature, ...o.extra },
+              visible: o.thinking,
+            };
           else if (o.kind === "redacted") block = { type: "reasoning", provider: s.provider, payload: o.block };
           else {
             try {
@@ -377,7 +443,11 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
     },
   };
   const secrets = typeof opts.apiKey === "string" ? [opts.apiKey] : [];
-  const headers: Record<string, string> = { "content-type": "application/json", "anthropic-version": opts.version ?? "2023-06-01", ...((opts.betas ?? []).length > 0 ? { "anthropic-beta": (opts.betas ?? []).join(",") } : {}) };
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+    "anthropic-version": opts.version ?? "2023-06-01",
+    ...((opts.betas ?? []).length > 0 ? { "anthropic-beta": (opts.betas ?? []).join(",") } : {}),
+  };
   return {
     $tag: "anthropic",
     toolSchema: "full",
@@ -388,9 +458,14 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
       const full = buildAnthropicBody(req.context, req.setup, { cacheControl: false });
       const body: Json = {};
       for (const k of ["model", "system", "messages", "tools", "thinking", "output_config"]) if (full[k] !== undefined) body[k] = full[k];
-      const d = await jsonRequest({ url: `${baseUrl.replace(/\/$/, "")}/v1/messages/count_tokens`, headers, body }, { ...http, secrets: [...(http.secrets ?? []), ...secrets] }, { signal: req.signal, classify: mapper.classify });
+      const d = await jsonRequest(
+        { url: `${baseUrl.replace(/\/$/, "")}/v1/messages/count_tokens`, headers, body },
+        { ...http, secrets: [...(http.secrets ?? []), ...secrets] },
+        { signal: req.signal, classify: mapper.classify },
+      );
       const n = (d as Json | undefined)?.["input_tokens"];
-      if (typeof n !== "number" || !Number.isFinite(n)) throw new ProviderError({ kind: "protocol", message: "the token count response has no input_tokens" });
+      if (typeof n !== "number" || !Number.isFinite(n))
+        throw new ProviderError({ kind: "protocol", message: "the token count response has no input_tokens" });
       return n;
     },
     classify: classifyAnthropic,
@@ -416,7 +491,10 @@ export const anthropicDefinition = defineAdapter({
   $tag: "anthropic",
   config: anthropicProviderConfig,
   settings: anthropicSettings,
-  jsonSchema: () => ({ config: z.toJSONSchema(anthropicProviderConfig, { io: "input" }), settings: z.toJSONSchema(anthropicSettings, { io: "input" }) }),
+  jsonSchema: () => ({
+    config: z.toJSONSchema(anthropicProviderConfig, { io: "input" }),
+    settings: z.toJSONSchema(anthropicSettings, { io: "input" }),
+  }),
   secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
   prices: (c) => pricesFor(ANTHROPIC_PRICES, c),
   models: (c) => modelsFor(ANTHROPIC_MODELS, c),
@@ -441,12 +519,24 @@ export function classifyAnthropic(from: AgentSetup, to: AgentSetup): Change[] {
   if (f !== undefined && t !== undefined) {
     const fs = (f.settings ?? {}) as Json;
     const ts = (t.settings ?? {}) as Json;
-    if (f.id !== t.id || (f.resolved ?? f.id) !== (t.resolved ?? t.id)) out.push({ kind: "cache_break", message: "the prompt cache is per model: the whole conversation is read again at the full input price" });
-    else if (stable(fs["thinking"] ?? null) !== stable(ts["thinking"] ?? null) || stable(fs["effort"] ?? null) !== stable(ts["effort"] ?? null)) {
+    if (f.id !== t.id || (f.resolved ?? f.id) !== (t.resolved ?? t.id))
+      out.push({
+        kind: "cache_break",
+        message: "the prompt cache is per model: the whole conversation is read again at the full input price",
+      });
+    else if (
+      stable(fs["thinking"] ?? null) !== stable(ts["thinking"] ?? null) ||
+      stable(fs["effort"] ?? null) !== stable(ts["effort"] ?? null)
+    ) {
       out.push({ kind: "cache_break", message: "changing thinking or effort invalidates the prompt cache" });
     }
   }
-  if (from.model !== undefined && (stable(from.tools) !== stable(to.tools) || stable(from.instructions ?? null) !== stable(to.instructions ?? null) || (from.renderer ?? null) !== (to.renderer ?? null))) {
+  if (
+    from.model !== undefined &&
+    (stable(from.tools) !== stable(to.tools) ||
+      stable(from.instructions ?? null) !== stable(to.instructions ?? null) ||
+      (from.renderer ?? null) !== (to.renderer ?? null))
+  ) {
     out.push({ kind: "cache_break", message: "tools, instructions and rendering come before the conversation in the cached prefix" });
   }
   return out;

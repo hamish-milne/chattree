@@ -27,7 +27,8 @@ export interface ModelInfo {
   id: string | undefined;
 }
 
-const sourceText = (m: LocalModels["models"][string]): string => (m.url ?? `hf:${m.hf as string}${m.file === undefined ? "" : ` ${m.file}`}${m.revision === "main" ? "" : `@${m.revision}`}`);
+const sourceText = (m: LocalModels["models"][string]): string =>
+  m.url ?? `hf:${m.hf as string}${m.file === undefined ? "" : ` ${m.file}`}${m.revision === "main" ? "" : `@${m.revision}`}`;
 
 const keyOf = (data: string, dest: string): string => dest.slice(data.length).replaceAll("\\", "/").replace(/^\/+/, "");
 
@@ -73,11 +74,18 @@ export async function inventory(config: LocalModels, lock: Lock, data: string): 
     for (const f of w.files) {
       const locked = lock.file(f.key);
       const size = (await stat(f.dest).catch(() => undefined))?.size;
-      if (locked !== undefined && size === locked.size) files.push({ file: f.file, role: f.role, dest: f.dest, size, sha256: locked.sha256 });
+      if (locked !== undefined && size === locked.size)
+        files.push({ file: f.file, role: f.role, dest: f.dest, size, sha256: locked.sha256 });
       else complete = false;
     }
     const first = files.filter((f) => f.role === "model").sort((a, b) => a.file.localeCompare(b.file))[0];
-    out.push({ name, source: sourceText(m), files, complete: complete && files.length > 0, id: first === undefined ? undefined : `${name}@${first.sha256.slice(0, 8)}` });
+    out.push({
+      name,
+      source: sourceText(m),
+      files,
+      complete: complete && files.length > 0,
+      id: first === undefined ? undefined : `${name}@${first.sha256.slice(0, 8)}`,
+    });
   }
   return out;
 }
@@ -90,7 +98,13 @@ const dropEmpty = async (dir: string): Promise<void> => {
  * Delete a model's downloaded files and forget them in the lock, so they are fetched again the next time they are wanted. A file another
  * configured model also uses stays (it is not this model's alone), unless `shared` says to delete it too (`pull --force`, which fetches it again).
  */
-export async function removeModelFiles(config: LocalModels, lock: Lock, data: string, name: string, o: { shared?: boolean } = {}): Promise<{ files: number; bytes: number; kept: number }> {
+export async function removeModelFiles(
+  config: LocalModels,
+  lock: Lock,
+  data: string,
+  name: string,
+  o: { shared?: boolean } = {},
+): Promise<{ files: number; bytes: number; kept: number }> {
   const wanted = wantedFiles(config, lock, data);
   const others = new Set([...wanted].filter(([n]) => n !== name).flatMap(([, w]) => w.files.map((f) => f.key)));
   const mine = (wanted.get(name)?.files ?? []).map((f) => f.key);

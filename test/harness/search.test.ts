@@ -10,7 +10,13 @@ import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "claude-sonnet-5-5", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
+const reply = (text: string): NewEntry => ({
+  $tag: "assistant",
+  provider: "anthropic",
+  model: "claude-sonnet-5-5",
+  blocks: [{ $tag: "text", text }],
+  stop_reason: "end_turn",
+});
 const result = (id: string, content: string): NewEntry => ({ $tag: "tool_result", call_id: id, is_error: false, content });
 
 async function world() {
@@ -18,12 +24,15 @@ async function world() {
   const main = await Conversation.create(host, dir);
   const first = await main.append(user("please look at the zebra parser"));
   const second = await main.append(reply("the zebra parser lives in src/zebra.ts"));
-  const child = (await main.spawnSubagent({ brief: "check the giraffe module", callId: "toolu_1", name: "sub/giraffe" })).conversation as Conversation;
+  const child = (await main.spawnSubagent({ brief: "check the giraffe module", callId: "toolu_1", name: "sub/giraffe" }))
+    .conversation as Conversation;
   await child.append(reply("the giraffe module has a bug"));
-  const sibling = (await main.spawnSubagent({ brief: "check the okapi module", callId: "toolu_2", name: "sub/okapi" })).conversation as Conversation;
+  const sibling = (await main.spawnSubagent({ brief: "check the okapi module", callId: "toolu_2", name: "sub/okapi" }))
+    .conversation as Conversation;
   await sibling.append(reply("okapi is fine, ask about the zebra"));
   const tool = searchTool({ convo: main }) as Tool;
-  const run = async (thread: string, args: Record<string, unknown>): Promise<ToolOutput> => (await tool.execute(args, { thread, callId: "c", signal: new AbortController().signal, workspace: dir, host })) as ToolOutput;
+  const run = async (thread: string, args: Record<string, unknown>): Promise<ToolOutput> =>
+    (await tool.execute(args, { thread, callId: "c", signal: new AbortController().signal, workspace: dir, host })) as ToolOutput;
   return { dir, main, child, sibling, first, second, tool, run };
 }
 
@@ -54,7 +63,11 @@ describe("search", () => {
     assert.equal((await search(c, "main", { query: "needle" })).hits.length, 0, "everything is whole");
     await c.trim({ upto: big.id, rule: { tool_results: 2048 }, by: "user" });
     const r = await search(c, "main", { query: "needle" });
-    assert.deepEqual(r.hits.map((h) => h.ref), [`main:${big.id}`], "only the trimmed one: the small result is still shown to the model");
+    assert.deepEqual(
+      r.hits.map((h) => h.ref),
+      [`main:${big.id}`],
+      "only the trimmed one: the small result is still shown to the model",
+    );
     assert.equal(r.hits[0]?.kind, "tool result");
     assert.ok(small.id !== big.id);
   });
@@ -77,11 +90,15 @@ describe("search", () => {
     const w = await world();
     const other = (await w.child.fork()).conversation as Conversation;
     await other.append(reply("an unrelated zebra thought"));
-    const by = async (thread: string, scope: "thread" | "family" | "project") => search(w.main, thread, { query: "zebra", scope, includeVisible: true });
+    const by = async (thread: string, scope: "thread" | "family" | "project") =>
+      search(w.main, thread, { query: "zebra", scope, includeVisible: true });
 
     // From the first sibling: its own history includes main's shared entries (inherited, but fresh context only holds the brief).
     const own = await by("sub/okapi", "thread");
-    assert.ok(own.hits.every((h) => h.thread === "sub/okapi" || h.thread === "main"), "its own history, with what it inherited under the first thread that has it");
+    assert.ok(
+      own.hits.every((h) => h.thread === "sub/okapi" || h.thread === "main"),
+      "its own history, with what it inherited under the first thread that has it",
+    );
     const family = await by("sub/okapi", "family");
     const threads = new Set(family.hits.map((h) => h.thread));
     assert.ok(threads.has("main") && threads.has("sub/okapi"));
@@ -109,8 +126,13 @@ describe("search", () => {
     const prefix = await openEntry(w.main, `${hit.ref.slice(0, hit.ref.indexOf(":") + 25)}`);
     assert.ok("text" in prefix, "a prefix of the id is enough when it is unique");
     assert.ok("error" in (await openEntry(w.main, "nonsense")));
-    assert.match(("error" in (await openEntry(w.main, `nope:${w.first.id}`)) ? (await openEntry(w.main, `nope:${w.first.id}`) as { error: string }).error : ""), /no thread nope/);
-    assert.match((await openEntry(w.main, `main:ZZZZZZZZZZ`) as { error: string }).error, /no entry/);
+    assert.match(
+      "error" in (await openEntry(w.main, `nope:${w.first.id}`))
+        ? ((await openEntry(w.main, `nope:${w.first.id}`)) as { error: string }).error
+        : "",
+      /no thread nope/,
+    );
+    assert.match(((await openEntry(w.main, `main:ZZZZZZZZZZ`)) as { error: string }).error, /no entry/);
   });
 });
 

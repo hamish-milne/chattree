@@ -10,7 +10,12 @@ import { answer, chunk, host, initArgs, testIo, usageChunk } from "./support.ts"
 import { approve } from "../support/trust.ts";
 
 const callRun = (id: string, command: string): Reply => ({
-  acts: [chunk({ tool_calls: [{ index: 0, id, type: "function", function: { name: "run", arguments: JSON.stringify({ command }) } }] }), chunk({}, "tool_calls"), usageChunk(30, 8), "data: [DONE]\n\n"],
+  acts: [
+    chunk({ tool_calls: [{ index: 0, id, type: "function", function: { name: "run", arguments: JSON.stringify({ command }) } }] }),
+    chunk({}, "tool_calls"),
+    usageChunk(30, 8),
+    "data: [DONE]\n\n",
+  ],
 });
 
 async function started(replies: Reply[], config = "") {
@@ -47,7 +52,10 @@ describe("/compact trim", () => {
       assert.match(seen[2] as string, /of output of this call were left out/);
       assert.match(seen[2] as string, /show me big\.txt/, "the user's words stay");
       const all = await entries(dir);
-      assert.ok(all.some((e) => e.$tag === "tool_result" && (typeof e.content === "string" ? e.content.length : e.content.bytes) > 6000), "the transcript still has the whole output (stored as a blob)");
+      assert.ok(
+        all.some((e) => e.$tag === "tool_result" && (typeof e.content === "string" ? e.content.length : e.content.bytes) > 6000),
+        "the transcript still has the whole output (stored as a blob)",
+      );
       assert.equal(all.filter((e) => e.$tag === "trim").length, 1);
     } finally {
       await server.close();
@@ -86,7 +94,10 @@ describe("automatic trimming", () => {
   });
 
   test("it is off unless asked for", async () => {
-    const { server, dir } = await started([callRun("c1", "cat big.txt"), answer("it is long"), answer("noted")], "compaction:\n  threshold_tokens: 50\n  keep_recent: 2\n");
+    const { server, dir } = await started(
+      [callRun("c1", "cat big.txt"), answer("it is long"), answer("noted")],
+      "compaction:\n  threshold_tokens: 50\n  keep_recent: 2\n",
+    );
     try {
       await session(dir, ["show me big.txt", "thanks"]);
       assert.equal((await entries(dir)).filter((e) => e.$tag === "trim").length, 0);
@@ -98,7 +109,8 @@ describe("automatic trimming", () => {
 });
 
 describe("automatic summaries", () => {
-  const full = (threshold: number, keep = 2): string => `compaction:\n  auto: full\n  threshold_tokens: ${threshold}\n  keep_recent: ${keep}\n`;
+  const full = (threshold: number, keep = 2): string =>
+    `compaction:\n  auto: full\n  threshold_tokens: ${threshold}\n  keep_recent: ${keep}\n`;
   const long = (word: string, n = 750): string => `${word.padEnd(5)} `.repeat(n);
   const compactions = async (dir: string) => (await entries(dir)).filter((e) => e.$tag === "compaction");
   const requests = async (dir: string): Promise<number> => (await (await Conversation.open(host, dir)).ledger()).conversation.requests;
@@ -135,7 +147,10 @@ describe("automatic summaries", () => {
   });
 
   test("a summary that does not bring the request under the threshold is an error, it stays recorded, and the next request goes out without another", async () => {
-    const { server, dir } = await started([answer("a1"), answer("a2"), answer("A short summary."), answer("fine, carrying on")], full(6000));
+    const { server, dir } = await started(
+      [answer("a1"), answer("a2"), answer("A short summary."), answer("fine, carrying on")],
+      full(6000),
+    );
     try {
       const r = await session(dir, ["one", "two", long("alpha", 1250), "ok"]);
       assert.match(r.all, /did not bring the request under the threshold/);
@@ -197,7 +212,10 @@ describe("automatic summaries", () => {
 
   for (const input of ["seen", "raw"] as const) {
     test(`summary_input: ${input} decides whether the summarizer reads the old tool output`, async () => {
-      const { server, dir } = await started([callRun("c1", "cat big.txt"), answer("it is long"), answer("It was long."), answer("ok")], full(6000, 1).concat(`  summary_input: ${input}\n`));
+      const { server, dir } = await started(
+        [callRun("c1", "cat big.txt"), answer("it is long"), answer("It was long."), answer("ok")],
+        full(6000, 1).concat(`  summary_input: ${input}\n`),
+      );
       try {
         await session(dir, ["show me big.txt", long("beta", 1250)]);
         const asked = bodies(server)[2] as string;

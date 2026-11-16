@@ -76,7 +76,13 @@ export class Daemon implements ControlTarget {
     if (!(await acquireLock(this.#o.data))) throw new DaemonRunning("a model host is already running for this data directory");
     try {
       const snap = await this.#o.loadSettings();
-      this.#host = new LocalModelHost({ ...this.#o.host, data: this.#o.data, config: snap.config, baseDir: snap.baseDir, confirm: (plan) => this.#ask(plan) });
+      this.#host = new LocalModelHost({
+        ...this.#o.host,
+        data: this.#o.data,
+        config: snap.config,
+        baseDir: snap.baseDir,
+        confirm: (plan) => this.#ask(plan),
+      });
       this.#host.on((e) => this.#emit(e));
       this.#control = new ControlServer(this);
       const port = await this.#control.listen();
@@ -96,7 +102,13 @@ export class Daemon implements ControlTarget {
   }
 
   status(): DaemonStatus {
-    return { pid: process.pid, startedAt: this.#startedAt, state: (this.#host as LocalModelHost).state, consent: this.#consent?.plan, settingsError: this.#settingsError };
+    return {
+      pid: process.pid,
+      startedAt: this.#startedAt,
+      state: (this.#host as LocalModelHost).state,
+      consent: this.#consent?.plan,
+      settingsError: this.#settingsError,
+    };
   }
 
   subscribe(listener: (e: DaemonEvent) => void): () => void {
@@ -118,7 +130,10 @@ export class Daemon implements ControlTarget {
   restart(opts: { yes: boolean }): void {
     const host = this.#host as LocalModelHost;
     this.#yes = opts.yes;
-    void host.stop().then(() => host.start()).catch(() => undefined);
+    void host
+      .stop()
+      .then(() => host.start())
+      .catch(() => undefined);
   }
 
   pull(models: string[], force: boolean): void {
@@ -186,7 +201,9 @@ export class Daemon implements ControlTarget {
     if (w === undefined) return;
     const content = async (): Promise<string | { unreadable: string }> => {
       try {
-        return createHash("sha256").update(await readFile(w.path)).digest("hex");
+        return createHash("sha256")
+          .update(await readFile(w.path))
+          .digest("hex");
       } catch (e) {
         return { unreadable: e instanceof Error ? e.message : String(e) };
       }

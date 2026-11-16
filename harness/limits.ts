@@ -20,7 +20,15 @@ export interface Violation {
 }
 
 export interface CostWarning {
-  kind: "near_limit" | "unknown_price" | "unpriced_history" | "context_window" | "long_context" | "token_count_failed" | "injection_failed" | "media_not_sent";
+  kind:
+    | "near_limit"
+    | "unknown_price"
+    | "unpriced_history"
+    | "context_window"
+    | "long_context"
+    | "token_count_failed"
+    | "injection_failed"
+    | "media_not_sent";
   message: string;
 }
 
@@ -35,7 +43,10 @@ export class LimitExceeded extends Error {
 
 const usd = (n: number): string => `$${n < 0.1 ? n.toFixed(4) : n.toFixed(2)}`;
 
-export function checkLimits(opts: { limits: Limits; ledger: Ledger; estimate: Estimate }): { violations: Violation[]; warnings: CostWarning[] } {
+export function checkLimits(opts: { limits: Limits; ledger: Ledger; estimate: Estimate }): {
+  violations: Violation[];
+  warnings: CostWarning[];
+} {
   const { limits, ledger, estimate } = opts;
   const violations: Violation[] = [];
   const warnings: CostWarning[] = [];
@@ -46,8 +57,13 @@ export function checkLimits(opts: { limits: Limits; ledger: Ledger; estimate: Es
     const cap = limits[limit];
     if (cap === undefined || next === undefined) return;
     const value = before + next;
-    if (value > cap) violations.push({ limit, value, limitValue: cap, message: `${label} would reach ${usd(value)}, over the limit of ${usd(cap)}` });
-    else if (value >= cap * warnAt) warnings.push({ kind: "near_limit", message: `${label} will reach ${usd(value)}, ${Math.round((value / cap) * 100)}% of the limit of ${usd(cap)}` });
+    if (value > cap)
+      violations.push({ limit, value, limitValue: cap, message: `${label} would reach ${usd(value)}, over the limit of ${usd(cap)}` });
+    else if (value >= cap * warnAt)
+      warnings.push({
+        kind: "near_limit",
+        message: `${label} will reach ${usd(value)}, ${Math.round((value / cap) * 100)}% of the limit of ${usd(cap)}`,
+      });
   };
   money("max_request_usd", "this request", 0);
   money("max_turn_usd", "this turn", ledger.turn.usd);
@@ -56,18 +72,39 @@ export function checkLimits(opts: { limits: Limits; ledger: Ledger; estimate: Es
   const cap = limits.max_requests_per_turn;
   if (cap !== undefined) {
     const value = ledger.turn.requests + 1;
-    if (value > cap) violations.push({ limit: "max_requests_per_turn", value, limitValue: cap, message: `this would be request ${value} in the turn, over the limit of ${cap}` });
-    else if (value >= cap * warnAt) warnings.push({ kind: "near_limit", message: `this is request ${value} of ${cap} allowed in the turn` });
+    if (value > cap)
+      violations.push({
+        limit: "max_requests_per_turn",
+        value,
+        limitValue: cap,
+        message: `this would be request ${value} in the turn, over the limit of ${cap}`,
+      });
+    else if (value >= cap * warnAt)
+      warnings.push({ kind: "near_limit", message: `this is request ${value} of ${cap} allowed in the turn` });
   }
 
   const enforced = limits.max_request_usd !== undefined || limits.max_turn_usd !== undefined || limits.max_conversation_usd !== undefined;
   if (next === undefined) {
-    const message = "the price of this model is unknown, so the cost of the request cannot be estimated" + (enforced ? " and the cost limits cannot be enforced" : "");
+    const message =
+      "the price of this model is unknown, so the cost of the request cannot be estimated" +
+      (enforced ? " and the cost limits cannot be enforced" : "");
     if (limits.unknown_price === "block") violations.push({ limit: "unknown_price", value: 0, limitValue: 0, message });
     else warnings.push({ kind: "unknown_price", message });
   }
-  if (ledger.conversation.unpriced > 0) warnings.push({ kind: "unpriced_history", message: `${ledger.conversation.unpriced} earlier request(s) had no known price, so the spend shown is understated` });
-  if (estimate.contextWindow !== undefined && estimate.inputTokens >= estimate.contextWindow * 0.9) warnings.push({ kind: "context_window", message: `the request is about ${estimate.inputTokens} tokens, ${Math.round((estimate.inputTokens / estimate.contextWindow) * 100)}% of the ${estimate.contextWindow} token context window` });
-  if (estimate.longContextAt !== undefined && estimate.inputTokens >= estimate.longContextAt * 0.9) warnings.push({ kind: "long_context", message: `the request is within 10% of ${estimate.longContextAt} tokens, where the price per token rises` });
+  if (ledger.conversation.unpriced > 0)
+    warnings.push({
+      kind: "unpriced_history",
+      message: `${ledger.conversation.unpriced} earlier request(s) had no known price, so the spend shown is understated`,
+    });
+  if (estimate.contextWindow !== undefined && estimate.inputTokens >= estimate.contextWindow * 0.9)
+    warnings.push({
+      kind: "context_window",
+      message: `the request is about ${estimate.inputTokens} tokens, ${Math.round((estimate.inputTokens / estimate.contextWindow) * 100)}% of the ${estimate.contextWindow} token context window`,
+    });
+  if (estimate.longContextAt !== undefined && estimate.inputTokens >= estimate.longContextAt * 0.9)
+    warnings.push({
+      kind: "long_context",
+      message: `the request is within 10% of ${estimate.longContextAt} tokens, where the price per token rises`,
+    });
   return { violations, warnings };
 }

@@ -19,7 +19,14 @@ const req = (signal: AbortSignal = new AbortController().signal) => ({ context, 
 /** Options that make retries instant and recorded. */
 const fast = (extra: HttpOptions = {}): HttpOptions & { waits: number[] } => {
   const waits: number[] = [];
-  return { waits, secrets: [SECRET], auth: () => ({ authorization: `Bearer ${SECRET}` }), retry: { jitter: (ms) => ms, baseMs: 10 }, sleep: async (ms) => void waits.push(ms), ...extra };
+  return {
+    waits,
+    secrets: [SECRET],
+    auth: () => ({ authorization: `Bearer ${SECRET}` }),
+    retry: { jitter: (ms) => ms, baseMs: 10 },
+    sleep: async (ms) => void waits.push(ms),
+    ...extra,
+  };
 };
 
 async function withServer<T>(script: Reply[] | ((n: number) => Reply), fn: (server: FakeServer) => Promise<T>): Promise<T> {
@@ -42,8 +49,26 @@ describe("a normal stream", () => {
     await withServer([ok], async (server) => {
       const r = checked(await run(toyAdapter(server.url, fast())));
       assert.equal(r.error, undefined);
-      assert.deepEqual(r.events.map((e) => e.type), ["started", "observed", "usage", "text.delta", "text.delta", "block.done", "tool_call.start", "tool_call.delta", "tool_call.delta", "block.done", "usage"]);
-      assert.deepEqual(r.completed?.blocks, [{ type: "text", text: "Hello" }, { type: "tool_call", call_id: "c1", name: "run", args: { x: 1 } }]);
+      assert.deepEqual(
+        r.events.map((e) => e.type),
+        [
+          "started",
+          "observed",
+          "usage",
+          "text.delta",
+          "text.delta",
+          "block.done",
+          "tool_call.start",
+          "tool_call.delta",
+          "tool_call.delta",
+          "block.done",
+          "usage",
+        ],
+      );
+      assert.deepEqual(r.completed?.blocks, [
+        { type: "text", text: "Hello" },
+        { type: "tool_call", call_id: "c1", name: "run", args: { x: 1 } },
+      ]);
       assert.equal(r.completed?.stop_reason, "tool_use");
       assert.deepEqual(r.completed?.usage, { input_tokens: 10, output_tokens: 7 });
       assert.equal(r.completed?.observed.model, "toy-1-2026");
@@ -71,7 +96,15 @@ describe("a normal stream", () => {
   });
 
   test("the injected fetch is used (a replayed fixture needs no network)", async () => {
-    const adapter = toyAdapter("http://never.invalid", fast({ fetch: replayFetch({ version: 1, response: { status: 200, headers: { "content-type": "text/event-stream" }, body: HELLO.join("") } }, [5]) }));
+    const adapter = toyAdapter(
+      "http://never.invalid",
+      fast({
+        fetch: replayFetch(
+          { version: 1, response: { status: 200, headers: { "content-type": "text/event-stream" }, body: HELLO.join("") } },
+          [5],
+        ),
+      }),
+    );
     assert.equal(checked(await run(adapter)).completed?.stop_reason, "tool_use");
   });
 });
@@ -79,13 +112,16 @@ describe("a normal stream", () => {
 describe("errors before any content", () => {
   test("a retryable status is retried after the provider's retry-after, then succeeds; the consumer never sees the failed attempt", async () => {
     const o = fast();
-    await withServer([{ status: 429, headers: { "retry-after": "2" }, acts: ['{"error":"slow down"}'] }, { status: 503, acts: ["busy"] }, ok], async (server) => {
-      const r = checked(await run(toyAdapter(server.url, o)));
-      assert.equal(r.completed?.stop_reason, "tool_use");
-      assert.equal(server.seen.length, 3);
-      assert.deepEqual(o.waits, [2000, 20], "retry-after first, then exponential backoff");
-      assert.equal(r.events.filter((e) => e.type === "started").length, 1);
-    });
+    await withServer(
+      [{ status: 429, headers: { "retry-after": "2" }, acts: ['{"error":"slow down"}'] }, { status: 503, acts: ["busy"] }, ok],
+      async (server) => {
+        const r = checked(await run(toyAdapter(server.url, o)));
+        assert.equal(r.completed?.stop_reason, "tool_use");
+        assert.equal(server.seen.length, 3);
+        assert.deepEqual(o.waits, [2000, 20], "retry-after first, then exponential backoff");
+        assert.equal(r.events.filter((e) => e.type === "started").length, 1);
+      },
+    );
   });
 
   test("gives up after maxAttempts with the last error, classified", async () => {
@@ -99,7 +135,11 @@ describe("errors before any content", () => {
   });
 
   test("non-retryable statuses are not retried; the body is shown with secrets scrubbed", async () => {
-    for (const [status, kind] of [[401, "auth"], [400, "invalid_request"], [413, "invalid_request"]] as const) {
+    for (const [status, kind] of [
+      [401, "auth"],
+      [400, "invalid_request"],
+      [413, "invalid_request"],
+    ] as const) {
       await withServer([{ status, acts: [`bad key ${SECRET} in header`] }], async (server) => {
         const r = await run(toyAdapter(server.url, fast()));
         assert.ok(r.error instanceof ProviderError && r.error.kind === kind && !r.error.retryable, `${status}`);
@@ -124,11 +164,14 @@ describe("errors before any content", () => {
   });
 
   test("an error event before content is retried when the mapper says it is retryable", async () => {
-    await withServer([{ acts: [sse("start", { model: "m", id: "r" }), sse("error", { kind: "overloaded", message: "try later" })] }, ok], async (server) => {
-      const r = checked(await run(toyAdapter(server.url, fast())));
-      assert.equal(server.seen.length, 2);
-      assert.equal(r.events.filter((e) => e.type === "started").length, 1);
-    });
+    await withServer(
+      [{ acts: [sse("start", { model: "m", id: "r" }), sse("error", { kind: "overloaded", message: "try later" })] }, ok],
+      async (server) => {
+        const r = checked(await run(toyAdapter(server.url, fast())));
+        assert.equal(server.seen.length, 2);
+        assert.equal(r.events.filter((e) => e.type === "started").length, 1);
+      },
+    );
   });
 
   test("a stream that ends before the provider's final event is a protocol error, retried only before content", async () => {
@@ -161,7 +204,15 @@ describe("errors before any content", () => {
 
 describe("errors after content", () => {
   test("never retried; the complete blocks so far are on the error; conforms", async () => {
-    const acts = [HELLO[0] as string, HELLO[2] as string, HELLO[4] as string, HELLO[5] as string, sse("text", { i: 2, t: "par" }), { wait: 40 } as const, { reset: true } as const];
+    const acts = [
+      HELLO[0] as string,
+      HELLO[2] as string,
+      HELLO[4] as string,
+      HELLO[5] as string,
+      sse("text", { i: 2, t: "par" }),
+      { wait: 40 } as const,
+      { reset: true } as const,
+    ];
     await withServer([{ acts }, ok], async (server) => {
       const r = await run(toyAdapter(server.url, fast()));
       assert.ok(r.error instanceof ProviderError && r.error.kind === "network");
@@ -172,11 +223,23 @@ describe("errors after content", () => {
   });
 
   test("an error event in the stream after content is thrown as it is, with the partial blocks", async () => {
-    await withServer([{ acts: [sse("start", { model: "m", id: "r" }), sse("text", { i: 0, t: "a" }), sse("end", { i: 0 }), sse("error", { kind: "overloaded", message: "gone" })] }], async (server) => {
-      const r = await run(toyAdapter(server.url, fast()));
-      assert.ok(r.error instanceof ProviderError && r.error.kind === "overloaded" && r.error.partial.length === 1);
-      assert.equal(server.seen.length, 1);
-    });
+    await withServer(
+      [
+        {
+          acts: [
+            sse("start", { model: "m", id: "r" }),
+            sse("text", { i: 0, t: "a" }),
+            sse("end", { i: 0 }),
+            sse("error", { kind: "overloaded", message: "gone" }),
+          ],
+        },
+      ],
+      async (server) => {
+        const r = await run(toyAdapter(server.url, fast()));
+        assert.ok(r.error instanceof ProviderError && r.error.kind === "overloaded" && r.error.partial.length === 1);
+        assert.equal(server.seen.length, 1);
+      },
+    );
   });
 });
 
@@ -190,12 +253,25 @@ describe("timeouts and cancellation", () => {
   });
 
   test("idle after content is a timeout error with the partial blocks", async () => {
-    await withServer([{ acts: [sse("start", { model: "m", id: "r" }), sse("text", { i: 0, t: "a" }), sse("end", { i: 0 }), sse("text", { i: 1, t: "b" }), { hang: true }] }], async (server) => {
-      const r = await run(toyAdapter(server.url, fast({ timeouts: { idleMs: 60 } })));
-      assert.ok(r.error instanceof ProviderError && r.error.kind === "timeout" && r.error.partial.length === 1);
-      assert.deepEqual(conformanceProblems(r), []);
-      assert.equal(server.seen.length, 1);
-    });
+    await withServer(
+      [
+        {
+          acts: [
+            sse("start", { model: "m", id: "r" }),
+            sse("text", { i: 0, t: "a" }),
+            sse("end", { i: 0 }),
+            sse("text", { i: 1, t: "b" }),
+            { hang: true },
+          ],
+        },
+      ],
+      async (server) => {
+        const r = await run(toyAdapter(server.url, fast({ timeouts: { idleMs: 60 } })));
+        assert.ok(r.error instanceof ProviderError && r.error.kind === "timeout" && r.error.partial.length === 1);
+        assert.deepEqual(conformanceProblems(r), []);
+        assert.equal(server.seen.length, 1);
+      },
+    );
   });
 
   test("the total limit covers the whole request, however lively the stream", async () => {
@@ -207,25 +283,28 @@ describe("timeouts and cancellation", () => {
   });
 
   test("aborting the signal ends the stream with `aborted` and closes the connection", async () => {
-    await withServer([{ acts: [sse("start", { model: "m", id: "r" }), sse("text", { i: 0, t: "a" }), sse("end", { i: 0 }), { hang: true }] }], async (server) => {
-      const ac = new AbortController();
-      const stream = toyAdapter(server.url, fast()).stream(req(ac.signal));
-      const events = [];
-      let error: unknown;
-      try {
-        for (;;) {
-          const r = await stream.next();
-          if (r.done) break;
-          events.push(r.value);
-          if (r.value.type === "block.done") ac.abort();
+    await withServer(
+      [{ acts: [sse("start", { model: "m", id: "r" }), sse("text", { i: 0, t: "a" }), sse("end", { i: 0 }), { hang: true }] }],
+      async (server) => {
+        const ac = new AbortController();
+        const stream = toyAdapter(server.url, fast()).stream(req(ac.signal));
+        const events = [];
+        let error: unknown;
+        try {
+          for (;;) {
+            const r = await stream.next();
+            if (r.done) break;
+            events.push(r.value);
+            if (r.value.type === "block.done") ac.abort();
+          }
+        } catch (e) {
+          error = e;
         }
-      } catch (e) {
-        error = e;
-      }
-      assert.ok(error instanceof ProviderError && error.kind === "aborted" && error.partial.length === 1);
-      await new Promise((r) => setTimeout(r, 50));
-      assert.equal(server.seen[0]?.closed, true);
-    });
+        assert.ok(error instanceof ProviderError && error.kind === "aborted" && error.partial.length === 1);
+        await new Promise((r) => setTimeout(r, 50));
+        assert.equal(server.seen[0]?.closed, true);
+      },
+    );
   });
 
   test("an already-aborted signal makes no request", async () => {
@@ -294,20 +373,38 @@ describe("limiter", () => {
     const limiter = new Limiter(2);
     let live = 0;
     let peak = 0;
-    await withServer(() => ({ acts: [{ wait: 40 }, ...HELLO] }), async (server) => {
-      const adapter = toyAdapter(server.url, fast({ limiter, hooks: { onRequest: () => void (peak = Math.max(peak, ++live)), onResponse: () => void live-- } }));
-      const runs = await Promise.all(Array.from({ length: 6 }, () => run(adapter)));
-      for (const r of runs) checked(r);
-      assert.ok(peak <= 2, `peak ${peak}`);
-      assert.equal(limiter.active, 0);
-    });
+    await withServer(
+      () => ({ acts: [{ wait: 40 }, ...HELLO] }),
+      async (server) => {
+        const adapter = toyAdapter(
+          server.url,
+          fast({ limiter, hooks: { onRequest: () => void (peak = Math.max(peak, ++live)), onResponse: () => void live-- } }),
+        );
+        const runs = await Promise.all(Array.from({ length: 6 }, () => run(adapter)));
+        for (const r of runs) checked(r);
+        assert.ok(peak <= 2, `peak ${peak}`);
+        assert.equal(limiter.active, 0);
+      },
+    );
   });
 });
 
 describe("hooks and secrets", () => {
   test("hooks see redacted views; a throwing hook cannot break the request", async () => {
     const views: unknown[] = [];
-    const o = fast({ hooks: { onRequest: (v) => (views.push(v), void (() => { throw new Error("boom"); })()), onResponse: (v) => void views.push(v), onSse: (e) => void views.push(e), onRetry: (v) => void views.push(v) } });
+    const o = fast({
+      hooks: {
+        onRequest: (v) => (
+          views.push(v),
+          void (() => {
+            throw new Error("boom");
+          })()
+        ),
+        onResponse: (v) => void views.push(v),
+        onSse: (e) => void views.push(e),
+        onRetry: (v) => void views.push(v),
+      },
+    });
     await withServer([{ status: 500, acts: [`oops ${SECRET}`] }, ok], async (server) => {
       checked(await run(toyAdapter(server.url, o)));
     });
@@ -333,7 +430,10 @@ describe("request headers", () => {
   });
 
   test("a User-Agent by default; the provider's map overrides, null removes (any case); the session goes where the config says", () => {
-    assert.deepEqual(requestHeaders({ "content-type": "application/json" }, {}), { "user-agent": USER_AGENT, "content-type": "application/json" });
+    assert.deepEqual(requestHeaders({ "content-type": "application/json" }, {}), {
+      "user-agent": USER_AGENT,
+      "content-type": "application/json",
+    });
     assert.equal(requestHeaders({}, { headers: { "User-Agent": "mine/1" } })["user-agent"], "mine/1");
     assert.deepEqual(requestHeaders({ a: "1" }, { headers: { "USER-AGENT": null, A: null } }), {});
     assert.equal(requestHeaders({}, { sessionHeader: "x-opencode-session" }, "abc")["x-opencode-session"], "abc");
@@ -356,7 +456,8 @@ describe("request headers", () => {
     });
   });
 });
-const collect = (adapter: ProviderAdapter, extra: { session?: string }): Promise<StreamRun> => collectStream(adapter.stream({ ...req(), ...extra }));
+const collect = (adapter: ProviderAdapter, extra: { session?: string }): Promise<StreamRun> =>
+  collectStream(adapter.stream({ ...req(), ...extra }));
 
 describe("the conformance checks themselves", () => {
   const base = { blocks: [], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 }, observed: {} };
@@ -366,10 +467,40 @@ describe("the conformance checks themselves", () => {
     assert.match(p({ events: [], completed: base, error: new ProviderError({ kind: "server", message: "x" }) }), /both returned and threw/);
     assert.match(p({ events: [], error: new Error("x") }), /not a ProviderError/);
     assert.match(p({ events: [{ type: "text.delta", index: 0, text: "a" }, { type: "started" }], completed: base }), /not the first event/);
-    assert.match(p({ events: [{ type: "usage", usage: { input_tokens: 5, output_tokens: 5 } }, { type: "usage", usage: { input_tokens: 4, output_tokens: 5 } }], completed: base }), /usage decreased/);
-    assert.match(p({ events: [{ type: "text.delta", index: 0, text: "a" }, { type: "block.done", index: 0, block: { type: "text", text: "b" } }], completed: { ...base, blocks: [{ type: "text", text: "b" }] } }), /deltas do not add up/);
+    assert.match(
+      p({
+        events: [
+          { type: "usage", usage: { input_tokens: 5, output_tokens: 5 } },
+          { type: "usage", usage: { input_tokens: 4, output_tokens: 5 } },
+        ],
+        completed: base,
+      }),
+      /usage decreased/,
+    );
+    assert.match(
+      p({
+        events: [
+          { type: "text.delta", index: 0, text: "a" },
+          { type: "block.done", index: 0, block: { type: "text", text: "b" } },
+        ],
+        completed: { ...base, blocks: [{ type: "text", text: "b" }] },
+      }),
+      /deltas do not add up/,
+    );
     assert.match(p({ events: [{ type: "block.done", index: 0, block: { type: "text", text: "b" } }], completed: base }), /returned blocks/);
-    assert.match(p({ events: [{ type: "block.done", index: 0, block: { type: "text", text: "S3CR3T" } }], completed: { ...base, blocks: [{ type: "text", text: "S3CR3T" }] } }), /secret/);
-    assert.match(p({ events: [{ type: "block.done", index: 0, block: { type: "text", text: "a" } }], error: new ProviderError({ kind: "network", message: "x" }) }), /partial blocks/);
+    assert.match(
+      p({
+        events: [{ type: "block.done", index: 0, block: { type: "text", text: "S3CR3T" } }],
+        completed: { ...base, blocks: [{ type: "text", text: "S3CR3T" }] },
+      }),
+      /secret/,
+    );
+    assert.match(
+      p({
+        events: [{ type: "block.done", index: 0, block: { type: "text", text: "a" } }],
+        error: new ProviderError({ kind: "network", message: "x" }),
+      }),
+      /partial blocks/,
+    );
   });
 });

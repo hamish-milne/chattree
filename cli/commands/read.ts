@@ -55,7 +55,12 @@ const show: Command = {
       return;
     }
     const text = await formatEntry(ctx.convo, entry, { thinking: "on", tools: "full" });
-    const extra = entry.$tag === "assistant" ? `\nstop: ${entry.stop_reason}${entry.usage === undefined ? "" : `  usage: ${JSON.stringify(entry.usage)}`}` : entry.$tag === "interrupted" && entry.usage !== undefined ? `\nusage: ${JSON.stringify(entry.usage)}` : "";
+    const extra =
+      entry.$tag === "assistant"
+        ? `\nstop: ${entry.stop_reason}${entry.usage === undefined ? "" : `  usage: ${JSON.stringify(entry.usage)}`}`
+        : entry.$tag === "interrupted" && entry.usage !== undefined
+          ? `\nusage: ${JSON.stringify(entry.usage)}`
+          : "";
     yield { type: "text", text: `${"id" in entry ? `id ${entry.id}\n` : ""}${text ?? ""}${extra}` };
   },
 };
@@ -70,7 +75,8 @@ const display: Command = {
   busy: "allowed",
   async complete(_ctx, previous, partial) {
     if (previous.length === 0) return ["thinking", "tools"].filter((f) => f.startsWith(partial));
-    if (previous.length === 1) return (previous[0] === "thinking" ? THINKING : previous[0] === "tools" ? TOOLS : []).filter((f) => f.startsWith(partial));
+    if (previous.length === 1)
+      return (previous[0] === "thinking" ? THINKING : previous[0] === "tools" ? TOOLS : []).filter((f) => f.startsWith(partial));
     return [];
   },
   async *run(ctx, args) {
@@ -81,7 +87,11 @@ const display: Command = {
       return;
     }
     if (what !== "thinking" && what !== "tools") {
-      yield { type: "error", message: `${what} is not thinking or tools`, hint: "/display thinking [on | brief | off]  |  /display tools [full | brief | off]" };
+      yield {
+        type: "error",
+        message: `${what} is not thinking or tools`,
+        hint: "/display thinking [on | brief | off]  |  /display tools [full | brief | off]",
+      };
       return;
     }
     if (value === undefined) {
@@ -159,7 +169,19 @@ const threads: Command = {
     const merged = filter === "merged" || filter === "all" ? await ctx.convo.mergedBranches() : new Set<string>();
     const rows = branches
       .filter((_, i) => info[i] !== undefined)
-      .filter((b) => (filter === "" ? !b.archived : filter === "all" ? true : filter === "archived" ? b.archived : filter === "merged" ? merged.has(b.name) : filter === "running" ? b.running : !b.running));
+      .filter((b) =>
+        filter === ""
+          ? !b.archived
+          : filter === "all"
+            ? true
+            : filter === "archived"
+              ? b.archived
+              : filter === "merged"
+                ? merged.has(b.name)
+                : filter === "running"
+                  ? b.running
+                  : !b.running,
+      );
     if (rows.length === 0) {
       yield { type: "text", text: "(no threads match)" };
       return;
@@ -169,7 +191,9 @@ const threads: Command = {
     yield {
       type: "text",
       text: rows
-        .map((b) => `${b.name === ctx.engine.thread ? "*" : " "} ${b.name.padEnd(width)}  ${ago(b.lastActivity, now).padEnd(8)}${[b.running ? "running" : "", b.archived ? "archived" : "", merged.has(b.name) ? "merged" : ""].filter((x) => x !== "").join(" ")}`.trimEnd())
+        .map((b) =>
+          `${b.name === ctx.engine.thread ? "*" : " "} ${b.name.padEnd(width)}  ${ago(b.lastActivity, now).padEnd(8)}${[b.running ? "running" : "", b.archived ? "archived" : "", merged.has(b.name) ? "merged" : ""].filter((x) => x !== "").join(" ")}`.trimEnd(),
+        )
         .join("\n"),
     };
   },
@@ -182,7 +206,10 @@ const verify: Command = {
   busy: "allowed",
   async *run(ctx) {
     const problems = await verifyHistory(ctx.convo);
-    yield { type: "text", text: problems.length === 0 ? "the history is consistent" : problems.map((p) => `${p.severity}: ${p.code}: ${p.message}`).join("\n") };
+    yield {
+      type: "text",
+      text: problems.length === 0 ? "the history is consistent" : problems.map((p) => `${p.severity}: ${p.code}: ${p.message}`).join("\n"),
+    };
   },
 };
 
@@ -193,7 +220,10 @@ const maintain: Command = {
   busy: "allowed",
   async *run(ctx) {
     const r = await ctx.convo.maintain();
-    yield { type: "text", text: `${r.action}: ${r.before.looseObjects} loose objects and ${r.before.packs} packs before, ${r.after.looseObjects} and ${r.after.packs} after` };
+    yield {
+      type: "text",
+      text: `${r.action}: ${r.before.looseObjects} loose objects and ${r.before.packs} packs before, ${r.after.looseObjects} and ${r.after.packs} after`,
+    };
   },
 };
 

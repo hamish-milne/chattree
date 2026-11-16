@@ -27,11 +27,24 @@ let retrieve: ProviderAdapter["retrieve"];
 let lastRequest: StreamRequest | undefined;
 
 function done(blocks: Completed["blocks"], extra: Partial<Completed> = {}): Completed {
-  return { blocks, stop_reason: "end_turn", usage: { input_tokens: 10, output_tokens: 5 }, observed: { model: "m1", response_id: "resp_1" }, ext: { store: true }, ...extra };
+  return {
+    blocks,
+    stop_reason: "end_turn",
+    usage: { input_tokens: 10, output_tokens: 5 },
+    observed: { model: "m1", response_id: "resp_1" },
+    ext: { store: true },
+    ...extra,
+  };
 }
 /** Resolves when the request is aborted, rejecting as a provider does. */
-const hang: Step = (signal) => new Promise((_, reject) => signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }));
-const pause = (ms: number): Step => () => new Promise((r) => setTimeout(r, ms));
+const hang: Step = (signal) =>
+  new Promise((_, reject) =>
+    signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }),
+  );
+const pause =
+  (ms: number): Step =>
+  () =>
+    new Promise((r) => setTimeout(r, ms));
 
 const registry = new AdapterRegistry().register(
   defineAdapter({
@@ -74,9 +87,16 @@ async function fresh(config = CONFIG) {
 }
 const entries = async (c: Conversation): Promise<ChatEntry[]> => (await c.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
 const last = async (c: Conversation): Promise<ChatEntry> => (await entries(c)).at(-1) as ChatEntry;
-const exists = (p: string) => stat(p).then(() => true, () => false);
+const exists = (p: string) =>
+  stat(p).then(
+    () => true,
+    () => false,
+  );
 const run = (c: Conversation, o: Record<string, unknown> = {}) => runRequest(c, { system: "s", cost: false, ...o });
-const text = (index: number, t: string): StreamEvent[] => [{ type: "text.delta", index, text: t }, { type: "block.done", index, block: { type: "text", text: t } }];
+const text = (index: number, t: string): StreamEvent[] => [
+  { type: "text.delta", index, text: t },
+  { type: "block.done", index, block: { type: "text", text: t } },
+];
 
 describe("accumulating a stream", () => {
   test("complete blocks, text in progress and a started call are kept; unfinished reasoning is not", () => {
@@ -89,7 +109,8 @@ describe("accumulating a stream", () => {
       { type: "tool_call.start", index: 3, call_id: "c1", name: "read" },
       { type: "tool_call.delta", index: 3, args_delta: '{"pa' },
       { type: "usage", usage: { input_tokens: 4, output_tokens: 1 } },
-    ] as StreamEvent[]) a.add(e);
+    ] as StreamEvent[])
+      a.add(e);
     assert.deepEqual(a.blocks(), [
       { type: "text", text: "done text" },
       { type: "text", text: "half a sen" },
@@ -103,7 +124,12 @@ describe("accumulating a stream", () => {
 describe("a request", () => {
   test("streams its events, commits the response, and leaves no journal", async () => {
     const { convo } = await fresh();
-    steps = [{ type: "started" }, { type: "observed", observed: { model: "m1", response_id: "resp_1" } }, ...text(0, "ok"), { type: "usage", usage: { input_tokens: 10, output_tokens: 5 } }];
+    steps = [
+      { type: "started" },
+      { type: "observed", observed: { model: "m1", response_id: "resp_1" } },
+      ...text(0, "ok"),
+      { type: "usage", usage: { input_tokens: 10, output_tokens: 5 } },
+    ];
     const seen: string[] = [];
     const r = await run(convo, { onEvent: (e: StreamEvent) => void seen.push(e.type) });
     assert.deepEqual(seen, ["started", "observed", "text.delta", "block.done", "usage"]);
@@ -132,7 +158,10 @@ describe("a request", () => {
     assert.equal(j?.start.provider, "f");
     assert.equal(j?.start.after, tip.id);
     assert.match(j?.start.context_digest ?? "", /^[0-9a-f]{64}$/);
-    assert.deepEqual(j?.events.map((e) => e.type), ["text.delta", "block.done"]);
+    assert.deepEqual(
+      j?.events.map((e) => e.type),
+      ["text.delta", "block.done"],
+    );
     for await (const _ of gen) void _;
     assert.equal(await exists(await convo.journalPath()), false);
   });
@@ -170,9 +199,18 @@ describe("a request that ends early", () => {
     const r = await run(convo);
     assert.equal(r.status, "interrupted");
     const e = await last(convo);
-    assert.deepEqual(e, { ...e, $tag: "interrupted", by: "error", error: "connection reset", usage: { input_tokens: 7, output_tokens: 3 } });
+    assert.deepEqual(e, {
+      ...e,
+      $tag: "interrupted",
+      by: "error",
+      error: "connection reset",
+      usage: { input_tokens: 7, output_tokens: 3 },
+    });
     if (e.$tag !== "interrupted") return;
-    assert.deepEqual(e.partial.map((b) => b.$tag), ["text", "text", "tool_call"]);
+    assert.deepEqual(
+      e.partial.map((b) => b.$tag),
+      ["text", "text", "tool_call"],
+    );
     assert.equal(await exists(await convo.journalPath()), false);
     await assertHistoryInvariants(convo);
   });
@@ -250,10 +288,26 @@ describe("a request that ends early", () => {
 // ---- crashes ------------------------------------------------------------------------------------------------------
 
 /** A process that died mid-request: a journal with these events, never discarded, and nothing committed. */
-async function crash(convo: Conversation, events: StreamEvent[], extra: { done?: Completed; after?: string | null; torn?: string } = {}): Promise<string> {
+async function crash(
+  convo: Conversation,
+  events: StreamEvent[],
+  extra: { done?: Completed; after?: string | null; torn?: string } = {},
+): Promise<string> {
   const tip = (await entries(convo)).at(-1) as { id: string };
   const path = await convo.journalPath();
-  const j = await Journal.begin(host, path, { provider: "f", model: "m1", setup_digest: "s", context_digest: "c", after: extra.after === null ? undefined : (extra.after ?? tip.id), at: Date.now() }, { heartbeatMs: 0, flushMs: 1 });
+  const j = await Journal.begin(
+    host,
+    path,
+    {
+      provider: "f",
+      model: "m1",
+      setup_digest: "s",
+      context_digest: "c",
+      after: extra.after === null ? undefined : (extra.after ?? tip.id),
+      at: Date.now(),
+    },
+    { heartbeatMs: 0, flushMs: 1 },
+  );
   for (const e of events) j.write({ t: "event", e });
   if (extra.done !== undefined) j.write({ t: "done", completed: extra.done });
   await j.abandon();
@@ -265,7 +319,16 @@ const reopen = (dir: string, extra: Record<string, unknown> = {}) => Conversatio
 describe("recovery in open", () => {
   test("what arrived becomes an interrupted entry by error, with the tokens, and the journal is deleted", async () => {
     const { convo, dir } = await fresh();
-    const path = await crash(convo, [{ type: "started" }, ...text(0, "kept"), { type: "text.delta", index: 1, text: "half" }, { type: "usage", usage: { input_tokens: 9, output_tokens: 2 } }], { torn: '{"t":"event","e":{"type":"text.del' });
+    const path = await crash(
+      convo,
+      [
+        { type: "started" },
+        ...text(0, "kept"),
+        { type: "text.delta", index: 1, text: "half" },
+        { type: "usage", usage: { input_tokens: 9, output_tokens: 2 } },
+      ],
+      { torn: '{"t":"event","e":{"type":"text.del' },
+    );
     const events: ConversationEvent[] = [];
     const again = await reopen(dir, { onEvent: (e: ConversationEvent) => void events.push(e) });
     assert.equal(again.recovery.journal?.outcome, "interrupted");
@@ -275,7 +338,10 @@ describe("recovery in open", () => {
     assert.equal(e.by, "error");
     assert.match(e.error ?? "", /recovered from the journal/);
     assert.deepEqual(e.usage, { input_tokens: 9, output_tokens: 2 });
-    assert.deepEqual(e.partial.map((b) => b.$tag === "text" && b.text), ["kept", "half"]);
+    assert.deepEqual(
+      e.partial.map((b) => b.$tag === "text" && b.text),
+      ["kept", "half"],
+    );
     assert.equal(await exists(path), false);
     await again.flushEvents();
     assert.ok(events.some((x) => x.type === "recovery" && x.report.journal?.outcome === "interrupted"));
@@ -295,8 +361,18 @@ describe("recovery in open", () => {
   test("a stored response is retrieved by id; if the provider has forgotten it, or fails, the partial is kept with a note", async () => {
     for (const how of ["found", "gone", "fails"] as const) {
       const { convo, dir } = await fresh();
-      retrieve = how === "found" ? async () => done([{ type: "text", text: "full answer" }]) : how === "gone" ? async () => undefined : async () => { throw new Error("network down"); };
-      await crash(convo, [{ type: "observed", observed: { response_id: "resp_9" } }, { type: "text.delta", index: 0, text: "full ans" }]);
+      retrieve =
+        how === "found"
+          ? async () => done([{ type: "text", text: "full answer" }])
+          : how === "gone"
+            ? async () => undefined
+            : async () => {
+                throw new Error("network down");
+              };
+      await crash(convo, [
+        { type: "observed", observed: { response_id: "resp_9" } },
+        { type: "text.delta", index: 0, text: "full ans" },
+      ]);
       const again = await reopen(dir);
       const e = await last(again);
       if (how === "found") {
@@ -313,7 +389,13 @@ describe("recovery in open", () => {
   test("a process that died after the commit only loses its journal", async () => {
     const { convo, dir } = await fresh();
     const path = await crash(convo, text(0, "x"));
-    await convo.appendResponse({ $tag: "assistant", provider: "f", model: "m1", blocks: [{ $tag: "text", text: "x" }], stop_reason: "end_turn" });
+    await convo.appendResponse({
+      $tag: "assistant",
+      provider: "f",
+      model: "m1",
+      blocks: [{ $tag: "text", text: "x" }],
+      stop_reason: "end_turn",
+    });
     const n = (await entries(convo)).length;
     const again = await reopen(dir);
     assert.equal(again.recovery.journal?.outcome, "already_committed");
@@ -360,7 +442,7 @@ describe("recovery in open", () => {
     steps = [pause(1500)];
     const p = requestStream(convo, { system: "s", cost: false, journal: { heartbeatMs: 20, flushMs: 5 } }).next();
     let beats = 0;
-    for (const deadline = Date.now() + 1000; beats < 2 && Date.now() < deadline; ) {
+    for (const deadline = Date.now() + 1000; beats < 2 && Date.now() < deadline;) {
       await new Promise((r) => setTimeout(r, 25));
       beats = ((await readFile(await convo.journalPath(), "utf8").catch(() => "")).match(/"t":"beat"/g) ?? []).length;
     }
@@ -372,7 +454,17 @@ describe("recovery in open", () => {
 describe(slow("crash sweep over the journal"), slowOptions, () => {
   test("a journal cut anywhere recovers to a valid transcript, and a complete one to the response", async () => {
     const src = await fresh();
-    const path = await crash(src.convo, [{ type: "started" }, { type: "observed", observed: { response_id: "r" } }, ...text(0, "hello"), { type: "text.delta", index: 1, text: "wor" }, { type: "usage", usage: { input_tokens: 3, output_tokens: 1 } }], { done: done([{ type: "text", text: "hello world" }]) });
+    const path = await crash(
+      src.convo,
+      [
+        { type: "started" },
+        { type: "observed", observed: { response_id: "r" } },
+        ...text(0, "hello"),
+        { type: "text.delta", index: 1, text: "wor" },
+        { type: "usage", usage: { input_tokens: 3, output_tokens: 1 } },
+      ],
+      { done: done([{ type: "text", text: "hello world" }]) },
+    );
     const bytes = await readFile(path);
     const cuts = new Set<number>();
     let at = 0;
@@ -389,7 +481,10 @@ describe(slow("crash sweep over the journal"), slowOptions, () => {
       const p = await crash(convo, [], {});
       await writeFile(p, bytes.subarray(0, cut));
       // the start record's `after` is the source conversation's, so give this one the same by rewriting it
-      const text0 = (await readFile(p, "utf8")).replace(/"after":"[^"]*"/, `"after":${JSON.stringify(((await entries(convo)).at(-1) as { id: string }).id)}`);
+      const text0 = (await readFile(p, "utf8")).replace(
+        /"after":"[^"]*"/,
+        `"after":${JSON.stringify(((await entries(convo)).at(-1) as { id: string }).id)}`,
+      );
       await writeFile(p, text0);
       const again = await reopen(dir);
       const o = again.recovery.journal?.outcome ?? "none";
@@ -400,7 +495,10 @@ describe(slow("crash sweep over the journal"), slowOptions, () => {
       assert.equal(await exists(p), false, `cut at ${cut}`);
       await assertHistoryInvariants(again);
     }
-    assert.ok((outcomes.get("completed") ?? 0) >= 1 && (outcomes.get("interrupted") ?? 0) >= 1 && (outcomes.get("discarded") ?? 0) >= 1, JSON.stringify([...outcomes]));
+    assert.ok(
+      (outcomes.get("completed") ?? 0) >= 1 && (outcomes.get("interrupted") ?? 0) >= 1 && (outcomes.get("discarded") ?? 0) >= 1,
+      JSON.stringify([...outcomes]),
+    );
   });
 });
 
@@ -443,13 +541,23 @@ describe("injections", () => {
   test("a host rule's text is recorded, then shown to the model in the same request and on every later one", async () => {
     const { convo } = await fresh();
     const seen: string[] = [];
-    const r = await run(convo, { injections: [() => ({ key: "style", text: "keep it short" })], onPrepared: (p: { context: { turns: unknown[] } }) => void seen.push(JSON.stringify(p.context.turns)) });
+    const r = await run(convo, {
+      injections: [() => ({ key: "style", text: "keep it short" })],
+      onPrepared: (p: { context: { turns: unknown[] } }) => void seen.push(JSON.stringify(p.context.turns)),
+    });
     assert.equal(r.status, "completed");
     assert.match(sentTurns(), /\[Note from the harness\]\\nkeep it short/);
     assert.match(seen[0] as string, /keep it short/, "the host is shown the request as it goes out");
     const all = await entries(convo);
-    assert.deepEqual(all.filter((e) => e.$tag === "injection").map((e) => (e as { key: string }).key), ["style"]);
-    assert.equal(all.findIndex((e) => e.$tag === "injection") < all.findIndex((e) => e.$tag === "assistant"), true, "recorded before the response");
+    assert.deepEqual(
+      all.filter((e) => e.$tag === "injection").map((e) => (e as { key: string }).key),
+      ["style"],
+    );
+    assert.equal(
+      all.findIndex((e) => e.$tag === "injection") < all.findIndex((e) => e.$tag === "assistant"),
+      true,
+      "recorded before the response",
+    );
     await convo.append(hi);
     await run(convo);
     assert.match(sentTurns(), /keep it short/, "still there, though no rule ran this time");
@@ -465,7 +573,8 @@ describe("injections", () => {
         },
         () => ({ key: "ok", text: "still here" }),
       ],
-      onPrepared: (p: { warnings: { kind: string; message: string }[] }) => void warned.push(...p.warnings.filter((w) => w.kind === "injection_failed").map((w) => w.message)),
+      onPrepared: (p: { warnings: { kind: string; message: string }[] }) =>
+        void warned.push(...p.warnings.filter((w) => w.kind === "injection_failed").map((w) => w.message)),
     });
     assert.equal(r.status, "completed");
     assert.match(sentTurns(), /still here/);
@@ -489,7 +598,10 @@ describe("injections", () => {
     const { convo, dir } = await fresh(config);
     await writeFile(join(dir, "NOTES.md"), "Remember the notes.\n");
     const warned: string[] = [];
-    await run(convo, { onPrepared: (p: { warnings: { kind: string; message: string }[] }) => void warned.push(...p.warnings.filter((w) => w.kind === "injection_failed").map((w) => w.message)) });
+    await run(convo, {
+      onPrepared: (p: { warnings: { kind: string; message: string }[] }) =>
+        void warned.push(...p.warnings.filter((w) => w.kind === "injection_failed").map((w) => w.message)),
+    });
     assert.match(sentTurns(), /Remember the notes\./);
     assert.match(warned.join(), /outside the thread's workspace/);
   });

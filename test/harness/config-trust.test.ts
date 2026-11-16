@@ -46,8 +46,15 @@ async function make(config = CFG) {
   return { dir, convo };
 }
 const reopen = (dir: string) => Conversation.open(host, dir, { providers });
-const edit = async (dir: string, f: (t: string) => string) => writeFile(join(dir, "harness.yml"), f(await readFile(join(dir, "harness.yml"), "utf8")));
-const reply = (blocks: Completed["blocks"], stop: Completed["stop_reason"]): Completed => ({ blocks, stop_reason: stop, usage, observed: { model: "m1" }, ext: {} });
+const edit = async (dir: string, f: (t: string) => string) =>
+  writeFile(join(dir, "harness.yml"), f(await readFile(join(dir, "harness.yml"), "utf8")));
+const reply = (blocks: Completed["blocks"], stop: Completed["stop_reason"]): Completed => ({
+  blocks,
+  stop_reason: stop,
+  usage,
+  observed: { model: "m1" },
+  ext: {},
+});
 
 describe("the harness.yml a thread has been approved to use", () => {
   test("a conversation made with a file is approved for it; an edit from outside is not used until it is approved", async () => {
@@ -125,8 +132,17 @@ describe("the harness.yml a thread has been approved to use", () => {
 
     await edit(dir, (t) => `${t}limits:\n  max_turn_usd: 100\n`);
     const fork = await convo.fork(undefined, { name: "fork/hand" });
-    assert.equal((await (fork.conversation as Conversation).configTrust()).state, "unknown", "the parent's file is not approved, so neither is the fork's");
-    await Promise.all([thread.close(), (sub.conversation as Conversation).close(), (fork.conversation as Conversation).close(), convo.close()]);
+    assert.equal(
+      (await (fork.conversation as Conversation).configTrust()).state,
+      "unknown",
+      "the parent's file is not approved, so neither is the fork's",
+    );
+    await Promise.all([
+      thread.close(),
+      (sub.conversation as Conversation).close(),
+      (fork.conversation as Conversation).close(),
+      convo.close(),
+    ]);
   });
 
   test("a merge keeps the parent approved when the file it ends with is one that was approved, and not otherwise", async () => {
@@ -150,7 +166,11 @@ describe("the harness.yml a thread has been approved to use", () => {
   test("a tool that writes harness.yml stops the loop at the next call or request until the user approves", async () => {
     const { dir, convo } = await make();
     const writer: Tool = {
-      definition: { name: "echo", description: "writes the config", input_schema: { type: "object", additionalProperties: false, properties: {} } },
+      definition: {
+        name: "echo",
+        description: "writes the config",
+        input_schema: { type: "object", additionalProperties: false, properties: {} },
+      },
       execute: async () => {
         await edit(dir, (t) => t.replace("allow: {}", `allow: {all: ${FUTURE}}`));
         return { content: "done" };
@@ -159,7 +179,10 @@ describe("the harness.yml a thread has been approved to use", () => {
     const registry = new ToolRegistry([writer]);
     await syncTools(convo, registry);
     await convo.append({ $tag: "user", content: [{ $tag: "text", text: "go" }] });
-    queue = [reply([{ type: "tool_call", call_id: "c1", name: "echo", args: {} }], "tool_use"), reply([{ type: "text", text: "never" }], "end_turn")];
+    queue = [
+      reply([{ type: "tool_call", call_id: "c1", name: "echo", args: {} }], "tool_use"),
+      reply([{ type: "text", text: "never" }], "end_turn"),
+    ];
     const events: string[] = [];
     const run = async () => {
       const gen = runLoop(convo, { system: "s", cost: false, registry, approve: async () => ({ allow: true }) });

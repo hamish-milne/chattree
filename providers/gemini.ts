@@ -38,10 +38,26 @@ export function geminiCatalogFrom(rows: readonly GeminiRow[], asOf: string): { m
       cost_tier: r.tier,
       reasoning: { low: { reasoning_effort: "low" }, medium: { reasoning_effort: "medium" }, high: { reasoning_effort: "high" } },
     };
-    const rate = (p: { input: number; output: number; cache_read?: number }) => ({ input: p.input, output: p.output, ...(p.cache_read === undefined ? {} : { cache_read: p.cache_read }) });
-    prices[r.id] = { rates: { standard: rate(r.price) }, ...(r.long === undefined ? {} : { long_context: { above_tokens: r.long.above_tokens, rates: { standard: rate(r.long) } } }) };
+    const rate = (p: { input: number; output: number; cache_read?: number }) => ({
+      input: p.input,
+      output: p.output,
+      ...(p.cache_read === undefined ? {} : { cache_read: p.cache_read }),
+    });
+    prices[r.id] = {
+      rates: { standard: rate(r.price) },
+      ...(r.long === undefined ? {} : { long_context: { above_tokens: r.long.above_tokens, rates: { standard: rate(r.long) } } }),
+    };
   }
-  return { models, prices: { version: 1, as_of: asOf, source: "https://ai.google.dev/gemini-api/docs/pricing (paid Standard tier, read through a summarising tool)", currency: "USD", models: prices } };
+  return {
+    models,
+    prices: {
+      version: 1,
+      as_of: asOf,
+      source: "https://ai.google.dev/gemini-api/docs/pricing (paid Standard tier, read through a summarising tool)",
+      currency: "USD",
+      models: prices,
+    },
+  };
 }
 
 export const GEMINI_CATALOG = geminiCatalogFrom(GEMINI_ROWS, "2026-10-30");
@@ -61,7 +77,10 @@ export const geminiDefinition = defineAdapter({
   $tag: "gemini",
   config: geminiConfig,
   settings: compatibleSettings,
-  jsonSchema: () => ({ config: z.toJSONSchema(geminiConfig, { io: "input" }), settings: z.toJSONSchema(compatibleSettings, { io: "input" }) }),
+  jsonSchema: () => ({
+    config: z.toJSONSchema(geminiConfig, { io: "input" }),
+    settings: z.toJSONSchema(compatibleSettings, { io: "input" }),
+  }),
   secrets: (c) => [c.api_key_env],
   prices: (c) => pricesFor(GEMINI_CATALOG.prices, c),
   models: (c) => modelsFor(GEMINI_CATALOG.models, c),

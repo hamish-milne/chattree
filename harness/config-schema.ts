@@ -13,7 +13,9 @@ export const SCHEMA_COMMENT = `# yaml-language-server: $schema=./${SCHEMA_PATH}`
  * setting), so editors are pointed at the plain `$tag: name` form; both are accepted by the loader.
  */
 export function configJsonSchema(registry: AdapterRegistry): object {
-  const core = z.toJSONSchema(harnessConfig, { io: "input", unrepresentable: "any" }) as Record<string, unknown> & { properties?: Record<string, unknown> };
+  const core = z.toJSONSchema(harnessConfig, { io: "input", unrepresentable: "any" }) as Record<string, unknown> & {
+    properties?: Record<string, unknown>;
+  };
   const variants = registry.tags().map((tag) => {
     const def = registry.get(tag);
     return { title: tag, ...(def?.jsonSchema().config as object) };

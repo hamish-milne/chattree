@@ -18,7 +18,10 @@ const posix = { ...host, platform: "posix" as const };
 describe("where the settings file is", () => {
   test("CHATTREE_SETTINGS first, then APPDATA on Windows, then XDG_CONFIG_HOME, then ~/.config", () => {
     assert.equal(settingsPath(posix, { CHATTREE_SETTINGS: "/x/s.yml", HOME: "/h" }), posix.path.resolve("/x/s.yml"));
-    assert.equal(settingsPath(windows, { APPDATA: "C:\\Users\\a\\AppData\\Roaming", HOME: "/h" }), windows.path.join("C:\\Users\\a\\AppData\\Roaming", "chattree", "settings.yml"));
+    assert.equal(
+      settingsPath(windows, { APPDATA: "C:\\Users\\a\\AppData\\Roaming", HOME: "/h" }),
+      windows.path.join("C:\\Users\\a\\AppData\\Roaming", "chattree", "settings.yml"),
+    );
     assert.equal(settingsPath(posix, { XDG_CONFIG_HOME: "/xdg", HOME: "/h" }), posix.path.join("/xdg", "chattree", "settings.yml"));
     assert.equal(settingsPath(posix, { HOME: "/h" }), posix.path.join("/h", ".config", "chattree", "settings.yml"));
     assert.equal(settingsPath(posix, {}), undefined);
@@ -41,7 +44,11 @@ describe("using the settings", () => {
   test("a busybox path that is not a file is an error naming the setting; off finds none", async () => {
     const io = testIo(await tempDir(), { host: windows, settings: { busybox: "/no/such/busybox.exe" } });
     await assert.rejects(() => busyboxFor(io), /busybox is \/no\/such\/busybox\.exe, which is not a file/);
-    assert.equal(await busyboxFor(testIo(await tempDir(), { host: posix, settings: { busybox: "/no/such" } })), undefined, "not Windows: no busybox");
+    assert.equal(
+      await busyboxFor(testIo(await tempDir(), { host: posix, settings: { busybox: "/no/such" } })),
+      undefined,
+      "not Windows: no busybox",
+    );
   });
 });
 
@@ -109,7 +116,14 @@ describe("the ffmpeg setting", () => {
   };
 
   test("it is false or a string; anything else (a bare key, a number) is an invalid settings file", async () => {
-    for (const [text, ok] of [["ffmpeg: auto\n", true], ["ffmpeg: false\n", true], ["ffmpeg: /usr/bin/ffmpeg\n", true], ["ffmpeg:\n", false], ["ffmpeg: true\n", false], ["ffmpeg: 3\n", false]] as const) {
+    for (const [text, ok] of [
+      ["ffmpeg: auto\n", true],
+      ["ffmpeg: false\n", true],
+      ["ffmpeg: /usr/bin/ffmpeg\n", true],
+      ["ffmpeg:\n", false],
+      ["ffmpeg: true\n", false],
+      ["ffmpeg: 3\n", false],
+    ] as const) {
       const { io } = await settingsIo(text);
       if (ok) assert.deepEqual(Object.keys(await loadSettings(io)), ["ffmpeg"], text);
       else await assert.rejects(loadSettings(io), /is not valid/, text);
@@ -164,7 +178,10 @@ describe("the ffmpeg setting", () => {
 
   test("unset is a hard error naming the fix, false converts nothing, a path must be a file, auto asks for an ffmpeg without flite", async () => {
     const io = testIo(await tempDir());
-    await assert.rejects(resolveFfmpeg(io, undefined), (e: unknown) => e instanceof CliError && /ffmpeg setting is not set/.test(e.message) && /ffmpeg: auto/.test(e.hint ?? ""));
+    await assert.rejects(
+      resolveFfmpeg(io, undefined),
+      (e: unknown) => e instanceof CliError && /ffmpeg setting is not set/.test(e.message) && /ffmpeg: auto/.test(e.hint ?? ""),
+    );
     assert.equal(await resolveFfmpeg(io, false), undefined);
     await assert.rejects(resolveFfmpeg(io, "/no/such/ffmpeg"), /which is not a file/);
     const exe = join(await tempDir(), "ffmpeg");
@@ -173,6 +190,11 @@ describe("the ffmpeg setting", () => {
     let asked: { flite?: boolean } | undefined;
     assert.equal(await resolveFfmpeg(io, "auto", async (o) => ((asked = o), "/found/ffmpeg")), "/found/ffmpeg");
     assert.equal(asked?.flite, false);
-    await assert.rejects(resolveFfmpeg(io, "auto", async () => { throw new FfmpegError("ffmpeg was not found on the PATH", "install it"); }), (e: unknown) => e instanceof CliError && e.hint === "install it");
+    await assert.rejects(
+      resolveFfmpeg(io, "auto", async () => {
+        throw new FfmpegError("ffmpeg was not found on the PATH", "install it");
+      }),
+      (e: unknown) => e instanceof CliError && e.hint === "install it",
+    );
   });
 });

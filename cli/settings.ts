@@ -41,7 +41,10 @@ export type Settings = z.infer<typeof settingsSchema>;
 export function settingsPath(host: Host, env: Readonly<Record<string, string | undefined>>): string | undefined {
   const set = env["CHATTREE_SETTINGS"];
   if (set !== undefined && set !== "") return host.path.resolve(set);
-  const base = host.platform === "windows" ? env["APPDATA"] : (env["XDG_CONFIG_HOME"] ?? (env["HOME"] === undefined || env["HOME"] === "" ? undefined : host.path.join(env["HOME"], ".config")));
+  const base =
+    host.platform === "windows"
+      ? env["APPDATA"]
+      : (env["XDG_CONFIG_HOME"] ?? (env["HOME"] === undefined || env["HOME"] === "" ? undefined : host.path.join(env["HOME"], ".config")));
   return base === undefined || base === "" ? undefined : host.path.join(base, "chattree", "settings.yml");
 }
 
@@ -53,7 +56,10 @@ export async function loadSettings(io: Pick<Io, "host" | "env">): Promise<Settin
   if (bytes === undefined) return {};
   const parsed = await parseConfig(new TextDecoder().decode(bytes), settingsSchema);
   if (!parsed.ok) {
-    throw new CliError(`${path} is not valid:\n${parsed.issues.map((i) => `  ${i.path === "" ? "" : `${i.path}: `}${i.message}`).join("\n")}`, "fix it with `chattree settings edit`, or move it away");
+    throw new CliError(
+      `${path} is not valid:\n${parsed.issues.map((i) => `  ${i.path === "" ? "" : `${i.path}: `}${i.message}`).join("\n")}`,
+      "fix it with `chattree settings edit`, or move it away",
+    );
   }
   return parsed.value;
 }
@@ -80,13 +86,15 @@ ffmpeg: auto           # auto | false | path to ffmpeg: converts pictures and so
 }
 
 /** The editor command: settings, then \`$VISUAL\`, then \`$EDITOR\`; undefined leaves the choice of a default to the host. */
-export const editorFor = (io: Pick<Io, "env" | "settings">): string | undefined => io.settings?.editor ?? io.env["VISUAL"] ?? io.env["EDITOR"];
+export const editorFor = (io: Pick<Io, "env" | "settings">): string | undefined =>
+  io.settings?.editor ?? io.env["VISUAL"] ?? io.env["EDITOR"];
 
 /** The file, created with a commented template when it is not there yet; the path to open. */
 export async function ensureSettingsFile(io: Pick<Io, "host" | "env">): Promise<string> {
   const path = settingsPath(io.host, io.env);
   if (path === undefined) throw new CliError("there is no settings location on this machine", "set CHATTREE_SETTINGS to a file path");
-  if ((await io.host.fs.stat(path)) === undefined) await io.host.fs.writeAtomic(path, new TextEncoder().encode(settingsTemplate(io.host.platform)));
+  if ((await io.host.fs.stat(path)) === undefined)
+    await io.host.fs.writeAtomic(path, new TextEncoder().encode(settingsTemplate(io.host.platform)));
   return path;
 }
 

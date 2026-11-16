@@ -23,8 +23,32 @@ describe("media types", () => {
   test("normalised, and classified by how a model is given the file", () => {
     assert.equal(normalizeMime("Text/Plain; charset=utf-8"), "text/plain");
     assert.equal(normalizeMime("png"), undefined);
-    assert.deepEqual(["image/png", "image/jpeg", "application/pdf", "text/markdown", "application/json", "application/ld+json", "image/svg+xml", "application/zip", "video/mp4", "audio/wav", "audio/mpeg", "audio/x-flac; charset=x", "audio/ogg", "image/bmp"].map(attachmentKind), ["image", "image", "pdf", "text", "text", "text", "text", undefined, undefined, "audio", "audio", "audio", "audio", "image"]);
-    assert.deepEqual(["audio/x-wav", "audio/mpeg", "audio/flac", "audio/ogg", "image/png"].map(audioFormat), ["wav", "mp3", "flac", undefined, undefined]);
+    assert.deepEqual(
+      [
+        "image/png",
+        "image/jpeg",
+        "application/pdf",
+        "text/markdown",
+        "application/json",
+        "application/ld+json",
+        "image/svg+xml",
+        "application/zip",
+        "video/mp4",
+        "audio/wav",
+        "audio/mpeg",
+        "audio/x-flac; charset=x",
+        "audio/ogg",
+        "image/bmp",
+      ].map(attachmentKind),
+      ["image", "image", "pdf", "text", "text", "text", "text", undefined, undefined, "audio", "audio", "audio", "audio", "image"],
+    );
+    assert.deepEqual(["audio/x-wav", "audio/mpeg", "audio/flac", "audio/ogg", "image/png"].map(audioFormat), [
+      "wav",
+      "mp3",
+      "flac",
+      undefined,
+      undefined,
+    ]);
     assert.ok(audioTokenGuess(32_000 * 10) >= 250, "never below what 25 frames a second need");
   });
 });
@@ -49,7 +73,7 @@ describe("text encodings", () => {
     assert.throws(() => decodeText(bytes(0x68, 0, 0x69)), /NUL/);
   });
   test("a charset parameter on the media type is read", () => {
-    assert.equal(mimeCharset("Text/Plain; Charset=\"Windows-1252\""), "windows-1252");
+    assert.equal(mimeCharset('Text/Plain; Charset="Windows-1252"'), "windows-1252");
     assert.equal(mimeCharset("text/plain"), undefined);
   });
 });
@@ -71,7 +95,10 @@ describe("Conversation.attach", () => {
     const convo = await fresh("attachments: { max_bytes: 10 }\n");
     await assert.rejects(convo.attach(PNG, { mime: "" }), /type\/subtype/);
     await assert.rejects(convo.attach(PNG, { mime: "png" }), /type\/subtype/);
-    await assert.rejects(convo.attach(PNG, { mime: "application/zip" }), (e) => e instanceof ConversationError && /cannot be given to a model/.test(e.message));
+    await assert.rejects(
+      convo.attach(PNG, { mime: "application/zip" }),
+      (e) => e instanceof ConversationError && /cannot be given to a model/.test(e.message),
+    );
     await assert.rejects(convo.attach(new Uint8Array(), { mime: "image/png" }), /empty/);
     await assert.rejects(convo.attach(new Uint8Array(11), { mime: "image/png" }), /over the limit of 10/);
     await convo.attach(new Uint8Array(10).fill(1), { mime: "image/png" });
@@ -80,7 +107,10 @@ describe("Conversation.attach", () => {
   test("text is checked when attached: bad bytes are refused up front, and a declared charset reaches the model as UTF-8", async () => {
     const convo = await fresh();
     const latin1 = new Uint8Array([0x63, 0x61, 0x66, 0xe9]);
-    await assert.rejects(convo.attach(latin1, { mime: "text/plain", name: "old.txt" }), (e) => e instanceof ConversationError && /old\.txt cannot be attached as text.*not valid utf-8/.test(e.message));
+    await assert.rejects(
+      convo.attach(latin1, { mime: "text/plain", name: "old.txt" }),
+      (e) => e instanceof ConversationError && /old\.txt cannot be attached as text.*not valid utf-8/.test(e.message),
+    );
     const part = await convo.attach(latin1, { mime: "text/plain; charset=ISO-8859-1", name: "old.txt" });
     assert.deepEqual([part.data.mime, part.charset], ["text/plain", "iso-8859-1"]);
     assert.deepEqual(await convo.store.get(part.data.sha256), latin1, "the original bytes are kept");
@@ -98,8 +128,12 @@ describe("attachments in the context", () => {
     const txt = await convo.attach(enc.encode("hello from a file"), { mime: "text/plain; charset=utf-8", name: "n.txt" });
     await convo.append({ $tag: "user", content: [{ $tag: "text", text: "look" }, img, pdf, txt] });
     const { context } = await prepareContext(convo, { system: "s" });
-    const parts = (context.turns[0] as { parts: { type: string; kind?: string; mime?: string; text?: string; bytes?: Uint8Array }[] }).parts;
-    assert.deepEqual(parts.map((p) => p.type === "text" ? p.text : p.kind), ["look", "image", "pdf", "[Attached file: n.txt]\nhello from a file"]);
+    const parts = (context.turns[0] as { parts: { type: string; kind?: string; mime?: string; text?: string; bytes?: Uint8Array }[] })
+      .parts;
+    assert.deepEqual(
+      parts.map((p) => (p.type === "text" ? p.text : p.kind)),
+      ["look", "image", "pdf", "[Attached file: n.txt]\nhello from a file"],
+    );
     assert.deepEqual(parts[1]?.bytes, PNG);
     assert.equal(parts[2]?.mime, "application/pdf");
     const without = estimateInputTokens({ ...context, turns: [{ role: "user", parts: [{ type: "text", text: "look" }] }] });
@@ -108,10 +142,16 @@ describe("attachments in the context", () => {
 
   test("a missing blob or an attachment without a type is an error, not a silent drop", async () => {
     const convo = await fresh();
-    await convo.append({ $tag: "user", content: [{ $tag: "attachment", data: { $tag: "blob", sha256: "c".repeat(64), bytes: 3, mime: "image/png" } }] });
+    await convo.append({
+      $tag: "user",
+      content: [{ $tag: "attachment", data: { $tag: "blob", sha256: "c".repeat(64), bytes: 3, mime: "image/png" } }],
+    });
     await assert.rejects(prepareContext(convo, { system: "s" }), /missing/);
     const other = await fresh();
-    await other.append({ $tag: "user", content: [{ $tag: "attachment", data: { $tag: "blob", sha256: await other.store.put(PNG), bytes: 7 } }] });
+    await other.append({
+      $tag: "user",
+      content: [{ $tag: "attachment", data: { $tag: "blob", sha256: await other.store.put(PNG), bytes: 7 } }],
+    });
     await assert.rejects(prepareContext(other, { system: "s" }), /no media type/);
   });
 });

@@ -18,11 +18,13 @@ function subagentWho(args: Record<string, unknown>): string {
 /** One line for a call: `read src/a.ts`, `run pnpm test`, `script: set -e`, `edit src/a.ts`. */
 export function summarizeCall(name: string, args: Record<string, unknown>): string {
   const brief = str(args["brief"]);
-  if (name === "subagent" && brief !== undefined) return `subagent${subagentWho(args)}${args["background"] === true ? " (background)" : ""}: ${clip(brief, 90)}`;
+  if (name === "subagent" && brief !== undefined)
+    return `subagent${subagentWho(args)}${args["background"] === true ? " (background)" : ""}: ${clip(brief, 90)}`;
   const command = str(args["command"]);
   if (name === "run" && command !== undefined) return `run${args["background"] === true ? " (background)" : ""} ${clip(command, 100)}`;
   const script = str(args["script"]);
-  if (name === "script" && script !== undefined) return `script${args["background"] === true ? " (background)" : ""}: ${clip(script.split("\n")[0] ?? "", 90)}`;
+  if (name === "script" && script !== undefined)
+    return `script${args["background"] === true ? " (background)" : ""}: ${clip(script.split("\n")[0] ?? "", 90)}`;
   const path = str(args["path"]);
   if (path !== undefined) return `${name} ${path}`;
   const job = str(args["job"]);
@@ -34,9 +36,17 @@ export function summarizeCall(name: string, args: Record<string, unknown>): stri
 /** What the user is shown before deciding: exactly what will run, in full for a script. */
 export function describeCall(name: string, args: Record<string, unknown>): string {
   const brief = str(args["brief"]);
-  if (name === "subagent" && brief !== undefined) return `subagent${subagentWho(args)}${args["background"] === true ? " (in the background)" : ""}:\n${brief.split("\n").map((l) => `  ${l}`).join("\n")}`;
+  if (name === "subagent" && brief !== undefined)
+    return `subagent${subagentWho(args)}${args["background"] === true ? " (in the background)" : ""}:\n${brief
+      .split("\n")
+      .map((l) => `  ${l}`)
+      .join("\n")}`;
   const script = str(args["script"]);
-  if (name === "script" && script !== undefined) return `script${args["background"] === true ? " (in the background)" : ""}:\n${script.split("\n").map((l) => `  ${l}`).join("\n")}`;
+  if (name === "script" && script !== undefined)
+    return `script${args["background"] === true ? " (in the background)" : ""}:\n${script
+      .split("\n")
+      .map((l) => `  ${l}`)
+      .join("\n")}`;
   const command = str(args["command"]);
   if (name === "run" && command !== undefined) return `run${args["background"] === true ? " (in the background)" : ""}: ${command}`;
   const json = JSON.stringify(args, null, 2);
@@ -44,10 +54,21 @@ export function describeCall(name: string, args: Record<string, unknown>): strin
 }
 
 /** The result line, and up to three lines of the output beneath it. */
-export function resultLines(o: { is_error: boolean; content: string; ms?: number; truncated: boolean; width?: number }): { head: string; preview: string[]; more: boolean } {
+export function resultLines(o: { is_error: boolean; content: string; ms?: number; truncated: boolean; width?: number }): {
+  head: string;
+  preview: string[];
+  more: boolean;
+} {
   const bytes = new TextEncoder().encode(o.content).length;
   const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`;
   const lines = o.content.split("\n");
-  const preview = lines.slice(0, 3).map((l) => clip(l, Math.max(20, Math.min(120, o.width ?? 120)))).filter((l) => l !== "");
-  return { head: `${o.is_error ? "failed" : "ok"} · ${size}${o.ms === undefined ? "" : ` · ${o.ms} ms`}${o.truncated ? " · cut for the model" : ""}`, preview, more: lines.length > 3 || o.truncated };
+  const preview = lines
+    .slice(0, 3)
+    .map((l) => clip(l, Math.max(20, Math.min(120, o.width ?? 120))))
+    .filter((l) => l !== "");
+  return {
+    head: `${o.is_error ? "failed" : "ok"} · ${size}${o.ms === undefined ? "" : ` · ${o.ms} ms`}${o.truncated ? " · cut for the model" : ""}`,
+    preview,
+    more: lines.length > 3 || o.truncated,
+  };
 }

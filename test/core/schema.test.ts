@@ -49,7 +49,11 @@ describe("plain-object bridge", () => {
     assert.deepEqual(o, {
       $tag: "user",
       id: "x",
-      parts: [{ $tag: "text", text: "hi" }, { $tag: "md", $value: "# h" }, { $tag: "l", $value: [1, 2] }],
+      parts: [
+        { $tag: "text", text: "hi" },
+        { $tag: "md", $value: "# h" },
+        { $tag: "l", $value: [1, 2] },
+      ],
       data: { $tag: "blob", sha256: H, bytes: 3, mime: "image/png" },
       plain: { a: 1 },
     });
@@ -67,7 +71,10 @@ describe("plain-object bridge", () => {
   });
 
   test("keys named __proto__ are kept as data, not as prototypes", () => {
-    const evil = new Map<string, Value>([["__proto__", m({ polluted: true })], ["ok", 1]]);
+    const evil = new Map<string, Value>([
+      ["__proto__", m({ polluted: true })],
+      ["ok", 1],
+    ]);
     const o = valueToObject(evil) as Record<string, unknown>;
     assert.deepEqual(Object.keys(o), ["__proto__", "ok"]);
     assert.equal(({} as Record<string, unknown>)["polluted"], undefined);
@@ -104,22 +111,42 @@ describe("plain-object bridge", () => {
 });
 
 // A small entry vocabulary: note (text + optional tags) and event (count + payload of tagged parts).
-const noteType = defineEntry("note", schema(obj({ $tag: lit("note"), id: str, text: either(str, obj({ $tag: lit("blob"), sha256: str, bytes: num, mime: opt(str) })), tags: opt(arr(str)) })));
+const noteType = defineEntry(
+  "note",
+  schema(
+    obj({
+      $tag: lit("note"),
+      id: str,
+      text: either(str, obj({ $tag: lit("blob"), sha256: str, bytes: num, mime: opt(str) })),
+      tags: opt(arr(str)),
+    }),
+  ),
+);
 const eventType = defineEntry(
   "event",
-  schema(obj({
-    $tag: lit("event"),
-    id: str,
-    ok: bool,
-    parts: arr(either(obj({ $tag: lit("text"), text: str }), obj({ $tag: lit("data"), value: any }))),
-  })),
+  schema(
+    obj({
+      $tag: lit("event"),
+      id: str,
+      ok: bool,
+      parts: arr(either(obj({ $tag: lit("text"), text: str }), obj({ $tag: lit("data"), value: any }))),
+    }),
+  ),
 );
 
 describe("Pipeline", () => {
   const plain = new Pipeline({ types: [noteType, eventType] });
 
   test("encode then emit then parse then decode gives the input back", async () => {
-    const input = { $tag: "event", id: "e1", ok: true, parts: [{ $tag: "text", text: "line one\nline two" }, { $tag: "data", value: { n: 1, list: [1, 2] } }] };
+    const input = {
+      $tag: "event",
+      id: "e1",
+      ok: true,
+      parts: [
+        { $tag: "text", text: "line one\nline two" },
+        { $tag: "data", value: { n: 1, list: [1, 2] } },
+      ],
+    };
     const entry = await plain.encode(input);
     const text = emitEntry(entry);
     assert.ok(text.startsWith("- !event\n"));
@@ -193,7 +220,10 @@ describe("Pipeline", () => {
       const entry = parseEntry("- !event\n  id: e\n  ok: maybe\n  parts: []\n\n");
       const r = await plain.decode(entry);
       assert.ok(!r.ok && r.reason === "invalid");
-      assert.deepEqual(r.issues.map((i) => i.path), ["ok"]);
+      assert.deepEqual(
+        r.issues.map((i) => i.path),
+        ["ok"],
+      );
       assert.equal(r.raw, entry);
     });
 
@@ -257,7 +287,10 @@ describe("Pipeline", () => {
         const body = (v as Tagged).value as Map<string, Value>;
         return new Tagged("note", new Map<string, Value>([...body, ["text", 42]]));
       };
-      await assert.rejects(new Pipeline({ types: [noteType], transforms: [breaker] }).encode({ $tag: "note", id: "n", text: "t" }), /no longer valid after transforms/);
+      await assert.rejects(
+        new Pipeline({ types: [noteType], transforms: [breaker] }).encode({ $tag: "note", id: "n", text: "t" }),
+        /no longer valid after transforms/,
+      );
       const p = new Pipeline({ types: [noteType], transforms: [breaker], verify: false });
       assert.ok(emitEntry(await p.encode({ $tag: "note", id: "n", text: "t" })).includes("text: 42"));
     });
@@ -269,7 +302,9 @@ describe("Pipeline", () => {
 
     test("transforms run in the order given", async () => {
       const log: string[] = [];
-      const mark = (name: string): Transform => (v) => (log.push(name), v);
+      const mark =
+        (name: string): Transform =>
+        (v) => (log.push(name), v);
       await new Pipeline({ types: [noteType], transforms: [mark("a"), mark("b"), mark("c")] }).encode({ $tag: "note", id: "n", text: "t" });
       assert.deepEqual(log, ["a", "b", "c"]);
     });

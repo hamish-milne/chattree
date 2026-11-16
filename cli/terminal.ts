@@ -91,7 +91,10 @@ export class Terminal {
       removeHistoryDuplicates: true,
       prompt: "> ",
       completer: (line: string, cb: (err: Error | null, r: [string[], string]) => void) => {
-        this.#complete(line).then((r) => cb(null, r), () => cb(null, [[], line]));
+        this.#complete(line).then(
+          (r) => cb(null, r),
+          () => cb(null, [[], line]),
+        );
       },
     });
     o.tty.input.on("keypress", this.#onKeypress);
@@ -192,11 +195,19 @@ export class Terminal {
     this.#rl.write(null, { ctrl: true, name: "u" });
     const out = this.#tty.output;
     const style = this.#style;
-    let index = Math.max(0, choices.findIndex((c) => c.key === fallback));
-    const lines = (): string[] => choices.map((c, i) => (i === index ? style.bold(`❯ [${c.key}] ${c.label}`) : style.dim(`  [${c.key}] ${c.label}`)));
+    let index = Math.max(
+      0,
+      choices.findIndex((c) => c.key === fallback),
+    );
+    const lines = (): string[] =>
+      choices.map((c, i) => (i === index ? style.bold(`❯ [${c.key}] ${c.label}`) : style.dim(`  [${c.key}] ${c.label}`)));
     const draw = (first: boolean): void => {
       if (!first) out.write(`\x1b[${choices.length}A`);
-      out.write(lines().map((l) => `\r\x1b[K${l}\n`).join(""));
+      out.write(
+        lines()
+          .map((l) => `\r\x1b[K${l}\n`)
+          .join(""),
+      );
     };
     out.write(`\r\x1b[K${question}\n`);
     draw(true);
@@ -246,7 +257,9 @@ export class Terminal {
     this.#prompt.clear();
     this.#rl.write(null, { ctrl: true, name: "u" });
     this.#engine.session?.touch();
-    this.print(`${this.#style.dim(`(put aside as draft ${name}; /paste ${name} brings it back here, /send ${name} sends it, /draft ${name} edits it)`)}\n`);
+    this.print(
+      `${this.#style.dim(`(put aside as draft ${name}; /paste ${name} brings it back here, /send ${name} sends it, /draft ${name} edits it)`)}\n`,
+    );
   }
 
   #flushNotices(): void {
@@ -274,7 +287,13 @@ export class Terminal {
   async #dispatchResume(): Promise<void> {
     if (this.#closing || this.#engine.running) return;
     this.#startSpinner();
-    const render = new PlainRenderer({ out: (t) => this.#emit(t), err: (t) => this.#emit(t) }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);
+    const render = new PlainRenderer(
+      { out: (t) => this.#emit(t), err: (t) => this.#emit(t) },
+      () => this.#engine.convo,
+      this.#engine.state.thinking,
+      this.#style,
+      this.#engine.state.tools,
+    );
     render.width = () => this.#engine.width();
     try {
       this.#gate.muted = true;
@@ -344,7 +363,17 @@ export class Terminal {
     const blocking = known?.busy === "blocked" || (known?.name === "say" && !this.#engine.running);
     if (blocking) this.#startSpinner();
     const paged = cmd !== undefined && cmd.name !== "exec";
-    const render = new PlainRenderer({ out: (t) => (paged ? this.#page(t) : this.#emit(t)), err: (t) => this.#emit(t), clear: () => this.#tty.output.write("\x1b[2J\x1b[H") }, () => this.#engine.convo, this.#engine.state.thinking, this.#style, this.#engine.state.tools);
+    const render = new PlainRenderer(
+      {
+        out: (t) => (paged ? this.#page(t) : this.#emit(t)),
+        err: (t) => this.#emit(t),
+        clear: () => this.#tty.output.write("\x1b[2J\x1b[H"),
+      },
+      () => this.#engine.convo,
+      this.#engine.state.thinking,
+      this.#style,
+      this.#engine.state.tools,
+    );
     render.width = () => this.#engine.width();
     try {
       if (blocking) this.#gate.muted = true;
@@ -382,7 +411,9 @@ export class Terminal {
     }
     const rest = lines.slice(room);
     this.#engine.more = rest.join("\n");
-    this.#emit(`${lines.slice(0, room).join("\n")}\n${this.#style.dim(`-- ${rest.length - 1} more lines: /more shows the next page --`)}\n`);
+    this.#emit(
+      `${lines.slice(0, room).join("\n")}\n${this.#style.dim(`-- ${rest.length - 1} more lines: /more shows the next page --`)}\n`,
+    );
   }
 
   /** Output from the renderer: written through while muted, above the prompt otherwise. */
@@ -434,14 +465,19 @@ export class Terminal {
     this.#rl.write(null, { ctrl: true, name: "u" });
     this.#engine.session?.touch();
     this.#exitArmed = now;
-    this.print(`${this.#style.dim(hadSomething ? "(draft cleared; Ctrl-C again or Ctrl-D to quit)" : "(Ctrl-C again or Ctrl-D to quit)")}\n`);
+    this.print(
+      `${this.#style.dim(hadSomething ? "(draft cleared; Ctrl-C again or Ctrl-D to quit)" : "(Ctrl-C again or Ctrl-D to quit)")}\n`,
+    );
   }
 
   async #complete(line: string): Promise<[string[], string]> {
     if (!line.startsWith("/") || line.startsWith("//")) return [[], line];
     const space = line.indexOf(" ");
     if (space < 0) {
-      const hits = this.#engine.registry.names().map((n) => `/${n}`).filter((n) => n.startsWith(line));
+      const hits = this.#engine.registry
+        .names()
+        .map((n) => `/${n}`)
+        .filter((n) => n.startsWith(line));
       return [hits, line];
     }
     const name = line.slice(1, space);
@@ -449,7 +485,11 @@ export class Terminal {
     if (cmd?.complete === undefined) return [[], line];
     const words = line.slice(space + 1).split(" ");
     const partial = words.pop() ?? "";
-    const hits = await cmd.complete(this.#engine.ctx, words.filter((w) => w !== ""), partial);
+    const hits = await cmd.complete(
+      this.#engine.ctx,
+      words.filter((w) => w !== ""),
+      partial,
+    );
     return [hits, partial];
   }
 
@@ -461,7 +501,13 @@ export class Terminal {
     void (async () => {
       try {
         for await (const e of convo.watch({ signal: ac.signal, pollMs: this.#watchMs })) {
-          const text = await formatEntry(convo, e.value, { thinking: this.#engine.state.thinking, tools: this.#engine.state.tools, max: 600, style: this.#style, width: this.#engine.width() });
+          const text = await formatEntry(convo, e.value, {
+            thinking: this.#engine.state.thinking,
+            tools: this.#engine.state.tools,
+            max: 600,
+            style: this.#style,
+            width: this.#engine.width(),
+          });
           if (text !== undefined) this.print(`${this.#style.dim("(from another session)")}\n${text}\n`);
         }
       } catch {
@@ -491,4 +537,3 @@ export class Terminal {
     this.#done();
   }
 }
-

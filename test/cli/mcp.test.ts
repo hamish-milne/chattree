@@ -13,14 +13,22 @@ import { approve } from "../support/trust.ts";
 const SERVER = fileURLToPath(new URL("../support/mcp-server.ts", import.meta.url));
 
 const callTool = (id: string, name: string, args: object): Reply => ({
-  acts: [chunk({ tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: JSON.stringify(args) } }] }), chunk({}, "tool_calls"), usageChunk(30, 8), "data: [DONE]\n\n"],
+  acts: [
+    chunk({ tool_calls: [{ index: 0, id, type: "function", function: { name, arguments: JSON.stringify(args) } }] }),
+    chunk({}, "tool_calls"),
+    usageChunk(30, 8),
+    "data: [DONE]\n\n",
+  ],
 });
 
 async function started(replies: Reply[], allow = false) {
   const server = await FakeServer.start(replies);
   const dir = join(await tempDir(), "p");
   assert.equal(await main(initArgs(server, dir), testIo(dir)), 0);
-  await appendFile(join(dir, "harness.yml"), `\nmcp:\n  fake:\n    command: ${JSON.stringify(process.execPath)}\n    args: ["--no-warnings", ${JSON.stringify(SERVER)}]\n${allow ? "    allow: {all: 2999-01-01}\n" : ""}`);
+  await appendFile(
+    join(dir, "harness.yml"),
+    `\nmcp:\n  fake:\n    command: ${JSON.stringify(process.execPath)}\n    args: ["--no-warnings", ${JSON.stringify(SERVER)}]\n${allow ? "    allow: {all: 2999-01-01}\n" : ""}`,
+  );
   await approve(dir);
   return { server, dir };
 }
@@ -29,7 +37,8 @@ async function session(dir: string, lines: string[], opts: { yes?: boolean } = {
   const code = await main(["chat", "--plain", ...(opts.yes === false ? [] : ["-y"])], io);
   return { code, out: io.stdout, err: io.stderr, all: `${io.stdout}${io.stderr}` };
 }
-const bodyOf = (server: FakeServer, n: number) => JSON.parse(server.seen[n]?.body ?? "") as { tools?: { function: { name: string } }[]; messages: { role: string; content: unknown }[] };
+const bodyOf = (server: FakeServer, n: number) =>
+  JSON.parse(server.seen[n]?.body ?? "") as { tools?: { function: { name: string } }[]; messages: { role: string; content: unknown }[] };
 
 describe("MCP servers in a chat", () => {
   test("nothing starts until the thread accepts the server; then its tools are pinned, offered, and a call reaches it", async () => {
@@ -42,7 +51,10 @@ describe("MCP servers in a chat", () => {
       assert.match(r.all, /fake: tools pinned to this thread; each call still asks|fake: tools pinned to this thread/);
       assert.match(r.out, /fake {2}\[ready\] {2}fake 1\.2\.3 {2}5 tools/);
       assert.match(r.out, /mcp__fake__echo\n\[MCP server fake\] Repeat the text back\./);
-      assert.ok(bodyOf(server, 0).tools?.some((t) => t.function.name === "mcp__fake__echo"), "offered to the model");
+      assert.ok(
+        bodyOf(server, 0).tools?.some((t) => t.function.name === "mcp__fake__echo"),
+        "offered to the model",
+      );
       assert.match(JSON.stringify(bodyOf(server, 1).messages), /echo: hello/, "the result went back to the model");
       const setup = await (await Conversation.open(host, dir)).setup();
       assert.ok(setup.mcp["fake"] !== undefined && setup.tools["mcp__fake__echo"] !== undefined);
@@ -62,7 +74,9 @@ describe("MCP servers in a chat", () => {
       // The server's program goes away (a changed command line): the configuration no longer matches, so it is not started and its pinned tools are unreachable.
       await appendFile(join(dir, "harness.yml"), "");
       const text = await import("node:fs/promises").then((f) => f.readFile(join(dir, "harness.yml"), "utf8"));
-      await import("node:fs/promises").then((f) => f.writeFile(join(dir, "harness.yml"), text.replace('"--no-warnings",', '"--no-warnings", "--check",')));
+      await import("node:fs/promises").then((f) =>
+        f.writeFile(join(dir, "harness.yml"), text.replace('"--no-warnings",', '"--no-warnings", "--check",')),
+      );
       await approve(dir);
       const again = await session(dir, ["/mcp", "hello again"]);
       assert.match(again.all, /fake {2}\[configuration changed\]/);
@@ -114,9 +128,20 @@ describe("MCP servers in a chat", () => {
 describe("MCP servers for subagents", () => {
   /** A project whose model calls `subagent`; the child calls `echo` (when it has it) and hands back. */
   async function delegating(extra: string) {
-    const { server, dir } = await started([callTool("s1", "subagent", { brief: "echo something", name: "echoer" }), callTool("c1", "mcp__fake__echo", { text: "from the child" }), callTool("c2", "merge", { summary: "echoed" }), answer("all done")], true);
+    const { server, dir } = await started(
+      [
+        callTool("s1", "subagent", { brief: "echo something", name: "echoer" }),
+        callTool("c1", "mcp__fake__echo", { text: "from the child" }),
+        callTool("c2", "merge", { summary: "echoed" }),
+        answer("all done"),
+      ],
+      true,
+    );
     const file = join(dir, "harness.yml");
-    await writeFile(file, `${(await readFile(file, "utf8")).replace("  subagent:\n    allow: {}", "  subagent:\n    allow: { all: 2999-01-01 }")}${extra}`);
+    await writeFile(
+      file,
+      `${(await readFile(file, "utf8")).replace("  subagent:\n    allow: {}", "  subagent:\n    allow: { all: 2999-01-01 }")}${extra}`,
+    );
     await approve(dir);
     return { server, dir };
   }
@@ -127,7 +152,10 @@ describe("MCP servers for subagents", () => {
       const r = await session(dir, ["/mcp accept fake", "please delegate"]);
       assert.equal(r.code, 0, r.err);
       const childBody = bodyOf(server, 1);
-      assert.ok(childBody.tools?.some((t) => t.function.name === "mcp__fake__echo"), "the child is offered the server's tool");
+      assert.ok(
+        childBody.tools?.some((t) => t.function.name === "mcp__fake__echo"),
+        "the child is offered the server's tool",
+      );
       assert.match(JSON.stringify(bodyOf(server, 2).messages), /echo: from the child/, "the call ran, with no one asked");
       const branches = await (await Conversation.open(host, dir)).listBranches();
       const child = branches.find((b) => b.name.startsWith("sub/echoer-"));

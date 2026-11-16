@@ -78,7 +78,10 @@ const digitsIn = (answer: string): string[] => answer.match(/\d+/g) ?? [];
 
 const NUMBER_WORDS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve"];
 /** The numbers an answer states, as digits or as words. */
-const numbersIn = (answer: string): number[] => [...digitsIn(answer).map(Number), ...NUMBER_WORDS.flatMap((w, n) => (has(answer, w) ? [n] : []))];
+const numbersIn = (answer: string): number[] => [
+  ...digitsIn(answer).map(Number),
+  ...NUMBER_WORDS.flatMap((w, n) => (has(answer, w) ? [n] : [])),
+];
 
 export function make(kind: Kind, seed: number): Scenario {
   const r = rng(seed * 7919 + KINDS.indexOf(kind) * 104729 + 1);
@@ -91,7 +94,13 @@ export function make(kind: Kind, seed: number): Scenario {
       const cv = new Canvas(SIZE, SIZE);
       draw(cv, shape, SIZE / 2, SIZE / 2, paint);
       const others = SHAPES.filter((s) => s !== shape);
-      return { ...base, png: cv.png(), question: "What is the shape in this picture, and what colour is it? Answer in the form: <colour> <shape>.", expected: `${paint} ${shape}`, check: (a) => has(a, paint) && has(a, shape) && !others.some((o) => has(a, o)) && !PAINT.some((p) => p !== paint && has(a, p)) };
+      return {
+        ...base,
+        png: cv.png(),
+        question: "What is the shape in this picture, and what colour is it? Answer in the form: <colour> <shape>.",
+        expected: `${paint} ${shape}`,
+        check: (a) => has(a, paint) && has(a, shape) && !others.some((o) => has(a, o)) && !PAINT.some((p) => p !== paint && has(a, p)),
+      };
     }
     case "count": {
       const shape = pick(r, SHAPES);
@@ -104,7 +113,16 @@ export function make(kind: Kind, seed: number): Scenario {
       for (let i = 0; i < n; i++) draw(cv, shape, ...cellCentre(cells[i] as number), paint);
       for (let i = 0; i < other; i++) draw(cv, pick(r, SHAPES), ...cellCentre(cells[n + i] as number), pick(r, rest));
       // Other shapes in other colours may share the shape; what is counted is the colour and the shape together.
-      return { ...base, png: cv.png(), question: `How many ${paint} ${shape}s are in this picture? Answer with just the number.`, expected: String(n), check: (a) => { const ns = numbersIn(a); return ns.length > 0 && ns.every((x) => x === n); } };
+      return {
+        ...base,
+        png: cv.png(),
+        question: `How many ${paint} ${shape}s are in this picture? Answer with just the number.`,
+        expected: String(n),
+        check: (a) => {
+          const ns = numbersIn(a);
+          return ns.length > 0 && ns.every((x) => x === n);
+        },
+      };
     }
     case "position": {
       const [a, b] = shuffle(r, PAINT);
@@ -113,21 +131,45 @@ export function make(kind: Kind, seed: number): Scenario {
       const cv = new Canvas(SIZE, SIZE);
       draw(cv, sa, left ? SIZE * 0.25 : SIZE * 0.75, SIZE / 2, a as Paint);
       draw(cv, sb, left ? SIZE * 0.75 : SIZE * 0.25, SIZE / 2, b as Paint);
-      return { ...base, png: cv.png(), question: `One shape is ${a} and the other is ${b}. Which one is on the left? Answer with just the colour.`, expected: left ? (a as string) : (b as string), check: (x) => has(x, left ? (a as string) : (b as string)) && !has(x, left ? (b as string) : (a as string)) };
+      return {
+        ...base,
+        png: cv.png(),
+        question: `One shape is ${a} and the other is ${b}. Which one is on the left? Answer with just the colour.`,
+        expected: left ? (a as string) : (b as string),
+        check: (x) => has(x, left ? (a as string) : (b as string)) && !has(x, left ? (b as string) : (a as string)),
+      };
     }
     case "text": {
       const word = pick(r, WORDS);
-      return { ...base, png: writing(r, word).png(), question: "What word is written in this picture? Answer with just the word.", expected: word, check: (a) => has(a, word) };
+      return {
+        ...base,
+        png: writing(r, word).png(),
+        question: "What word is written in this picture? Answer with just the word.",
+        expected: word,
+        check: (a) => has(a, word),
+      };
     }
     case "digits": {
       const n = String(1000 + Math.floor(r() * 9000));
-      return { ...base, png: writing(r, n).png(), question: "What number is written in this picture? Answer with just the number.", expected: n, check: (a) => digitsIn(a.replace(/[,\s]/g, "")).includes(n) };
+      return {
+        ...base,
+        png: writing(r, n).png(),
+        question: "What number is written in this picture? Answer with just the number.",
+        expected: n,
+        check: (a) => digitsIn(a.replace(/[,\s]/g, "")).includes(n),
+      };
     }
     case "sum": {
       const x = 10 + Math.floor(r() * 40);
       const y = 10 + Math.floor(r() * 40);
       const s = `${x}+${y}`;
-      return { ...base, png: writing(r, s).png(), question: "This picture shows a sum. What is its result? Answer with just the number.", expected: String(x + y), check: (a) => digitsIn(a).pop() === String(x + y) };
+      return {
+        ...base,
+        png: writing(r, s).png(),
+        question: "This picture shows a sum. What is its result? Answer with just the number.",
+        expected: String(x + y),
+        check: (a) => digitsIn(a).pop() === String(x + y),
+      };
     }
   }
 }

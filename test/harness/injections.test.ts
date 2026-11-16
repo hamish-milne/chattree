@@ -22,7 +22,13 @@ describe("what a rule can ask the history", () => {
   });
 
   test("nothing before a fresh-context marker counts", () => {
-    const start: ChatEntry = { $tag: "branch_start", id: id(), kind: "subagent", from: { branch: "main", commit: "abc" }, context: "fresh" };
+    const start: ChatEntry = {
+      $tag: "branch_start",
+      id: id(),
+      kind: "subagent",
+      from: { branch: "main", commit: "abc" },
+      context: "fresh",
+    };
     const ctx = injectionContext([turn(), note("a"), start, turn()], prepared([]), 0);
     assert.equal(ctx.turns, 1);
     assert.equal(ctx.since("a"), undefined);
@@ -30,7 +36,10 @@ describe("what a rule can ask the history", () => {
 });
 
 describe("the usage rule", () => {
-  const near = prepared([{ kind: "near_limit", message: "this turn will reach $0.9, 90% of the limit of $1" }, { kind: "unknown_price", message: "no price" }]);
+  const near = prepared([
+    { kind: "near_limit", message: "this turn will reach $0.9, 90% of the limit of $1" },
+    { kind: "unknown_price", message: "no price" },
+  ]);
   test("speaks when a limit is near, once per kind, and not about anything else", () => {
     const out = usageRule(injectionContext([turn()], near, 0));
     assert.deepEqual(out, [{ key: "usage:near_limit", text: "Usage notice: this turn will reach $0.9, 90% of the limit of $1." }]);
@@ -52,7 +61,13 @@ describe("harness.yml", () => {
     assert.ok(v.ok && v.value.injections.usage === false && v.value.injections.rules["style"]?.first === false);
   });
   test("a rule needs text or a file (not both), a sane key, and a positive interval; a repeated key is a parse error", async () => {
-    for (const rules of ["  rules:\n    a:\n      every: 1\n", "  rules:\n    a:\n      every: 1\n      text: t\n      file: f\n", "  rules:\n    A b:\n      every: 1\n      text: t\n", "  rules:\n    a:\n      every: 0\n      text: t\n", "  rules:\n    a: {every: 1, text: t}\n    a: {every: 2, text: u}\n"]) {
+    for (const rules of [
+      "  rules:\n    a:\n      every: 1\n",
+      "  rules:\n    a:\n      every: 1\n      text: t\n      file: f\n",
+      "  rules:\n    A b:\n      every: 1\n      text: t\n",
+      "  rules:\n    a:\n      every: 0\n      text: t\n",
+      "  rules:\n    a: {every: 1, text: t}\n    a: {every: 2, text: u}\n",
+    ]) {
       assert.equal((await ok(rules)).ok, false, rules);
     }
   });

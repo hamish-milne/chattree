@@ -13,8 +13,15 @@ import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "m", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
-const batch = (n: number, big = false): NewEntry[] => Array.from({ length: n }, (_, i) => (i % 2 === 0 ? user(`q${i}${big && i === 2 ? "x".repeat(9000) : ""}`) : reply(`a${i}`)));
+const reply = (text: string): NewEntry => ({
+  $tag: "assistant",
+  provider: "anthropic",
+  model: "m",
+  blocks: [{ $tag: "text", text }],
+  stop_reason: "end_turn",
+});
+const batch = (n: number, big = false): NewEntry[] =>
+  Array.from({ length: n }, (_, i) => (i % 2 === 0 ? user(`q${i}${big && i === 2 ? "x".repeat(9000) : ""}`) : reply(`a${i}`)));
 
 function counting(inner: Host): Host & { execs: Record<string, number>; total(): number } {
   const execs: Record<string, number> = {};
@@ -61,7 +68,10 @@ describe("appendMany", () => {
     assert.deepEqual(await verifyHistory(b.convo, { deep: true }), []);
     await assertHistoryInvariants(b.convo);
     assert.equal(await b.convo.git.isClean(), true, "index and working tree agree with HEAD");
-    assert.deepEqual((await b.convo.index()).map((r) => r.id), [undefined, ...out.map((o) => o.id)]);
+    assert.deepEqual(
+      (await b.convo.index()).map((r) => r.id),
+      [undefined, ...out.map((o) => o.id)],
+    );
   });
 
   test("the conversation carries on normally afterwards, in this handle and after reopening", async () => {
@@ -79,7 +89,8 @@ describe("appendMany", () => {
   test("blobs arrive with the first entry that refers to them", async () => {
     const { convo } = await fresh();
     const out = await convo.appendMany([user("small"), user("y".repeat(10_000)), user("z".repeat(10_000))]);
-    const blobsAt = async (commit: string) => (await convo.git.text(["ls-tree", "-r", "--name-only", commit, "--", "blobs"])).split("\n").filter(Boolean).length;
+    const blobsAt = async (commit: string) =>
+      (await convo.git.text(["ls-tree", "-r", "--name-only", commit, "--", "blobs"])).split("\n").filter(Boolean).length;
     assert.deepEqual([await blobsAt(out[0]!.commit), await blobsAt(out[1]!.commit), await blobsAt(out[2]!.commit)], [0, 1, 2]);
     assert.deepEqual(await verifyHistory(convo, { deep: true }), []);
   });
@@ -125,7 +136,11 @@ describe("appendMany", () => {
       const now = Date.now() + 120_000;
       const reopened = await Conversation.open(host, dir, { now: () => now, lock: { staleAfterMs: 1000, timeoutMs: 0 } });
       await assertHistoryInvariants(reopened);
-      assert.deepEqual((await verifyHistory(reopened, { deep: true })).filter((x) => x.severity === "error"), [], `sweep ${k}: ${h.log.join(" | ")}`);
+      assert.deepEqual(
+        (await verifyHistory(reopened, { deep: true })).filter((x) => x.severity === "error"),
+        [],
+        `sweep ${k}: ${h.log.join(" | ")}`,
+      );
       const n = (await reopened.index()).length - 1;
       assert.ok(n === 0 || n === 4, `sweep ${k}: ${n} entries survived (all or none expected, as write-ahead is one append)`);
       await reopened.append(user("next"));
@@ -138,7 +153,11 @@ describe("events", () => {
     const seen: ConversationEvent[] = [];
     const { dir, convo } = await fresh({ onEvent: (e) => void seen.push(e) });
     await convo.flushEvents();
-    assert.deepEqual(seen.map((e) => e.type), ["entry"], "the header");
+    assert.deepEqual(
+      seen.map((e) => e.type),
+      ["entry"],
+      "the header",
+    );
     seen.length = 0;
 
     await convo.append(user("hi"));
@@ -189,11 +208,17 @@ describe("events", () => {
     // an uncommitted complete entry and a torn one
     const file = join(dir, "chat.yml");
     const fs = await import("node:fs");
-    fs.appendFileSync(file, '- !user\n  id: "01ARZ3NDEKTSV4RRFFQ69G5FAV"\n  content:\n  - !text\n    text: orphan\n\n- !user\n  id: "01ARZ');
+    fs.appendFileSync(
+      file,
+      '- !user\n  id: "01ARZ3NDEKTSV4RRFFQ69G5FAV"\n  content:\n  - !text\n    text: orphan\n\n- !user\n  id: "01ARZ',
+    );
     const seen: ConversationEvent[] = [];
     const reopened = await Conversation.open(host, dir, { onEvent: (e) => void seen.push(e) });
     await reopened.flushEvents();
-    assert.deepEqual(seen.map((e) => e.type), ["recovery", "entry"]);
+    assert.deepEqual(
+      seen.map((e) => e.type),
+      ["recovery", "entry"],
+    );
     const [r, e] = seen;
     assert.ok(r?.type === "recovery" && r.report.truncatedBytes > 0 && r.report.recovered.length === 1);
     assert.ok(e?.type === "entry" && e.recovered === true && e.value.$tag === "user" && e.entry.id === "01ARZ3NDEKTSV4RRFFQ69G5FAV");
@@ -238,7 +263,19 @@ describe("index cache", () => {
     const { dir, convo } = await grown(6);
     const expected = await convo.index();
     const file = join(await convo.git.commonDir(), "chattree", "index", "main.json");
-    for (const bad of ["not json", '{"v":2}', JSON.stringify({ v: 1, tip: "a".repeat(40), refs: [] }), JSON.stringify({ v: 1, tip: expected.at(-1)!.commit, refs: [[null, "header", "b".repeat(40), 5], [null, "user", "c".repeat(40), 3]] })]) {
+    for (const bad of [
+      "not json",
+      '{"v":2}',
+      JSON.stringify({ v: 1, tip: "a".repeat(40), refs: [] }),
+      JSON.stringify({
+        v: 1,
+        tip: expected.at(-1)!.commit,
+        refs: [
+          [null, "header", "b".repeat(40), 5],
+          [null, "user", "c".repeat(40), 3],
+        ],
+      }),
+    ]) {
       await writeFile(file, bad);
       const c = await Conversation.open(host, dir);
       assert.deepEqual(await c.index(), expected, bad.slice(0, 30));
@@ -251,7 +288,10 @@ describe("index cache", () => {
     const { dir, convo } = await fresh({ indexCache: false });
     await convo.appendMany(batch(3));
     await convo.flushIndex();
-    const exists = await readFile(join(await convo.git.commonDir(), "chattree", "index", "main.json")).then(() => true, () => false);
+    const exists = await readFile(join(await convo.git.commonDir(), "chattree", "index", "main.json")).then(
+      () => true,
+      () => false,
+    );
     assert.equal(exists, false);
     assert.equal((await (await Conversation.open(host, dir, { indexCache: false })).index()).length, 4);
   });
@@ -266,7 +306,14 @@ describe("index cache", () => {
   });
 
   test("parseCachedIndex rejects anything that is not strictly increasing, well-formed data", () => {
-    const ok = JSON.stringify({ v: 1, tip: "a".repeat(40), refs: [[null, "header", "b".repeat(40), 10], ["x", "user", "c".repeat(40), 20]] });
+    const ok = JSON.stringify({
+      v: 1,
+      tip: "a".repeat(40),
+      refs: [
+        [null, "header", "b".repeat(40), 10],
+        ["x", "user", "c".repeat(40), 20],
+      ],
+    });
     assert.equal(parseCachedIndex(ok)?.refs.length, 2);
     assert.equal(parseCachedIndex(ok.replace("20", "10")), undefined);
     assert.equal(parseCachedIndex(ok.replace('"user"', "5")), undefined);

@@ -39,7 +39,14 @@ const add = (a: Spend, b: Spend): void => {
 const WINDOW_KEY = /^cache_write_tokens_(\d+)m$/;
 
 /** Usage as an entry stores it: flat names, with the per-lifetime cache writes as `cache_write_tokens_<minutes>m`. */
-export function usageRecord(u: { input_tokens: number; output_tokens: number; cache_read_tokens?: number | undefined; cache_write_tokens?: number | undefined; reasoning_tokens?: number | undefined; cache_write_by_minutes?: Record<string, number> | undefined }): Record<string, number> {
+export function usageRecord(u: {
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens?: number | undefined;
+  cache_write_tokens?: number | undefined;
+  reasoning_tokens?: number | undefined;
+  cache_write_by_minutes?: Record<string, number> | undefined;
+}): Record<string, number> {
   const out: Record<string, number> = { input_tokens: u.input_tokens, output_tokens: u.output_tokens };
   for (const k of ["cache_read_tokens", "cache_write_tokens", "reasoning_tokens"] as const) if (u[k] !== undefined) out[k] = u[k] as number;
   for (const [m, n] of Object.entries(u.cache_write_by_minutes ?? {})) out[`cache_write_tokens_${m}m`] = n;
@@ -82,7 +89,11 @@ export async function computeLedger(entries: readonly ChatEntry[], prices: Price
     const settings = setup.model?.settings as { service_tier?: unknown; cache_ttl?: unknown } | undefined;
     const tier = settings?.service_tier;
     const window = typeof settings?.cache_ttl === "string" ? ttlMinutes(settings.cache_ttl) : undefined;
-    const c = costOf({ ...tokensOf(usage), default_cache_minutes: window }, t === undefined ? undefined : findModel(t, model), typeof tier === "string" ? tier : undefined);
+    const c = costOf(
+      { ...tokensOf(usage), default_cache_minutes: window },
+      t === undefined ? undefined : findModel(t, model),
+      typeof tier === "string" ? tier : undefined,
+    );
     return { usd: c.unknown ? 0 : c.usd, requests: 1, unpriced: c.unknown ? 1 : 0 };
   };
   const count = (s: Spend, model?: string): void => {
@@ -97,8 +108,10 @@ export async function computeLedger(entries: readonly ChatEntry[], prices: Price
     if (i < from) continue;
     if (e.$tag === "user") out.turn = zero();
     else if (e.$tag === "assistant") count(await spendOf(e.model, e.usage), e.model);
-    else if (e.$tag === "compaction" && e.usage !== undefined) count(await spendOf(e.model ?? setup.model?.resolved ?? setup.model?.id ?? "", e.usage), e.model ?? setup.model?.id);
-    else if (e.$tag === "interrupted" && e.usage !== undefined) count(await spendOf(setup.model?.resolved ?? setup.model?.id ?? "", e.usage), setup.model?.id);
+    else if (e.$tag === "compaction" && e.usage !== undefined)
+      count(await spendOf(e.model ?? setup.model?.resolved ?? setup.model?.id ?? "", e.usage), e.model ?? setup.model?.id);
+    else if (e.$tag === "interrupted" && e.usage !== undefined)
+      count(await spendOf(setup.model?.resolved ?? setup.model?.id ?? "", e.usage), setup.model?.id);
     else if ((e.$tag === "subagent_result" || e.$tag === "fork_merge") && e.spend !== undefined) count(e.spend);
   }
   return out;

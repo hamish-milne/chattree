@@ -43,10 +43,14 @@ describe("SSE parsing", () => {
   test("multi-byte characters survive being split anywhere", () => {
     const text = "data: héllo 日本語 😀\n\n";
     const bytes = enc.encode(text);
-    for (let cut = 1; cut < bytes.length; cut++) assert.deepEqual(parse([bytes.subarray(0, cut), bytes.subarray(cut)]), [ev("message", "héllo 日本語 😀")], `cut at ${cut}`);
+    for (let cut = 1; cut < bytes.length; cut++)
+      assert.deepEqual(parse([bytes.subarray(0, cut), bytes.subarray(cut)]), [ev("message", "héllo 日本語 😀")], `cut at ${cut}`);
   });
   test("a CRLF split between its CR and its LF is one line ending", () => {
-    assert.deepEqual(parse([enc.encode("data: a\r"), enc.encode("\n\r"), enc.encode("\ndata: b\n\n")]), [ev("message", "a"), ev("message", "b")]);
+    assert.deepEqual(parse([enc.encode("data: a\r"), enc.encode("\n\r"), enc.encode("\ndata: b\n\n")]), [
+      ev("message", "a"),
+      ev("message", "b"),
+    ]);
   });
   test("parseSse reads a byte stream", async () => {
     async function* body(): AsyncGenerator<Uint8Array> {
@@ -55,7 +59,10 @@ describe("SSE parsing", () => {
     }
     const out: SseEvent[] = [];
     for await (const e of parseSse(body())) out.push(e);
-    assert.deepEqual(out.map((e) => e.data), ["a", "b"]);
+    assert.deepEqual(
+      out.map((e) => e.data),
+      ["a", "b"],
+    );
   });
 });
 
@@ -74,7 +81,8 @@ describe("chunking property", () => {
   const expected = whole(stream);
 
   test("every split into two chunks gives the same events", () => {
-    for (let cut = 0; cut <= bytes.length; cut++) assert.deepEqual(parse([bytes.subarray(0, cut), bytes.subarray(cut)]), expected, `cut at ${cut}`);
+    for (let cut = 0; cut <= bytes.length; cut++)
+      assert.deepEqual(parse([bytes.subarray(0, cut), bytes.subarray(cut)]), expected, `cut at ${cut}`);
   });
   test("random chunk sizes, down to single bytes", () => {
     const r = new Rng(7);

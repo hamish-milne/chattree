@@ -35,25 +35,34 @@ export interface SamplingOptions {
 /** A way to read bytes `[start, start + length)` of the file; may return fewer at its end. */
 export type RangeReader = (start: number, length: number) => Promise<Uint8Array>;
 
-export const fileReader = (path: string): RangeReader => async (start, length) => {
-  const f = await open(path, "r");
-  try {
-    const buf = new Uint8Array(length);
-    const { bytesRead } = await f.read(buf, 0, length, start);
-    return buf.subarray(0, bytesRead);
-  } finally {
-    await f.close();
-  }
-};
+export const fileReader =
+  (path: string): RangeReader =>
+  async (start, length) => {
+    const f = await open(path, "r");
+    try {
+      const buf = new Uint8Array(length);
+      const { bytesRead } = await f.read(buf, 0, length, start);
+      return buf.subarray(0, bytesRead);
+    } finally {
+      await f.close();
+    }
+  };
 
-export const urlReader = (url: string, o: { fetch?: FetchFn | undefined; token?: string | undefined; signal?: AbortSignal | undefined }): RangeReader => async (start, length) => {
-  const res = await fetchFollow(url, { fetch: o.fetch, token: o.token, signal: o.signal, headers: { range: `bytes=${start}-${start + length - 1}` } });
-  if (res.status === 416) return new Uint8Array(0);
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  // A server that ignores Range sends the whole file from the start; never use more than was asked.
-  if (res.status === 200) return bytes.subarray(start, start + length);
-  return bytes.subarray(0, length);
-};
+export const urlReader =
+  (url: string, o: { fetch?: FetchFn | undefined; token?: string | undefined; signal?: AbortSignal | undefined }): RangeReader =>
+  async (start, length) => {
+    const res = await fetchFollow(url, {
+      fetch: o.fetch,
+      token: o.token,
+      signal: o.signal,
+      headers: { range: `bytes=${start}-${start + length - 1}` },
+    });
+    if (res.status === 416) return new Uint8Array(0);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    // A server that ignores Range sends the whole file from the start; never use more than was asked.
+    if (res.status === 200) return bytes.subarray(start, start + length);
+    return bytes.subarray(0, length);
+  };
 
 /** The most of the header read before giving up: the tokenizer's vocabulary is most of it, a few megabytes. */
 const HEADER_LIMIT = 48 * 1024 * 1024;
@@ -112,17 +121,28 @@ async function value(c: Cursor, type: number): Promise<number | string | boolean
   if (size !== undefined) {
     const v = await c.bytes(size);
     switch (type) {
-      case 0: return v.getUint8(0);
-      case 1: return v.getInt8(0);
-      case 2: return v.getUint16(0, true);
-      case 3: return v.getInt16(0, true);
-      case 4: return v.getUint32(0, true);
-      case 5: return v.getInt32(0, true);
-      case 6: return v.getFloat32(0, true);
-      case 7: return v.getUint8(0) !== 0;
-      case 10: return Number(v.getBigUint64(0, true));
-      case 11: return Number(v.getBigInt64(0, true));
-      default: return v.getFloat64(0, true);
+      case 0:
+        return v.getUint8(0);
+      case 1:
+        return v.getInt8(0);
+      case 2:
+        return v.getUint16(0, true);
+      case 3:
+        return v.getInt16(0, true);
+      case 4:
+        return v.getUint32(0, true);
+      case 5:
+        return v.getInt32(0, true);
+      case 6:
+        return v.getFloat32(0, true);
+      case 7:
+        return v.getUint8(0) !== 0;
+      case 10:
+        return Number(v.getBigUint64(0, true));
+      case 11:
+        return Number(v.getBigInt64(0, true));
+      default:
+        return v.getFloat64(0, true);
     }
   }
   if (type === 8) return await c.string();
@@ -141,7 +161,8 @@ async function value(c: Cursor, type: number): Promise<number | string | boolean
 export async function readGgufSampling(read: RangeReader): Promise<Sampling> {
   const c = new Cursor(read);
   const magic = await c.bytes(4);
-  if (String.fromCharCode(magic.getUint8(0), magic.getUint8(1), magic.getUint8(2), magic.getUint8(3)) !== "GGUF") throw new Error("not a GGUF file");
+  if (String.fromCharCode(magic.getUint8(0), magic.getUint8(1), magic.getUint8(2), magic.getUint8(3)) !== "GGUF")
+    throw new Error("not a GGUF file");
   const version = await c.u32();
   if (version < 2 || version > 3) throw new Error(`GGUF version ${version} is not one this reads`);
   await c.u64(); // tensors
@@ -206,7 +227,11 @@ export function baseModels(info: unknown): string[] {
 /** How far up the chain of base models to look (a quantised copy of a re-upload of the original is two). */
 const MAX_HOPS = 3;
 
-async function baseGenerationConfig(repo: string, o: SamplingOptions, notes: string[]): Promise<{ repo: string; values: Sampling } | undefined> {
+async function baseGenerationConfig(
+  repo: string,
+  o: SamplingOptions,
+  notes: string[],
+): Promise<{ repo: string; values: Sampling } | undefined> {
   const base = o.hfBase ?? "https://huggingface.co";
   const seen = new Set<string>([repo]);
   let queue = [repo];
@@ -224,7 +249,11 @@ async function baseGenerationConfig(repo: string, o: SamplingOptions, notes: str
         if (seen.has(b)) continue;
         seen.add(b);
         try {
-          const res = await fetchFollow(`${base}/${b}/resolve/main/generation_config.json`, { fetch: o.fetch, token: o.token, signal: o.signal });
+          const res = await fetchFollow(`${base}/${b}/resolve/main/generation_config.json`, {
+            fetch: o.fetch,
+            token: o.token,
+            signal: o.signal,
+          });
           const values = fromGenerationConfig(await res.json());
           if (Object.keys(values).length > 0) return { repo: b, values };
         } catch {
@@ -243,7 +272,8 @@ async function baseGenerationConfig(repo: string, o: SamplingOptions, notes: str
 /** The sampling for a model entry. Never throws: what could not be looked up is in `notes`. */
 export async function resolveSampling(m: ModelEntry, o: SamplingOptions = {}): Promise<ResolvedSampling> {
   const notes: string[] = [];
-  if (m.sampling !== undefined && Object.keys(m.sampling).length > 0) return { values: m.sampling, source: "settings", detail: "the settings file", notes };
+  if (m.sampling !== undefined && Object.keys(m.sampling).length > 0)
+    return { values: m.sampling, source: "settings", detail: "the settings file", notes };
 
   const src = modelSource(m);
   // 2. The GGUF header.
@@ -264,7 +294,10 @@ export async function resolveSampling(m: ModelEntry, o: SamplingOptions = {}): P
         path = (pickGguf(files, src.kind === "hf-quant" ? src.quant : undefined, src.repo)[0] as { path: string }).path;
       }
       where = `${src.repo}/${path}`;
-      read = urlReader(`${base}/${src.repo}/resolve/${encodeURIComponent(src.revision)}/${path.split("/").map(encodeURIComponent).join("/")}`, o);
+      read = urlReader(
+        `${base}/${src.repo}/resolve/${encodeURIComponent(src.revision)}/${path.split("/").map(encodeURIComponent).join("/")}`,
+        o,
+      );
     }
     if (read !== undefined) {
       const values = await readGgufSampling(read);
@@ -284,5 +317,12 @@ export async function resolveSampling(m: ModelEntry, o: SamplingOptions = {}): P
 
 /** The values as a settings snippet, for `models info` to offer. */
 export function samplingYaml(name: string, s: Sampling): string {
-  return [`local_models:`, `  models:`, `    ${name}:`, `      sampling: { ${Object.entries(s).map(([k, v]) => `${k}: ${v}`).join(", ")} }`].join("\n");
+  return [
+    `local_models:`,
+    `  models:`,
+    `    ${name}:`,
+    `      sampling: { ${Object.entries(s)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join(", ")} }`,
+  ].join("\n");
 }

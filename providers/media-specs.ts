@@ -13,7 +13,12 @@ const WEBP = { mime: "image/webp" };
 
 /** Anthropic Messages: image blocks of png, jpeg, gif and webp (5 MiB each) and document blocks of PDF (32 MiB); no sound. */
 export const ANTHROPIC_MEDIA: MediaSpec = {
-  image: [{ ...PNG, maxBytes: 5 * MiB }, { ...JPEG, maxBytes: 5 * MiB }, { ...GIF, maxBytes: 5 * MiB }, { ...WEBP, maxBytes: 5 * MiB }],
+  image: [
+    { ...PNG, maxBytes: 5 * MiB },
+    { ...JPEG, maxBytes: 5 * MiB },
+    { ...GIF, maxBytes: 5 * MiB },
+    { ...WEBP, maxBytes: 5 * MiB },
+  ],
   pdf: [{ mime: "application/pdf", maxBytes: 32 * MiB }],
 };
 

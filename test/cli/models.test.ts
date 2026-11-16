@@ -64,41 +64,45 @@ describe("chattree models", () => {
     }
   });
 
-  test("starts a detached host that outlives the command, shows progress, is reused, and stops on request", { skip: process.platform === "win32" }, async () => {
-    const { server, env, dir, data } = await setup();
-    let pid: number | undefined;
-    try {
-      const first = testIo(dir, { env });
-      assert.equal(await main(["models", "start", "-y"], first), 0, first.stderr);
-      assert.match(first.stderr, /starting the model host/);
-      assert.match(first.stderr, /alpha: alpha\.gguf done/);
-      assert.match(first.stderr, /ready at http:\/\/127\.0\.0\.1:\d+\nmodels: alpha/);
-      assert.doesNotMatch(first.stderr, /backend:/, "a llama_cpp.path is the person's own build: nothing to explain");
+  test(
+    "starts a detached host that outlives the command, shows progress, is reused, and stops on request",
+    { skip: process.platform === "win32" },
+    async () => {
+      const { server, env, dir, data } = await setup();
+      let pid: number | undefined;
+      try {
+        const first = testIo(dir, { env });
+        assert.equal(await main(["models", "start", "-y"], first), 0, first.stderr);
+        assert.match(first.stderr, /starting the model host/);
+        assert.match(first.stderr, /alpha: alpha\.gguf done/);
+        assert.match(first.stderr, /ready at http:\/\/127\.0\.0\.1:\d+\nmodels: alpha/);
+        assert.doesNotMatch(first.stderr, /backend:/, "a llama_cpp.path is the person's own build: nothing to explain");
 
-      const status = testIo(dir, { env });
-      assert.equal(await main(["models", "status"], status), 0);
-      assert.match(status.stdout, /model host: ready at http/);
-      assert.match(status.stdout, /alpha\s+unloaded\s+alpha@[0-9a-f]{8}/);
-      pid = (await findDaemon(data))?.info.pid;
-      assert.ok(pid !== undefined && pid !== process.pid && pidAlive(pid));
+        const status = testIo(dir, { env });
+        assert.equal(await main(["models", "status"], status), 0);
+        assert.match(status.stdout, /model host: ready at http/);
+        assert.match(status.stdout, /alpha\s+unloaded\s+alpha@[0-9a-f]{8}/);
+        pid = (await findDaemon(data))?.info.pid;
+        assert.ok(pid !== undefined && pid !== process.pid && pidAlive(pid));
 
-      // a later session finds it and starts nothing
-      const again = testIo(dir, { env });
-      assert.equal(await main(["models", "start"], again), 0);
-      assert.doesNotMatch(again.stderr, /starting the model host/);
-      assert.equal((await findDaemon(data))?.info.pid, pid);
+        // a later session finds it and starts nothing
+        const again = testIo(dir, { env });
+        assert.equal(await main(["models", "start"], again), 0);
+        assert.doesNotMatch(again.stderr, /starting the model host/);
+        assert.equal((await findDaemon(data))?.info.pid, pid);
 
-      const stop = testIo(dir, { env });
-      assert.equal(await main(["models", "stop"], stop), 0);
-      for (let i = 0; i < 100 && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
-      assert.equal(pidAlive(pid), false);
-      assert.equal(await findDaemon(data), undefined);
-      assert.equal(await stat(join(data, "run", "daemon.json")).catch(() => undefined), undefined);
-    } finally {
-      if (pid !== undefined && pidAlive(pid)) process.kill(pid);
-      await server.close();
-    }
-  });
+        const stop = testIo(dir, { env });
+        assert.equal(await main(["models", "stop"], stop), 0);
+        for (let i = 0; i < 100 && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
+        assert.equal(pidAlive(pid), false);
+        assert.equal(await findDaemon(data), undefined);
+        assert.equal(await stat(join(data, "run", "daemon.json")).catch(() => undefined), undefined);
+      } finally {
+        if (pid !== undefined && pidAlive(pid)) process.kill(pid);
+        await server.close();
+      }
+    },
+  );
 
   test("restart replaces the daemon itself, so code and settings are new", { skip: process.platform === "win32" }, async () => {
     const { server, env, dir, data } = await setup();
@@ -126,11 +130,17 @@ describe("chattree models", () => {
     await fakeLlamaRelease(server, await tempDir());
     const data = join(dir, "data");
     const settings = join(dir, "settings.yml");
-    await writeFile(settings, `data_dir: ${JSON.stringify(data)}\nlocal_models:\n  llama_cpp: { tag: b100 }\n  server: { health_timeout: 10 }\n  models: {}\n`);
+    await writeFile(
+      settings,
+      `data_dir: ${JSON.stringify(data)}\nlocal_models:\n  llama_cpp: { tag: b100 }\n  server: { health_timeout: 10 }\n  models: {}\n`,
+    );
     // The daemon runs in this process, so that the release comes from the fake server instead of github.com.
     const daemon = new Daemon({
       data,
-      loadSettings: async () => ({ config: localModelsSchema.parse({ llama_cpp: { tag: "b100" }, server: { health_timeout: 10 } }), baseDir: dir }),
+      loadSettings: async () => ({
+        config: localModelsSchema.parse({ llama_cpp: { tag: "b100" }, server: { health_timeout: 10 } }),
+        baseDir: dir,
+      }),
       host: {
         platform: "linux",
         arch: "x64",

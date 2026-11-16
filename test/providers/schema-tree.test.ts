@@ -4,11 +4,23 @@ import { argNode, concreteTypes, isNullable, parseSchema } from "../../providers
 
 describe("the schema tree", () => {
   test("reads types, descriptions, enums, properties and requirements", () => {
-    const n = parseSchema({ type: "object", description: "D", required: ["a"], properties: { a: { type: "string", enum: ["x", "y"] }, b: { type: ["integer", "null"] }, c: { type: "array", items: { type: "string" } } } });
+    const n = parseSchema({
+      type: "object",
+      description: "D",
+      required: ["a"],
+      properties: {
+        a: { type: "string", enum: ["x", "y"] },
+        b: { type: ["integer", "null"] },
+        c: { type: "array", items: { type: "string" } },
+      },
+    });
     assert.deepEqual(n.types, ["object"]);
     assert.equal(n.description, "D");
     assert.deepEqual(n.required, ["a"]);
-    assert.deepEqual(n.properties?.map(([k]) => k), ["a", "b", "c"]);
+    assert.deepEqual(
+      n.properties?.map(([k]) => k),
+      ["a", "b", "c"],
+    );
     const [, a] = n.properties?.[0] ?? [];
     assert.deepEqual(a?.enum, ["x", "y"]);
     const [, b] = n.properties?.[1] ?? [];
@@ -17,7 +29,10 @@ describe("the schema tree", () => {
     assert.deepEqual(n.properties?.[2]?.[1].items?.types, ["string"]);
   });
   test("follows local references, and takes what it does not understand as any", () => {
-    const n = parseSchema({ properties: { p: { $ref: "#/$defs/P", description: "mine" }, q: "nonsense" }, $defs: { P: { type: "number" } } });
+    const n = parseSchema({
+      properties: { p: { $ref: "#/$defs/P", description: "mine" }, q: "nonsense" },
+      $defs: { P: { type: "number" } },
+    });
     const [, p] = n.properties?.[0] ?? [];
     assert.deepEqual(p?.types, ["number"]);
     assert.equal(p?.description, "mine");

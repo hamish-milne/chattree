@@ -20,7 +20,10 @@ export const ANTHROPIC_PRICES: PriceTable = {
     "claude-sonnet-5-5": { rates: { standard: { input: 2, output: 10, cache_write: { 5: 2.5, 60: 4 }, cache_read: 0.1 } } },
     "claude-haiku-5-5": {
       rates: { standard: { input: 0.1, output: 0.5, cache_write: { 5: 0.125, 60: 0.2 }, cache_read: 0.01 } },
-      long_context: { above_tokens: 100_000, rates: { standard: { input: 0.5, output: 2.5, cache_write: { 5: 0.625, 60: 1 }, cache_read: 0.05 } } },
+      long_context: {
+        above_tokens: 100_000,
+        rates: { standard: { input: 0.5, output: 2.5, cache_write: { 5: 0.625, 60: 1 }, cache_read: 0.05 } },
+      },
     },
   },
 };
@@ -28,7 +31,8 @@ export const ANTHROPIC_PRICES: PriceTable = {
 export const OPENAI_PRICES: PriceTable = {
   version: 1,
   as_of: "2026-10-25",
-  source: "https://developers.openai.com/api/docs/pricing (read in a browser, each Speed tab and Short/Long context toggle clicked; cache writes keyed by lifetime in minutes, 30 and 720; long-context threshold is not stated on the page and is assumed)",
+  source:
+    "https://developers.openai.com/api/docs/pricing (read in a browser, each Speed tab and Short/Long context toggle clicked; cache writes keyed by lifetime in minutes, 30 and 720; long-context threshold is not stated on the page and is assumed)",
   currency: "USD",
   models: {
     "gpt-6-astra": {
@@ -105,10 +109,33 @@ const ANTHROPIC_LEVELS = {
   high: { thinking: { type: "adaptive" }, effort: "high" },
 };
 export const ANTHROPIC_MODELS: Record<string, ModelInfo> = {
-  "claude-fable-5-1": { context_window: 1_000_000, cost_tier: "high", description: "The most capable model: hard, open-ended or long-running work that needs the best judgment.", reasoning: ANTHROPIC_LEVELS, default_reasoning: "high" },
-  "claude-opus-5-5": { context_window: 1_000_000, cost_tier: "high", description: "Very capable all-rounder for demanding coding and analysis.", reasoning: ANTHROPIC_LEVELS, default_reasoning: "high" },
-  "claude-sonnet-5-5": { context_window: 1_000_000, cost_tier: "medium", description: "Smart and efficient: a good default for most tasks.", reasoning: ANTHROPIC_LEVELS, default_reasoning: "medium" },
-  "claude-haiku-5-5": { cost_tier: "low", description: "Fast and cheap: simple, well-specified or high-volume tasks such as searching, summarising and mechanical edits.", reasoning: ANTHROPIC_LEVELS, default_reasoning: "low" },
+  "claude-fable-5-1": {
+    context_window: 1_000_000,
+    cost_tier: "high",
+    description: "The most capable model: hard, open-ended or long-running work that needs the best judgment.",
+    reasoning: ANTHROPIC_LEVELS,
+    default_reasoning: "high",
+  },
+  "claude-opus-5-5": {
+    context_window: 1_000_000,
+    cost_tier: "high",
+    description: "Very capable all-rounder for demanding coding and analysis.",
+    reasoning: ANTHROPIC_LEVELS,
+    default_reasoning: "high",
+  },
+  "claude-sonnet-5-5": {
+    context_window: 1_000_000,
+    cost_tier: "medium",
+    description: "Smart and efficient: a good default for most tasks.",
+    reasoning: ANTHROPIC_LEVELS,
+    default_reasoning: "medium",
+  },
+  "claude-haiku-5-5": {
+    cost_tier: "low",
+    description: "Fast and cheap: simple, well-specified or high-volume tasks such as searching, summarising and mechanical edits.",
+    reasoning: ANTHROPIC_LEVELS,
+    default_reasoning: "low",
+  },
 };
 
 const OPENAI_LEVELS = {
@@ -118,6 +145,16 @@ const OPENAI_LEVELS = {
   high: { reasoning: true, effort: "high" },
 };
 export const OPENAI_MODELS: Record<string, ModelInfo> = {
-  "gpt-6-astra": { cost_tier: "high", description: "OpenAI's most capable model: demanding reasoning and coding.", reasoning: OPENAI_LEVELS, default_reasoning: "high" },
-  "gpt-6.1-sol": { cost_tier: "medium", description: "Capable and efficient: a good default for most tasks.", reasoning: OPENAI_LEVELS, default_reasoning: "medium" },
+  "gpt-6-astra": {
+    cost_tier: "high",
+    description: "OpenAI's most capable model: demanding reasoning and coding.",
+    reasoning: OPENAI_LEVELS,
+    default_reasoning: "high",
+  },
+  "gpt-6.1-sol": {
+    cost_tier: "medium",
+    description: "Capable and efficient: a good default for most tasks.",
+    reasoning: OPENAI_LEVELS,
+    default_reasoning: "medium",
+  },
 };

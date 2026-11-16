@@ -70,7 +70,8 @@ export function builtinSpecs(option: unknown): Map<string, BuiltinSpec> {
     const arg = typeof given["arg"] === "string" ? given["arg"] : (known?.arg ?? "command");
     const text = (k: string, fallback: string): string => (typeof given[k] === "string" ? (given[k] as string) : fallback);
     const run = typeof given["run"] === "string" ? given["run"] : undefined;
-    if (run !== undefined && !PLACEHOLDER.test(run)) throw new Error(`builtin_tools.${name}.run must contain $message, where the model's message goes: ${run}`);
+    if (run !== undefined && !PLACEHOLDER.test(run))
+      throw new Error(`builtin_tools.${name}.run must contain $message, where the model's message goes: ${run}`);
     const described = typeof given["description"] === "string" ? `## ${name}\n\n${given["description"]}` : undefined;
     out.set(name, {
       arg,
@@ -86,7 +87,9 @@ export function builtinSpecs(option: unknown): Map<string, BuiltinSpec> {
 /** The developer block's rules for the built-ins that are offered, with an example of each, and what happens to the other tools. */
 export function builtinPreamble(offered: readonly (readonly [string, BuiltinSpec])[], hasFunctions: boolean): string {
   const names = offered.map(([n]) => n);
-  const rest = hasFunctions ? " Every other tool is a function: call it on the commentary channel with to=functions.NAME and JSON-encoded arguments." : "";
+  const rest = hasFunctions
+    ? " Every other tool is a function: call it on the commentary channel with to=functions.NAME and JSON-encoded arguments."
+    : "";
   return `IMPORTANT. You MUST follow these rules exactly for the built-in tools ${names.join(" and ")}. They are not functions.
 1. You MUST call a built-in tool on the analysis channel, with the recipient set to the tool's name (${names.map((n) => `to=${n}`).join(", ")}). You MUST NOT use the commentary channel or the functions. prefix for them.
 2. The message MUST be only the ${offered.map(([, s]) => s.what).join(" or ")} itself, as bare text. You MUST NOT wrap it in JSON, you MUST NOT use argument names such as "code", "cmd" or "command", and you MUST NOT use quotes or arrays.

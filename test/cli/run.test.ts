@@ -14,7 +14,9 @@ import { WAIT_MS } from "../support/wait.ts";
 
 const callTools = (...calls: { id: string; name: string; args: object }[]): Reply => ({
   acts: [
-    ...calls.map((c, i) => chunk({ tool_calls: [{ index: i, id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } }] })),
+    ...calls.map((c, i) =>
+      chunk({ tool_calls: [{ index: i, id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } }] }),
+    ),
     chunk({}, "tool_calls"),
     usageChunk(30, 8),
     "data: [DONE]\n\n",
@@ -32,7 +34,9 @@ const open = (dir: string) => Conversation.open(host, dir);
 const entries = async (dir: string) => (await (await open(dir)).readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
 const say = async (dir: string, text: string) => void (await (await open(dir)).append({ $tag: "user", content: [{ $tag: "text", text }] }));
 const replies = async (dir: string) =>
-  (await entries(dir)).flatMap((e) => (e.$tag === "assistant" ? e.blocks.flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : [])) : []));
+  (await entries(dir)).flatMap((e) =>
+    e.$tag === "assistant" ? e.blocks.flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : [])) : [],
+  );
 
 describe("chattree run", { timeout: 60_000 }, () => {
   test("--once answers a message nobody has answered, and leaves with status 0", async () => {
@@ -106,7 +110,10 @@ describe("chattree run", { timeout: 60_000 }, () => {
       const opened = await openThread(io, project, undefined, { providers: "optional" });
       const engine = new Engine({ io, project, opened, tools: true, confirm: async () => false });
       await engine.pump()?.tick();
-      assert.deepEqual(engine.ownQuestions().map((q) => [q.branch, q.callId]), [["main", "c1"]]);
+      assert.deepEqual(
+        engine.ownQuestions().map((q) => [q.branch, q.callId]),
+        [["main", "c1"]],
+      );
       assert.doesNotMatch(await engine.statusLine(), /asking/, "this thread's question is asked, not counted");
       await (await open(dir)).append({ $tag: "approval", call_id: "c1", allow: false, reason: "no" });
       await engine.pump()?.tick();

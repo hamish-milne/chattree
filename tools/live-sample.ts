@@ -95,14 +95,25 @@ export interface SampleReport {
 export function blur(tool: string, result: string): string {
   const lines = result.split("\n");
   const first = (lines.find((l) => /^failed: /.test(l)) ?? lines[0] ?? "").replace(/^failed: [^:]*: /, "");
-  const text = first.replace(/[0-9a-f]{8,}/gi, "<hash>").replace(/"[^"]{25,}"/g, '"…"').replace(/\d+/g, "#").slice(0, 110);
+  const text = first
+    .replace(/[0-9a-f]{8,}/gi, "<hash>")
+    .replace(/"[^"]{25,}"/g, '"…"')
+    .replace(/\d+/g, "#")
+    .slice(0, 110);
   return `${tool}: ${text}`;
 }
 
-export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "busybox">): { run: Task[]; skipped: { task: string; why: string }[] } {
+export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "busybox">): {
+  run: Task[];
+  skipped: { task: string; why: string }[];
+} {
   const run: Task[] = [];
   const skipped: { task: string; why: string }[] = [];
-  for (const t of [...TASKS, ...(o.groups?.includes("context") === true ? CONTEXT_TASKS : []), ...(o.groups?.includes("media") === true ? MEDIA_TASKS : [])]) {
+  for (const t of [
+    ...TASKS,
+    ...(o.groups?.includes("context") === true ? CONTEXT_TASKS : []),
+    ...(o.groups?.includes("media") === true ? MEDIA_TASKS : []),
+  ]) {
     if (o.tasks !== undefined && o.tasks.length > 0 && !o.tasks.some((x) => t.name.includes(x))) continue;
     if (o.groups !== undefined && o.groups.length > 0 && !o.groups.includes(t.group)) continue;
     const missing = (t.needs ?? []).filter((n) => !available(n, o.busybox));
@@ -115,7 +126,11 @@ export function selectTasks(o: Pick<SampleOptions, "tasks" | "groups" | "busybox
 export async function runSamples(o: SampleOptions): Promise<SampleReport> {
   if (o.adapter === undefined && o.flavor === "local-models") throw new Error("the local-models flavor needs its adapter (see main)");
   const adapter = o.adapter ?? makeAdapter({ ...o, flavor: o.flavor as Flavor });
-  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens ?? 4096, ...(o.sampling ?? {}), ...(o.settings ?? {}) } } as NonNullable<AgentSetup["model"]>;
+  const model = {
+    provider: "live",
+    id: o.model,
+    settings: { max_output_tokens: o.maxTokens ?? 4096, ...(o.sampling ?? {}), ...(o.settings ?? {}) },
+  } as NonNullable<AgentSetup["model"]>;
   const repeat = o.repeat ?? 10;
   const { run, skipped } = selectTasks(o);
   const samples: Sample[] = [];
@@ -123,10 +138,33 @@ export async function runSamples(o: SampleOptions): Promise<SampleReport> {
   for (const task of run) {
     for (let n = 1; n <= repeat; n++) {
       const t0 = Date.now();
-      const r = await runAgentTask({ adapter, model, busybox: o.busybox, files: task.files, prompt: task.prompt, media: task.media === true, timeoutMs: (o.timeoutSeconds ?? 180) * 1000 });
+      const r = await runAgentTask({
+        adapter,
+        model,
+        busybox: o.busybox,
+        files: task.files,
+        prompt: task.prompt,
+        media: task.media === true,
+        timeoutMs: (o.timeoutSeconds ?? 180) * 1000,
+      });
       const noTools = r.used.size === 0;
-      const problem = noTools ? "the model made no tool call" : r.status !== "completed" ? `the loop ended with ${r.status}` : await task.check(r);
-      const s: Sample = { task: task.name, n, ...(problem === undefined ? {} : { problem }), noTools, requests: r.requests, errors: r.errors, status: r.status, ms: Date.now() - t0, steps: r.steps, answer: r.answer };
+      const problem = noTools
+        ? "the model made no tool call"
+        : r.status !== "completed"
+          ? `the loop ended with ${r.status}`
+          : await task.check(r);
+      const s: Sample = {
+        task: task.name,
+        n,
+        ...(problem === undefined ? {} : { problem }),
+        noTools,
+        requests: r.requests,
+        errors: r.errors,
+        status: r.status,
+        ms: Date.now() - t0,
+        steps: r.steps,
+        answer: r.answer,
+      };
       samples.push(s);
       o.onSample?.(s, ++done, run.length * repeat);
     }
@@ -146,33 +184,56 @@ export async function runSamples(o: SampleOptions): Promise<SampleReport> {
     };
   });
   const counts = new Map<string, number>();
-  for (const s of samples) for (const step of s.steps) if (step.is_error === true) counts.set(blur(step.name, step.result ?? ""), (counts.get(blur(step.name, step.result ?? "")) ?? 0) + 1);
-  const errors = [...counts].map(([message, count]) => ({ count, message })).sort((a, b) => b.count - a.count || a.message.localeCompare(b.message));
+  for (const s of samples)
+    for (const step of s.steps)
+      if (step.is_error === true) counts.set(blur(step.name, step.result ?? ""), (counts.get(blur(step.name, step.result ?? "")) ?? 0) + 1);
+  const errors = [...counts]
+    .map(([message, count]) => ({ count, message }))
+    .sort((a, b) => b.count - a.count || a.message.localeCompare(b.message));
   return { stats, samples, skipped, errors };
 }
 
 const pct = (a: number, b: number): string => (b === 0 ? "-" : `${a}/${b}`);
 
-export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavor" | "model" | "repeat" | "sampling" | "settings">): string {
+export function formatReport(
+  report: SampleReport,
+  o: Pick<SampleOptions, "flavor" | "model" | "repeat" | "sampling" | "settings">,
+): string {
   const lines: string[] = [];
-  lines.push(`${o.flavor} ${o.model}: ${o.repeat ?? 10} samples per task, ${report.stats.length} tasks${report.skipped.length > 0 ? ` (skipped: ${report.skipped.map((s) => `${s.task} (${s.why})`).join(", ")})` : ""}`);
+  lines.push(
+    `${o.flavor} ${o.model}: ${o.repeat ?? 10} samples per task, ${report.stats.length} tasks${report.skipped.length > 0 ? ` (skipped: ${report.skipped.map((s) => `${s.task} (${s.why})`).join(", ")})` : ""}`,
+  );
   if (o.sampling !== undefined) lines.push(`sampling: ${JSON.stringify(o.sampling)}`);
   if (o.settings !== undefined) lines.push(`settings: ${JSON.stringify(o.settings)}`);
   lines.push("");
   const w = Math.max(4, ...report.stats.map((s) => s.task.length));
-  lines.push(`${"task".padEnd(w)}  ${"correct".padStart(8)}  ${"first-try".padStart(9)}  ${"requests".padStart(8)}  ${"errors".padStart(6)}  no-tool`);
-  for (const s of report.stats) lines.push(`${s.task.padEnd(w)}  ${pct(s.correct, s.samples).padStart(8)}  ${pct(s.firstTry, s.samples).padStart(9)}  ${s.meanRequests.toFixed(1).padStart(8)}  ${s.meanErrors.toFixed(1).padStart(6)}  ${s.noTools}`);
+  lines.push(
+    `${"task".padEnd(w)}  ${"correct".padStart(8)}  ${"first-try".padStart(9)}  ${"requests".padStart(8)}  ${"errors".padStart(6)}  no-tool`,
+  );
+  for (const s of report.stats)
+    lines.push(
+      `${s.task.padEnd(w)}  ${pct(s.correct, s.samples).padStart(8)}  ${pct(s.firstTry, s.samples).padStart(9)}  ${s.meanRequests.toFixed(1).padStart(8)}  ${s.meanErrors.toFixed(1).padStart(6)}  ${s.noTools}`,
+    );
   const groups = [...new Set(report.stats.map((s) => s.group))];
   lines.push("");
   for (const g of groups) {
     const rows = report.stats.filter((s) => s.group === g);
     const total = rows.reduce((a, s) => a + s.samples, 0);
-    lines.push(`${g.padEnd(w)}  ${pct(rows.reduce((a, s) => a + s.correct, 0), total).padStart(8)}  ${pct(rows.reduce((a, s) => a + s.firstTry, 0), total).padStart(9)}`);
+    lines.push(
+      `${g.padEnd(w)}  ${pct(
+        rows.reduce((a, s) => a + s.correct, 0),
+        total,
+      ).padStart(8)}  ${pct(
+        rows.reduce((a, s) => a + s.firstTry, 0),
+        total,
+      ).padStart(9)}`,
+    );
   }
   const failures = report.samples.filter((s) => s.problem !== undefined);
   if (failures.length > 0) {
     lines.push("", "wrong outcomes (first of each task):");
-    for (const t of new Set(failures.map((s) => s.task))) lines.push(`  ${t}: ${failures.find((s) => s.task === t)?.problem?.slice(0, 160)}`);
+    for (const t of new Set(failures.map((s) => s.task)))
+      lines.push(`  ${t}: ${failures.find((s) => s.task === t)?.problem?.slice(0, 160)}`);
   }
   if (report.errors.length > 0) {
     lines.push("", "most common tool errors:");
@@ -181,7 +242,10 @@ export function formatReport(report: SampleReport, o: Pick<SampleOptions, "flavo
   return lines.join("\n");
 }
 
-export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: SampleOptions; out?: string; record?: string; wireLog?: string; list: boolean } {
+export function parseArgs(
+  argv: readonly string[],
+  env: Record<string, string | undefined>,
+): { options: SampleOptions; out?: string; record?: string; wireLog?: string; list: boolean } {
   const flags = new Map<string, string[]>();
   let list = false;
   let yes = false;
@@ -196,16 +260,34 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     } else throw new Error(`unexpected argument ${a}`);
   }
   const one = (name: string): string | undefined => flags.get(name)?.[0];
-  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--repeat", "--task", "--group", "--timeout-seconds", "--out", "--record", "--busybox", "--wire-log", "--setting"]);
+  const known = new Set([
+    "--flavor",
+    "--base-url",
+    "--model",
+    "--max-tokens",
+    "--api-key-env",
+    "--repeat",
+    "--task",
+    "--group",
+    "--timeout-seconds",
+    "--out",
+    "--record",
+    "--busybox",
+    "--wire-log",
+    "--setting",
+  ]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = one("--flavor") ?? "anthropic";
   const local = flavor === "local-models";
-  if (!local && !(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${[...FLAVORS, "local-models"].join(", ")}`);
+  if (!local && !(FLAVORS as readonly string[]).includes(flavor))
+    throw new Error(`--flavor must be one of ${[...FLAVORS, "local-models"].join(", ")}`);
   const baseUrl = one("--base-url");
   const model = one("--model");
-  if (local && baseUrl !== undefined) throw new Error("--base-url does not go with --flavor local-models: the model host chooses its address");
+  if (local && baseUrl !== undefined)
+    throw new Error("--base-url does not go with --flavor local-models: the model host chooses its address");
   if (yes && !local) throw new Error("--yes is for --flavor local-models");
-  if (!list && (model === undefined || (!local && baseUrl === undefined))) throw new Error(local ? "--model is required: a name from local_models in the settings file" : "--base-url and --model are required");
+  if (!list && (model === undefined || (!local && baseUrl === undefined)))
+    throw new Error(local ? "--model is required: a name from local_models in the settings file" : "--base-url and --model are required");
   const keyEnv = one("--api-key-env");
   let apiKey: string | undefined;
   if (keyEnv !== undefined) {
@@ -233,7 +315,8 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     return n;
   };
   const groups = flags.get("--group");
-  for (const g of groups ?? []) if (!["edit", "read", "write", "run", "mixed"].includes(g)) throw new Error(`--group must be edit, read, write, run or mixed`);
+  for (const g of groups ?? [])
+    if (!["edit", "read", "write", "run", "mixed"].includes(g)) throw new Error(`--group must be edit, read, write, run or mixed`);
   const out = one("--out");
   const record = one("--record");
   const wireLog = one("--wire-log");
@@ -278,7 +361,11 @@ async function main(): Promise<void> {
     await ensureLocalModels(io, { yes: options.yes === true });
     const found = await lookupSampling(io, options.model);
     for (const n of found.notes) console.error(`note: ${n}`);
-    console.error(found.source === undefined ? "sampling: none set; the server's defaults apply" : `sampling from ${found.detail}: ${JSON.stringify(found.values)}`);
+    console.error(
+      found.source === undefined
+        ? "sampling: none set; the server's defaults apply"
+        : `sampling from ${found.detail}: ${JSON.stringify(found.values)}`,
+    );
     options.adapter = localModelsAdapter(io);
     options.sampling = samplingSettings(found.values);
   }
@@ -289,8 +376,14 @@ async function main(): Promise<void> {
     ...options,
     busybox,
     onSample: (s, done, total) => {
-      console.error(`[${done}/${total}] ${s.task} #${s.n}: ${s.problem === undefined ? "ok" : `WRONG (${s.problem.slice(0, 70)})`}  ${s.requests} req, ${s.errors} err, ${(s.ms / 1000).toFixed(1)}s`);
-      if (record !== undefined) void writeFile(join(record, `${options.flavor}-${s.task.replaceAll(" ", "-")}-${String(s.n).padStart(2, "0")}.json`), scrub(JSON.stringify(s, null, 2)));
+      console.error(
+        `[${done}/${total}] ${s.task} #${s.n}: ${s.problem === undefined ? "ok" : `WRONG (${s.problem.slice(0, 70)})`}  ${s.requests} req, ${s.errors} err, ${(s.ms / 1000).toFixed(1)}s`,
+      );
+      if (record !== undefined)
+        void writeFile(
+          join(record, `${options.flavor}-${s.task.replaceAll(" ", "-")}-${String(s.n).padStart(2, "0")}.json`),
+          scrub(JSON.stringify(s, null, 2)),
+        );
     },
   });
   await flushWire();

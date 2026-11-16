@@ -33,7 +33,9 @@ export async function readInfo(data: string): Promise<DaemonInfo | undefined> {
   if (text === undefined) return undefined;
   try {
     const v = JSON.parse(text) as Partial<DaemonInfo>;
-    return typeof v.pid === "number" && typeof v.port === "number" && typeof v.token === "string" && typeof v.startedAt === "number" ? (v as DaemonInfo) : undefined;
+    return typeof v.pid === "number" && typeof v.port === "number" && typeof v.token === "string" && typeof v.startedAt === "number"
+      ? (v as DaemonInfo)
+      : undefined;
   } catch {
     return undefined;
   }

@@ -18,7 +18,11 @@ async function setup(opts: { now?: () => number; stale?: number } = {}) {
   const io = testIo(dir, opts.now === undefined ? {} : { now: opts.now });
   assert.equal(await main(initArgs(server, dir), io), 0, io.stderr);
   const project = await findProject(io, dir);
-  const store = await SessionStore.open(io, project.git, { debounceMs: 5, heartbeatMs: 0, ...(opts.stale === undefined ? {} : { staleAfterMs: opts.stale }) });
+  const store = await SessionStore.open(io, project.git, {
+    debounceMs: 5,
+    heartbeatMs: 0,
+    ...(opts.stale === undefined ? {} : { staleAfterMs: opts.stale }),
+  });
   return { server, dir, io, project, store };
 }
 
@@ -86,7 +90,11 @@ describe("session store", () => {
       const fresh = await store.open({ thread: "main", fresh: true });
       assert.equal(fresh.resumed, false);
       const info = await store.list();
-      assert.deepEqual(info.map((i) => [i.id, i.thread, i.locked]).slice(0, 3), [[first, "main", true], [other, "side", true], [third, "main", true]]);
+      assert.deepEqual(info.map((i) => [i.id, i.thread, i.locked]).slice(0, 3), [
+        [first, "main", true],
+        [other, "side", true],
+        [third, "main", true],
+      ]);
     } finally {
       await server.close();
     }
@@ -206,7 +214,7 @@ describe("a session in the engine", () => {
         for await (const o of engine.submit(line)) out.push(o.type === "text" ? o.text : JSON.stringify(o));
         return out.join("\n");
       };
-      assert.equal(await run(`/attach ${file}`) !== "", true);
+      assert.equal((await run(`/attach ${file}`)) !== "", true);
       await session.flush();
       assert.equal(session.state.attachments.length, 1);
       assert.match(await run("/status"), /staged:\s+1 file/);

@@ -37,7 +37,10 @@ export interface AgentSetup {
 
 export const emptySetup = (): AgentSetup => ({ tools: {}, skills: {}, mcp: {}, prefix: { skills: {} }, unacknowledged: [] });
 
-const prefixOf = (s: AgentSetup): PrefixSetup => ({ ...(s.instructions === undefined ? {} : { instructions: s.instructions }), skills: s.skills });
+const prefixOf = (s: AgentSetup): PrefixSetup => ({
+  ...(s.instructions === undefined ? {} : { instructions: s.instructions }),
+  skills: s.skills,
+});
 
 /**
  * Whether an entry rewrites the prefix to the setup as it stands after the entry. A compaction does (the history it stands for is rewritten
@@ -61,13 +64,17 @@ export function pendingAppends(entries: readonly ChatEntry[]): AgentSetupEntry[]
 }
 
 /** `s` with the instructions and skills of `like`: a setup as the cached prefix would show it. */
-export function withDefsOf(s: AgentSetup, like: { instructions?: PinnedDefinition | undefined; skills: Record<string, PinnedDefinition> }): AgentSetup {
+export function withDefsOf(
+  s: AgentSetup,
+  like: { instructions?: PinnedDefinition | undefined; skills: Record<string, PinnedDefinition> },
+): AgentSetup {
   const { instructions: _drop, ...rest } = s;
   return { ...rest, skills: like.skills, ...(like.instructions === undefined ? {} : { instructions: like.instructions }) };
 }
 
 /** Whether the prefix shows something other than the current instructions and skills. */
-export const prefixLags = (s: AgentSetup): boolean => stable(s.prefix.instructions ?? null) !== stable(s.instructions ?? null) || stable(s.prefix.skills) !== stable(s.skills);
+export const prefixLags = (s: AgentSetup): boolean =>
+  stable(s.prefix.instructions ?? null) !== stable(s.instructions ?? null) || stable(s.prefix.skills) !== stable(s.skills);
 
 /** The model id requests should carry: the dated model once the provider has reported it, else what was asked for. */
 export const servedModelId = (m: ModelSetup): string => m.resolved ?? m.id;
@@ -209,11 +216,17 @@ export function coreClassify(from: AgentSetup, to: AgentSetup, ctx: ClassifyCont
   }
   if (!sameDefs(from.tools, to.tools)) out.push({ kind: "tools_changed", message: "the tool definitions differ" });
   // The pin of an MCP server's configuration changes nothing the model is shown (its tools are pinned as tools), so it is not classified.
-  if (stable(from.instructions ?? null) !== stable(to.instructions ?? null)) out.push({ kind: "instructions_changed", message: "the instructions differ" });
+  if (stable(from.instructions ?? null) !== stable(to.instructions ?? null))
+    out.push({ kind: "instructions_changed", message: "the instructions differ" });
   // The skill catalog is part of what follows the instructions in the prefix, so a skills change is an instructions change to the cache.
   if (!sameDefs(from.skills, to.skills)) out.push({ kind: "instructions_changed", message: "the skills differ" });
-  if (from.pricing !== undefined && stable(from.pricing) !== stable(to.pricing ?? null)) out.push({ kind: "pricing_changed", message: "the price table differs" });
-  if ((from.renderer ?? DEFAULT_RENDERER) !== (to.renderer ?? DEFAULT_RENDERER)) out.push({ kind: "renderer_changed", message: `renderer ${from.renderer ?? DEFAULT_RENDERER} to ${to.renderer ?? DEFAULT_RENDERER}: every rendered turn changes` });
+  if (from.pricing !== undefined && stable(from.pricing) !== stable(to.pricing ?? null))
+    out.push({ kind: "pricing_changed", message: "the price table differs" });
+  if ((from.renderer ?? DEFAULT_RENDERER) !== (to.renderer ?? DEFAULT_RENDERER))
+    out.push({
+      kind: "renderer_changed",
+      message: `renderer ${from.renderer ?? DEFAULT_RENDERER} to ${to.renderer ?? DEFAULT_RENDERER}: every rendered turn changes`,
+    });
   if (ctx.midLoop && (out.length > 0 || stable(fm.settings ?? null) !== stable(tm.settings ?? null))) {
     out.push({ kind: "mid_loop", message: "the agent is in the middle of a tool loop" });
   }
@@ -229,9 +242,11 @@ export function minimizeChange(base: AgentSetup, change: SetupChange): SetupChan
     if (delta === undefined) continue;
     const set = Object.fromEntries(Object.entries(delta.set ?? {}).filter(([n, d]) => stable(base[key][n] ?? null) !== stable(d)));
     const remove = (delta.remove ?? []).filter((n) => n in base[key]);
-    if (Object.keys(set).length > 0 || remove.length > 0) out[key] = { ...(Object.keys(set).length > 0 ? { set } : {}), ...(remove.length > 0 ? { remove } : {}) };
+    if (Object.keys(set).length > 0 || remove.length > 0)
+      out[key] = { ...(Object.keys(set).length > 0 ? { set } : {}), ...(remove.length > 0 ? { remove } : {}) };
   }
-  if (change.instructions !== undefined && stable(change.instructions) !== stable(base.instructions ?? null)) out.instructions = change.instructions;
+  if (change.instructions !== undefined && stable(change.instructions) !== stable(base.instructions ?? null))
+    out.instructions = change.instructions;
   if (change.pricing !== undefined && stable(change.pricing) !== stable(base.pricing ?? null)) out.pricing = change.pricing;
   if (change.renderer !== undefined && change.renderer !== (base.renderer ?? null)) out.renderer = change.renderer;
   return out;

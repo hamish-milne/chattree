@@ -70,7 +70,8 @@ const withBuiltins: Dialect = {
   // The model addresses `browser.search`; chattree's tool names cannot hold a dot, so the probe answers it with `browser_search`.
   parser(options, tools, prompt) {
     const inner = harmony.parser(options, tools, prompt);
-    const rename = (es: Emit[]): Emit[] => es.map((e) => (e.kind === "call.start" && e.name.startsWith("browser.") ? { ...e, name: e.name.replace(".", "_") } : e));
+    const rename = (es: Emit[]): Emit[] =>
+      es.map((e) => (e.kind === "call.start" && e.name.startsWith("browser.") ? { ...e, name: e.name.replace(".", "_") } : e));
     return { push: (t) => rename(inner.push(t)), end: (w) => rename(inner.end(w)) };
   },
 };
@@ -80,13 +81,23 @@ export const ordinaryTools: Tool[] = [
   {
     definition: {
       name: "python",
-      description: "Run Python 3 code and return what it prints. Each call is a fresh interpreter: nothing is kept between calls. Print the values you want to see.",
-      input_schema: { type: "object", additionalProperties: false, required: ["code"], properties: { code: { type: "string", description: "The program to run." } } },
+      description:
+        "Run Python 3 code and return what it prints. Each call is a fresh interpreter: nothing is kept between calls. Print the values you want to see.",
+      input_schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["code"],
+        properties: { code: { type: "string", description: "The program to run." } },
+      },
     },
     async execute(args, ctx) {
       for (const exe of process.platform === "win32" ? ["python", "py"] : ["python3", "python"]) {
         const r = spawnSync(exe, ["-c", String(args["code"])], { cwd: ctx.workspace, encoding: "utf8", timeout: 20_000 });
-        if (r.error === undefined) return { content: `${r.stdout}${r.stderr}`.trim() === "" ? "(no output)" : `${r.stdout}${r.stderr}`.trim(), is_error: r.status !== 0 };
+        if (r.error === undefined)
+          return {
+            content: `${r.stdout}${r.stderr}`.trim() === "" ? "(no output)" : `${r.stdout}${r.stderr}`.trim(),
+            is_error: r.status !== 0,
+          };
       }
       return { content: "python is not installed on this machine", is_error: true };
     },
@@ -95,10 +106,21 @@ export const ordinaryTools: Tool[] = [
     definition: {
       name: "browser_search",
       description: "Search the web and return the top results with a short excerpt of each.",
-      input_schema: { type: "object", additionalProperties: false, required: ["query"], properties: { query: { type: "string", description: "What to search for." }, topn: { type: "integer", minimum: 1, description: "How many results. Default 5." } } },
+      input_schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["query"],
+        properties: {
+          query: { type: "string", description: "What to search for." },
+          topn: { type: "integer", minimum: 1, description: "How many results. Default 5." },
+        },
+      },
     },
     async execute() {
-      return { content: "1. Canberra - Wikipedia: Canberra is the capital city of Australia.\n2. Australia - Facts: the capital is Canberra, not Sydney.\n" };
+      return {
+        content:
+          "1. Canberra - Wikipedia: Canberra is the capital city of Australia.\n2. Australia - Facts: the capital is Canberra, not Sydney.\n",
+      };
     },
   },
 ];
@@ -111,7 +133,11 @@ interface Probe {
 }
 
 const PROBES: Probe[] = [
-  { name: "arithmetic", prompt: "What is 123456789 * 987654321? Use Python to work it out, and write the result into answer.txt.", wants: /121932631112635269/ },
+  {
+    name: "arithmetic",
+    prompt: "What is 123456789 * 987654321? Use Python to work it out, and write the result into answer.txt.",
+    wants: /121932631112635269/,
+  },
   { name: "search", prompt: "Search the web for the capital of Australia and write the answer into answer.txt.", wants: /Canberra/i },
   { name: "no hint", prompt: "Write the sum of the squares of 1 to 12 into answer.txt.", wants: /\b650\b/ },
 ];
@@ -131,11 +157,23 @@ interface Sample {
   right: boolean;
 }
 
-function parse(argv: readonly string[]): { model: string; repeat: number; out: string | undefined; yes: boolean; busybox: string | undefined } {
+function parse(argv: readonly string[]): {
+  model: string;
+  repeat: number;
+  out: string | undefined;
+  yes: boolean;
+  busybox: string | undefined;
+} {
   const v = (f: string): string | undefined => argv[argv.indexOf(f) + 1];
   const model = argv.includes("--model") ? v("--model") : undefined;
   if (model === undefined) throw new Error("--model is required: a gpt-oss name from local_models in the settings file");
-  return { model, repeat: argv.includes("--repeat") ? Number(v("--repeat")) : 10, out: argv.includes("--out") ? v("--out") : undefined, yes: argv.includes("--yes"), busybox: argv.includes("--busybox") ? v("--busybox") : undefined };
+  return {
+    model,
+    repeat: argv.includes("--repeat") ? Number(v("--repeat")) : 10,
+    out: argv.includes("--out") ? v("--out") : undefined,
+    yes: argv.includes("--yes"),
+    busybox: argv.includes("--busybox") ? v("--busybox") : undefined,
+  };
 }
 
 async function main(): Promise<void> {
@@ -144,22 +182,40 @@ async function main(): Promise<void> {
   io.settings = await loadSettings(io);
   await ensureLocalModels(io, { yes: o.yes });
   const busybox = await requireBusybox(o.busybox);
-  const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, withBuiltins] }).create({ $tag: "local-models" }, { get: () => undefined });
+  const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, withBuiltins] }).create(
+    { $tag: "local-models" },
+    { get: () => undefined },
+  );
   const found = await lookupSampling(io, o.model);
   const sampling = samplingSettings(found.values) as Record<string, unknown>;
   const samples: Sample[] = [];
   for (let n = 1; n <= o.repeat; n++) {
     for (const probe of PROBES) {
       for (const arm of ARMS) {
-        const model = { provider: "live", id: o.model, settings: { max_output_tokens: 4096, ...sampling, ...arm.settings } } as NonNullable<AgentSetup["model"]>;
-        const r = await runAgentTask({ adapter, model, files: {}, prompt: probe.prompt, busybox, timeoutMs: 120_000, extraTools: arm.tools });
+        const model = { provider: "live", id: o.model, settings: { max_output_tokens: 4096, ...sampling, ...arm.settings } } as NonNullable<
+          AgentSetup["model"]
+        >;
+        const r = await runAgentTask({
+          adapter,
+          model,
+          files: {},
+          prompt: probe.prompt,
+          busybox,
+          timeoutMs: 120_000,
+          extraTools: arm.tools,
+        });
         const right = probe.wants.test((await r.read("answer.txt")) ?? "");
         samples.push({ arm: arm.label, probe: probe.name, n, steps: r.steps, right });
-        console.error(`#${n} ${probe.name} / ${arm.label}: ${r.steps.map((s) => `${s.name}${s.is_error === true ? "!" : ""}`).join(", ") || "(no call)"} ${right ? "right" : "wrong"}`);
+        console.error(
+          `#${n} ${probe.name} / ${arm.label}: ${r.steps.map((s) => `${s.name}${s.is_error === true ? "!" : ""}`).join(", ") || "(no call)"} ${right ? "right" : "wrong"}`,
+        );
       }
     }
   }
-  const lines = ["| task | arm | first call (count) | answer right | calls that failed | called python or browser.* |", "|---|---|---|---|---|---|"];
+  const lines = [
+    "| task | arm | first call (count) | answer right | calls that failed | called python or browser.* |",
+    "|---|---|---|---|---|---|",
+  ];
   for (const probe of PROBES) {
     for (const arm of ARMS) {
       const mine = samples.filter((s) => s.probe === probe.name && s.arm === arm.label);
@@ -167,7 +223,9 @@ async function main(): Promise<void> {
       for (const s of mine) first.set(s.steps[0]?.name ?? "(none)", (first.get(s.steps[0]?.name ?? "(none)") ?? 0) + 1);
       const leaks = mine.filter((s) => s.steps.some((x) => x.name === "python" || x.name.startsWith("browser"))).length;
       const failed = mine.reduce((n, s) => n + s.steps.filter((x) => x.is_error === true).length, 0);
-      lines.push(`| ${probe.name} | ${arm.label} | ${[...first].map(([k, c]) => `${k} (${c})`).join(", ")} | ${mine.filter((s) => s.right).length}/${mine.length} | ${failed} | ${leaks}/${mine.length} |`);
+      lines.push(
+        `| ${probe.name} | ${arm.label} | ${[...first].map(([k, c]) => `${k} (${c})`).join(", ")} | ${mine.filter((s) => s.right).length}/${mine.length} | ${failed} | ${leaks}/${mine.length} |`,
+      );
     }
   }
   const dir = o.out ?? join("bench-runs", `builtin-probe-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);

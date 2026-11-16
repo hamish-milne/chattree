@@ -44,8 +44,15 @@ const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "obj
 
 /** `v` as a skill, or undefined when it does not have the shape (a pin of another kind, or damaged). */
 export function asSkill(v: unknown): SkillValue | undefined {
-  if (!isRecord(v) || typeof v["name"] !== "string" || typeof v["description"] !== "string" || typeof v["body"] !== "string") return undefined;
-  return { name: v["name"], description: v["description"], body: v["body"], ...(isRecord(v["meta"]) ? { meta: v["meta"] } : {}), ...(typeof v["dir"] === "string" ? { dir: v["dir"] } : {}) };
+  if (!isRecord(v) || typeof v["name"] !== "string" || typeof v["description"] !== "string" || typeof v["body"] !== "string")
+    return undefined;
+  return {
+    name: v["name"],
+    description: v["description"],
+    body: v["body"],
+    ...(isRecord(v["meta"]) ? { meta: v["meta"] } : {}),
+    ...(typeof v["dir"] === "string" ? { dir: v["dir"] } : {}),
+  };
 }
 
 export type ParsedSkill = { ok: true; value: SkillValue } | { ok: false; problem: string };
@@ -61,8 +68,12 @@ export function parseSkillText(text: string, dirName: string): ParsedSkill {
   const close = /\n---[ \t]*(\n|$)/.exec(t.slice(3));
   if (close === null) return bad("the frontmatter is not closed with a --- line");
   const front = t.slice(4, 3 + close.index + 1);
-  const body = t.slice(3 + close.index + close[0].length).replace(/^\n+/, "").replace(/\s+$/, "");
-  if (new TextEncoder().encode(front).length > MAX_FRONTMATTER_BYTES) return bad(`the frontmatter is longer than ${MAX_FRONTMATTER_BYTES} bytes`);
+  const body = t
+    .slice(3 + close.index + close[0].length)
+    .replace(/^\n+/, "")
+    .replace(/\s+$/, "");
+  if (new TextEncoder().encode(front).length > MAX_FRONTMATTER_BYTES)
+    return bad(`the frontmatter is longer than ${MAX_FRONTMATTER_BYTES} bytes`);
   const { doc, issues } = loadConfigDocument(front);
   if (issues.length > 0) return bad(`the frontmatter is not valid YAML: ${issues[0]?.message ?? "unreadable"}`);
   let data: unknown;
@@ -75,7 +86,10 @@ export function parseSkillText(text: string, dirName: string): ParsedSkill {
   const { name, description, ...rest } = data;
   if (typeof name !== "string" || name.trim() === "") return bad("the frontmatter has no name");
   if (typeof description !== "string" || description.trim() === "") return bad("the frontmatter has no description");
-  if (name.length > MAX_NAME || !NAME_RE.test(name)) return bad(`the name ${JSON.stringify(name.length > 80 ? `${name.slice(0, 80)}...` : name)} must be lowercase letters, digits and hyphens, at most ${MAX_NAME} long`);
+  if (name.length > MAX_NAME || !NAME_RE.test(name))
+    return bad(
+      `the name ${JSON.stringify(name.length > 80 ? `${name.slice(0, 80)}...` : name)} must be lowercase letters, digits and hyphens, at most ${MAX_NAME} long`,
+    );
   if (name !== dirName) return bad(`the name ${name} does not match its directory ${dirName}`);
   if (description.length > MAX_DESCRIPTION) return bad(`the description is longer than ${MAX_DESCRIPTION} characters`);
   if (body === "") return bad("there is nothing after the frontmatter: a skill needs instructions");
@@ -118,7 +132,10 @@ export function skillRoots(host: Host, projectRoot: string, userDir: string | un
 export function userSkillsDir(host: Host, env: Readonly<Record<string, string | undefined>>): string | undefined {
   const set = env["CHATTREE_SKILLS_DIR"];
   if (set !== undefined && set !== "") return host.path.resolve(set);
-  const base = host.platform === "windows" ? env["APPDATA"] : (env["XDG_CONFIG_HOME"] ?? (env["HOME"] === undefined || env["HOME"] === "" ? undefined : host.path.join(env["HOME"], ".config")));
+  const base =
+    host.platform === "windows"
+      ? env["APPDATA"]
+      : (env["XDG_CONFIG_HOME"] ?? (env["HOME"] === undefined || env["HOME"] === "" ? undefined : host.path.join(env["HOME"], ".config")));
   return base === undefined || base === "" ? undefined : host.path.join(base, "chattree", "skills");
 }
 
@@ -197,7 +214,8 @@ export async function scanSkills(host: Host, roots: readonly SkillRoot[]): Promi
   return scan;
 }
 
-export const pinSkill = (value: SkillValue, blobs: BlobStore): Promise<PinnedDefinition> => pinDefinition("skill", value, { store: "blob", blobs });
+export const pinSkill = (value: SkillValue, blobs: BlobStore): Promise<PinnedDefinition> =>
+  pinDefinition("skill", value, { store: "blob", blobs });
 
 /** How the skills on disk differ from the pinned ones. */
 export interface SkillDrift {
@@ -233,13 +251,18 @@ export async function syncSkills(convo: Conversation, scan: SkillScan): Promise<
   if (driftSize(drift) === 0) return undefined;
   const set: Record<string, PinnedDefinition> = {};
   for (const name of [...drift.added, ...drift.changed]) set[name] = await pinSkill(scan.skills[name] as SkillValue, convo.store);
-  await convo.setupChange({ skills: { ...(Object.keys(set).length > 0 ? { set } : {}), ...(drift.removed.length > 0 ? { remove: drift.removed } : {}) } });
+  await convo.setupChange({
+    skills: { ...(Object.keys(set).length > 0 ? { set } : {}), ...(drift.removed.length > 0 ? { remove: drift.removed } : {}) },
+  });
   return drift;
 }
 
 /** The text a skill is served as (by the `skill` tool and `/skill`): the directory when it has one, then the body. */
 export function skillText(v: SkillValue): string {
-  const where = v.dir === undefined ? "" : `Directory: ${v.dir}${v.dir.startsWith("/") || /^[A-Za-z]:[\\/]/.test(v.dir) ? "" : " (relative to the workspace)"}. Files this skill mentions are in that directory.\n`;
+  const where =
+    v.dir === undefined
+      ? ""
+      : `Directory: ${v.dir}${v.dir.startsWith("/") || /^[A-Za-z]:[\\/]/.test(v.dir) ? "" : " (relative to the workspace)"}. Files this skill mentions are in that directory.\n`;
   return `Skill: ${v.name}\n${where}\n${v.body}`;
 }
 
@@ -250,10 +273,12 @@ const oneLine = (s: string, max: number): string => {
 
 /** The skills as the catalog lists them: sorted by name, capped in number, descriptions on one line and cut. */
 export function catalogNotes(skills: Readonly<Record<string, unknown>>): { notes: SkillNote[]; omitted: number } {
-  const all = Object.keys(skills).sort().flatMap((n) => {
-    const v = asSkill(skills[n]);
-    return v === undefined ? [] : [{ name: v.name, description: oneLine(v.description, CATALOG_MAX_DESCRIPTION) }];
-  });
+  const all = Object.keys(skills)
+    .sort()
+    .flatMap((n) => {
+      const v = asSkill(skills[n]);
+      return v === undefined ? [] : [{ name: v.name, description: oneLine(v.description, CATALOG_MAX_DESCRIPTION) }];
+    });
   return { notes: all.slice(0, CATALOG_MAX_SKILLS), omitted: Math.max(0, all.length - CATALOG_MAX_SKILLS) };
 }
 
@@ -264,7 +289,8 @@ export function skillCatalog(render: Renderer, prefixSkills: Readonly<Record<str
 }
 
 /** The instructions the model's prefix shows, with the catalog after them. */
-export const withCatalog = (instructions: string | undefined, catalog: string | undefined): string | undefined => (catalog === undefined ? instructions : instructions === undefined ? catalog : `${instructions}\n\n${catalog}`);
+export const withCatalog = (instructions: string | undefined, catalog: string | undefined): string | undefined =>
+  catalog === undefined ? instructions : instructions === undefined ? catalog : `${instructions}\n\n${catalog}`;
 
 /** What the model is told about a skills change appended where it was made. */
 export interface SkillsUpdate {
@@ -277,7 +303,11 @@ export interface SkillsUpdate {
  * For each `append` setup entry that changed skills (see `pendingAppends`): what to tell the model. Whether a skill is added or
  * changed is judged against the setup before that entry, which is what the model has been told so far.
  */
-export async function skillUpdates(entries: readonly ChatEntry[], pending: readonly Extract<ChatEntry, { $tag: "agent_setup" }>[], from: { blobs: BlobStore; source?: DefinitionSource }): Promise<Map<string, SkillsUpdate>> {
+export async function skillUpdates(
+  entries: readonly ChatEntry[],
+  pending: readonly Extract<ChatEntry, { $tag: "agent_setup" }>[],
+  from: { blobs: BlobStore; source?: DefinitionSource },
+): Promise<Map<string, SkillsUpdate>> {
   const out = new Map<string, SkillsUpdate>();
   for (const e of pending) {
     if (e.skills === undefined) continue;

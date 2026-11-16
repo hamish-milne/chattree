@@ -36,7 +36,8 @@ export function configValue(cfg: McpServerConfig): Record<string, unknown> {
   };
 }
 
-export const pinServer = (blobs: BlobStore, cfg: McpServerConfig): Promise<PinnedDefinition> => pinDefinition("mcp", configValue(cfg), { store: "blob", blobs });
+export const pinServer = (blobs: BlobStore, cfg: McpServerConfig): Promise<PinnedDefinition> =>
+  pinDefinition("mcp", configValue(cfg), { store: "blob", blobs });
 
 /** Whether the thread has accepted this configuration: `new` (never), `changed` (accepted a different one), or `accepted`. */
 export async function serverState(setup: AgentSetup, name: string, cfg: McpServerConfig): Promise<"accepted" | "new" | "changed"> {
@@ -47,7 +48,8 @@ export async function serverState(setup: AgentSetup, name: string, cfg: McpServe
 
 /** One line saying what accepting the server lets the harness do. */
 export function describeServer(cfg: McpServerConfig): string {
-  if (cfg.command !== undefined) return `run ${[cfg.command, ...cfg.args].join(" ")}${cfg.env_from === undefined ? "" : ` (passing ${cfg.env_from.join(", ")} from your environment)`}`;
+  if (cfg.command !== undefined)
+    return `run ${[cfg.command, ...cfg.args].join(" ")}${cfg.env_from === undefined ? "" : ` (passing ${cfg.env_from.join(", ")} from your environment)`}`;
   const sends = [cfg.bearer_env, ...Object.values(cfg.header_env ?? {})].filter((x): x is string => x !== undefined);
   return `connect to ${cfg.url as string}${sends.length === 0 ? "" : ` (sending ${sends.join(", ")} from your environment)`}`;
 }
@@ -82,11 +84,19 @@ export function resultText(r: McpCallResult): string {
   const parts: string[] = [];
   for (const c of r.content) {
     if (c.type === "text" && typeof c["text"] === "string") parts.push(c["text"]);
-    else if (c.type === "image" || c.type === "audio") parts.push(`[${c.type} (${String(c["mimeType"] ?? "unknown type")}, ${Math.round(((typeof c["data"] === "string" ? c["data"].length : 0) * 3) / 4)} bytes) was returned and is not shown]`);
+    else if (c.type === "image" || c.type === "audio")
+      parts.push(
+        `[${c.type} (${String(c["mimeType"] ?? "unknown type")}, ${Math.round(((typeof c["data"] === "string" ? c["data"].length : 0) * 3) / 4)} bytes) was returned and is not shown]`,
+      );
     else if (c.type === "resource" && typeof c["resource"] === "object" && c["resource"] !== null) {
       const res = c["resource"] as { uri?: string; text?: string; mimeType?: string };
-      parts.push(typeof res.text === "string" ? res.text : `[resource ${res.uri ?? ""}${res.mimeType === undefined ? "" : ` (${res.mimeType})`} was returned and is not shown]`);
-    } else if (c.type === "resource_link") parts.push(`[link: ${String(c["uri"] ?? "")}${typeof c["name"] === "string" ? ` (${c["name"]})` : ""}]`);
+      parts.push(
+        typeof res.text === "string"
+          ? res.text
+          : `[resource ${res.uri ?? ""}${res.mimeType === undefined ? "" : ` (${res.mimeType})`} was returned and is not shown]`,
+      );
+    } else if (c.type === "resource_link")
+      parts.push(`[link: ${String(c["uri"] ?? "")}${typeof c["name"] === "string" ? ` (${c["name"]})` : ""}]`);
     else parts.push(`[${c.type} content was returned and is not shown]`);
   }
   if (parts.length === 0 && r.structuredContent !== undefined) return JSON.stringify(r.structuredContent);
@@ -148,7 +158,13 @@ export interface McpDeps {
   timeoutMs?: number;
 }
 
-function transportFor(host: Host, cwd: string, env: McpDeps["env"], cfg: McpServerConfig, fetchImpl: typeof fetch | undefined): McpTransport {
+function transportFor(
+  host: Host,
+  cwd: string,
+  env: McpDeps["env"],
+  cfg: McpServerConfig,
+  fetchImpl: typeof fetch | undefined,
+): McpTransport {
   const need = (name: string): string => {
     const v = env[name];
     if (v === undefined || v === "") throw new McpError(`the environment variable ${name} is not set`);
@@ -166,13 +182,34 @@ function transportFor(host: Host, cwd: string, env: McpDeps["env"], cfg: McpServ
 
 /** A server's schema for one tool as a definition's: no schema, or one that is not an object, is a tool with no arguments. */
 function rootSchema(input: unknown): Record<string, unknown> {
-  return typeof input === "object" && input !== null && !Array.isArray(input) && ((input as Record<string, unknown>)["type"] !== undefined || typeof (input as Record<string, unknown>)["properties"] === "object") ? (input as Record<string, unknown>) : { type: "object", properties: {} };
+  return typeof input === "object" &&
+    input !== null &&
+    !Array.isArray(input) &&
+    ((input as Record<string, unknown>)["type"] !== undefined || typeof (input as Record<string, unknown>)["properties"] === "object")
+    ? (input as Record<string, unknown>)
+    : { type: "object", properties: {} };
 }
 
 /** Read a connected server's tools and turn them into registry tools (also how a pooled connection is refreshed). */
-export async function listServer(client: McpClient, name: string, cfg: McpServerConfig, state: ServerStatus["state"], deps: { timeoutMs?: number }): Promise<ConnectedServer> {
+export async function listServer(
+  client: McpClient,
+  name: string,
+  cfg: McpServerConfig,
+  state: ServerStatus["state"],
+  deps: { timeoutMs?: number },
+): Promise<ConnectedServer> {
   const listed = await client.listTools(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs });
-  const status: ServerStatus = { name, state, connected: true, tools: [], skipped: [], notes: [], stale: false, ...(client.serverInfo === undefined ? {} : { info: client.serverInfo }), ...(client.instructions === undefined ? {} : { instructions: client.instructions }) };
+  const status: ServerStatus = {
+    name,
+    state,
+    connected: true,
+    tools: [],
+    skipped: [],
+    notes: [],
+    stale: false,
+    ...(client.serverInfo === undefined ? {} : { info: client.serverInfo }),
+    ...(client.instructions === undefined ? {} : { instructions: client.instructions }),
+  };
   const tools: Tool[] = [];
   const taken = new Set<string>();
   for (const t of listed.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))) {
@@ -193,15 +230,28 @@ export async function listServer(client: McpClient, name: string, cfg: McpServer
     tools.push(wrap(name, client, t, full, schema));
     status.tools.push({ name: full, tool: t.name });
     if (portable.ok) for (const note of portable.notes) status.notes.push({ tool: t.name, note });
-    else status.notes.push({ tool: t.name, note: `cannot be shown to a model that takes only the portable subset: ${portable.problems.join("; ")}` });
+    else
+      status.notes.push({
+        tool: t.name,
+        note: `cannot be shown to a model that takes only the portable subset: ${portable.problems.join("; ")}`,
+      });
   }
   return { client, tools, status };
 }
 
 /** Start one server whatever the thread has accepted (`/mcp accept` does this to show its tools first), and turn its tools into registry tools. */
-export async function connectServer(name: string, cfg: McpServerConfig, state: ServerStatus["state"], deps: McpDeps): Promise<ConnectedServer> {
+export async function connectServer(
+  name: string,
+  cfg: McpServerConfig,
+  state: ServerStatus["state"],
+  deps: McpDeps,
+): Promise<ConnectedServer> {
   const transport = transportFor(deps.host, serverCwd(cfg, deps), deps.env, cfg, deps.fetch);
-  const client = await McpClient.connect(transport, { clientName: "chattree", clientVersion: deps.clientVersion ?? "0", ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }) });
+  const client = await McpClient.connect(transport, {
+    clientName: "chattree",
+    clientVersion: deps.clientVersion ?? "0",
+    ...(deps.timeoutMs === undefined ? {} : { timeoutMs: deps.timeoutMs }),
+  });
   try {
     return await listServer(client, name, cfg, state, deps);
   } catch (e) {
@@ -223,8 +273,23 @@ function serverCwd(cfg: McpServerConfig, deps: Pick<McpDeps, "cwd" | "projectDir
  * says (secrets too, as a hash, so a different token is a different connection), and for a program the directory it starts in.
  */
 export function connectionKey(name: string, cfg: McpServerConfig, deps: Pick<McpDeps, "cwd" | "projectDir" | "env">): string {
-  const secrets = [...(cfg.env_from ?? []), ...(cfg.bearer_env === undefined ? [] : [cfg.bearer_env]), ...Object.values(cfg.header_env ?? {})].sort().map((n) => [n, deps.env[n] ?? ""]);
-  return createHash("sha256").update(JSON.stringify({ name, cfg: { ...cfg, allow: undefined }, secrets, cwd: cfg.command === undefined ? undefined : serverCwd(cfg, deps) })).digest("hex");
+  const secrets = [
+    ...(cfg.env_from ?? []),
+    ...(cfg.bearer_env === undefined ? [] : [cfg.bearer_env]),
+    ...Object.values(cfg.header_env ?? {}),
+  ]
+    .sort()
+    .map((n) => [n, deps.env[n] ?? ""]);
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        name,
+        cfg: { ...cfg, allow: undefined },
+        secrets,
+        cwd: cfg.command === undefined ? undefined : serverCwd(cfg, deps),
+      }),
+    )
+    .digest("hex");
 }
 
 /** What `McpServers` holds for each connected server: whether its tools are out of date, and how to let go. */
@@ -244,13 +309,24 @@ export class McpServers {
    * Connect every accepted server, in parallel. A server that is not accepted is not started; one that fails is reported, not thrown.
    * With a `pool` the connections are shared with whoever else holds them (`fresh` reads the tools again) and `close` only lets go.
    */
-  static async connect(servers: Record<string, McpServerConfig>, setup: AgentSetup, deps: McpDeps, pool?: { pool: McpPool; fresh?: boolean }): Promise<McpServers> {
+  static async connect(
+    servers: Record<string, McpServerConfig>,
+    setup: AgentSetup,
+    deps: McpDeps,
+    pool?: { pool: McpPool; fresh?: boolean },
+  ): Promise<McpServers> {
     const out = new McpServers();
     const results = await Promise.all(
       Object.entries(servers).map(async ([name, cfg]): Promise<{ status: ServerStatus; tools?: Tool[]; holder?: Holder }> => {
         const state = await serverState(setup, name, cfg);
         const base: ServerStatus = { name, state, connected: false, tools: [], skipped: [], notes: [], stale: false };
-        if (state !== "accepted") return { status: { ...base, error: state === "new" ? "not accepted by this thread yet" : "its configuration changed since this thread accepted it" } };
+        if (state !== "accepted")
+          return {
+            status: {
+              ...base,
+              error: state === "new" ? "not accepted by this thread yet" : "its configuration changed since this thread accepted it",
+            },
+          };
         try {
           if (pool === undefined) {
             const c = await connectServer(name, cfg, state, deps);
@@ -261,7 +337,11 @@ export class McpServers {
             { open: () => connectServer(name, cfg, state, deps), list: (client) => listServer(client, name, cfg, state, deps) },
             pool.fresh === true ? { fresh: true } : {},
           );
-          return { status: lease.server.status, tools: lease.server.tools, holder: { name, stale: () => lease.stale(), close: () => lease.release() } };
+          return {
+            status: lease.server.status,
+            tools: lease.server.tools,
+            holder: { name, stale: () => lease.stale(), close: () => lease.release() },
+          };
         } catch (e) {
           return { status: { ...base, error: e instanceof Error ? e.message : String(e) } };
         }

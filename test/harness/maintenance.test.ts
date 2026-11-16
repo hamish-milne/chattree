@@ -56,7 +56,8 @@ describe("repository maintenance", () => {
       await convo.append(say(i));
       await convo.git.run(["repack", "-d", "-q"]);
     }
-    const stats = async (): Promise<number> => Number(/^packs: (\d+)$/m.exec(await convo.git.text(["count-objects", "-v"], { readOnly: true }))?.[1]);
+    const stats = async (): Promise<number> =>
+      Number(/^packs: (\d+)$/m.exec(await convo.git.text(["count-objects", "-v"], { readOnly: true }))?.[1]);
     assert.ok((await stats()) > 3);
     await Promise.all([convo.maintain(), convo.append(say(100)), convo.append(say(101)), convo.append(say(102))]);
     assert.equal(await stats(), 1);

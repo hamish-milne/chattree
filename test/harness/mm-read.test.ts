@@ -21,7 +21,13 @@ async function setup(files: Record<string, Uint8Array | string>, mmRead = true) 
   const tools = leafTools({ mmRead });
   const tool = (name: string): Tool => tools.find((t) => t.definition.name === name) as Tool;
   const run = async (name: string, args: Record<string, unknown>): Promise<ToolOutput> =>
-    (await tool(name).execute(args, { signal: new AbortController().signal, callId: "c", workspace: dir, host, blobs: new MemoryBlobStore() } as ToolContext)) as ToolOutput;
+    (await tool(name).execute(args, {
+      signal: new AbortController().signal,
+      callId: "c",
+      workspace: dir,
+      host,
+      blobs: new MemoryBlobStore(),
+    } as ToolContext)) as ToolOutput;
   return { run };
 }
 
@@ -36,7 +42,22 @@ describe("mm_read", () => {
   });
 
   test("refuses empty, oversized, unknown and missing files", async () => {
-    const { run } = await setup({ "e.png": "", "big.png": Buffer.concat([PNG, Buffer.alloc(MM_READ_MAX_BYTES)]), "t.txt": "hi", "o.ogg": Uint8Array.from([...Buffer.from("OggS"), 0, 2, ...new Array(20).fill(0), 1, 30, 1, ...Buffer.from("vorbis"), ...new Array(40).fill(0)]) });
+    const { run } = await setup({
+      "e.png": "",
+      "big.png": Buffer.concat([PNG, Buffer.alloc(MM_READ_MAX_BYTES)]),
+      "t.txt": "hi",
+      "o.ogg": Uint8Array.from([
+        ...Buffer.from("OggS"),
+        0,
+        2,
+        ...new Array(20).fill(0),
+        1,
+        30,
+        1,
+        ...Buffer.from("vorbis"),
+        ...new Array(40).fill(0),
+      ]),
+    });
     assert.match((await run("mm_read", { path: "e.png" })).content, /empty \(0 bytes\)/);
     assert.match((await run("mm_read", { path: "big.png" })).content, /over the \d+ byte limit/);
     assert.match((await run("mm_read", { path: "t.txt" })).content, /use read/);
@@ -45,7 +66,17 @@ describe("mm_read", () => {
   });
 
   test("a format models do not take as it is is still shown: converting it is decided when the request is built", async () => {
-    const ogg = Uint8Array.from([...Buffer.from("OggS"), 0, 2, ...new Array(20).fill(0), 1, 30, 1, ...Buffer.from("vorbis"), ...new Array(40).fill(0)]);
+    const ogg = Uint8Array.from([
+      ...Buffer.from("OggS"),
+      0,
+      2,
+      ...new Array(20).fill(0),
+      1,
+      30,
+      1,
+      ...Buffer.from("vorbis"),
+      ...new Array(40).fill(0),
+    ]);
     const { run } = await setup({ "o.ogg": ogg });
     const r = await run("mm_read", { path: "o.ogg" });
     assert.equal(r.is_error, undefined);
@@ -63,7 +94,9 @@ describe("mm_read", () => {
 
   test("run refuses binary output and says what to do", async () => {
     const { run } = await setup({});
-    const r = await run("run", { command: `${JSON.stringify(process.execPath)} -e "process.stdout.write(Buffer.from([137,80,0,255,254]))"` });
+    const r = await run("run", {
+      command: `${JSON.stringify(process.execPath)} -e "process.stdout.write(Buffer.from([137,80,0,255,254]))"`,
+    });
     assert.match(r.content, /output is binary/);
     assert.match(r.content, /mm_read/);
     const ok = await run("run", { command: `${JSON.stringify(process.execPath)} -e "process.stdout.write('héllo')"` });

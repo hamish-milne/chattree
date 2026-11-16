@@ -10,11 +10,19 @@ const help: Command = {
     const want = args[0]?.replace(/^\//, "");
     if (want !== undefined) {
       const c = ctx.engine.registry.find(want);
-      yield c === undefined ? { type: "error", message: `there is no command /${want}` } : { type: "text", text: `${c.usage}\n${c.summary}${c.busy === "blocked" ? "\n(not available while a request is running)" : ""}${c.aliases === undefined ? "" : `\naliases: ${c.aliases.map((a) => `/${a}`).join(", ")}`}` };
+      yield c === undefined
+        ? { type: "error", message: `there is no command /${want}` }
+        : {
+            type: "text",
+            text: `${c.usage}\n${c.summary}${c.busy === "blocked" ? "\n(not available while a request is running)" : ""}${c.aliases === undefined ? "" : `\naliases: ${c.aliases.map((a) => `/${a}`).join(", ")}`}`,
+          };
       return;
     }
     const w = Math.max(...ctx.engine.registry.commands.map((c) => c.name.length));
-    yield { type: "text", text: `${ctx.engine.registry.commands.map((c) => `/${c.name.padEnd(w)}  ${c.summary}`).join("\n")}\n\nText that does not start with / is sent as a message.` };
+    yield {
+      type: "text",
+      text: `${ctx.engine.registry.commands.map((c) => `/${c.name.padEnd(w)}  ${c.summary}`).join("\n")}\n\nText that does not start with / is sent as a message.`,
+    };
   },
 };
 

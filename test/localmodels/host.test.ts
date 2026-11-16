@@ -110,7 +110,9 @@ describe("the local model host", () => {
   });
 
   test("a server that dies is started again, with the restarts counted", async () => {
-    const { server, host, until } = await setup({ alpha: { url: url("alpha") } }, {}, (n) => (n === 0 ? ["--fake-crash-after", "300"] : []));
+    const { server, host, until } = await setup({ alpha: { url: url("alpha") } }, {}, (n) =>
+      n === 0 ? ["--fake-crash-after", "300"] : [],
+    );
     try {
       await host.start();
       const s = await until((st) => st.restarts === 1 && st.phase === "ready");
@@ -122,7 +124,9 @@ describe("the local model host", () => {
   });
 
   test("a server that keeps dying makes the host give up and say why", async () => {
-    const { server, host, until } = await setup({ alpha: { url: url("alpha") } }, {}, (n) => (n === 0 ? ["--fake-crash-after", "300"] : ["--fake-exit-code", "3"]));
+    const { server, host, until } = await setup({ alpha: { url: url("alpha") } }, {}, (n) =>
+      n === 0 ? ["--fake-crash-after", "300"] : ["--fake-exit-code", "3"],
+    );
     try {
       await host.start();
       const s = await until((st) => st.phase === "error");
@@ -158,7 +162,10 @@ describe("the local model host", () => {
   test("stopping during a slow start cancels it", async () => {
     const { server, host } = await setup({ alpha: { url: url("alpha") } }, {}, () => ["--fake-delay", "3000"]);
     try {
-      const started = host.start().then(() => "up", (e: Error) => e.message);
+      const started = host.start().then(
+        () => "up",
+        (e: Error) => e.message,
+      );
       await new Promise((r) => setTimeout(r, 400));
       await host.stop();
       assert.match(await started, /cancelled/);
@@ -188,13 +195,21 @@ describe("changing the settings of a running host", () => {
   });
 
   test("a model whose settings changed is unloaded so it comes back with them; others are left", async () => {
-    const { server, host, config, until } = await setup({ alpha: { url: url("alpha") }, beta: { url: url("beta") } }, { server: { models_max: 2, health_timeout: 10 } });
+    const { server, host, config, until } = await setup(
+      { alpha: { url: url("alpha") }, beta: { url: url("beta") } },
+      { server: { models_max: 2, health_timeout: 10 } },
+    );
     try {
       await host.start();
       await host.load("alpha");
       await host.load("beta");
       await until((s) => s.models.every((m) => m.state === "loaded"));
-      await host.apply(config({ alpha: { url: url("alpha"), ctx_size: 2048 }, beta: { url: url("beta") } }, { server: { models_max: 2, health_timeout: 10 } }));
+      await host.apply(
+        config(
+          { alpha: { url: url("alpha"), ctx_size: 2048 }, beta: { url: url("beta") } },
+          { server: { models_max: 2, health_timeout: 10 } },
+        ),
+      );
       assert.deepEqual(names(await until((s) => s.models.some((m) => m.state === "unloaded"))), ["alpha:unloaded", "beta:loaded"]);
     } finally {
       await host.stop();

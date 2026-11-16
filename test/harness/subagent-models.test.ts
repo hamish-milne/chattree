@@ -6,7 +6,13 @@ import { modelsFor, type ModelInfo } from "../../providers/registry.ts";
 import { ANTHROPIC_MODELS } from "../../providers/pricing-data.ts";
 
 const catalog = {
-  big: { cost_tier: "high" as const, description: "the best", reasoning: { low: { effort: "low" }, high: { effort: "high" } }, default_reasoning: "high", max_output_tokens: 64000 },
+  big: {
+    cost_tier: "high" as const,
+    description: "the best",
+    reasoning: { low: { effort: "low" }, high: { effort: "high" } },
+    default_reasoning: "high",
+    max_output_tokens: 64000,
+  },
   small: { cost_tier: "low" as const, description: "cheap", reasoning: { off: { thinking: "off" } }, max_output_tokens: 8000 },
 };
 const lookup = (p: string, id: string): ModelInfo | undefined => (p === "a" ? (catalog as Record<string, ModelInfo>)[id] : undefined);
@@ -21,7 +27,14 @@ describe("the model catalog", () => {
   });
 
   test("harness.yml accepts descriptions and levels in models, and refuses a default that is not a level", () => {
-    const ok = harnessConfig.safeParse({ providers: { p: { $tag: "x", models: { m: { description: "d", cost_tier: "low", reasoning: { low: { effort: "low" } }, default_reasoning: "low" } } } } });
+    const ok = harnessConfig.safeParse({
+      providers: {
+        p: {
+          $tag: "x",
+          models: { m: { description: "d", cost_tier: "low", reasoning: { low: { effort: "low" } }, default_reasoning: "low" } },
+        },
+      },
+    });
     assert.ok(ok.success);
     assert.ok(harnessConfig.safeParse({ subagent: { models: { "p/m": { reasoning: ["low"] } } } }).success);
     assert.ok(!harnessConfig.safeParse({ subagent: { models: { "no-slash": {} } } }).success);
@@ -32,7 +45,13 @@ describe("resolving the models a subagent may use", () => {
   test("takes description, tier and levels from the catalog; the list can narrow and reword", () => {
     const r = resolveSubagentModels({ "a/big": { reasoning: ["low"], description: "mine" }, "a/small": {} }, new Set(["a"]), lookup);
     assert.deepEqual(r.problems, []);
-    assert.deepEqual(r.models.map((m) => [m.key, m.description, Object.keys(m.levels), m.defaultLevel]), [["a/big", "mine", ["low"], undefined], ["a/small", "cheap", ["off"], undefined]]);
+    assert.deepEqual(
+      r.models.map((m) => [m.key, m.description, Object.keys(m.levels), m.defaultLevel]),
+      [
+        ["a/big", "mine", ["low"], undefined],
+        ["a/small", "cheap", ["off"], undefined],
+      ],
+    );
   });
 
   test("a provider that is not configured and a level the catalog lacks are problems; an unknown model is allowed", () => {
@@ -51,11 +70,18 @@ describe("resolving the models a subagent may use", () => {
 });
 
 describe("the child's model setting", () => {
-  const models = resolveSubagentModels({ "a/big": {}, "a/small": {}, "b/other": {} }, new Set(["a", "b"]), (p, id) => (p === "b" ? { description: "elsewhere" } : lookup(p, id))).models;
+  const models = resolveSubagentModels({ "a/big": {}, "a/small": {}, "b/other": {} }, new Set(["a", "b"]), (p, id) =>
+    p === "b" ? { description: "elsewhere" } : lookup(p, id),
+  ).models;
 
   test("nothing chosen is the parent's own setup", () => {
     assert.deepEqual(childModel({}, models, parent, catalog.big), { ok: true, model: undefined, key: "inherit", level: undefined });
-    assert.deepEqual(childModel({ model: "a/big" }, models, parent, catalog.big), { ok: true, model: undefined, key: "inherit", level: undefined });
+    assert.deepEqual(childModel({ model: "a/big" }, models, parent, catalog.big), {
+      ok: true,
+      model: undefined,
+      key: "inherit",
+      level: undefined,
+    });
   });
 
   test("another level of the same model keeps the parent's other settings", () => {

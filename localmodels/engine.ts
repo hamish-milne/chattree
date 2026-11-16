@@ -70,7 +70,8 @@ export const nodeSpawn: SpawnFn = (binary, args, o) => {
   return {
     kill() {
       // Windows has no signals: killing the router would leave the model processes it started, so the whole tree goes.
-      if (process.platform === "win32" && child.pid !== undefined) spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => child.kill());
+      if (process.platform === "win32" && child.pid !== undefined)
+        spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => child.kill());
       else child.kill();
       setTimeout(() => child.kill("SIGKILL"), 5000).unref();
     },
@@ -152,13 +153,17 @@ export class RouterEngine implements Engine {
       if (Date.now() > deadline) {
         child.kill();
         await child.exit;
-        throw new EngineError(`llama-server did not answer within ${spec.config.server.health_timeout} s${tail.length > 0 ? `; it printed:\n${tail.join("\n")}` : ""}`);
+        throw new EngineError(
+          `llama-server did not answer within ${spec.config.server.health_timeout} s${tail.length > 0 ? `; it printed:\n${tail.join("\n")}` : ""}`,
+        );
       }
       await sleep(this.#pollMs, spec.signal);
     }
     if (ended) {
       const { code } = await child.exit;
-      throw new EngineError(`llama-server stopped at start (exit code ${code ?? "none"})${tail.length > 0 ? `; it printed:\n${tail.join("\n")}` : ""}`);
+      throw new EngineError(
+        `llama-server stopped at start (exit code ${code ?? "none"})${tail.length > 0 ? `; it printed:\n${tail.join("\n")}` : ""}`,
+      );
     }
     child.kill();
     await child.exit;

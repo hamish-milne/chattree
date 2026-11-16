@@ -65,7 +65,8 @@ function structural(doc: Document.Parsed): Issue[] {
   };
   const notOnMap = (node: unknown): void => {
     const tag = (node as { tag?: string }).tag;
-    if (tag !== undefined && TAG_SUGAR.test(tag)) issues.push({ path: "", message: `the tag ${tag} is only allowed on a map${line(node)}` });
+    if (tag !== undefined && TAG_SUGAR.test(tag))
+      issues.push({ path: "", message: `the tag ${tag} is only allowed on a map${line(node)}` });
   };
   visit(doc, {
     Alias(_k, node) {
@@ -140,7 +141,11 @@ async function validate<T>(schema: StandardSchemaV1<unknown, T>, plain: unknown,
  * Parse and validate a config file. The hash is of the validated data, in canonical form with sorted keys:
  * comments, spacing, quoting, flow versus block style and key order do not affect it; values and list order do.
  */
-export async function parseConfig<T>(text: string, schema: StandardSchemaV1<unknown, T>, opts: ConfigOptions = {}): Promise<ConfigResult<T>> {
+export async function parseConfig<T>(
+  text: string,
+  schema: StandardSchemaV1<unknown, T>,
+  opts: ConfigOptions = {},
+): Promise<ConfigResult<T>> {
   if (/\u0000/.test(text)) return fail("config files may not contain NUL bytes");
   const { doc, issues } = loadConfigDocument(text);
   if (issues.length > 0) return { ok: false, issues };

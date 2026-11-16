@@ -49,12 +49,15 @@ const WORTH = 0.1;
 export const COOLDOWN = 6;
 
 /** The token count at which `auto` acts: the setting, else a share of the model's window; `undefined` when neither is known. */
-export const thresholdOf = (s: CompactionSettings, contextWindow: number | undefined): number | undefined => s.threshold ?? (contextWindow === undefined ? undefined : Math.floor(contextWindow * DEFAULT_SHARE));
+export const thresholdOf = (s: CompactionSettings, contextWindow: number | undefined): number | undefined =>
+  s.threshold ?? (contextWindow === undefined ? undefined : Math.floor(contextWindow * DEFAULT_SHARE));
 
 export class ContextFull extends Error {
   override name = "ContextFull";
   constructor(tokens: number, window: number) {
-    super(`the request is about ${tokens} tokens, ${Math.round((tokens / window) * 100)}% of the ${window} token context window, and trimming did not bring it down; it was not sent, because a model that cannot see its own recent work misbehaves. Compact the thread by hand (/compact), start a fresh one, or lower compaction.keep_recent`);
+    super(
+      `the request is about ${tokens} tokens, ${Math.round((tokens / window) * 100)}% of the ${window} token context window, and trimming did not bring it down; it was not sent, because a model that cannot see its own recent work misbehaves. Compact the thread by hand (/compact), start a fresh one, or lower compaction.keep_recent`,
+    );
   }
 }
 
@@ -65,7 +68,15 @@ export class CompactionInsufficient extends Error {
   }
 }
 
-const carries = (e: ChatEntry): boolean => e.$tag === "user" || e.$tag === "assistant" || e.$tag === "tool_result" || e.$tag === "compaction" || e.$tag === "subagent_result" || e.$tag === "fork_merge" || e.$tag === "job_event" || e.$tag === "interrupted";
+const carries = (e: ChatEntry): boolean =>
+  e.$tag === "user" ||
+  e.$tag === "assistant" ||
+  e.$tag === "tool_result" ||
+  e.$tag === "compaction" ||
+  e.$tag === "subagent_result" ||
+  e.$tag === "fork_merge" ||
+  e.$tag === "job_event" ||
+  e.$tag === "interrupted";
 const idOf = (e: ChatEntry): string | undefined => ("id" in e && typeof e.id === "string" ? e.id : undefined);
 
 /** Whether the next request starts a turn: the last entry that carries content is a user message or a finished job, not the middle of a tool loop. */
@@ -78,7 +89,11 @@ export function atTurnStart(entries: readonly ChatEntry[]): boolean {
  * The range a summary would replace: from the first entry of the context (an earlier summary included) up to before the last `keepRecent`
  * entries. It never reaches into the open turn (from the last user message on) and never ends between a call and its result.
  */
-export function summaryRange(entries: readonly ChatEntry[], keepRecent: number, budgetBytes?: number): { from: string; to: string; entries: number; merges: boolean } | undefined {
+export function summaryRange(
+  entries: readonly ChatEntry[],
+  keepRecent: number,
+  budgetBytes?: number,
+): { from: string; to: string; entries: number; merges: boolean } | undefined {
   const visible = contextEntries(entries);
   let end = visible.length - 1;
   for (let kept = 0; end >= 0 && kept < keepRecent; end--) if (carries(visible[end] as ChatEntry)) kept++;
@@ -103,7 +118,9 @@ export function summaryRange(entries: readonly ChatEntry[], keepRecent: number, 
   const pick = (first: number, merges: boolean): { from: string; to: string; entries: number; merges: boolean } | undefined => {
     if (first < 0 || first > end) return undefined;
     const count = visible.slice(first, end + 1).filter(carries).length;
-    return count < 2 ? undefined : { from: idOf(visible[first] as ChatEntry) as string, to: idOf(visible[end] as ChatEntry) as string, entries: count, merges };
+    return count < 2
+      ? undefined
+      : { from: idOf(visible[first] as ChatEntry) as string, to: idOf(visible[end] as ChatEntry) as string, entries: count, merges };
   };
   const firstOf = (from: number): number => visible.findIndex((e, i) => i >= from && carries(e) && idOf(e) !== undefined);
   // Summaries already in the context stay as they are (their text, and so the cached prefix, does not change) while they are small: the new one covers
@@ -122,7 +139,9 @@ export function turnsAsText(ctx: ModelContext): string {
     if (t.role === "user") {
       lines.push(`User: ${t.parts.map((p) => (p.type === "text" ? p.text : `[attachment: ${p.name ?? p.mime}]`)).join("\n")}`);
     } else if (t.role === "assistant") {
-      const parts = t.blocks.flatMap((b) => (b.type === "text" ? [b.text] : b.type === "tool_call" ? [`[called ${b.name} ${JSON.stringify(b.args)}]`] : []));
+      const parts = t.blocks.flatMap((b) =>
+        b.type === "text" ? [b.text] : b.type === "tool_call" ? [`[called ${b.name} ${JSON.stringify(b.args)}]`] : [],
+      );
       if (parts.length > 0) lines.push(`Assistant: ${parts.join("\n")}`);
     } else {
       for (const r of t.results) lines.push(`Tool result${r.is_error ? " (error)" : ""} for ${r.call_id}: ${r.content}`);
@@ -139,7 +158,13 @@ const SUMMARY_PROMPT = (transcript: string): string =>
  * (`seen`, always smaller than the context that triggered this), or the entries untrimmed (`raw`, when it fits the summarizer's window). The request
  * counts against the limits and its usage goes into the entry, so the ledger has it. An empty summary, or one as long as its source, is refused.
  */
-export async function summariseRange(convo: Conversation, opts: PrepareOptions, range: { from: string; to: string }, s: Pick<CompactionSettings, "summaryModel" | "summaryInput">, by: "user" | "auto"): Promise<{ summary: string; model: string }> {
+export async function summariseRange(
+  convo: Conversation,
+  opts: PrepareOptions,
+  range: { from: string; to: string },
+  s: Pick<CompactionSettings, "summaryModel" | "summaryInput">,
+  by: "user" | "auto",
+): Promise<{ summary: string; model: string }> {
   const setup = await convo.setup();
   if (setup.model === undefined) throw new Error("this thread has no model; set one with /model");
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
@@ -168,10 +193,17 @@ export async function summariseRange(convo: Conversation, opts: PrepareOptions, 
   const fits = (text: string): boolean => window === undefined || byteLength(text) / 3 + 2000 < window * 0.9;
   let transcript = s.summaryInput === "raw" ? await input(false) : await input(true);
   if (s.summaryInput === "raw" && !fits(transcript)) transcript = await input(true);
-  if (!fits(transcript)) throw new CompactionInsufficient(`the part of the conversation to summarise (about ${Math.round(byteLength(transcript) / 3)} tokens) does not fit the ${window}-token window of ${summarizer}; set compaction.summary_model to a model with a larger window`);
-  const r = await askModel(convo, SUMMARY_PROMPT(transcript), { limits: true, ...(s.summaryModel === undefined ? {} : { model: s.summaryModel }) });
+  if (!fits(transcript))
+    throw new CompactionInsufficient(
+      `the part of the conversation to summarise (about ${Math.round(byteLength(transcript) / 3)} tokens) does not fit the ${window}-token window of ${summarizer}; set compaction.summary_model to a model with a larger window`,
+    );
+  const r = await askModel(convo, SUMMARY_PROMPT(transcript), {
+    limits: true,
+    ...(s.summaryModel === undefined ? {} : { model: s.summaryModel }),
+  });
   if (r.text === "") throw new CompactionInsufficient(`${r.model} returned an empty summary, so nothing was compacted`);
-  if (byteLength(r.text) >= byteLength(transcript)) throw new CompactionInsufficient(`${r.model} wrote a summary as long as what it summarises, so nothing was compacted`);
+  if (byteLength(r.text) >= byteLength(transcript))
+    throw new CompactionInsufficient(`${r.model} wrote a summary as long as what it summarises, so nothing was compacted`);
   await convo.compact({ from: range.from, to: range.to, summary: r.text, model: r.model, usage: r.record, by });
   return { summary: r.text, model: r.model };
 }
@@ -205,11 +237,17 @@ export async function autoCompact(convo: Conversation, opts: PrepareOptions, pre
       const cooling = lastAuto >= 0 && now.slice(lastAuto + 1).filter(carries).length < COOLDOWN;
       if (!cooling && atTurnStart(now)) {
         const range = summaryRange(now, s.keepRecent, Math.floor(threshold * s.summaryBudget * 3));
-        if (range === undefined) throw new CompactionInsufficient(`the request is about ${p.estimate?.inputTokens} tokens, over the threshold of ${threshold}, but nothing older than the last ${s.keepRecent} entries can be summarised; lower compaction.keep_recent`);
+        if (range === undefined)
+          throw new CompactionInsufficient(
+            `the request is about ${p.estimate?.inputTokens} tokens, over the threshold of ${threshold}, but nothing older than the last ${s.keepRecent} entries can be summarised; lower compaction.keep_recent`,
+          );
         await summariseRange(convo, opts, range, s, "auto");
         p = await prepareContext(convo, opts);
         const after = p.estimate?.inputTokens ?? 0;
-        if (after >= threshold) throw new CompactionInsufficient(`the summary of ${range.entries} entries did not bring the request under the threshold: it is still about ${after} tokens, and the threshold is ${threshold}. The instructions, tools or the last ${s.keepRecent} entries are most of it; lower compaction.keep_recent or raise compaction.threshold_tokens`);
+        if (after >= threshold)
+          throw new CompactionInsufficient(
+            `the summary of ${range.entries} entries did not bring the request under the threshold: it is still about ${after} tokens, and the threshold is ${threshold}. The instructions, tools or the last ${s.keepRecent} entries are most of it; lower compaction.keep_recent or raise compaction.threshold_tokens`,
+          );
       }
     }
   }

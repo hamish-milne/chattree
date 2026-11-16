@@ -43,25 +43,37 @@ const undo: Command = {
 
       const byId = new Map<string, ChatEntry>();
       for (const e of await convo.readEntries()) if (e.ok && "id" in e.value) byId.set(e.value.id, e.value);
-      const firstUser = dropped.filter((r) => r.tag === "user").map((r) => (r.id === undefined ? undefined : byId.get(r.id))).find((e): e is Extract<ChatEntry, { $tag: "user" }> => e?.$tag === "user");
+      const firstUser = dropped
+        .filter((r) => r.tag === "user")
+        .map((r) => (r.id === undefined ? undefined : byId.get(r.id)))
+        .find((e): e is Extract<ChatEntry, { $tag: "user" }> => e?.$tag === "user");
       let text = "";
       const lostFiles: string[] = [];
       if (firstUser !== undefined) {
         for (const p of firstUser.content) {
-          if (p.$tag === "text") text += typeof p.text === "string" ? p.text : new TextDecoder().decode((await convo.store.get(p.text.sha256)) ?? new Uint8Array());
+          if (p.$tag === "text")
+            text +=
+              typeof p.text === "string" ? p.text : new TextDecoder().decode((await convo.store.get(p.text.sha256)) ?? new Uint8Array());
           else lostFiles.push(p.name ?? p.data.sha256.slice(0, 8));
         }
       }
 
       const kinds = new Map<string, number>();
       for (const r of dropped) kinds.set(r.tag, (kinds.get(r.tag) ?? 0) + 1);
-      const others = engine.sessions === undefined ? [] : (await engine.sessions.list()).filter((s) => s.thread === engine.thread && s.locked && s.id !== engine.sessionId);
+      const others =
+        engine.sessions === undefined
+          ? []
+          : (await engine.sessions.list()).filter((s) => s.thread === engine.thread && s.locked && s.id !== engine.sessionId);
       yield {
         type: "notice",
         message: [
           `this takes ${engine.thread} back ${count} commit${count === 1 ? "" : "s"}, dropping ${[...kinds].map(([k, n]) => `${n} ${k}`).join(", ") || "no entries"}; the workspace files go back with it${firstUser === undefined ? "" : `; your message "${text.replace(/\s+/g, " ").trim().slice(0, 50)}${text.length > 50 ? "…" : ""}" goes into a draft`}`,
-          ...(lostFiles.length > 0 ? [`its attached files (${lostFiles.join(", ")}) are not carried into the draft; /attach them again`] : []),
-          ...(others.length > 0 ? [`${others.length} other session${others.length === 1 ? " is" : "s are"} on this thread and will need to be restarted`] : []),
+          ...(lostFiles.length > 0
+            ? [`its attached files (${lostFiles.join(", ")}) are not carried into the draft; /attach them again`]
+            : []),
+          ...(others.length > 0
+            ? [`${others.length} other session${others.length === 1 ? " is" : "s are"} on this thread and will need to be restarted`]
+            : []),
         ].join("\n"),
       };
       if (!(await ctx.confirm("Go back?"))) {
@@ -74,10 +86,16 @@ const undo: Command = {
         else {
           const name = nextDraftName(ctx.state.drafts);
           ctx.state.drafts = [...ctx.state.drafts, { name, text }];
-          yield { type: "notice", message: `you already had a draft in progress, so the message is saved as draft ${name} (/draft ${name} edits it, /send ${name} sends it)` };
+          yield {
+            type: "notice",
+            message: `you already had a draft in progress, so the message is saved as draft ${name} (/draft ${name} edits it, /send ${name} sends it)`,
+          };
         }
       }
-      yield { type: "notice", message: `done. The tip was ${r.from}; to bring it back: git branch <name> ${r.from}  (also kept as ${r.ref})` };
+      yield {
+        type: "notice",
+        message: `done. The tip was ${r.from}; to bring it back: git branch <name> ${r.from}  (also kept as ${r.ref})`,
+      };
       const recent = await recentEntries(engine);
       if (recent.length > 0) yield { type: "text", text: recent.join("\n") };
     } catch (e) {

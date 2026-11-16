@@ -40,8 +40,14 @@ describe("threads", () => {
       assert.match(r.out, /thread: main\nworktree: .*p/);
       const sideSent = JSON.parse(server.seen[1]?.body ?? "") as { messages: { content: unknown }[] };
       assert.equal(sideSent.messages.length, 2, "system and the one message: the main thread's exchange did not come along");
-      assert.deepEqual((await tagsOn(dir, "side")).filter((t) => t === "user" || t === "assistant"), ["user", "assistant"]);
-      assert.deepEqual((await tagsOn(dir, "main")).filter((t) => t === "user" || t === "assistant"), ["user", "assistant"]);
+      assert.deepEqual(
+        (await tagsOn(dir, "side")).filter((t) => t === "user" || t === "assistant"),
+        ["user", "assistant"],
+      );
+      assert.deepEqual(
+        (await tagsOn(dir, "main")).filter((t) => t === "user" || t === "assistant"),
+        ["user", "assistant"],
+      );
     } finally {
       await server.close();
     }
@@ -50,12 +56,26 @@ describe("threads", () => {
   test("/fork continues from this thread (or an earlier entry), moves to the fork, and /merge brings it back with a confirmed model summary", async () => {
     const { server, dir } = await started([answer("one"), answer("two"), answer("a fork answer"), answer("They agreed on option B.")]);
     try {
-      const r = await session(dir, "first", "second", "/fork 3 detour", "/status", "what about the fork?", "/thread main", "/merge detour", "/history 3");
+      const r = await session(
+        dir,
+        "first",
+        "second",
+        "/fork 3 detour",
+        "/status",
+        "what about the fork?",
+        "/thread main",
+        "/merge detour",
+        "/history 3",
+      );
       assert.equal(r.code, 0, r.err);
       assert.match(r.all, /forked detour from main at an earlier entry/);
       assert.match(r.out, /thread:\s+detour/);
       const forkSent = JSON.parse(server.seen[2]?.body ?? "") as { messages: { role: string; content: string }[] };
-      assert.deepEqual(forkSent.messages.map((m) => m.role), ["system", "user", "assistant", "user"], "the fork kept the first exchange, not the second");
+      assert.deepEqual(
+        forkSent.messages.map((m) => m.role),
+        ["system", "user", "assistant", "user"],
+        "the fork kept the first exchange, not the second",
+      );
       assert.match(r.all, /summary by qwen3:4b/);
       assert.match(r.all, /They agreed on option B\./);
       assert.match(r.all, /merged detour into main: /);
@@ -68,7 +88,18 @@ describe("threads", () => {
   test("unnamed forks are fork/1, fork/2; /merge with no argument merges this fork into its parent, checks before asking the model, and moves there", async () => {
     const { server, dir } = await started([answer("one"), answer("fork reply"), answer("They settled on B.")]);
     try {
-      const r = await session(dir, "hello", "/fork", "in the fork", "/merge", "/thread", "/thread fork/1", "/merge", "/thread main", "/fork");
+      const r = await session(
+        dir,
+        "hello",
+        "/fork",
+        "in the fork",
+        "/merge",
+        "/thread",
+        "/thread fork/1",
+        "/merge",
+        "/thread main",
+        "/fork",
+      );
       assert.match(r.all, /forked fork\/1 from main/);
       assert.match(r.all, /They settled on B\./);
       assert.match(r.all, /merged fork\/1 into main: /);
@@ -83,7 +114,12 @@ describe("threads", () => {
   });
 
   test("the model's summary covers only what the fork wrote since it was last merged, and says the main thread is not shown", async () => {
-    const { server, dir } = await started([answer("one"), answer("first fork reply"), answer("second fork reply"), answer("Only the second part.")]);
+    const { server, dir } = await started([
+      answer("one"),
+      answer("first fork reply"),
+      answer("second fork reply"),
+      answer("Only the second part."),
+    ]);
     try {
       await session(dir, "hello", "/fork", "ALPHA question", "/merge Alpha is done.", "/thread fork/1", "BETA question", "/merge");
       const prompt = (JSON.parse(server.seen[3]?.body ?? "") as { messages: { content: string }[] }).messages.at(-1)?.content ?? "";

@@ -17,7 +17,11 @@ export function nextDraftName(drafts: readonly NamedDraft[]): string {
 }
 
 const nameProblem = (name: string): string | undefined =>
-  RESERVED.includes(name) ? `${name} is a /draft subcommand, so it cannot name a draft` : /^[^\s/]+$/.test(name) ? undefined : "a draft's name is one word without slashes";
+  RESERVED.includes(name)
+    ? `${name} is a /draft subcommand, so it cannot name a draft`
+    : /^[^\s/]+$/.test(name)
+      ? undefined
+      : "a draft's name is one word without slashes";
 
 const preview = (t: string): string => {
   const one = t.replace(/\s+/g, " ").trim();
@@ -33,17 +37,22 @@ async function* editNamed(ctx: Ctx, name: string): AsyncGenerator<Output, void> 
   }
   if (text.trim() === "") {
     ctx.state.drafts = ctx.state.drafts.filter((d) => d.name !== name);
-    yield { type: "notice", message: existing === undefined ? "nothing written, so no draft was made" : `draft ${name} is empty, so it was removed` };
+    yield {
+      type: "notice",
+      message: existing === undefined ? "nothing written, so no draft was made" : `draft ${name} is empty, so it was removed`,
+    };
     return;
   }
-  ctx.state.drafts = existing === undefined ? [...ctx.state.drafts, { name, text }] : ctx.state.drafts.map((d) => (d.name === name ? { name, text } : d));
+  ctx.state.drafts =
+    existing === undefined ? [...ctx.state.drafts, { name, text }] : ctx.state.drafts.map((d) => (d.name === name ? { name, text } : d));
   yield { type: "notice", message: `${existing === undefined ? "saved" : "updated"} draft ${name}; /send ${name} sends it` };
 }
 
 const draft: Command = {
   name: "draft",
   summary: "write a message ahead in your editor (named drafts), or work with the unsent prompt",
-  usage: "/draft [name]  opens a named draft in the editor (no name: a new numbered one)\n/draft show | edit | clear | set <text>  work on the prompt you are typing",
+  usage:
+    "/draft [name]  opens a named draft in the editor (no name: a new numbered one)\n/draft show | edit | clear | set <text>  work on the prompt you are typing",
   busy: "allowed",
   stages: { show: "drafts", clear: "discard" },
   async complete(ctx, previous, partial) {
@@ -85,7 +94,13 @@ const drafts: Command = {
   usage: "/drafts",
   busy: "allowed",
   async *run(ctx) {
-    yield { type: "text", text: ctx.state.drafts.length === 0 ? "no named drafts (/draft [name] writes one)" : ctx.state.drafts.map((d) => `${d.name}  ${d.text.length} characters  ${preview(d.text)}`).join("\n") };
+    yield {
+      type: "text",
+      text:
+        ctx.state.drafts.length === 0
+          ? "no named drafts (/draft [name] writes one)"
+          : ctx.state.drafts.map((d) => `${d.name}  ${d.text.length} characters  ${preview(d.text)}`).join("\n"),
+    };
   },
 };
 
@@ -101,11 +116,24 @@ const paste: Command = {
     const name = args[0] ?? (ctx.state.drafts.length === 1 ? ctx.state.drafts[0]?.name : undefined);
     const d = name === undefined ? undefined : ctx.state.drafts.find((x) => x.name === name);
     if (d === undefined) {
-      yield { type: "error", message: name === undefined ? (ctx.state.drafts.length === 0 ? "there are no named drafts" : "say which draft") : `there is no draft ${name}`, hint: "see /drafts" };
+      yield {
+        type: "error",
+        message:
+          name === undefined
+            ? ctx.state.drafts.length === 0
+              ? "there are no named drafts"
+              : "say which draft"
+            : `there is no draft ${name}`,
+        hint: "see /drafts",
+      };
       return;
     }
     if (ctx.state.draft !== "") {
-      yield { type: "error", message: "the prompt already has a draft", hint: "send it, clear it with /draft clear, or put it aside with Ctrl-O first" };
+      yield {
+        type: "error",
+        message: "the prompt already has a draft",
+        hint: "send it, clear it with /draft clear, or put it aside with Ctrl-O first",
+      };
       return;
     }
     ctx.state.drafts = ctx.state.drafts.filter((x) => x.name !== d.name);
@@ -115,7 +143,10 @@ const paste: Command = {
       ctx.state.draft = lines.slice(0, -1).join("\n");
       ctx.engine.prefill(lines.at(-1) ?? "");
     } else ctx.state.draft = d.text;
-    yield { type: "notice", message: `draft ${d.name} is back on the prompt${lines.length > 1 ? ` (${lines.length} lines; a blank line sends it)` : ""}` };
+    yield {
+      type: "notice",
+      message: `draft ${d.name} is back on the prompt${lines.length > 1 ? ` (${lines.length} lines; a blank line sends it)` : ""}`,
+    };
   },
 };
 
@@ -136,7 +167,9 @@ const discard: Command = {
     const before = ctx.state.drafts.length;
     ctx.state.drafts = which === "all" ? [] : ctx.state.drafts.filter((d) => d.name !== which);
     const n = before - ctx.state.drafts.length;
-    yield n === 0 ? { type: "error", message: `there is no draft ${which}` } : { type: "notice", message: `removed ${n} draft${n === 1 ? "" : "s"}` };
+    yield n === 0
+      ? { type: "error", message: `there is no draft ${which}` }
+      : { type: "notice", message: `removed ${n} draft${n === 1 ? "" : "s"}` };
   },
 };
 
@@ -151,7 +184,11 @@ const send: Command = {
   async *run(ctx, args) {
     const name = args[0] ?? (ctx.state.drafts.length === 1 ? ctx.state.drafts[0]?.name : undefined);
     if (name === undefined) {
-      yield { type: "error", message: ctx.state.drafts.length === 0 ? "there are no named drafts" : "say which draft", hint: ctx.state.drafts.length === 0 ? "/draft [name] writes one" : `/send <name>; see /drafts` };
+      yield {
+        type: "error",
+        message: ctx.state.drafts.length === 0 ? "there are no named drafts" : "say which draft",
+        hint: ctx.state.drafts.length === 0 ? "/draft [name] writes one" : `/send <name>; see /drafts`,
+      };
       return;
     }
     const d = ctx.state.drafts.find((x) => x.name === name);

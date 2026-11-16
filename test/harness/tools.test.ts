@@ -14,12 +14,26 @@ const read = {
     files: {
       type: "array",
       minItems: 1,
-      items: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string", description: "relative path" }, offset: { type: "integer", minimum: 0 }, mode: { type: "string", enum: ["a", "b"] } } },
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["path"],
+        properties: {
+          path: { type: "string", description: "relative path" },
+          offset: { type: "integer", minimum: 0 },
+          mode: { type: "string", enum: ["a", "b"] },
+        },
+      },
     },
     verbose: { type: "boolean" },
   },
 };
-const tool = (name: string, schema: unknown = read): Tool => ({ definition: { name, description: `${name} tool`, input_schema: schema as Record<string, unknown> }, async execute() { return { content: "ok" }; } });
+const tool = (name: string, schema: unknown = read): Tool => ({
+  definition: { name, description: `${name} tool`, input_schema: schema as Record<string, unknown> },
+  async execute() {
+    return { content: "ok" };
+  },
+});
 
 describe("the portable schema subset", () => {
   test("accepts objects, arrays of objects, scalars and enums", () => {
@@ -33,11 +47,17 @@ describe("the portable schema subset", () => {
     bad({ type: "array", items: { type: "string" } }, /must be an object/);
     bad({ type: "object", additionalProperties: false, properties: { a: { oneOf: [{ type: "string" }] } } }, /a needs a single `type`/);
     bad({ type: "object", additionalProperties: false, properties: { a: { type: ["string", "null"] } } }, /a needs a single `type`/);
-    bad({ type: "object", additionalProperties: false, properties: { a: { type: "string", pattern: "x" } } }, /`pattern` is not in the portable subset for string/);
+    bad(
+      { type: "object", additionalProperties: false, properties: { a: { type: "string", pattern: "x" } } },
+      /`pattern` is not in the portable subset for string/,
+    );
     bad({ type: "object", additionalProperties: false, properties: { a: { type: "string", format: "uri" } } }, /`format`/);
     bad({ type: "object", additionalProperties: false, properties: { a: { $ref: "#/x" } } }, /a needs a single `type`/);
     bad({ type: "object", additionalProperties: false, properties: { a: { type: "array" } } }, /arrays need `items`/);
-    bad({ type: "object", additionalProperties: false, properties: { a: { type: "object", properties: {} } } }, /a: objects must set additionalProperties: false/);
+    bad(
+      { type: "object", additionalProperties: false, properties: { a: { type: "object", properties: {} } } },
+      /a: objects must set additionalProperties: false/,
+    );
     bad({ type: "object", additionalProperties: false, required: ["zz"] }, /names zz, which is not a property/);
     bad({ type: "object", additionalProperties: false, properties: { a: { type: "string", enum: [] } } }, /enum must be a non-empty list/);
     bad("not a schema", /not an object/);
@@ -68,7 +88,10 @@ describe("the registry", () => {
     assert.throws(() => r.add({ ...tool("x"), definition: { name: "x", description: " ", input_schema: read } }), /needs a description/);
     // Any JSON Schema for an object is accepted as written (what a model is shown of it is decided per model); what is not one, or cannot be checked, is not.
     assert.throws(() => r.add(tool("y", { type: "string" })), /must describe an object/);
-    assert.throws(() => r.add(tool("y", { type: "object", properties: { a: { $ref: "https://elsewhere.test/a.json" } } })), /cannot be used/);
+    assert.throws(
+      () => r.add(tool("y", { type: "object", properties: { a: { $ref: "https://elsewhere.test/a.json" } } })),
+      /cannot be used/,
+    );
     r.add(tool("z", { type: "object", properties: { a: { anyOf: [{ type: "string", pattern: "^a" }, { type: "integer" }] } } }));
     r.add(tool("x"));
     assert.throws(() => r.add(tool("x")), /registered twice/);
@@ -88,7 +111,9 @@ describe("the registry", () => {
     assert.deepEqual(Object.keys(pins).sort(), ["read", "write"]);
     assert.equal(pins["read"]?.hash, await hashDefinition("tool", r.get("read")?.definition));
     assert.equal(pins["read"]?.store, "blob");
-    const setup = foldSetup([{ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: { provider: "p", id: "m" }, tools: { set: pins } }]);
+    const setup = foldSetup([
+      { $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: { provider: "p", id: "m" }, tools: { set: pins } },
+    ]);
     assert.deepEqual((await loadDefinitions(setup, { blobs })).tools, r.definitions());
   });
 
@@ -105,7 +130,10 @@ describe("the registry", () => {
 
   test("a started job is told apart from an output", () => {
     assert.equal(isStarted({ content: "x" }), false);
-    assert.equal(isStarted({ started: { lease: { seconds: 5 }, summary: "job", done: Promise.resolve({ content: "" }), stop() {} } }), true);
+    assert.equal(
+      isStarted({ started: { lease: { seconds: 5 }, summary: "job", done: Promise.resolve({ content: "" }), stop() {} } }),
+      true,
+    );
   });
 });
 
@@ -152,15 +180,54 @@ describe("result shaping", () => {
 describe("flat schemas", () => {
   const obj = (properties: Record<string, unknown>) => ({ type: "object", additionalProperties: false, properties });
   test("scalars and lists of scalars are flat; objects and lists of objects or lists are not, each named", () => {
-    assert.deepEqual(flatProblems(obj({ a: { type: "string" }, b: { type: "integer" }, c: { type: "boolean", enum: [true] }, d: { type: "array", items: { type: "string" } } })), []);
-    assert.deepEqual(flatProblems(obj({ files: { type: "array", items: obj({ path: { type: "string" } }) }, cfg: obj({}), m: { type: "array", items: { type: "array", items: { type: "string" } } } })), ["files is a list of objects", "cfg is an object", "m is a list of arrays"]);
+    assert.deepEqual(
+      flatProblems(
+        obj({
+          a: { type: "string" },
+          b: { type: "integer" },
+          c: { type: "boolean", enum: [true] },
+          d: { type: "array", items: { type: "string" } },
+        }),
+      ),
+      [],
+    );
+    assert.deepEqual(
+      flatProblems(
+        obj({
+          files: { type: "array", items: obj({ path: { type: "string" } }) },
+          cfg: obj({}),
+          m: { type: "array", items: { type: "array", items: { type: "string" } } },
+        }),
+      ),
+      ["files is a list of objects", "cfg is an object", "m is a list of arrays"],
+    );
     assert.deepEqual(flatProblems(obj({})), []);
   });
 });
 
 describe("repairing slips the models in the live runs made", () => {
-  const read = { type: "object", additionalProperties: false, required: ["files"], properties: { files: { type: "array", items: { type: "object", additionalProperties: false, required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1 } } } } } };
-  const run = { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string" }, stdin: { type: "string" }, timeout_seconds: { type: "integer" } } };
+  const read = {
+    type: "object",
+    additionalProperties: false,
+    required: ["files"],
+    properties: {
+      files: {
+        type: "array",
+        items: {
+          type: "object",
+          additionalProperties: false,
+          required: ["path"],
+          properties: { path: { type: "string" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1 } },
+        },
+      },
+    },
+  };
+  const run = {
+    type: "object",
+    additionalProperties: false,
+    required: ["command"],
+    properties: { command: { type: "string" }, stdin: { type: "string" }, timeout_seconds: { type: "integer" } },
+  };
   test("a list of bare strings where objects with one required text property belong", () => {
     assert.deepEqual(coerceArgs(read, { files: ["a.txt", "b.txt"] }), { files: [{ path: "a.txt" }, { path: "b.txt" }] });
     assert.deepEqual(coerceArgs(read, { files: "a.txt" }), { files: [{ path: "a.txt" }] });
@@ -172,7 +239,13 @@ describe("repairing slips the models in the live runs made", () => {
     assert.deepEqual(coerceArgs(run, { command: "ls", timeout_seconds: 120 }), { command: "ls", timeout_seconds: 120 });
   });
   test("a tool's own normalize runs first", () => {
-    const reg = new ToolRegistry([{ definition: { name: "t", description: "d", input_schema: run }, normalize: (a) => ({ command: (a as { cmd: string }).cmd }), execute: async () => ({ content: "" }) }]);
+    const reg = new ToolRegistry([
+      {
+        definition: { name: "t", description: "d", input_schema: run },
+        normalize: (a) => ({ command: (a as { cmd: string }).cmd }),
+        execute: async () => ({ content: "" }),
+      },
+    ]);
     assert.deepEqual((reg.check({ name: "t", args: { cmd: "ls" } }) as { args: unknown }).args, { command: "ls" });
   });
 });
@@ -182,7 +255,10 @@ describe("repairing unambiguous slips in arguments", () => {
     type: "object",
     additionalProperties: false,
     properties: {
-      files: { type: "array", items: { type: "object", additionalProperties: false, properties: { path: { type: "string" }, limit: { type: "integer" } } } },
+      files: {
+        type: "array",
+        items: { type: "object", additionalProperties: false, properties: { path: { type: "string" }, limit: { type: "integer" } } },
+      },
       argv: { type: "array", items: { type: "string" } },
       timeout: { type: "integer" },
       append: { type: "boolean" },
@@ -195,18 +271,30 @@ describe("repairing unambiguous slips in arguments", () => {
     assert.deepEqual(fix({ files: '[{"path":"a"}]' }), { files: [{ path: "a" }] });
     assert.deepEqual(fix({ argv: "ls" }), { argv: ["ls"] });
     assert.deepEqual(fix({ argv: '["ls","-la"]' }), { argv: ["ls", "-la"] });
-    assert.deepEqual(fix({ files: [{ path: "a", limit: "5" }], timeout: " 30 ", append: "True", note: 7 }), { files: [{ path: "a", limit: 5 }], timeout: 30, append: true, note: "7" });
+    assert.deepEqual(fix({ files: [{ path: "a", limit: "5" }], timeout: " 30 ", append: "True", note: 7 }), {
+      files: [{ path: "a", limit: 5 }],
+      timeout: 30,
+      append: true,
+      note: "7",
+    });
     assert.deepEqual(fix('{"argv":["x"]}'), { argv: ["x"] });
   });
   test("anything that could mean more than one thing is left for validation to report", () => {
-    assert.deepEqual(fix({ timeout: "soon", append: "yes", files: "a.txt", argv: {} }), { timeout: "soon", append: "yes", files: "a.txt", argv: {} });
+    assert.deepEqual(fix({ timeout: "soon", append: "yes", files: "a.txt", argv: {} }), {
+      timeout: "soon",
+      append: "yes",
+      files: "a.txt",
+      argv: {},
+    });
     assert.deepEqual(fix({ extra: "1" }), { extra: "1" });
     const input = { files: { path: "a" } };
     fix(input);
     assert.deepEqual(input, { files: { path: "a" } }, "the input is not changed");
   });
   test("the registry validates the repaired call and hands the tool the repaired arguments", () => {
-    const reg = new ToolRegistry([{ definition: { name: "t", description: "d", input_schema: schema }, execute: async () => ({ content: "" }) }]);
+    const reg = new ToolRegistry([
+      { definition: { name: "t", description: "d", input_schema: schema }, execute: async () => ({ content: "" }) },
+    ]);
     const r = reg.check({ name: "t", args: { files: { path: "a" }, timeout: "9" } });
     assert.ok(!("error" in r));
     assert.deepEqual((r as { args: unknown }).args, { files: [{ path: "a" }], timeout: 9 });

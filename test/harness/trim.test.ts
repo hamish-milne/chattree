@@ -10,17 +10,48 @@ const id = (): string => `01ARZ3NDEKTSV4RRFFQ69G${String(++n).padStart(4, "0")}`
 const idOf = (e: ChatEntry): string => (e as { id: string }).id;
 const user = (text: string): ChatEntry => ({ $tag: "user", id: id(), content: [{ $tag: "text", text }] });
 type Blocks = Extract<ChatEntry, { $tag: "assistant" }>["blocks"];
-const say = (blocks: Blocks | string): ChatEntry => ({ $tag: "assistant", id: id(), provider: "anthropic", model: "sonnet", stop_reason: "end_turn", blocks: typeof blocks === "string" ? [{ $tag: "text", text: blocks }] : blocks });
-const call = (call_id: string, args: Record<string, unknown> = { path: "a.txt", content: "x".repeat(3000) }): Blocks[number] => ({ $tag: "tool_call", call_id, name: "write", args, args_raw: JSON.stringify(args) });
-const think = (): Blocks[number] => ({ $tag: "reasoning", provider: "anthropic", payload: { signature: "S" }, visible: "a long thought ".repeat(50) });
+const say = (blocks: Blocks | string): ChatEntry => ({
+  $tag: "assistant",
+  id: id(),
+  provider: "anthropic",
+  model: "sonnet",
+  stop_reason: "end_turn",
+  blocks: typeof blocks === "string" ? [{ $tag: "text", text: blocks }] : blocks,
+});
+const call = (call_id: string, args: Record<string, unknown> = { path: "a.txt", content: "x".repeat(3000) }): Blocks[number] => ({
+  $tag: "tool_call",
+  call_id,
+  name: "write",
+  args,
+  args_raw: JSON.stringify(args),
+});
+const think = (): Blocks[number] => ({
+  $tag: "reasoning",
+  provider: "anthropic",
+  payload: { signature: "S" },
+  visible: "a long thought ".repeat(50),
+});
 const result = (call_id: string, content: string): ChatEntry => ({ $tag: "tool_result", id: id(), call_id, is_error: false, content });
-const trim = (upto: ChatEntry, rule: Extract<ChatEntry, { $tag: "trim" }>["rule"]): ChatEntry => ({ $tag: "trim", id: id(), upto: idOf(upto), rule, by: "user" });
-const build = (entries: ChatEntry[]): Promise<ModelContext> => buildContext(entries, { system: "s", target: { provider: "anthropic", model: "sonnet" } });
+const trim = (upto: ChatEntry, rule: Extract<ChatEntry, { $tag: "trim" }>["rule"]): ChatEntry => ({
+  $tag: "trim",
+  id: id(),
+  upto: idOf(upto),
+  rule,
+  by: "user",
+});
+const build = (entries: ChatEntry[]): Promise<ModelContext> =>
+  buildContext(entries, { system: "s", target: { provider: "anthropic", model: "sonnet" } });
 const flat = (c: ModelContext): string => JSON.stringify(c.turns);
 
 const big = "output line\n".repeat(400);
 const history = (): ChatEntry[] => {
-  const [u1, a1, r1, u2, a2] = [user("first question"), say([think(), { $tag: "text", text: "I will write it" }, call("c1")]), result("c1", big), user("second question"), say("the answer")];
+  const [u1, a1, r1, u2, a2] = [
+    user("first question"),
+    say([think(), { $tag: "text", text: "I will write it" }, call("c1")]),
+    result("c1", big),
+    user("second question"),
+    say("the answer"),
+  ];
   return [u1, a1, r1, u2, a2];
 };
 
@@ -34,7 +65,8 @@ describe("trim", () => {
     assert.ok(!s.includes("xxxxxxxx"), "the long argument is gone");
     assert.match(s, /left out to save context/);
     assert.ok(!s.includes("a long thought"), "the reasoning is gone");
-    for (const kept of ["first question", "I will write it", "second question", "the answer", '"path":"a.txt"']) assert.ok(s.includes(kept), kept);
+    for (const kept of ["first question", "I will write it", "second question", "the answer", '"path":"a.txt"'])
+      assert.ok(s.includes(kept), kept);
     assert.ok(!s.includes("args_raw"), "the raw argument string would show the text again");
   });
 
@@ -128,10 +160,11 @@ describe("summaryRange with earlier summaries", () => {
     assert.equal(summaryRange([u1, a1, comp1, u2], 1, 10_000), undefined);
   });
 
-
   test("the text a summary is written from starts at its range, without the summaries above it", async () => {
     const whole = flat(await build(all));
-    const part = flat(await buildContext(all, { system: "s", target: { provider: "anthropic", model: "sonnet" }, from: idOf(u2), upTo: idOf(u4) }));
+    const part = flat(
+      await buildContext(all, { system: "s", target: { provider: "anthropic", model: "sonnet" }, from: idOf(u2), upTo: idOf(u4) }),
+    );
     assert.ok(whole.includes("S1 S1") && !part.includes("S1 S1"));
     assert.ok(part.includes("q2") && part.includes("q4") && !part.includes("q5"));
   });

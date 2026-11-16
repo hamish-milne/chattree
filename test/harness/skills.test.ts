@@ -24,7 +24,8 @@ import {
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
-const md = (name: string, description: string, body = "Do the thing.", extra = ""): string => `---\nname: ${name}\ndescription: ${description}\n${extra}---\n\n${body}\n`;
+const md = (name: string, description: string, body = "Do the thing.", extra = ""): string =>
+  `---\nname: ${name}\ndescription: ${description}\n${extra}---\n\n${body}\n`;
 
 async function skillDir(root: string, name: string, text: string, files: Record<string, string> = {}): Promise<string> {
   const dir = join(root, name);
@@ -36,9 +37,17 @@ async function skillDir(root: string, name: string, text: string, files: Record<
 
 describe("parseSkillText", () => {
   test("reads name, description and body; other keys are kept as metadata", () => {
-    const r = parseSkillText(md("pdf-tools", "Work with PDFs", "Step 1.\n\nStep 2.", "license: MIT\nmetadata:\n  author: me\n"), "pdf-tools");
+    const r = parseSkillText(
+      md("pdf-tools", "Work with PDFs", "Step 1.\n\nStep 2.", "license: MIT\nmetadata:\n  author: me\n"),
+      "pdf-tools",
+    );
     assert.ok(r.ok);
-    assert.deepEqual(r.value, { name: "pdf-tools", description: "Work with PDFs", body: "Step 1.\n\nStep 2.", meta: { license: "MIT", metadata: { author: "me" } } });
+    assert.deepEqual(r.value, {
+      name: "pdf-tools",
+      description: "Work with PDFs",
+      body: "Step 1.\n\nStep 2.",
+      meta: { license: "MIT", metadata: { author: "me" } },
+    });
   });
 
   test("CRLF files and a byte order mark are read like any other", () => {
@@ -57,7 +66,7 @@ describe("parseSkillText", () => {
     assert.match(problem("---\nname: a\ndescription: d\n"), /not closed/);
     assert.match(problem("---\ndescription: d\n---\nbody"), /no name/);
     assert.match(problem("---\nname: a\n---\nbody"), /no description/);
-    assert.match(problem("---\nname: a\ndescription: \"  \"\n---\nbody"), /no description/);
+    assert.match(problem('---\nname: a\ndescription: "  "\n---\nbody'), /no description/);
     assert.match(problem("---\nname: 12\ndescription: d\n---\nbody"), /no name/);
     assert.match(problem(md("Bad_Name", "d"), "Bad_Name"), /lowercase letters, digits and hyphens/);
     assert.match(problem(md("a", "d"), "b"), /does not match its directory b/);
@@ -67,7 +76,10 @@ describe("parseSkillText", () => {
     assert.match(problem("---\nname: a\ndescription: [unclosed\n---\nbody"), /not valid YAML/);
     assert.match(problem("---\nname: a\ndescription: &x d\nother: *x\n---\nbody"), /not valid YAML/);
     assert.match(problem(`---\nname: a\ndescription: d\nbig: ${"z".repeat(9000)}\n---\nbody`), /frontmatter is longer/);
-    assert.match(problem(`---\nname: a\ndescription: d\n${Array.from({ length: 300 }, (_, i) => `k${i}: ${"v".repeat(20)}`).join("\n")}\n---\nbody`), /frontmatter is longer|other frontmatter keys/);
+    assert.match(
+      problem(`---\nname: a\ndescription: d\n${Array.from({ length: 300 }, (_, i) => `k${i}: ${"v".repeat(20)}`).join("\n")}\n---\nbody`),
+      /frontmatter is longer|other frontmatter keys/,
+    );
   });
 });
 
@@ -139,9 +151,16 @@ describe("scanSkills", () => {
 
 describe("the user-level directory", () => {
   test("CHATTREE_SKILLS_DIR wins, then the config directory; nothing when the environment says nothing", () => {
-    assert.equal(userSkillsDir(host, { CHATTREE_SKILLS_DIR: "/x/skills", HOME: "/h" }), host.path.resolve("/x/skills"), "made absolute, so on Windows it gains a drive");
+    assert.equal(
+      userSkillsDir(host, { CHATTREE_SKILLS_DIR: "/x/skills", HOME: "/h" }),
+      host.path.resolve("/x/skills"),
+      "made absolute, so on Windows it gains a drive",
+    );
     if (host.platform === "windows") {
-      assert.equal(userSkillsDir(host, { APPDATA: "C:\\Users\\u\\AppData\\Roaming" }), join("C:\\Users\\u\\AppData\\Roaming", "chattree", "skills"));
+      assert.equal(
+        userSkillsDir(host, { APPDATA: "C:\\Users\\u\\AppData\\Roaming" }),
+        join("C:\\Users\\u\\AppData\\Roaming", "chattree", "skills"),
+      );
       assert.equal(userSkillsDir(host, { HOME: "/h" }), undefined, "Windows looks at APPDATA");
     } else {
       assert.equal(userSkillsDir(host, { XDG_CONFIG_HOME: "/cfg", HOME: "/h" }), join("/cfg", "chattree", "skills"));
@@ -153,40 +172,75 @@ describe("the user-level directory", () => {
 });
 
 describe("pinned form and drift", () => {
-  const value = (over: Partial<SkillValue> = {}): SkillValue => ({ name: "a", description: "d", body: "b", dir: ".agents/skills/a", ...over });
+  const value = (over: Partial<SkillValue> = {}): SkillValue => ({
+    name: "a",
+    description: "d",
+    body: "b",
+    dir: ".agents/skills/a",
+    ...over,
+  });
 
   test("the hash covers the body, the description and the directory", async () => {
     const h = (v: SkillValue): Promise<string> => hashDefinition("skill", v);
     const base = await h(value());
     assert.equal(await h(value()), base);
-    for (const over of [{ body: "b2" }, { description: "d2" }, { dir: ".chattree/skills/a" }, { meta: { x: 1 } }]) assert.notEqual(await h(value(over)), base, JSON.stringify(over));
+    for (const over of [{ body: "b2" }, { description: "d2" }, { dir: ".chattree/skills/a" }, { meta: { x: 1 } }])
+      assert.notEqual(await h(value(over)), base, JSON.stringify(over));
   });
 
   test("drift: added, changed, removed; an unreadable file leaves the pinned skill alone", async () => {
     const pin = async (v: SkillValue) => ({ hash: await hashDefinition("skill", v), store: "blob" as const });
-    const pinned = { same: await pin(value({ name: "same" })), edited: await pin(value({ name: "edited" })), gone: await pin(value({ name: "gone" })), broken: await pin(value({ name: "broken" })) };
-    const scan = { skills: { same: value({ name: "same" }), edited: value({ name: "edited", body: "new" }), fresh: value({ name: "fresh" }) }, problems: [], unreadable: new Set(["broken"]) };
+    const pinned = {
+      same: await pin(value({ name: "same" })),
+      edited: await pin(value({ name: "edited" })),
+      gone: await pin(value({ name: "gone" })),
+      broken: await pin(value({ name: "broken" })),
+    };
+    const scan = {
+      skills: { same: value({ name: "same" }), edited: value({ name: "edited", body: "new" }), fresh: value({ name: "fresh" }) },
+      problems: [],
+      unreadable: new Set(["broken"]),
+    };
     const d = await skillDrift(pinned, scan);
     assert.deepEqual(d, { added: ["fresh"], changed: ["edited"], removed: ["gone"] });
     assert.equal(driftSize(d), 3);
   });
 
   test("skillText names the directory so read and run can reach bundled files", () => {
-    assert.equal(skillText(value()), "Skill: a\nDirectory: .agents/skills/a (relative to the workspace). Files this skill mentions are in that directory.\n\nb");
-    assert.match(skillText(value({ dir: "/home/u/.config/chattree/skills/a" })), /^Skill: a\nDirectory: \/home\/u\/\.config\/chattree\/skills\/a\. Files/);
+    assert.equal(
+      skillText(value()),
+      "Skill: a\nDirectory: .agents/skills/a (relative to the workspace). Files this skill mentions are in that directory.\n\nb",
+    );
+    assert.match(
+      skillText(value({ dir: "/home/u/.config/chattree/skills/a" })),
+      /^Skill: a\nDirectory: \/home\/u\/\.config\/chattree\/skills\/a\. Files/,
+    );
     assert.equal(skillText({ name: "a", description: "d", body: "b" }), "Skill: a\n\nb");
   });
 });
 
 describe("the catalog", () => {
   test("one line per skill, sorted, descriptions on one line and cut; capped in number", () => {
-    const skills: Record<string, unknown> = { zed: { name: "zed", description: "last", body: "b" }, alpha: { name: "alpha", description: `multi\n  line ${"x".repeat(300)}`, body: "b" }, junk: 5 };
+    const skills: Record<string, unknown> = {
+      zed: { name: "zed", description: "last", body: "b" },
+      alpha: { name: "alpha", description: `multi\n  line ${"x".repeat(300)}`, body: "b" },
+      junk: 5,
+    };
     const { notes, omitted } = catalogNotes(skills);
-    assert.deepEqual(notes.map((n) => n.name), ["alpha", "zed"], "a value that is not a skill is left out");
+    assert.deepEqual(
+      notes.map((n) => n.name),
+      ["alpha", "zed"],
+      "a value that is not a skill is left out",
+    );
     assert.equal(notes[0]?.description.length, CATALOG_MAX_DESCRIPTION);
     assert.ok(notes[0]?.description.startsWith("multi line xxx") && notes[0].description.endsWith("…"));
     assert.equal(omitted, 0);
-    const many = Object.fromEntries(Array.from({ length: CATALOG_MAX_SKILLS + 7 }, (_, i) => [`s${String(i).padStart(3, "0")}`, { name: `s${String(i).padStart(3, "0")}`, description: "d", body: "b" }]));
+    const many = Object.fromEntries(
+      Array.from({ length: CATALOG_MAX_SKILLS + 7 }, (_, i) => [
+        `s${String(i).padStart(3, "0")}`,
+        { name: `s${String(i).padStart(3, "0")}`, description: "d", body: "b" },
+      ]),
+    );
     const c = catalogNotes(many);
     assert.equal(c.notes.length, CATALOG_MAX_SKILLS);
     assert.equal(c.omitted, 7);

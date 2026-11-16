@@ -73,9 +73,15 @@ function filesNote(f: MergedFiles): string {
 /** The first renderer. Frozen: see the rules above. */
 export const chattreeEnglishV1: Renderer = Object.freeze({
   compaction: (summary: string) => `[Summary of the earlier conversation]\n${summary}`,
-  forkMerge: (summary: string, files: MergedFiles) => `[A side conversation that branched from this one was merged back]\n${summary}${filesNote(files)}`,
+  forkMerge: (summary: string, files: MergedFiles) =>
+    `[A side conversation that branched from this one was merged back]\n${summary}${filesNote(files)}`,
   jobEvent: (job: string, status: string, summary: string, output: string | undefined) => {
-    const shown = output === undefined || output === "" ? "(no output)" : output.length <= 4000 ? output : `${output.slice(0, 3000)}\n[... ${output.length - 4000} characters left out; job_output ${job} reads them ...]\n${output.slice(-1000)}`;
+    const shown =
+      output === undefined || output === ""
+        ? "(no output)"
+        : output.length <= 4000
+          ? output
+          : `${output.slice(0, 3000)}\n[... ${output.length - 4000} characters left out; job_output ${job} reads them ...]\n${output.slice(-1000)}`;
     return `[Background job ${job} ${status}] ${summary}\n${shown}`;
   },
   subagentResult: (summary: string, files: MergedFiles) => `${summary}${filesNote(files)}`,
@@ -85,14 +91,18 @@ export const chattreeEnglishV1: Renderer = Object.freeze({
   subagentBrief: (brief: string) => brief,
   mediaLeftOut: (name: string) => `[${name} was shown here and is left out to save context; ask for it again if it is needed]`,
   textAttachment: (name: string | undefined, content: string) => `[Attached file${name === undefined ? "" : `: ${name}`}]\n${content}`,
-  instructionsUpdated: (instructions: string) => `[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\n${instructions}`,
+  instructionsUpdated: (instructions: string) =>
+    `[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\n${instructions}`,
   injection: (_key: string, text: string) => `[Note from the harness]\n${text}`,
   skillCatalog: (skills: readonly SkillNote[], omitted: number) =>
     `[Skills]\nA skill is a set of instructions for one kind of task. When a task matches one of these, call the skill tool with its name and follow what it returns.\n${skills.map((s) => `- ${s.name}: ${s.description}`).join("\n")}${omitted > 0 ? `\n(${omitted} more are not listed here; the skill tool names them when given a name it does not know)` : ""}`,
   skillsUpdated: (added: readonly SkillNote[], changed: readonly SkillNote[], removed: readonly string[]) => {
     const parts = ["[The skills changed; this overrides the skill list you were given earlier where they differ]"];
     if (added.length > 0) parts.push(`Added:\n${added.map((s) => `- ${s.name}: ${s.description}`).join("\n")}`);
-    if (changed.length > 0) parts.push(`Changed (call the skill tool again before relying on what you read earlier):\n${changed.map((s) => `- ${s.name}: ${s.description}`).join("\n")}`);
+    if (changed.length > 0)
+      parts.push(
+        `Changed (call the skill tool again before relying on what you read earlier):\n${changed.map((s) => `- ${s.name}: ${s.description}`).join("\n")}`,
+      );
     if (removed.length > 0) parts.push(`Removed (the skill tool no longer serves these):\n${removed.map((n) => `- ${n}`).join("\n")}`);
     return parts.join("\n");
   },
@@ -105,6 +115,9 @@ export const builtinRenderers: Renderers = { [DEFAULT_RENDERER]: chattreeEnglish
 /** The renderer an id names, or an error that says how to provide it. */
 export function findRenderer(id: string, available: Renderers = builtinRenderers): Renderer {
   const r = available[id] ?? builtinRenderers[id];
-  if (r === undefined) throw new Error(`unknown renderer ${JSON.stringify(id)}: provide it in the renderers option (known: ${[...new Set([...Object.keys(available), ...Object.keys(builtinRenderers)])].join(", ")})`);
+  if (r === undefined)
+    throw new Error(
+      `unknown renderer ${JSON.stringify(id)}: provide it in the renderers option (known: ${[...new Set([...Object.keys(available), ...Object.keys(builtinRenderers)])].join(", ")})`,
+    );
   return r;
 }

@@ -94,8 +94,14 @@ describe("models list, info, pull and rm (no host running)", () => {
 });
 
 describe("models update", () => {
-  const latest = (server: HttpFixture, tag: string, body = ""): void => void server.on("/repos/ggml-org/llama.cpp/releases/latest", { body: JSON.stringify({ tag_name: tag, body }) });
-  const update = async (server: HttpFixture, dir: string, env: Record<string, string | undefined>, o: { yes?: boolean; ask?: (q: string) => Promise<string> } = {}) => {
+  const latest = (server: HttpFixture, tag: string, body = ""): void =>
+    void server.on("/repos/ggml-org/llama.cpp/releases/latest", { body: JSON.stringify({ tag_name: tag, body }) });
+  const update = async (
+    server: HttpFixture,
+    dir: string,
+    env: Record<string, string | undefined>,
+    o: { yes?: boolean; ask?: (q: string) => Promise<string> } = {},
+  ) => {
     const io = testIo(dir, { env, ...(o.ask === undefined ? {} : { ask: o.ask }) });
     io.settings = await loadSettings(io);
     const code = await runModels(io, ["update"], { yes: o.yes === true, apiBase: server.base });
@@ -144,7 +150,14 @@ describe("models reload and logs (host running)", () => {
     let starts = 0;
     const daemon = new Daemon({
       data,
-      loadSettings: async () => ({ config: localModelsSchema.parse({ llama_cpp: { path: join(dir, "bin") }, server: { health_timeout: 10 }, models: { alpha: { url: `${server.base}/alpha.gguf` } } }), baseDir: dir }),
+      loadSettings: async () => ({
+        config: localModelsSchema.parse({
+          llama_cpp: { path: join(dir, "bin") },
+          server: { health_timeout: 10 },
+          models: { alpha: { url: `${server.base}/alpha.gguf` } },
+        }),
+        baseDir: dir,
+      }),
       host: {
         platform: "linux",
         arch: "x64",
@@ -186,10 +199,16 @@ describe("models info and sampling", () => {
     try {
       server.on("/gamma.gguf", { body: gguf(SAMPLING) });
       const text = await readFile(settings, "utf8");
-      await writeFile(settings, `${text}    gamma: { url: "${server.base}/gamma.gguf" }\n    delta: { url: "${server.base}/beta.gguf", sampling: { temperature: 0.2 } }\n`);
+      await writeFile(
+        settings,
+        `${text}    gamma: { url: "${server.base}/gamma.gguf" }\n    delta: { url: "${server.base}/beta.gguf", sampling: { temperature: 0.2 } }\n`,
+      );
 
       const gamma = await run(["info", "gamma"]);
-      assert.match(gamma.out, /sampling: temperature 0\.6, top_p 0\.95, top_k 20, repeat_penalty 1\.1\n\s+from general\.sampling in .*gamma\.gguf/);
+      assert.match(
+        gamma.out,
+        /sampling: temperature 0\.6, top_p 0\.95, top_k 20, repeat_penalty 1\.1\n\s+from general\.sampling in .*gamma\.gguf/,
+      );
       assert.match(gamma.out, /not in the settings yet/);
       assert.match(gamma.out, /sampling: \{ temperature: 0\.6, top_p: 0\.95/);
 

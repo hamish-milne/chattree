@@ -38,10 +38,24 @@ describe("the local_models section", () => {
   });
 
   test("a source is a file, or a quantisation to look up", () => {
-    assert.deepEqual(modelSource(parse({ models: { a: { url: "https://x.test/d/Model%20Q4.gguf?download=1" } } }).models["a"]!), { kind: "url", url: "https://x.test/d/Model%20Q4.gguf?download=1", file: "Model Q4.gguf" });
+    assert.deepEqual(modelSource(parse({ models: { a: { url: "https://x.test/d/Model%20Q4.gguf?download=1" } } }).models["a"]!), {
+      kind: "url",
+      url: "https://x.test/d/Model%20Q4.gguf?download=1",
+      file: "Model Q4.gguf",
+    });
     assert.equal(modelSource(parse({ models: { a: { url: "https://x.test/d/model" } } }).models["a"]!), undefined);
-    assert.deepEqual(modelSource(parse({ models: { a: { hf: "o/r:Q4_K_M" } } }).models["a"]!), { kind: "hf-quant", repo: "o/r", revision: "main", quant: "Q4_K_M" });
-    assert.deepEqual(modelSource(parse({ models: { a: { hf: "o/r", file: "sub/m.gguf", revision: "v1" } } }).models["a"]!), { kind: "hf", repo: "o/r", revision: "v1", file: "sub/m.gguf" });
+    assert.deepEqual(modelSource(parse({ models: { a: { hf: "o/r:Q4_K_M" } } }).models["a"]!), {
+      kind: "hf-quant",
+      repo: "o/r",
+      revision: "main",
+      quant: "Q4_K_M",
+    });
+    assert.deepEqual(modelSource(parse({ models: { a: { hf: "o/r", file: "sub/m.gguf", revision: "v1" } } }).models["a"]!), {
+      kind: "hf",
+      repo: "o/r",
+      revision: "v1",
+      file: "sub/m.gguf",
+    });
   });
 });
 
@@ -54,7 +68,10 @@ describe("the data directory", () => {
     assert.equal(dataDir(posixHost, { XDG_DATA_HOME: "/x", HOME: "/h" }, undefined), "/x/chattree");
     assert.equal(dataDir(posixHost, { HOME: "/h" }, undefined), "/h/.local/share/chattree");
     assert.equal(dataDir(posixHost, {}, undefined), undefined);
-    assert.equal(dataDir(windowsHost, { LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" }, undefined), "C:\\Users\\a\\AppData\\Local\\chattree");
+    assert.equal(
+      dataDir(windowsHost, { LOCALAPPDATA: "C:\\Users\\a\\AppData\\Local" }, undefined),
+      "C:\\Users\\a\\AppData\\Local\\chattree",
+    );
   });
 });
 
@@ -65,7 +82,14 @@ describe("the plan", () => {
     server: { port: 8089, models_max: 2 },
     models: {
       zeta: { hf: "o/z:Q4_K_M", sampling: { temperature: 0.6, top_k: 20 } },
-      alpha: { url: "https://x.test/a/alpha-q8.gguf", sha256: "A".repeat(64), ctx_size: 32768, jinja: true, load_on_startup: true, mmproj: { url: "https://x.test/a/mm.gguf" } },
+      alpha: {
+        url: "https://x.test/a/alpha-q8.gguf",
+        sha256: "A".repeat(64),
+        ctx_size: 32768,
+        jinja: true,
+        load_on_startup: true,
+        mmproj: { url: "https://x.test/a/mm.gguf" },
+      },
       vision: { hf: "o/v", file: "dir/v-q4.gguf", mmproj: { file: "dir/mm.gguf" }, embeddings: false },
       broken: { url: "https://x.test/a/noext" },
     },
@@ -73,14 +97,35 @@ describe("the plan", () => {
 
   test("lists the files to fetch in model order, with where they go", () => {
     const { downloads, issues } = downloadList(config, posix, "/data");
-    assert.deepEqual(issues.map((i) => i.model), ["broken"]);
+    assert.deepEqual(
+      issues.map((i) => i.model),
+      ["broken"],
+    );
     assert.deepEqual(
       downloads.map((d) => [d.model, d.role, d.url, d.dest, d.sha256]),
       [
-        ["alpha", "model", "https://x.test/a/alpha-q8.gguf", `/data/files/${sourceHash("https://x.test/a/alpha-q8.gguf")}/alpha-q8.gguf`, "a".repeat(64)],
+        [
+          "alpha",
+          "model",
+          "https://x.test/a/alpha-q8.gguf",
+          `/data/files/${sourceHash("https://x.test/a/alpha-q8.gguf")}/alpha-q8.gguf`,
+          "a".repeat(64),
+        ],
         ["alpha", "mmproj", "https://x.test/a/mm.gguf", `/data/files/${sourceHash("https://x.test/a/mm.gguf")}/mm.gguf`, undefined],
-        ["vision", "model", "https://huggingface.co/o/v/resolve/main/dir/v-q4.gguf", `/data/files/${sourceHash("https://huggingface.co/o/v/resolve/main/dir/v-q4.gguf")}/v-q4.gguf`, undefined],
-        ["vision", "mmproj", "https://huggingface.co/o/v/resolve/main/dir/mm.gguf", `/data/files/${sourceHash("https://huggingface.co/o/v/resolve/main/dir/mm.gguf")}/mm.gguf`, undefined],
+        [
+          "vision",
+          "model",
+          "https://huggingface.co/o/v/resolve/main/dir/v-q4.gguf",
+          `/data/files/${sourceHash("https://huggingface.co/o/v/resolve/main/dir/v-q4.gguf")}/v-q4.gguf`,
+          undefined,
+        ],
+        [
+          "vision",
+          "mmproj",
+          "https://huggingface.co/o/v/resolve/main/dir/mm.gguf",
+          `/data/files/${sourceHash("https://huggingface.co/o/v/resolve/main/dir/mm.gguf")}/mm.gguf`,
+          undefined,
+        ],
         ["zeta", "model", undefined, undefined, undefined],
       ],
     );
@@ -92,7 +137,11 @@ describe("the plan", () => {
       models: {
         a: { hf: "o/m:Q4_K_M", mmproj: "auto", speculative: { type: "draft-mtp", draft: "auto", draft_max: 4 } },
         b: { hf: "o/m:Q4_K_M", mmproj: { file: "mm/p.gguf" }, speculative: { type: "draft-simple", draft: { hf: "o/small:Q8_0" } } },
-        c: { url: "https://x.test/c.gguf", mmproj: { url: "https://x.test/p.gguf" }, speculative: { type: "draft-simple", draft: { hf: "o/small", file: "s.gguf", revision: "v1" } } },
+        c: {
+          url: "https://x.test/c.gguf",
+          mmproj: { url: "https://x.test/p.gguf" },
+          speculative: { type: "draft-simple", draft: { hf: "o/small", file: "s.gguf", revision: "v1" } },
+        },
       },
     });
     const d = downloadList(c, posix, "/data").downloads.map((x) => [x.model, x.role, x.url, x.resolve]);
@@ -110,7 +159,10 @@ describe("the plan", () => {
   });
 
   test("what a projector or draft model needs is checked", () => {
-    assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", mmproj: "auto" } } }), /auto looks in the model's Hugging Face repository/);
+    assert.match(
+      bad({ models: { a: { url: "https://x.test/a.gguf", mmproj: "auto" } } }),
+      /auto looks in the model's Hugging Face repository/,
+    );
     assert.match(bad({ models: { a: { hf: "o/m", speculative: { type: "draft-mtp" } } } }), /needs a draft/);
     assert.match(bad({ models: { a: { hf: "o/m", speculative: { type: "ngram-mod", draft: "auto" } } } }), /has no draft model/);
     assert.match(bad({ models: { a: { hf: "o/m", speculative: { type: "draft-mtp", draft: "auto", ngram_n: 4 } } } }), /no n-gram options/);
@@ -121,11 +173,20 @@ describe("the plan", () => {
   test("the draft model and its options are written to the preset", () => {
     const c = parse({ models: { a: { hf: "o/m:Q4_K_M", speculative: { type: "draft-mtp", draft: "auto", draft_max: 4, p_min: 0.5 } } } });
     const ini = presetIni(c, { a: { file: "/a.gguf", draft: "/mtp.gguf" } });
-    assert.match(ini, /\[a\]\nmodel = \/a\.gguf\nmodel-draft = \/mtp\.gguf\nspec-type = draft-mtp\nspec-draft-n-max = 4\nspec-draft-p-min = 0\.5\n/);
+    assert.match(
+      ini,
+      /\[a\]\nmodel = \/a\.gguf\nmodel-draft = \/mtp\.gguf\nspec-type = draft-mtp\nspec-draft-n-max = 4\nspec-draft-p-min = 0\.5\n/,
+    );
   });
 
   test("models with the same source keep one file", () => {
-    const c = parse({ models: { a: { url: "https://x.test/m/same.gguf" }, b: { url: "https://x.test/m/same.gguf", speculative: "ngram-mod" }, c: { url: "https://x.test/other/same.gguf" } } });
+    const c = parse({
+      models: {
+        a: { url: "https://x.test/m/same.gguf" },
+        b: { url: "https://x.test/m/same.gguf", speculative: "ngram-mod" },
+        c: { url: "https://x.test/other/same.gguf" },
+      },
+    });
     const dests = downloadList(c, posix, "/data").downloads.map((d) => d.dest);
     assert.equal(dests[0], dests[1]);
     assert.notEqual(dests[0], dests[2]);
@@ -172,22 +233,48 @@ top-k = 20
   });
 
   test("starts the router with the settled port", () => {
-    assert.deepEqual(routerArgs(config, "/data/preset.ini", 8089), ["--models-preset", "/data/preset.ini", "--host", "127.0.0.1", "--port", "8089", "--models-max", "2", "--no-webui"]);
+    assert.deepEqual(routerArgs(config, "/data/preset.ini", 8089), [
+      "--models-preset",
+      "/data/preset.ini",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "8089",
+      "--models-max",
+      "2",
+      "--no-webui",
+    ]);
     assert.ok(!routerArgs(parse({ server: { webui: true } }), "/p.ini", 1).includes("--no-webui"));
   });
 
   test("speculative decoding is written as the server's own options", () => {
     const c = parse({
       defaults: { speculative: "ngram-mod" },
-      models: { a: { url: "https://x.test/a.gguf", speculative: { type: "ngram-map-k", ngram_n: 8, ngram_m: 16, min_hits: 2, draft_max: 64, draft_min: 4 } }, b: { url: "https://x.test/b.gguf" } },
+      models: {
+        a: {
+          url: "https://x.test/a.gguf",
+          speculative: { type: "ngram-map-k", ngram_n: 8, ngram_m: 16, min_hits: 2, draft_max: 64, draft_min: 4 },
+        },
+        b: { url: "https://x.test/b.gguf" },
+      },
     });
     const ini = presetIni(c, { a: { file: "/a.gguf" }, b: { file: "/b.gguf" } });
     assert.match(ini, /\[\*\]\nspec-type = ngram-mod\n/);
-    assert.match(ini, /\[a\]\nmodel = \/a\.gguf\nspec-type = ngram-map-k\nspec-draft-n-max = 64\nspec-draft-n-min = 4\nspec-ngram-map-k-size-n = 8\nspec-ngram-map-k-size-m = 16\nspec-ngram-map-k-min-hits = 2\n/);
+    assert.match(
+      ini,
+      /\[a\]\nmodel = \/a\.gguf\nspec-type = ngram-map-k\nspec-draft-n-max = 64\nspec-draft-n-min = 4\nspec-ngram-map-k-size-n = 8\nspec-ngram-map-k-size-m = 16\nspec-ngram-map-k-min-hits = 2\n/,
+    );
     assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", speculative: "ngram-fast" } } }), /speculative/);
-    const mod = parse({ models: { a: { url: "https://x.test/a.gguf", speculative: { type: "ngram-mod", ngram_n: 24, draft_min: 48, draft_max: 64 } } } });
-    assert.match(presetIni(mod, { a: { file: "/a.gguf" } }), /spec-type = ngram-mod\nspec-ngram-mod-n-match = 24\nspec-ngram-mod-n-min = 48\nspec-ngram-mod-n-max = 64\n/);
-    assert.match(bad({ models: { a: { url: "https://x.test/a.gguf", speculative: { type: "ngram-mod", min_hits: 2 } } } }), /ngram-mod has no/);
+    const mod = parse({
+      models: { a: { url: "https://x.test/a.gguf", speculative: { type: "ngram-mod", ngram_n: 24, draft_min: 48, draft_max: 64 } } },
+    });
+    assert.match(
+      presetIni(mod, { a: { file: "/a.gguf" } }),
+      /spec-type = ngram-mod\nspec-ngram-mod-n-match = 24\nspec-ngram-mod-n-min = 48\nspec-ngram-mod-n-max = 64\n/,
+    );
+    assert.match(
+      bad({ models: { a: { url: "https://x.test/a.gguf", speculative: { type: "ngram-mod", min_hits: 2 } } } }),
+      /ngram-mod has no/,
+    );
   });
-
 });

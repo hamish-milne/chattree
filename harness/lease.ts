@@ -72,7 +72,15 @@ const dec = new TextDecoder();
 function parse(bytes: Uint8Array): LeaseFile | undefined {
   try {
     const v = JSON.parse(dec.decode(bytes)) as Partial<LeaseFile>;
-    if (v.v === 1 && typeof v.id === "string" && typeof v.since === "number" && typeof v.holds === "object" && v.holds !== null && typeof v.follows === "object" && v.follows !== null) {
+    if (
+      v.v === 1 &&
+      typeof v.id === "string" &&
+      typeof v.since === "number" &&
+      typeof v.holds === "object" &&
+      v.holds !== null &&
+      typeof v.follows === "object" &&
+      v.follows !== null
+    ) {
       return { v: 1, id: v.id, owner: v.owner ?? {}, since: v.since, holds: v.holds, follows: v.follows };
     }
   } catch {
@@ -151,7 +159,10 @@ export class LeaseStore {
   /** Run `fn` after the earlier operations on the same thread, so this process never interleaves its own writes. */
   #serial<T>(branch: string, fn: () => Promise<T>): Promise<T> {
     const run = (this.#chain.get(branch) ?? Promise.resolve()).then(fn, fn);
-    this.#chain.set(branch, run.catch(() => undefined));
+    this.#chain.set(
+      branch,
+      run.catch(() => undefined),
+    );
     return run;
   }
 
@@ -176,12 +187,26 @@ export class LeaseStore {
     const mine = f.id === this.id;
     const dead = !mine && env.isDead?.(f.owner) === true;
     if (!dead) {
-      if (until > now) return { state: { state: "live", owner: f.owner, until, holding: [...Object.keys(f.holds).filter((k) => (f.holds[k] as number) > now), ...Object.values(f.follows).map((b) => `thread ${b}`)] }, rev: r.rev, mine };
+      if (until > now)
+        return {
+          state: {
+            state: "live",
+            owner: f.owner,
+            until,
+            holding: [
+              ...Object.keys(f.holds).filter((k) => (f.holds[k] as number) > now),
+              ...Object.values(f.follows).map((b) => `thread ${b}`),
+            ],
+          },
+          rev: r.rev,
+          mine,
+        };
       for (const followed of Object.values(f.follows)) {
         if (seen.has(followed)) continue;
         seen.add(followed);
         const s = await this.inspect(followed, env, seen);
-        if (s.state === "live") return { state: { state: "live", owner: f.owner, until: s.until, holding: [`thread ${followed}`] }, rev: r.rev, mine };
+        if (s.state === "live")
+          return { state: { state: "live", owner: f.owner, until: s.until, holding: [`thread ${followed}`] }, rev: r.rev, mine };
       }
     }
     return { state: { state: "stale", owner: f.owner, until }, rev: r.rev, mine };

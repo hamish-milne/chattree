@@ -21,10 +21,14 @@ const usd = z.number().positive();
  * When a grant ends: a date (00:00 UTC) or a datetime that carries its zone. "Forever" is a far-future date
  * (`2999-01-01`), not a special word. YAML 1.2 reads both as plain strings.
  */
-export const untilTimestamp = z.string().refine(
-  (s) => (/^\d{4}-\d{2}-\d{2}$/.test(s) || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(s)) && !Number.isNaN(Date.parse(s)),
-  "expected a date (2999-01-01) or a datetime with a zone (2026-10-27T15:00:00Z)",
-);
+export const untilTimestamp = z
+  .string()
+  .refine(
+    (s) =>
+      (/^\d{4}-\d{2}-\d{2}$/.test(s) || /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/.test(s)) &&
+      !Number.isNaN(Date.parse(s)),
+    "expected a date (2999-01-01) or a datetime with a zone (2026-10-27T15:00:00Z)",
+  );
 
 /** One tool's approvals (docs/tools.md, section 5): the keys the user has granted, each with the time it ends. */
 const toolEntry = z.object({
@@ -78,8 +82,14 @@ const mcpServer = z
     scope: z.enum(["thread", "project"]).optional(),
   })
   .refine((s) => (s.command === undefined) !== (s.url === undefined), "give either command or url")
-  .refine((s) => s.url === undefined || (s.args.length === 0 && s.env === undefined && s.env_from === undefined), "args and env belong to a command, not a url")
-  .refine((s) => s.command === undefined || (s.headers === undefined && s.bearer_env === undefined && s.header_env === undefined), "headers belong to a url, not a command")
+  .refine(
+    (s) => s.url === undefined || (s.args.length === 0 && s.env === undefined && s.env_from === undefined),
+    "args and env belong to a command, not a url",
+  )
+  .refine(
+    (s) => s.command === undefined || (s.headers === undefined && s.bearer_env === undefined && s.header_env === undefined),
+    "headers belong to a url, not a command",
+  )
   .refine((s) => s.url === undefined || s.scope === undefined, "scope belongs to a command: a url is always shared");
 
 export const harnessConfig = z.object({
@@ -89,9 +99,20 @@ export const harnessConfig = z.object({
    * Per-tool approvals, by tool name. A call runs without asking only when the tool's `allow` map holds an unexpired
    * key that covers it; a tool without an entry asks. `env` is not a tool: the environment variables `run` may expand.
    */
-  tools: z.object({ env: z.array(z.string().min(1)).optional() }).catchall(toolEntry).default({}),
+  tools: z
+    .object({ env: z.array(z.string().min(1)).optional() })
+    .catchall(toolEntry)
+    .default({}),
   /** MCP servers by name (lowercase letters, digits and single hyphens). Their tools are offered as `mcp__<name>__<tool>`. */
-  mcp: z.record(z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "lowercase letters, digits and single hyphens").max(24), mcpServer).default({}),
+  mcp: z
+    .record(
+      z
+        .string()
+        .regex(/^[a-z0-9]+(-[a-z0-9]+)*$/, "lowercase letters, digits and single hyphens")
+        .max(24),
+      mcpServer,
+    )
+    .default({}),
   /** Background jobs (docs/tools.md, 3.5). */
   background: z
     .object({
@@ -171,7 +192,15 @@ export const harnessConfig = z.object({
     })
     .default({ auto: true, loose_objects: 1000, packs: 20, check_every: 200 }),
   /** Files added to messages (`Conversation.attach`). */
-  attachments: z.object({ max_bytes: z.number().int().positive().default(20 * 1024 * 1024) }).default({ max_bytes: 20 * 1024 * 1024 }),
+  attachments: z
+    .object({
+      max_bytes: z
+        .number()
+        .int()
+        .positive()
+        .default(20 * 1024 * 1024),
+    })
+    .default({ max_bytes: 20 * 1024 * 1024 }),
   /**
    * Skills (docs/context.md, section 2). `follow` says what happens when a `SKILL.md` changes, appears or disappears on disk while a thread
    * runs: `ask` (default) reports it and `/skills sync` takes it, `auto` pins it at the start of the next request (the model is told where
@@ -214,7 +243,13 @@ export const harnessConfig = z.object({
       keep_recent: z.number().int().nonnegative().default(12),
       auto: z.enum(["off", "trim", "full"]).default("off"),
       /** What a trim leaves out, as sizes in bytes (`reasoning`: all of it). */
-      trim: z.object({ tool_results: z.number().int().nonnegative().default(2048), tool_args: z.number().int().nonnegative().default(2048), reasoning: z.boolean().default(true) }).default({ tool_results: 2048, tool_args: 2048, reasoning: true }),
+      trim: z
+        .object({
+          tool_results: z.number().int().nonnegative().default(2048),
+          tool_args: z.number().int().nonnegative().default(2048),
+          reasoning: z.boolean().default(true),
+        })
+        .default({ tool_results: 2048, tool_args: 2048, reasoning: true }),
       /** The model that writes summaries, of the thread's provider. Default: the thread's own model. */
       summary_model: z.string().min(1).optional(),
       /** What the summarizer reads: `seen`, what the main model sees (past summaries and trimmed entries); or `raw`, the entries since the last summary untrimmed (falls back to `seen` if that does not fit). */

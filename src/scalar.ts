@@ -39,18 +39,26 @@ export function hasBlockBadChars(s: string): boolean {
 
 export function assertWellFormed(s: string, what = "string"): void {
   if (!s.isWellFormed()) {
-    throw new EmitError(`${what} contains a lone surrogate and cannot be encoded as UTF-8; sanitize with toWellFormed() at the tool boundary`);
+    throw new EmitError(
+      `${what} contains a lone surrogate and cannot be encoded as UTF-8; sanitize with toWellFormed() at the tool boundary`,
+    );
   }
 }
 
 function escapeChar(c: string): string {
   switch (c) {
-    case '"': return '\\"';
-    case "\\": return "\\\\";
-    case "\n": return "\\n";
-    case "\r": return "\\r";
-    case "\t": return "\\t";
-    default: return "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
+    case '"':
+      return '\\"';
+    case "\\":
+      return "\\\\";
+    case "\n":
+      return "\\n";
+    case "\r":
+      return "\\r";
+    case "\t":
+      return "\\t";
+    default:
+      return "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0");
   }
 }
 
@@ -106,11 +114,26 @@ export function scanQuoted(text: string, start: number, line?: number): QuotedSc
       out += text.slice(chunkStart, i);
       const e = text.charCodeAt(i + 1);
       switch (e) {
-        case 0x22: out += '"'; i += 2; break;
-        case 0x5c: out += "\\"; i += 2; break;
-        case 0x6e: out += "\n"; i += 2; break;
-        case 0x72: out += "\r"; i += 2; break;
-        case 0x74: out += "\t"; i += 2; break;
+        case 0x22:
+          out += '"';
+          i += 2;
+          break;
+        case 0x5c:
+          out += "\\";
+          i += 2;
+          break;
+        case 0x6e:
+          out += "\n";
+          i += 2;
+          break;
+        case 0x72:
+          out += "\r";
+          i += 2;
+          break;
+        case 0x74:
+          out += "\t";
+          i += 2;
+          break;
         case 0x75: {
           const hex = text.slice(i + 2, i + 6);
           if (!/^[0-9a-f]{4}$/.test(hex)) throw new ParseError("invalid \\u escape (need 4 lowercase hex digits)", line);
@@ -118,7 +141,8 @@ export function scanQuoted(text: string, start: number, line?: number): QuotedSc
           i += 6;
           break;
         }
-        default: throw new ParseError("unsupported escape sequence", line);
+        default:
+          throw new ParseError("unsupported escape sequence", line);
       }
       chunkStart = i;
       continue;

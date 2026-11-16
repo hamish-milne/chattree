@@ -37,14 +37,21 @@ export function pickGguf(files: readonly RepoFile[], quant: string | undefined, 
   if (quant !== undefined) {
     const re = new RegExp(`(^|[^a-z0-9])${escape(quant)}([^a-z0-9_]|$)`, "i");
     keys = names.filter((k) => re.test(k));
-    if (keys.length === 0) throw new QuantError(`${repo} has no ${quant} file${names.length > 0 ? ` (it has: ${names.join(", ")})` : " (no .gguf files at all)"}`);
+    if (keys.length === 0)
+      throw new QuantError(
+        `${repo} has no ${quant} file${names.length > 0 ? ` (it has: ${names.join(", ")})` : " (no .gguf files at all)"}`,
+      );
   } else if (names.length === 0) throw new QuantError(`${repo} has no .gguf files`);
-  if (keys.length > 1) throw new QuantError(`${repo}${quant === undefined ? "" : `:${quant}`} matches more than one file (${keys.join(", ")}); name one with file:`);
+  if (keys.length > 1)
+    throw new QuantError(
+      `${repo}${quant === undefined ? "" : `:${quant}`} matches more than one file (${keys.join(", ")}); name one with file:`,
+    );
   const parts = (groups.get(keys[0] as string) as RepoFile[]).slice().sort((a, b) => a.path.localeCompare(b.path));
   const first = parts[0] as RepoFile;
   if (PART.test(first.path)) {
     const count = Number(PART.exec(first.path)?.[2]);
-    if (parts.length !== count || !/-00001-of-/.test(first.path)) throw new QuantError(`${repo}: ${keys[0]} is split into ${count} parts and only ${parts.length} are there`);
+    if (parts.length !== count || !/-00001-of-/.test(first.path))
+      throw new QuantError(`${repo}: ${keys[0]} is split into ${count} parts and only ${parts.length} are there`);
   }
   return parts;
 }
@@ -63,7 +70,10 @@ export function pickSidecar(files: readonly RepoFile[], kind: SidecarKind, quant
   const re = kind === "mmproj" ? PROJECTOR : DRAFT;
   let found = files.filter((f) => /\.gguf$/i.test(f.path) && re.test(f.path)).sort((a, b) => a.path.localeCompare(b.path));
   const what = kind === "mmproj" ? "projector" : "draft model";
-  if (found.length === 0) throw new QuantError(`${repo} has no ${what} file (a .gguf with ${kind === "mmproj" ? "mmproj" : "mtp or assistant"} in its name); name one with file: or hf:`);
+  if (found.length === 0)
+    throw new QuantError(
+      `${repo} has no ${what} file (a .gguf with ${kind === "mmproj" ? "mmproj" : "mtp or assistant"} in its name); name one with file: or hf:`,
+    );
   if (quant !== undefined) {
     const q = new RegExp(`(^|[^a-z0-9])${escape(quant)}([^a-z0-9_]|$)`, "i");
     found = found.filter((f) => q.test(f.path));
@@ -75,14 +85,19 @@ export function pickSidecar(files: readonly RepoFile[], kind: SidecarKind, quant
   };
   const best = Math.min(...found.map(rank));
   const top = found.filter((f) => rank(f) === best);
-  if (top.length > 1) throw new QuantError(`${repo} has more than one ${what} file (${top.map((f) => f.path).join(", ")}); name one with file:`);
+  if (top.length > 1)
+    throw new QuantError(`${repo} has more than one ${what} file (${top.map((f) => f.path).join(", ")}); name one with file:`);
   return top[0] as RepoFile;
 }
 
 const hex64 = (v: unknown): string | undefined => (typeof v === "string" && /^[0-9a-f]{64}$/i.test(v) ? v.toLowerCase() : undefined);
 
 /** A repository's files at a revision, with sizes and hashes. */
-export async function listRepoFiles(repo: string, revision: string, o: { fetch?: FetchFn | undefined; token?: string | undefined; base?: string | undefined } = {}): Promise<RepoFile[]> {
+export async function listRepoFiles(
+  repo: string,
+  revision: string,
+  o: { fetch?: FetchFn | undefined; token?: string | undefined; base?: string | undefined } = {},
+): Promise<RepoFile[]> {
   const base = o.base ?? "https://huggingface.co";
   const out: RepoFile[] = [];
   let url: string | undefined = `${base}/api/models/${repo}/tree/${encodeURIComponent(revision)}?recursive=1`;
@@ -102,7 +117,10 @@ export async function listRepoFiles(repo: string, revision: string, o: { fetch?:
 }
 
 /** The hash and size Hugging Face gives a file on the redirect from its `resolve` address (`x-linked-etag`, `x-linked-size`); undefined for a file stored without LFS. */
-export async function linkedInfo(url: string, o: { fetch?: FetchFn | undefined; token?: string | undefined } = {}): Promise<{ sha256: string; size: number | undefined } | undefined> {
+export async function linkedInfo(
+  url: string,
+  o: { fetch?: FetchFn | undefined; token?: string | undefined } = {},
+): Promise<{ sha256: string; size: number | undefined } | undefined> {
   const res = await fetchFollow(url, { fetch: o.fetch, token: o.token, method: "HEAD", manual: true });
   const sha = hex64((res.headers.get("x-linked-etag") ?? "").replace(/^W\//, "").replaceAll('"', ""));
   if (sha === undefined) return undefined;

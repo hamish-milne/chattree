@@ -62,10 +62,27 @@ interface Task {
   /** How many tool calls the task is meant to end in: an arm with fewer has failed, whatever the baseline did. */
   calls?: number;
 }
-const ctx = (text: string, tools: ModelContext["tools"] = []): ModelContext => ({ system: "You are terse. Follow instructions exactly.", instructions: undefined, turns: [{ role: "user", parts: [{ type: "text", text }] }], tools, cacheHints: [] });
-const WRITE: ModelContext["tools"] = [{ name: "write", description: "Write a file.", input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] } }];
+const ctx = (text: string, tools: ModelContext["tools"] = []): ModelContext => ({
+  system: "You are terse. Follow instructions exactly.",
+  instructions: undefined,
+  turns: [{ role: "user", parts: [{ type: "text", text }] }],
+  tools,
+  cacheHints: [],
+});
+const WRITE: ModelContext["tools"] = [
+  {
+    name: "write",
+    description: "Write a file.",
+    input_schema: { type: "object", properties: { path: { type: "string" }, content: { type: "string" } }, required: ["path", "content"] },
+  },
+];
 const TASKS: Task[] = [
-  { name: "copy", context: ctx(`Here is a Python file:\n\n${CODE}\nWrite it out again in full, with the function total_by_name renamed to sum_by_name everywhere. Output only the code.`) },
+  {
+    name: "copy",
+    context: ctx(
+      `Here is a Python file:\n\n${CODE}\nWrite it out again in full, with the function total_by_name renamed to sum_by_name everywhere. Output only the code.`,
+    ),
+  },
   { name: "call", calls: 1, context: ctx(`Create the file util.py with exactly this content, using the write tool:\n\n${CODE}`, WRITE) },
   {
     // An earlier call is in the context, so a draft can copy its special tokens (a call marker inside a chunk of several tokens).
@@ -74,8 +91,16 @@ const TASKS: Task[] = [
     context: {
       ...ctx(`Create the file util.py with exactly this content, using the write tool:\n\n${CODE}`, WRITE),
       turns: [
-        { role: "user", parts: [{ type: "text", text: `Create the file util.py with exactly this content, using the write tool:\n\n${CODE}` }] },
-        { role: "assistant", provider: "local-models", model: "bench", blocks: [{ type: "tool_call", call_id: "c1", name: "write", args: { path: "util.py", content: CODE } }] },
+        {
+          role: "user",
+          parts: [{ type: "text", text: `Create the file util.py with exactly this content, using the write tool:\n\n${CODE}` }],
+        },
+        {
+          role: "assistant",
+          provider: "local-models",
+          model: "bench",
+          blocks: [{ type: "tool_call", call_id: "c1", name: "write", args: { path: "util.py", content: CODE } }],
+        },
         { role: "tool_results", results: [{ call_id: "c1", is_error: false, content: "wrote util.py", truncated: false }] },
         { role: "user", parts: [{ type: "text", text: "Now create util2.py with the same content, using the write tool again." }] },
       ],
@@ -88,10 +113,40 @@ const TASKS: Task[] = [
     context: {
       ...ctx("x", WRITE),
       turns: [
-        { role: "user", parts: [{ type: "text", text: `Create util.py with exactly this content and notes.txt containing "todo: tests", using the write tool for both in one turn:\n\n${CODE}` }] },
-        { role: "assistant", provider: "local-models", model: "bench", blocks: [{ type: "tool_call", call_id: "c1", name: "write", args: { path: "util.py", content: CODE } }, { type: "tool_call", call_id: "c2", name: "write", args: { path: "notes.txt", content: "todo: tests" } }] },
-        { role: "tool_results", results: [{ call_id: "c1", is_error: false, content: "wrote util.py", truncated: false }, { call_id: "c2", is_error: false, content: "wrote notes.txt", truncated: false }] },
-        { role: "user", parts: [{ type: "text", text: 'Do the same again for util2.py (the same content) and notes2.txt (containing "todo: docs"): both writes together, in one turn.' }] },
+        {
+          role: "user",
+          parts: [
+            {
+              type: "text",
+              text: `Create util.py with exactly this content and notes.txt containing "todo: tests", using the write tool for both in one turn:\n\n${CODE}`,
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          provider: "local-models",
+          model: "bench",
+          blocks: [
+            { type: "tool_call", call_id: "c1", name: "write", args: { path: "util.py", content: CODE } },
+            { type: "tool_call", call_id: "c2", name: "write", args: { path: "notes.txt", content: "todo: tests" } },
+          ],
+        },
+        {
+          role: "tool_results",
+          results: [
+            { call_id: "c1", is_error: false, content: "wrote util.py", truncated: false },
+            { call_id: "c2", is_error: false, content: "wrote notes.txt", truncated: false },
+          ],
+        },
+        {
+          role: "user",
+          parts: [
+            {
+              type: "text",
+              text: 'Do the same again for util2.py (the same content) and notes2.txt (containing "todo: docs"): both writes together, in one turn.',
+            },
+          ],
+        },
       ],
     },
   },
@@ -121,7 +176,14 @@ function args(argv: readonly string[]) {
   const v = (f: string): string | undefined => all(f)[0];
   const models = all("--model");
   if (models.length < 2) throw new Error("--model is needed at least twice: the baseline first, then the arms with speculation");
-  return { models, repeat: Number(v("--repeat") ?? 3), dialect: v("--dialect"), maxTokens: Number(v("--max-tokens") ?? 1024), out: v("--out"), yes: argv.includes("--yes") };
+  return {
+    models,
+    repeat: Number(v("--repeat") ?? 3),
+    dialect: v("--dialect"),
+    maxTokens: Number(v("--max-tokens") ?? 1024),
+    out: v("--out"),
+    yes: argv.includes("--yes"),
+  };
 }
 
 const firstDifference = (a: string, b: string): string => {
@@ -131,7 +193,10 @@ const firstDifference = (a: string, b: string): string => {
 };
 
 export function report(samples: readonly Sample[], models: readonly string[]): string {
-  const lines = ["| task | model | ms | tokens/s | drafted | accepted | same as baseline | calls | errors |", "|---|---|---|---|---|---|---|---|---|"];
+  const lines = [
+    "| task | model | ms | tokens/s | drafted | accepted | same as baseline | calls | errors |",
+    "|---|---|---|---|---|---|---|---|---|",
+  ];
   const notes: string[] = [];
   for (const task of [...new Set(samples.map((s) => s.task))]) {
     for (const m of models) {
@@ -145,13 +210,21 @@ export function report(samples: readonly Sample[], models: readonly string[]): s
       const same = ok.filter((s) => base.some((b) => b.result === s.result)).length;
       const dsum = d.reduce((x, y) => x + y, 0);
       const asum = a.reduce((x, y) => x + y, 0);
-      lines.push(`| ${task} | ${m} | ${ok.length === 0 ? "-" : Math.round(ms / ok.length)} | ${ms === 0 ? "-" : ((tok / ms) * 1000).toFixed(1)} | ${d.length === 0 ? "n/a" : dsum} | ${a.length === 0 ? "n/a" : `${asum}${dsum > 0 ? ` (${Math.round((asum / dsum) * 100)}%)` : ""}`} | ${m === models[0] ? "-" : `${same}/${ok.length}`} | ${ok.filter((s) => s.calls > 0).length}/${ok.length} | ${rs.length - ok.length} |`);
-      if (m !== models[0]) for (const s of ok) if (!base.some((b) => b.result === s.result) && base[0] !== undefined) notes.push(`- ${task} ${m} #${s.n}: ${firstDifference(base[0].result, s.result)}`);
+      lines.push(
+        `| ${task} | ${m} | ${ok.length === 0 ? "-" : Math.round(ms / ok.length)} | ${ms === 0 ? "-" : ((tok / ms) * 1000).toFixed(1)} | ${d.length === 0 ? "n/a" : dsum} | ${a.length === 0 ? "n/a" : `${asum}${dsum > 0 ? ` (${Math.round((asum / dsum) * 100)}%)` : ""}`} | ${m === models[0] ? "-" : `${same}/${ok.length}`} | ${ok.filter((s) => s.calls > 0).length}/${ok.length} | ${rs.length - ok.length} |`,
+      );
+      if (m !== models[0])
+        for (const s of ok)
+          if (!base.some((b) => b.result === s.result) && base[0] !== undefined)
+            notes.push(`- ${task} ${m} #${s.n}: ${firstDifference(base[0].result, s.result)}`);
       for (const s of rs) if (s.error !== undefined) notes.push(`- ${task} ${m} #${s.n}: error: ${s.error}`);
     }
   }
   const missed = samples.filter((s) => s.calls_expected !== undefined && s.error === undefined && s.calls < s.calls_expected);
-  const warn = [...new Set(missed.map((s) => `${s.task} ${s.model}`))].map((k) => `**${k}: fewer tool calls than expected in ${missed.filter((s) => `${s.task} ${s.model}` === k).length} of its runs, so this task shows nothing about calls it was meant to make**`);
+  const warn = [...new Set(missed.map((s) => `${s.task} ${s.model}`))].map(
+    (k) =>
+      `**${k}: fewer tool calls than expected in ${missed.filter((s) => `${s.task} ${s.model}` === k).length} of its runs, so this task shows nothing about calls it was meant to make**`,
+  );
   const head = warn.length === 0 ? "" : `${warn.join("\n")}\n\n`;
   return `${head}${notes.length === 0 ? lines.join("\n") : `${lines.join("\n")}\n\nNotes:\n\n${notes.join("\n")}`}`;
 }
@@ -165,7 +238,12 @@ async function main(): Promise<void> {
   const setups = new Map<string, AgentSetup>();
   for (const name of o.models) {
     const sampling = samplingSettings((await lookupSampling(io, name)).values) as Record<string, unknown>;
-    const settings = { max_output_tokens: o.maxTokens, ...sampling, temperature: 0, ...(o.dialect === undefined ? {} : { dialect: o.dialect }) };
+    const settings = {
+      max_output_tokens: o.maxTokens,
+      ...sampling,
+      temperature: 0,
+      ...(o.dialect === undefined ? {} : { dialect: o.dialect }),
+    };
     setups.set(name, { ...emptySetup(), model: { provider: "live", id: name, settings } as NonNullable<AgentSetup["model"]> });
   }
   const samples: Sample[] = [];
@@ -173,20 +251,31 @@ async function main(): Promise<void> {
     for (let n = 1; n <= o.repeat; n++) {
       for (const model of o.models) {
         const t0 = Date.now();
-        const run = await collectStream(adapter.stream({ context: task.context, setup: setups.get(model) as AgentSetup, signal: AbortSignal.timeout(600_000) }));
+        const run = await collectStream(
+          adapter.stream({ context: task.context, setup: setups.get(model) as AgentSetup, signal: AbortSignal.timeout(600_000) }),
+        );
         const blocks = run.completed?.blocks ?? [];
         const raw = run.completed?.usage.raw as Record<string, unknown> | undefined;
         const timings = (raw?.["timings"] ?? {}) as Record<string, unknown>;
         const s: Sample = {
-          model, task: task.name, ...(task.calls === undefined ? {} : { calls_expected: task.calls }), n, ms: Date.now() - t0,
+          model,
+          task: task.name,
+          ...(task.calls === undefined ? {} : { calls_expected: task.calls }),
+          n,
+          ms: Date.now() - t0,
           output_tokens: run.completed?.usage.output_tokens ?? 0,
-          drafted: num(timings["draft_n"]), accepted: num(timings["draft_n_accepted"]),
-          result: blocks.flatMap((b) => (b.type === "text" ? [b.text] : b.type === "tool_call" ? [`CALL ${b.name} ${JSON.stringify(b.args)}`] : [])).join("\n"),
+          drafted: num(timings["draft_n"]),
+          accepted: num(timings["draft_n_accepted"]),
+          result: blocks
+            .flatMap((b) => (b.type === "text" ? [b.text] : b.type === "tool_call" ? [`CALL ${b.name} ${JSON.stringify(b.args)}`] : []))
+            .join("\n"),
           calls: blocks.filter((b) => b.type === "tool_call").length,
           ...(run.error === undefined ? {} : { error: run.error instanceof Error ? run.error.message : String(run.error) }),
         };
         samples.push(s);
-        console.error(`${task.name} #${n} ${model}: ${s.error ?? `${s.ms} ms, ${s.output_tokens} tokens, drafted ${s.drafted ?? "?"}, accepted ${s.accepted ?? "?"}, calls ${s.calls}`}`);
+        console.error(
+          `${task.name} #${n} ${model}: ${s.error ?? `${s.ms} ms, ${s.output_tokens} tokens, drafted ${s.drafted ?? "?"}, accepted ${s.accepted ?? "?"}, calls ${s.calls}`}`,
+        );
       }
     }
   }

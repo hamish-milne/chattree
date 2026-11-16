@@ -32,7 +32,10 @@ async function statusLine(engine: Engine, resumed: boolean): Promise<string> {
   const spend = l === undefined ? "" : ` · $${l.conversation.usd.toFixed(4)}${l.conversation.unpriced > 0 ? "+" : ""} spent`;
   const s = engine.session;
   const draftLines = engine.state.draft === "" ? 0 : engine.state.draft.split("\n").length;
-  const back = resumed && s !== undefined && hasPendingState(engine.state) ? ` (resumed: ${[draftLines > 0 ? `${draftLines} line${draftLines === 1 ? "" : "s"} of draft` : "", engine.state.attachments.length > 0 ? `${engine.state.attachments.length} staged file${engine.state.attachments.length === 1 ? "" : "s"}` : ""].filter((x) => x !== "").join(", ")})` : "";
+  const back =
+    resumed && s !== undefined && hasPendingState(engine.state)
+      ? ` (resumed: ${[draftLines > 0 ? `${draftLines} line${draftLines === 1 ? "" : "s"} of draft` : "", engine.state.attachments.length > 0 ? `${engine.state.attachments.length} staged file${engine.state.attachments.length === 1 ? "" : "s"}` : ""].filter((x) => x !== "").join(", ")})`
+      : "";
   return `thread ${engine.thread} · ${model}${spend} · session ${s?.id.slice(0, 8) ?? "-"}${back}`;
 }
 
@@ -45,7 +48,14 @@ function confirmWith(engine: () => Engine, io: Io, yes: boolean): (q: string) =>
   if (yes) return async () => true;
   return async (q) => {
     const ask = engine().ask ?? io.ask?.bind(io);
-    return ask === undefined ? false : /^y(es)?$/i.test(await ask(q, "n", [{ key: "y", label: "yes" }, { key: "n", label: "no" }]));
+    return ask === undefined
+      ? false
+      : /^y(es)?$/i.test(
+          await ask(q, "n", [
+            { key: "y", label: "yes" },
+            { key: "n", label: "no" },
+          ]),
+        );
   };
 }
 
@@ -65,7 +75,10 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
       opened = await openThread(io, project, session.thread, { providers: "optional" });
     } catch (e) {
       await session.close();
-      throw new CliError(`session ${session.id} points at thread ${session.thread}, which cannot be opened: ${e instanceof Error ? e.message : String(e)}`, "start another session with --new-session");
+      throw new CliError(
+        `session ${session.id} points at thread ${session.thread}, which cannot be opened: ${e instanceof Error ? e.message : String(e)}`,
+        "start another session with --new-session",
+      );
     }
   } else {
     opened = await openThread(io, project, o.thread, { providers: "optional" });
@@ -73,7 +86,15 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
     ({ session, resumed, skipped } = r);
   }
 
-  const engine = new Engine({ io, project, opened, session, sessions, tools: true, confirm: confirmWith(() => engine, io, o.yes === true) });
+  const engine = new Engine({
+    io,
+    project,
+    opened,
+    session,
+    sessions,
+    tools: true,
+    confirm: confirmWith(() => engine, io, o.yes === true),
+  });
   if (o.thinking !== undefined) engine.state.thinking = o.thinking;
   if (o.tools !== undefined) engine.state.tools = o.tools;
   if (!interactive) engine.ask = undefined; // lines of a script are not answers: calls no grant covers are declined
@@ -93,16 +114,25 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
   try {
     for (const s of skipped) io.err(`note: ${s}\n`);
     const trust = await engine.convo.configTrust();
-    if (trust.state !== "trusted") io.err(`warning: harness.yml has ${trust.state === "unknown" ? "not been approved" : "changed since you approved it"} for thread ${engine.thread}; no providers or tools are used until you approve it (/trust)\n`);
-    if (engine.degraded !== undefined) io.err(`warning: providers are unavailable (${engine.degraded}); you can read the thread but not send\n`);
+    if (trust.state !== "trusted")
+      io.err(
+        `warning: harness.yml has ${trust.state === "unknown" ? "not been approved" : "changed since you approved it"} for thread ${engine.thread}; no providers or tools are used until you approve it (/trust)\n`,
+      );
+    if (engine.degraded !== undefined)
+      io.err(`warning: providers are unavailable (${engine.degraded}); you can read the thread but not send\n`);
     const style = interactive && io.env.NO_COLOR === undefined && io.env.TERM !== "dumb" ? ansiStyle : plainStyle;
     engine.style = style;
     for (const t of await recentEntries(engine)) io.out(`${t}\n`);
     io.out(`${style.dim(await statusLine(engine, resumed))}\n`);
     const act = await engine.convo.activity();
-    if (act.state === "request" && act.live) io.err(`note: a request to ${act.model} is running on this thread${act.owner?.pid === undefined ? "" : ` (process ${act.owner.pid})`}\n`);
+    if (act.state === "request" && act.live)
+      io.err(
+        `note: a request to ${act.model} is running on this thread${act.owner?.pid === undefined ? "" : ` (process ${act.owner.pid})`}\n`,
+      );
     if (interactive) {
-      io.out(`${style.dim("type a message and finish it with a blank line · /help lists commands · Ctrl-O puts a draft aside · Ctrl-D leaves")}\n`);
+      io.out(
+        `${style.dim("type a message and finish it with a blank line · /help lists commands · Ctrl-O puts a draft aside · Ctrl-D leaves")}\n`,
+      );
       const term = new Terminal({
         engine,
         tty: io.tty as NonNullable<Io["tty"]>,

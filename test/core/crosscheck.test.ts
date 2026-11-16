@@ -14,7 +14,10 @@ import { Rng, randomEntry } from "../support/gen.ts";
 function yamlView(v: Value): Value {
   if (v instanceof Tagged) return yamlView(v.value);
   if (v instanceof BlobRef) {
-    const m = new Map<string, Value>([["sha256", v.sha256], ["bytes", v.bytes]]);
+    const m = new Map<string, Value>([
+      ["sha256", v.sha256],
+      ["bytes", v.bytes],
+    ]);
     if (v.mime !== undefined) m.set("mime", v.mime);
     return m;
   }
@@ -28,7 +31,11 @@ function parseWithYaml(text: string, version: "1.1" | "1.2") {
   const errors = doc.errors.map((e) => e.message);
   const unexpectedWarnings = doc.warnings.filter((w) => w.code !== "TAG_RESOLVE_FAILED").map((w) => w.message);
   let tags = 0;
-  visit(doc, { Map: (_k, n) => { if (n.tag === "!blob") tags++; } });
+  visit(doc, {
+    Map: (_k, n) => {
+      if (n.tag === "!blob") tags++;
+    },
+  });
   return { value: doc.toJS({ mapAsMap: true }) as Value[], errors, unexpectedWarnings, tags };
 }
 
@@ -45,7 +52,10 @@ function checkFile(seed: number, count: number, version: "1.1" | "1.2", simpleNu
     assert.ok(valueEquals(r.value[i] as Value, yamlView(e)), `entry ${i} differs under YAML ${version}:\n${emitEntry(e)}`);
     // and our own parser agrees with the oracle about the same text
     assert.ok(valueEquals(parseEntry(emitEntry(e)), e));
-    JSON.stringify(e, (_k, v) => { if (v instanceof BlobRef) blobs++; return v; });
+    JSON.stringify(e, (_k, v) => {
+      if (v instanceof BlobRef) blobs++;
+      return v;
+    });
   });
   assert.equal(r.tags, r.tags); // tags are only informational for the oracle
   return blobs;
@@ -62,7 +72,26 @@ describe("independent YAML parser agrees with the emitter", () => {
   }
 
   test("every bare word is read as a string by both schemas", () => {
-    const words = ["user", "tool_call", "claude-sonnet-5-5", "a.b-c", "_x", "Z9", "inf", "nan", "e5", "Infinity", "NaN", "none", "nope", "Y2", "yes_", "nullable", "trueish", "on_"];
+    const words = [
+      "user",
+      "tool_call",
+      "claude-sonnet-5-5",
+      "a.b-c",
+      "_x",
+      "Z9",
+      "inf",
+      "nan",
+      "e5",
+      "Infinity",
+      "NaN",
+      "none",
+      "nope",
+      "Y2",
+      "yes_",
+      "nullable",
+      "trueish",
+      "on_",
+    ];
     for (const w of words) {
       const text = emitEntry(new Map<string, Value>([["k", w]]));
       for (const version of ["1.1", "1.2"] as const) {
@@ -74,9 +103,40 @@ describe("independent YAML parser agrees with the emitter", () => {
   });
 
   test("every reserved word is quoted and read back as a string", () => {
-    const words = ["y", "Y", "n", "N", "yes", "Yes", "YES", "no", "No", "NO", "true", "True", "TRUE", "false", "False", "FALSE", "on", "On", "ON", "off", "Off", "OFF", "null", "Null", "NULL"];
+    const words = [
+      "y",
+      "Y",
+      "n",
+      "N",
+      "yes",
+      "Yes",
+      "YES",
+      "no",
+      "No",
+      "NO",
+      "true",
+      "True",
+      "TRUE",
+      "false",
+      "False",
+      "FALSE",
+      "on",
+      "On",
+      "ON",
+      "off",
+      "Off",
+      "OFF",
+      "null",
+      "Null",
+      "NULL",
+    ];
     for (const w of words) {
-      const text = emitEntry(new Map<string, Value>([["k", w], [w, 1]]));
+      const text = emitEntry(
+        new Map<string, Value>([
+          ["k", w],
+          [w, 1],
+        ]),
+      );
       assert.ok(text.includes(`"${w}"`), `${w} must be quoted: ${text}`);
       for (const version of ["1.1", "1.2"] as const) {
         const r = parseWithYaml(text, version);
@@ -89,7 +149,12 @@ describe("independent YAML parser agrees with the emitter", () => {
 
   test("exponent-like identifiers are quoted (the 1.1 float rule reads bare e5 as NaN)", () => {
     for (const w of ["e5", "E5", "e-3", "E+10", "e0x"]) {
-      const text = emitEntry(new Map<string, Value>([["k", w], [w, 1]]));
+      const text = emitEntry(
+        new Map<string, Value>([
+          ["k", w],
+          [w, 1],
+        ]),
+      );
       assert.ok(text.includes(`"${w}"`), `${w} must be quoted: ${text}`);
       for (const version of ["1.1", "1.2"] as const) {
         const m = parseWithYaml(text, version).value[0] as Map<string, Value>;
@@ -104,7 +169,10 @@ describe("independent YAML parser agrees with the emitter", () => {
 
   test("blob references are read as tagged maps with the same fields", () => {
     const h = "0f".repeat(32);
-    const e = new Map<string, Value>([["a", new BlobRef(h, 12, "text/plain")], ["b", [new BlobRef(h, 0)]]]);
+    const e = new Map<string, Value>([
+      ["a", new BlobRef(h, 12, "text/plain")],
+      ["b", [new BlobRef(h, 0)]],
+    ]);
     const r = parseWithYaml(emitEntry(e), "1.2");
     assert.deepEqual(r.errors, []);
     assert.equal(r.tags, 2);
@@ -112,7 +180,13 @@ describe("independent YAML parser agrees with the emitter", () => {
   });
 
   test("exponent-form numbers (1.2 schema)", () => {
-    const e = new Map<string, Value>([["a", 1e21], ["b", 1.5e-7], ["c", 2.5e300], ["d", 5e-324], ["e", -3e-9]]);
+    const e = new Map<string, Value>([
+      ["a", 1e21],
+      ["b", 1.5e-7],
+      ["c", 2.5e300],
+      ["d", 5e-324],
+      ["e", -3e-9],
+    ]);
     const r = parseWithYaml(emitEntry(e), "1.2");
     assert.deepEqual(r.errors, []);
     assert.ok(valueEquals(r.value[0] as Value, e));

@@ -37,7 +37,9 @@ function smallEntries(seed: number, count: number): Entry[] {
     const body = e instanceof Map ? e : e.value;
     if (body.size > 0 && encodeEntry(e).length < 700) out.push(e);
   }
-  out.push(fromPlain({ id: "x", text: cp(0x65e5, 0x672c, 0x8a9e, 0x1f600) + "\n" + cp(0xe9) + "\n- not an entry\n" }) as Map<string, Value>);
+  out.push(
+    fromPlain({ id: "x", text: cp(0x65e5, 0x672c, 0x8a9e, 0x1f600) + "\n" + cp(0xe9) + "\n- not an entry\n" }) as Map<string, Value>,
+  );
   return out;
 }
 
@@ -188,7 +190,12 @@ describe("rejecting damaged or foreign files", () => {
   test("overlong or truncated UTF-8 sequences inside a complete entry", () => {
     const e = encodeEntry(fromPlain({ id: "a", text: "abc" }) as Map<string, Value>);
     const at = e.indexOf(0x62);
-    for (const seq of [[0xc0, 0x80], [0xe2, 0x82], [0xed, 0xa0, 0x80], [0xf4, 0x90, 0x80, 0x80]]) {
+    for (const seq of [
+      [0xc0, 0x80],
+      [0xe2, 0x82],
+      [0xed, 0xa0, 0x80],
+      [0xf4, 0x90, 0x80, 0x80],
+    ]) {
       const bad = cat(e.subarray(0, at), Uint8Array.from(seq), e.subarray(at + 1));
       assert.throws(() => parseFile(bad), ParseError);
     }

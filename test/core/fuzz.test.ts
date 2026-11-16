@@ -49,7 +49,31 @@ describe("round-trip properties", () => {
 });
 
 describe("hostile input never produces anything but ParseError", () => {
-  const INSERTS = [" ", "\n", "\n\n", "-", "- ", ":", ": ", '"', "\\", "|", "!", "#", "\t", "\r", "{", "}", "[", "]", "&", "*", "0", "a", ...PIECES.slice(0, 20)];
+  const INSERTS = [
+    " ",
+    "\n",
+    "\n\n",
+    "-",
+    "- ",
+    ":",
+    ": ",
+    '"',
+    "\\",
+    "|",
+    "!",
+    "#",
+    "\t",
+    "\r",
+    "{",
+    "}",
+    "[",
+    "]",
+    "&",
+    "*",
+    "0",
+    "a",
+    ...PIECES.slice(0, 20),
+  ];
 
   function mutate(rng: Rng, text: string): string {
     let s = text;
@@ -57,11 +81,20 @@ describe("hostile input never produces anything but ParseError", () => {
     for (let k = 0; k < n; k++) {
       const at = rng.int(s.length + 1);
       switch (rng.int(5)) {
-        case 0: s = s.slice(0, at) + s.slice(at + 1); break; // delete
-        case 1: s = s.slice(0, at) + rng.pick(INSERTS) + s.slice(at); break; // insert
-        case 2: s = s.slice(0, at) + rng.pick(INSERTS) + s.slice(at + 1); break; // replace
-        case 3: s = s.slice(0, at); break; // truncate
-        default: { // swap neighbours
+        case 0:
+          s = s.slice(0, at) + s.slice(at + 1);
+          break; // delete
+        case 1:
+          s = s.slice(0, at) + rng.pick(INSERTS) + s.slice(at);
+          break; // insert
+        case 2:
+          s = s.slice(0, at) + rng.pick(INSERTS) + s.slice(at + 1);
+          break; // replace
+        case 3:
+          s = s.slice(0, at);
+          break; // truncate
+        default: {
+          // swap neighbours
           if (at + 1 < s.length) s = s.slice(0, at) + s[at + 1] + s[at] + s.slice(at + 2);
         }
       }

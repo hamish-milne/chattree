@@ -7,7 +7,10 @@ import { ANTHROPIC_MEDIA, CHAT_MEDIA, RESPONSES_MEDIA, localMedia } from "../../
 const f = (mime: string): Format => formatOf(mime) as Format;
 
 describe("planning a file for a sink", () => {
-  const spec: MediaSpec = { audio: [{ mime: "audio/mpeg" }, { mime: "audio/flac" }, { mime: "audio/wav" }], image: [{ mime: "image/png", maxBytes: 1000 }, { mime: "image/jpeg" }] };
+  const spec: MediaSpec = {
+    audio: [{ mime: "audio/mpeg" }, { mime: "audio/flac" }, { mime: "audio/wav" }],
+    image: [{ mime: "image/png", maxBytes: 1000 }, { mime: "image/jpeg" }],
+  };
 
   test("an accepted format passes untouched, however low it is in the order", () => {
     assert.deepEqual(planMedia(f("audio/wav"), 5_000_000, spec), { action: "pass" });
@@ -50,7 +53,12 @@ describe("planning a file for a sink", () => {
 });
 
 describe("what each sink takes", () => {
-  const specs: [string, MediaSpec][] = [["anthropic", ANTHROPIC_MEDIA], ["responses", RESPONSES_MEDIA], ["chat", CHAT_MEDIA], ["local", localMedia({})]];
+  const specs: [string, MediaSpec][] = [
+    ["anthropic", ANTHROPIC_MEDIA],
+    ["responses", RESPONSES_MEDIA],
+    ["chat", CHAT_MEDIA],
+    ["local", localMedia({})],
+  ];
 
   test("every target is a known format of the kind it is listed under, once", () => {
     for (const [name, spec] of specs) {
@@ -84,5 +92,4 @@ describe("what each sink takes", () => {
     assert.equal(CHAT_MEDIA.audio?.[0]?.mime, "audio/mpeg");
     assert.equal(localMedia({}).image?.[0]?.mime, "image/png");
   });
-
 });

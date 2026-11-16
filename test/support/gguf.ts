@@ -20,7 +20,17 @@ const kvs = (...pairs: [string, number, Buffer][]): Buffer => Buffer.concat(pair
 export function gguf(extra: [string, number, Buffer][], vocab = 5): Buffer {
   const tokens = Buffer.concat([u32(8), u64(vocab), ...Array.from({ length: vocab }, (_, i) => str(`tok${i}`))]);
   const scores = Buffer.concat([u32(6), u64(vocab), ...Array.from({ length: vocab }, () => f32(0))]);
-  const all: [string, number, Buffer][] = [["general.architecture", 8, str("llama")], ["tokenizer.ggml.tokens", 9, tokens], ["tokenizer.ggml.scores", 9, scores], ...extra];
+  const all: [string, number, Buffer][] = [
+    ["general.architecture", 8, str("llama")],
+    ["tokenizer.ggml.tokens", 9, tokens],
+    ["tokenizer.ggml.scores", 9, scores],
+    ...extra,
+  ];
   return Buffer.concat([Buffer.from("GGUF"), u32(3), u64(0), u64(all.length), kvs(...all), Buffer.alloc(64)]);
 }
-export const SAMPLING: [string, number, Buffer][] = [["general.sampling.temp", 6, f32(0.6)], ["general.sampling.top_k", 4, u32(20)], ["general.sampling.top_p", 6, f32(0.95)], ["general.sampling.penalty_repeat", 6, f32(1.1)]];
+export const SAMPLING: [string, number, Buffer][] = [
+  ["general.sampling.temp", 6, f32(0.6)],
+  ["general.sampling.top_k", 4, u32(20)],
+  ["general.sampling.top_p", 6, f32(0.95)],
+  ["general.sampling.penalty_repeat", 6, f32(1.1)],
+];

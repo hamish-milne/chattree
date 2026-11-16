@@ -53,8 +53,10 @@ export function toPortableSchema(input: unknown): Converted {
         t = rest[0];
       }
       if (t === undefined && isObject(s["properties"])) t = "object";
-      if (t === undefined && s["const"] !== undefined) t = typeof s["const"] === "number" ? "number" : typeof s["const"] === "boolean" ? "boolean" : "string";
-      if (typeof t !== "string" || (t !== "object" && t !== "array" && !SCALARS.has(t))) throw new Unsupported(`${path} has no single usable type`);
+      if (t === undefined && s["const"] !== undefined)
+        t = typeof s["const"] === "number" ? "number" : typeof s["const"] === "boolean" ? "boolean" : "string";
+      if (typeof t !== "string" || (t !== "object" && t !== "array" && !SCALARS.has(t)))
+        throw new Unsupported(`${path} has no single usable type`);
       return t;
     };
     const walk = (raw: unknown, path: string, depth: number, isRoot: boolean): Schema => {
@@ -81,7 +83,9 @@ export function toPortableSchema(input: unknown): Converted {
       if (type === "object") {
         const props = isObject(s["properties"]) ? s["properties"] : {};
         if (!isRoot && Object.keys(props).length === 0) throw new Unsupported(`${path} is a free-form object`);
-        const required = new Set(Array.isArray(s["required"]) ? (s["required"] as unknown[]).filter((r): r is string => typeof r === "string") : []);
+        const required = new Set(
+          Array.isArray(s["required"]) ? (s["required"] as unknown[]).filter((r): r is string => typeof r === "string") : [],
+        );
         const kept: Record<string, Schema> = {};
         const keptRequired: string[] = [];
         for (const [name, sub] of Object.entries(props)) {
@@ -129,11 +133,16 @@ export function projectSchema(input: unknown, level: SchemaLevel): Converted {
 /** What the agent's model takes of a tool's schema: the model's own info, else what its adapter says, else the portable subset. */
 export function toolSchemaLevel(convo: Pick<Conversation, "modelInfo" | "providers">, model: ModelSetup | undefined): SchemaLevel {
   if (model === undefined) return "portable";
-  return convo.modelInfo(model.provider, servedModelId(model))?.tool_schema ?? convo.providers.get(model.provider)?.toolSchema ?? "portable";
+  return (
+    convo.modelInfo(model.provider, servedModelId(model))?.tool_schema ?? convo.providers.get(model.provider)?.toolSchema ?? "portable"
+  );
 }
 
 /** The definitions as a request carries them for a model that takes `level`, and the tools that cannot be shown to it (with why). */
-export function projectDefinitions(defs: readonly ToolDefinition[], level: SchemaLevel): { tools: ToolDefinition[]; refused: { name: string; why: string[] }[] } {
+export function projectDefinitions(
+  defs: readonly ToolDefinition[],
+  level: SchemaLevel,
+): { tools: ToolDefinition[]; refused: { name: string; why: string[] }[] } {
   const tools: ToolDefinition[] = [];
   const refused: { name: string; why: string[] }[] = [];
   for (const d of defs) {

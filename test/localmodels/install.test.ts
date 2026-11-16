@@ -36,7 +36,9 @@ describe("backend auto", () => {
   test("installs the CUDA build, and says why, when an NVIDIA GPU is found", async () => {
     const { server, data, o } = await setup();
     try {
-      const r = await ensureLlamaServer(o({ tag: "b100" }, { findGpu: async () => ({ backend: "cuda", note: "found GPU 0: NVIDIA GeForce RTX 4080" }) }));
+      const r = await ensureLlamaServer(
+        o({ tag: "b100" }, { findGpu: async () => ({ backend: "cuda", note: "found GPU 0: NVIDIA GeForce RTX 4080" }) }),
+      );
       assert.equal(r.backend, "cuda");
       assert.equal(r.backendNote, "found GPU 0: NVIDIA GeForce RTX 4080");
       assert.match(r.binary, /b100-cuda/);
@@ -52,7 +54,9 @@ describe("backend auto", () => {
   test("with no GPU found it runs on the CPU and says so in plain words", async () => {
     const { server, o } = await setup();
     try {
-      const r = await ensureLlamaServer(o({ tag: "b100" }, { findGpu: async () => ({ backend: undefined, note: "no NVIDIA GPU found, so llama.cpp runs on the CPU" }) }));
+      const r = await ensureLlamaServer(
+        o({ tag: "b100" }, { findGpu: async () => ({ backend: undefined, note: "no NVIDIA GPU found, so llama.cpp runs on the CPU" }) }),
+      );
       assert.equal(r.backend, "cpu");
       assert.match(r.backendNote ?? "", /runs on the CPU/);
     } finally {
@@ -81,7 +85,10 @@ describe("installing llama.cpp", () => {
       assert.equal(r.binary, join(data, "llama.cpp", "b100-cpu", "llama-b100", "llama-server"));
       assert.ok((await stat(r.binary)).isFile());
       assert.ok(lock.file("llama/llama-b100-bin-ubuntu-x64.tar.gz")?.sha256);
-      assert.deepEqual(events.map((e) => e.type).filter((t, i, a) => a.indexOf(t) === i), ["release", "download", "unpack", "installed"]);
+      assert.deepEqual(
+        events.map((e) => e.type).filter((t, i, a) => a.indexOf(t) === i),
+        ["release", "download", "unpack", "installed"],
+      );
       assert.deepEqual(await readdir(join(data, "downloads")), []); // archives are removed
     } finally {
       await server.close();
@@ -132,12 +139,15 @@ describe("installing llama.cpp", () => {
       let seen: InstallPlan | undefined;
       await assert.rejects(
         ensureLlamaServer(
-          o({ tag: "b100" }, {
-            confirm: async (p) => {
-              seen = p;
-              return false;
+          o(
+            { tag: "b100" },
+            {
+              confirm: async (p) => {
+                seen = p;
+                return false;
+              },
             },
-          }),
+          ),
         ),
         InstallDeclined,
       );
@@ -175,7 +185,9 @@ describe("installing llama.cpp", () => {
     const { server, data, o } = await setup();
     try {
       await assert.rejects(
-        ensureLlamaServer(o({ tag: "b100" }, { deps: { apiBase: server.base, verify: async () => "libcuda.so.1: cannot open shared object file" } })),
+        ensureLlamaServer(
+          o({ tag: "b100" }, { deps: { apiBase: server.base, verify: async () => "libcuda.so.1: cannot open shared object file" } }),
+        ),
         (e: unknown) => e instanceof InstallError && /libcuda/.test(e.message) && /backend/.test(e.hint ?? ""),
       );
       assert.deepEqual(await readdir(join(data, "llama.cpp")), []);
@@ -187,7 +199,10 @@ describe("installing llama.cpp", () => {
   test("no tag means no download; a path is used as it is", async () => {
     const { server, data, o } = await setup();
     try {
-      await assert.rejects(ensureLlamaServer(o({})), (e: unknown) => e instanceof InstallError && /never picks the latest/.test(e.hint ?? ""));
+      await assert.rejects(
+        ensureLlamaServer(o({})),
+        (e: unknown) => e instanceof InstallError && /never picks the latest/.test(e.hint ?? ""),
+      );
       const own = join(data, "mine");
       await writeFile(own, "x");
       assert.equal((await ensureLlamaServer(o({ path: own }))).binary, own);

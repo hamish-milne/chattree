@@ -15,8 +15,21 @@ export const VOICES = ["slt", "awb", "rms", "kal"] as const;
 const DIGITS = ["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine"];
 /** The most common short sentences of spoken English: the easiest speech to recognise that still has a clear right answer. */
 export const SENTENCES = [
-  "Thank you.", "I don't know.", "I know.", "What do you mean?", "I'm sorry.", "I love you.", "What are you doing?", "Come on.",
-  "I don't think so.", "What's going on?", "Thank you very much.", "You're welcome.", "I have no idea.", "Let's go.", "Are you sure?",
+  "Thank you.",
+  "I don't know.",
+  "I know.",
+  "What do you mean?",
+  "I'm sorry.",
+  "I love you.",
+  "What are you doing?",
+  "Come on.",
+  "I don't think so.",
+  "What's going on?",
+  "Thank you very much.",
+  "You're welcome.",
+  "I have no idea.",
+  "Let's go.",
+  "Are you sure?",
 ];
 
 export interface SpeechClip {
@@ -34,9 +47,21 @@ export function speechClips(o: { count: number; seed: number }): SpeechClip[] {
   for (let i = 0; i < o.count; i++) {
     const n = 3 + Math.floor(r() * 3);
     const text = Array.from({ length: n }, () => DIGITS[Math.floor(r() * 10)]).join(" ");
-    out.push({ name: `digits-${i + 1}`, text, voice: VOICES[i % VOICES.length] as SpeechClip["voice"], question: "Which digits are spoken, in order? Write each digit as a word, separated by spaces, and nothing else." });
+    out.push({
+      name: `digits-${i + 1}`,
+      text,
+      voice: VOICES[i % VOICES.length] as SpeechClip["voice"],
+      question: "Which digits are spoken, in order? Write each digit as a word, separated by spaces, and nothing else.",
+    });
   }
-  SENTENCES.forEach((text, i) => out.push({ name: `sentence-${String(i + 1).padStart(2, "0")}`, text, voice: VOICES[(i + 1) % VOICES.length] as SpeechClip["voice"], question: "What is said in it? Answer with just the words." }));
+  SENTENCES.forEach((text, i) =>
+    out.push({
+      name: `sentence-${String(i + 1).padStart(2, "0")}`,
+      text,
+      voice: VOICES[(i + 1) % VOICES.length] as SpeechClip["voice"],
+      question: "What is said in it? Answer with just the words.",
+    }),
+  );
   return out;
 }
 
@@ -46,9 +71,24 @@ export function speechClips(o: { count: number; seed: number }): SpeechClip[] {
  * an apostrophe in it opens a quote at the filter's own option level, which swallows `:voice=...` and makes flite say "voice rms" aloud.
  */
 export function fliteArgs(clip: Pick<SpeechClip, "name" | "text" | "voice">): string[] {
-  if (!/^[A-Za-z .,?!']+$/.test(clip.text)) throw new Error(`clip text must be letters, spaces and . , ? ! ': ${JSON.stringify(clip.text)}`);
+  if (!/^[A-Za-z .,?!']+$/.test(clip.text))
+    throw new Error(`clip text must be letters, spaces and . , ? ! ': ${JSON.stringify(clip.text)}`);
   if (!/^[a-z0-9-]+$/.test(clip.name)) throw new Error(`clip name must be lowercase letters, digits and -: ${JSON.stringify(clip.name)}`);
-  return ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", `flite=textfile=${clip.name}.txt:voice=${clip.voice}`, "-ar", "16000", "-ac", "1", `${clip.name}.wav`];
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    "-f",
+    "lavfi",
+    "-i",
+    `flite=textfile=${clip.name}.txt:voice=${clip.voice}`,
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
+    `${clip.name}.wav`,
+  ];
 }
 
 const run = (exe: string, args: string[], cwd: string): Promise<number> =>

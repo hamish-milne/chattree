@@ -24,7 +24,8 @@ export const isBatch = (file: string): boolean => /\.(cmd|bat)$/i.test(file);
 export function batchProblem(file: string, args: readonly string[]): string | undefined {
   if (UNSAFE.test(file)) return `the path ${file} contains a character that cmd.exe would interpret`;
   for (const a of args) {
-    if (UNSAFE.test(a)) return `the argument ${JSON.stringify(a)} contains one of % ^ & | < > " ! or a line break, which cmd.exe would interpret when it starts a batch file; pass it another way (a file, or a program that is not a batch file)`;
+    if (UNSAFE.test(a))
+      return `the argument ${JSON.stringify(a)} contains one of % ^ & | < > " ! or a line break, which cmd.exe would interpret when it starts a batch file; pass it another way (a file, or a program that is not a batch file)`;
     if (/[\s]/.test(a) && a.endsWith("\\")) return `the argument ${JSON.stringify(a)} ends with a backslash inside quotes`;
   }
   return undefined;
@@ -50,7 +51,12 @@ export interface Found {
  * the workspace, a bare name is searched along `PATH` (relative entries relative to the workspace, as the shell would), the
  * first match among `.com .exe .bat .cmd` in each directory. Links are followed. Undefined when nothing is found.
  */
-export async function findProgram(host: Host, workspace: string, name: string, env: Readonly<Record<string, string | undefined>>): Promise<Found | undefined> {
+export async function findProgram(
+  host: Host,
+  workspace: string,
+  name: string,
+  env: Readonly<Record<string, string | undefined>>,
+): Promise<Found | undefined> {
   const isFile = async (p: string): Promise<boolean> => (await host.fs.stat(p))?.isFile === true;
   const root = (await host.fs.realpath(workspace)) ?? host.path.resolve(workspace);
   const found = async (p: string): Promise<Found> => {

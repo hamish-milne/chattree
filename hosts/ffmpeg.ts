@@ -32,8 +32,10 @@ export class FfmpegError extends Error {
   }
 }
 
-export const FFMPEG_HINT_WINDOWS = "download it yourself with `node tools/fetch-ffmpeg.ts --from <zip>` (a gyan.dev full build) or set CHATTREE_FFMPEG to an ffmpeg.exe that has libflite";
-export const FFMPEG_HINT_OTHER = "install ffmpeg with your package manager (for example `apt install ffmpeg` or `brew install ffmpeg`), making sure the build has libflite (`ffmpeg -filters | grep flite`), or set CHATTREE_FFMPEG to one that does";
+export const FFMPEG_HINT_WINDOWS =
+  "download it yourself with `node tools/fetch-ffmpeg.ts --from <zip>` (a gyan.dev full build) or set CHATTREE_FFMPEG to an ffmpeg.exe that has libflite";
+export const FFMPEG_HINT_OTHER =
+  "install ffmpeg with your package manager (for example `apt install ffmpeg` or `brew install ffmpeg`), making sure the build has libflite (`ffmpeg -filters | grep flite`), or set CHATTREE_FFMPEG to one that does";
 
 export interface FfmpegDeps {
   download(url: string): Promise<Uint8Array>;
@@ -63,7 +65,9 @@ const isFile = async (p: string): Promise<boolean> => (await stat(p).catch(() =>
 const exeName = (platform: NodeJS.Platform): string => (platform === "win32" ? "ffmpeg.exe" : "ffmpeg");
 
 /** An ffmpeg that is already available, without fetching: CHATTREE_FFMPEG, the one fetched into `dir` (Windows), else the PATH. */
-export async function findFfmpeg(o: { env?: Readonly<Record<string, string | undefined>>; dir?: string; platform?: NodeJS.Platform } = {}): Promise<string | undefined> {
+export async function findFfmpeg(
+  o: { env?: Readonly<Record<string, string | undefined>>; dir?: string; platform?: NodeJS.Platform } = {},
+): Promise<string | undefined> {
   const env = o.env ?? process.env;
   const platform = o.platform ?? process.platform;
   const named = env["CHATTREE_FFMPEG"];
@@ -122,11 +126,18 @@ export async function ensureFfmpeg(o: EnsureFfmpegOptions = {}): Promise<string>
   const platform = o.platform ?? process.platform;
   const deps = o.deps ?? nodeFfmpegDeps;
   const hint = platform === "win32" ? FFMPEG_HINT_WINDOWS : FFMPEG_HINT_OTHER;
-  const have = await findFfmpeg({ ...(o.env === undefined ? {} : { env: o.env }), ...(o.dir === undefined ? {} : { dir: o.dir }), platform });
+  const have = await findFfmpeg({
+    ...(o.env === undefined ? {} : { env: o.env }),
+    ...(o.dir === undefined ? {} : { dir: o.dir }),
+    platform,
+  });
   if (have !== undefined) {
     const p = await deps.probe(have);
     if (p === "ok" || (p === "no-flite" && o.flite === false)) return have;
-    throw new FfmpegError(p === "broken" ? `${have} does not run as ffmpeg` : `${have} has no flite filter, so it cannot make speech`, hint);
+    throw new FfmpegError(
+      p === "broken" ? `${have} does not run as ffmpeg` : `${have} has no flite filter, so it cannot make speech`,
+      hint,
+    );
   }
   if (platform !== "win32") throw new FfmpegError("ffmpeg was not found on the PATH", hint);
   const release = o.release ?? FFMPEG_RELEASE;
@@ -138,7 +149,11 @@ export async function ensureFfmpeg(o: EnsureFfmpegOptions = {}): Promise<string>
     throw new FfmpegError(`could not fetch ffmpeg from ${release.url}: ${e instanceof Error ? e.message : String(e)}`, hint);
   }
   const got = sha256Of(bytes);
-  if (got !== release.sha256) throw new FfmpegError(`the ffmpeg download is not the expected file (sha256 ${got}, expected ${release.sha256}), so it was not used`, hint);
+  if (got !== release.sha256)
+    throw new FfmpegError(
+      `the ffmpeg download is not the expected file (sha256 ${got}, expected ${release.sha256}), so it was not used`,
+      hint,
+    );
   const work = await mkdtemp(join(tmpdir(), "chattree-ffmpeg-zip-"));
   try {
     const zip = join(work, "ffmpeg.zip");

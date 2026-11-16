@@ -33,7 +33,12 @@ export function originOf(entries: readonly ChatEntry[]): string | undefined {
 }
 
 /** How `other` relates to `self`, from the two threads' histories; undefined when they are not kin. */
-export function relation(self: string, selfEntries: readonly ChatEntry[], other: string, otherEntries: readonly ChatEntry[]): Relation | undefined {
+export function relation(
+  self: string,
+  selfEntries: readonly ChatEntry[],
+  other: string,
+  otherEntries: readonly ChatEntry[],
+): Relation | undefined {
   const mine = originOf(selfEntries);
   const theirs = originOf(otherEntries);
   if (other === self) return undefined;
@@ -48,7 +53,8 @@ const SHORT = 300;
 const LONG = 4000;
 
 const clip = (s: string, n: number): string => (s.length <= n ? s : `${s.slice(0, n)}… (${s.length - n} more characters)`);
-const flat = (t: string | { bytes: number; sha256: string }): string => (typeof t === "string" ? t : `(${t.bytes} bytes, kept as blob:${t.sha256})`);
+const flat = (t: string | { bytes: number; sha256: string }): string =>
+  typeof t === "string" ? t : `(${t.bytes} bytes, kept as blob:${t.sha256})`;
 
 /** One entry as a line or two of text for the reader, or undefined for entries that say nothing about the work (setup, approvals). */
 export function describe(e: ChatEntry, full: boolean): string | undefined {
@@ -99,7 +105,8 @@ export function transcript(entries: readonly ChatEntry[], opts: { last: number; 
     shown = shown.slice(1);
     dropped++;
   }
-  if (shown.length === 0) return `Nothing new: the thread has ${total} entries of its own${opts.since === undefined ? "" : `, and you have seen up to ${opts.since}`}.`;
+  if (shown.length === 0)
+    return `Nothing new: the thread has ${total} entries of its own${opts.since === undefined ? "" : `, and you have seen up to ${opts.since}`}.`;
   const first = (shown[0] as { n: number }).n;
   const last = (shown[shown.length - 1] as { n: number }).n;
   const head = `Entries ${first}-${last} of ${total} (the thread's own, counted from when it started).${dropped > 0 ? ` ${dropped} older entries were left out to keep this short.` : ""}`;
@@ -107,9 +114,14 @@ export function transcript(entries: readonly ChatEntry[], opts: { last: number; 
 }
 
 /** `parent` names the thread this one was started from. */
-const resolveName = (name: string, selfEntries: readonly ChatEntry[]): string | undefined => (name === "parent" ? originOf(selfEntries) : name);
+const resolveName = (name: string, selfEntries: readonly ChatEntry[]): string | undefined =>
+  name === "parent" ? originOf(selfEntries) : name;
 
-async function resolve(deps: ThreadDeps, self: string | undefined, name: string): Promise<{ branch: string; entries: ChatEntry[]; relation: Relation } | { error: string }> {
+async function resolve(
+  deps: ThreadDeps,
+  self: string | undefined,
+  name: string,
+): Promise<{ branch: string; entries: ChatEntry[]; relation: Relation } | { error: string }> {
   if (self === undefined) return { error: "this call has no thread to speak from" };
   const mine = await entriesOf(deps.convo, self);
   if (mine === undefined) return { error: `thread ${self} is not a branch of this conversation` };
@@ -119,8 +131,12 @@ async function resolve(deps: ThreadDeps, self: string | undefined, name: string)
   const theirs = await entriesOf(deps.convo, branch);
   if (theirs === undefined) return { error: `there is no thread ${branch}` };
   const rel = relation(self, mine, branch, theirs);
-  if (rel === undefined) return { error: `${branch} is not your parent or a thread you started${deps.siblings === true ? ", or a sibling" : ""}: only those may be read or sent to` };
-  if (rel === "sibling" && deps.siblings !== true) return { error: `${branch} is a sibling; threads may talk to siblings only when harness.yml sets threads.siblings: true` };
+  if (rel === undefined)
+    return {
+      error: `${branch} is not your parent or a thread you started${deps.siblings === true ? ", or a sibling" : ""}: only those may be read or sent to`,
+    };
+  if (rel === "sibling" && deps.siblings !== true)
+    return { error: `${branch} is a sibling; threads may talk to siblings only when harness.yml sets threads.siblings: true` };
   return { branch, entries: theirs, relation: rel };
 }
 
@@ -129,15 +145,19 @@ export function threadTools(deps: ThreadDeps): Tool[] {
     definition: {
       name: "thread_read",
       description:
-        "Read what another thread has done: its messages, the calls it made and their results, as text. You may read the thread you were started from (use \"parent\") and the threads you started (a subagent or a fork). Only the thread's own entries are shown, not the history it inherited from you. By default the newest 20; use `since` to read on from where you stopped.",
+        'Read what another thread has done: its messages, the calls it made and their results, as text. You may read the thread you were started from (use "parent") and the threads you started (a subagent or a fork). Only the thread\'s own entries are shown, not the history it inherited from you. By default the newest 20; use `since` to read on from where you stopped.',
       input_schema: {
         type: "object",
         additionalProperties: false,
         required: ["thread"],
         properties: {
-          thread: { type: "string", description: "The thread's branch name, or \"parent\"." },
+          thread: { type: "string", description: 'The thread\'s branch name, or "parent".' },
           last: { type: "integer", minimum: 1, maximum: 200, description: "How many of the newest entries to show. Default 20." },
-          since: { type: "integer", minimum: 0, description: "Show the entries after this number (from an earlier read), instead of the newest." },
+          since: {
+            type: "integer",
+            minimum: 0,
+            description: "Show the entries after this number (from an earlier read), instead of the newest.",
+          },
           full: { type: "boolean", description: "Show long messages and results at more length. Default false." },
         },
       },
@@ -147,7 +167,9 @@ export function threadTools(deps: ThreadDeps): Tool[] {
       const r = await resolve(deps, ctx.thread, args["thread"] as string);
       if ("error" in r) return { content: r.error, is_error: true };
       const since = args["since"] as number | undefined;
-      return { content: `${r.branch} (your ${r.relation}). ${transcript(r.entries, { last: (args["last"] as number | undefined) ?? 20, ...(since === undefined ? {} : { since }), full: args["full"] === true })}` };
+      return {
+        content: `${r.branch} (your ${r.relation}). ${transcript(r.entries, { last: (args["last"] as number | undefined) ?? 20, ...(since === undefined ? {} : { since }), full: args["full"] === true })}`,
+      };
     },
   };
 
@@ -155,13 +177,13 @@ export function threadTools(deps: ThreadDeps): Tool[] {
     definition: {
       name: "thread_send",
       description:
-        "Send a message to another thread: the thread you were started from (use \"parent\") or one you started. It arrives as a message from you in that thread; if that thread is working, it sees the message with its next request, and if it was waiting, the message starts it again. Use it to give a running subagent or fork more to do, or to tell the one who started you something (a finding, a question that does not block you) without ending your work. Your own work goes on: nothing is waited for. To hand your work back, use merge.",
+        'Send a message to another thread: the thread you were started from (use "parent") or one you started. It arrives as a message from you in that thread; if that thread is working, it sees the message with its next request, and if it was waiting, the message starts it again. Use it to give a running subagent or fork more to do, or to tell the one who started you something (a finding, a question that does not block you) without ending your work. Your own work goes on: nothing is waited for. To hand your work back, use merge.',
       input_schema: {
         type: "object",
         additionalProperties: false,
         required: ["thread", "message"],
         properties: {
-          thread: { type: "string", description: "The thread's branch name, or \"parent\"." },
+          thread: { type: "string", description: 'The thread\'s branch name, or "parent".' },
           message: { type: "string", description: "What to tell it, written for the one who reads it there." },
         },
       },
@@ -174,7 +196,12 @@ export function threadTools(deps: ThreadDeps): Tool[] {
       if ("error" in r) return { content: r.error, is_error: true };
       const there = await deps.convo.openBranch(r.branch);
       try {
-        await there.append({ $tag: "user", queued: true, from: ctx.thread as string, content: [{ $tag: "text", text: `[Message from thread ${ctx.thread as string}]\n${message}` }] });
+        await there.append({
+          $tag: "user",
+          queued: true,
+          from: ctx.thread as string,
+          content: [{ $tag: "text", text: `[Message from thread ${ctx.thread as string}]\n${message}` }],
+        });
       } finally {
         await there.close();
       }

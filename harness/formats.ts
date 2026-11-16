@@ -17,7 +17,6 @@ export interface Format {
   label: string;
 }
 
-
 /** The known formats. Video is known only so that it can be named in a refusal; no sink takes it yet. */
 export const FORMATS: readonly Format[] = [
   { mime: "image/png", kind: "image", label: "a PNG picture" },

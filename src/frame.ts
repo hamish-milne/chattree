@@ -52,9 +52,13 @@ function checkTail(bytes: Uint8Array, start: number): void {
   for (let i = start; i < bytes.length; i++) {
     const b = bytes[i] as number;
     if ((b < 0x20 && b !== NL && b !== 0x09) || b === 0x7f) {
-      throw new FrameError(i, `byte 0x${b.toString(16).padStart(2, "0")} cannot occur in a valid entry; the tail is damaged, not merely incomplete`);
+      throw new FrameError(
+        i,
+        `byte 0x${b.toString(16).padStart(2, "0")} cannot occur in a valid entry; the tail is damaged, not merely incomplete`,
+      );
     }
-    if (b === NL && prev === NL) throw new FrameError(i, "blank line inside an incomplete entry; the tail is damaged, not merely incomplete");
+    if (b === NL && prev === NL)
+      throw new FrameError(i, "blank line inside an incomplete entry; the tail is damaged, not merely incomplete");
     prev = b;
   }
 }
@@ -143,7 +147,8 @@ export function lastCompleteSpan(bytes: Uint8Array): Span | undefined {
     // The final chunk is an incomplete tail; the entry before it is the one we want.
     end = start;
     if (end === 0) return undefined;
-    if (bytes[end - 1] !== NL || bytes[end - 2] !== NL) throw new FrameError(start, "entry before the tail is missing its terminating blank line");
+    if (bytes[end - 1] !== NL || bytes[end - 2] !== NL)
+      throw new FrameError(start, "entry before the tail is missing its terminating blank line");
     start = lastStartBefore(bytes, end);
     if (start < 0) return undefined;
   }

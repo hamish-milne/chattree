@@ -42,13 +42,20 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
   const rev = opts.rev ?? "HEAD";
   const problems: Problem[] = [];
   const add = (severity: Problem["severity"], code: string, message: string, extra: { commit?: string; entry?: string } = {}): void => {
-    problems.push({ severity, code, message, ...(extra.commit === undefined ? {} : { commit: extra.commit }), ...(extra.entry === undefined ? {} : { entry: extra.entry }) });
+    problems.push({
+      severity,
+      code,
+      message,
+      ...(extra.commit === undefined ? {} : { commit: extra.commit }),
+      ...(extra.entry === undefined ? {} : { entry: extra.entry }),
+    });
   };
 
   const tipCommit = await git.revParse(rev);
   if (tipCommit === undefined) return [{ severity: "error", code: "no-such-revision", message: `${rev} does not exist` }];
   const tip = await git.readFileAt(tipCommit, CHAT_FILE);
-  if (tip === undefined) return [{ severity: "error", code: "no-transcript", message: `${CHAT_FILE} does not exist at ${rev}`, commit: tipCommit }];
+  if (tip === undefined)
+    return [{ severity: "error", code: "no-transcript", message: `${CHAT_FILE} does not exist at ${rev}`, commit: tipCommit }];
 
   // ---- the transcript at the tip ------------------------------------------------------------------------
   let framed;
@@ -78,7 +85,12 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
     }
     const r = await pipeline.decode(parsed);
     if (!r.ok) {
-      add(r.reason === "unknown-tag" ? "warning" : "error", r.reason === "unknown-tag" ? "unknown-entry-type" : "invalid-entry", `entry ${label}: ${r.issues.map((x) => `${x.path || "entry"}: ${x.message}`).join("; ")}`, { entry: label });
+      add(
+        r.reason === "unknown-tag" ? "warning" : "error",
+        r.reason === "unknown-tag" ? "unknown-entry-type" : "invalid-entry",
+        `entry ${label}: ${r.issues.map((x) => `${x.path || "entry"}: ${x.message}`).join("; ")}`,
+        { entry: label },
+      );
       entries.push({ ok: false, id: undefined, tag: r.tag, end: span.end });
       continue;
     }
@@ -97,8 +109,17 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
     if (e.tag === "header") add("error", "extra-header", "a header appears after the first entry", { entry: `#${i + 2}` });
   });
   if (first?.$tag === "header") {
-    if (first.major !== FORMAT.major) add("error", "unsupported-format", `format major version ${first.major} is not supported (this build reads ${FORMAT.major})`, { entry: "#1" });
-    else if (first.minor > FORMAT.minor) add("warning", "newer-format", `format ${first.major}.${first.minor} is newer than this build (${FORMAT.major}.${FORMAT.minor}); unknown fields are ignored`, { entry: "#1" });
+    if (first.major !== FORMAT.major)
+      add("error", "unsupported-format", `format major version ${first.major} is not supported (this build reads ${FORMAT.major})`, {
+        entry: "#1",
+      });
+    else if (first.minor > FORMAT.minor)
+      add(
+        "warning",
+        "newer-format",
+        `format ${first.major}.${first.minor} is newer than this build (${FORMAT.major}.${FORMAT.minor}); unknown fields are ignored`,
+        { entry: "#1" },
+      );
   }
 
   // ---- the commits ----------------------------------------------------------------------------------------
@@ -124,11 +145,14 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
     }
     const size = sizes[i]?.size;
     if (size === undefined) add("error", "no-transcript-at-commit", `${CHAT_FILE} does not exist at this commit`, { commit: c.hash });
-    else if (size !== offset) add("error", "offset-mismatch", `Chattree-Offset is ${offset} but ${CHAT_FILE} is ${size} bytes at this commit`, { commit: c.hash });
-    if (offset < prevOffset) add("error", "offset-decreased", `the transcript shrank from ${prevOffset} to ${offset} bytes`, { commit: c.hash });
+    else if (size !== offset)
+      add("error", "offset-mismatch", `Chattree-Offset is ${offset} but ${CHAT_FILE} is ${size} bytes at this commit`, { commit: c.hash });
+    if (offset < prevOffset)
+      add("error", "offset-decreased", `the transcript shrank from ${prevOffset} to ${offset} bytes`, { commit: c.hash });
 
     if (kind === undefined) {
-      if (offset !== prevOffset && i > 0) add("error", "unlabelled-transcript-change", "a commit without entry trailers changed the transcript", { commit: c.hash });
+      if (offset !== prevOffset && i > 0)
+        add("error", "unlabelled-transcript-change", "a commit without entry trailers changed the transcript", { commit: c.hash });
     } else {
       const idx = byEnd.get(offset);
       if (idx === undefined) {
@@ -138,8 +162,13 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
         if (covered.has(idx)) add("error", "entry-committed-twice", "two commits claim the same entry", { commit: c.hash });
         covered.add(idx);
         entryCommitFor.set(idx, c);
-        if (e.tag !== undefined && e.tag !== kind) add("error", "kind-mismatch", `trailer says ${kind} but the entry is ${e.tag}`, { commit: c.hash, entry: e.id ?? `#${idx + 1}` });
-        if ((e.id ?? undefined) !== entryId) add("error", "entry-id-mismatch", `trailer says ${entryId ?? "no id"} but the entry is ${e.id ?? "id-less"}`, { commit: c.hash, entry: e.id ?? `#${idx + 1}` });
+        if (e.tag !== undefined && e.tag !== kind)
+          add("error", "kind-mismatch", `trailer says ${kind} but the entry is ${e.tag}`, { commit: c.hash, entry: e.id ?? `#${idx + 1}` });
+        if ((e.id ?? undefined) !== entryId)
+          add("error", "entry-id-mismatch", `trailer says ${entryId ?? "no id"} but the entry is ${e.id ?? "id-less"}`, {
+            commit: c.hash,
+            entry: e.id ?? `#${idx + 1}`,
+          });
         if (offset <= prevOffset) add("error", "entry-without-growth", "an entry commit did not grow the transcript", { commit: c.hash });
       }
     }
@@ -157,15 +186,29 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
     const label = e.id ?? `#${i + 1}`;
     if (v.$tag === "subagent_result" || v.$tag === "fork_merge") {
       if (c.parents.length >= 2) {
-        if (c.parents[1] !== v.tip) add("error", "merge-parent-mismatch", `the entry says the child's tip is ${v.tip} but the merge commit's second parent is ${c.parents[1]}`, { commit: c.hash, entry: label });
+        if (c.parents[1] !== v.tip)
+          add(
+            "error",
+            "merge-parent-mismatch",
+            `the entry says the child's tip is ${v.tip} but the merge commit's second parent is ${c.parents[1]}`,
+            { commit: c.hash, entry: label },
+          );
       } else if (c.trailers["Chattree-Recovered"] !== undefined) {
-        add("warning", "recovered-merge", "this merge was recovered after a crash and lacks the child as a second parent", { commit: c.hash, entry: label });
+        add("warning", "recovered-merge", "this merge was recovered after a crash and lacks the child as a second parent", {
+          commit: c.hash,
+          entry: label,
+        });
       } else {
         add("error", "merge-without-second-parent", `${v.$tag} is not a merge commit`, { commit: c.hash, entry: label });
       }
     }
     if (v.$tag === "branch_start" && c.parents[0] !== v.from.commit) {
-      add("error", "fork-point-mismatch", `the entry says the branch started at ${v.from.commit} but its commit's parent is ${c.parents[0] ?? "none"}`, { commit: c.hash, entry: label });
+      add(
+        "error",
+        "fork-point-mismatch",
+        `the entry says the branch started at ${v.from.commit} but its commit's parent is ${c.parents[0] ?? "none"}`,
+        { commit: c.hash, entry: label },
+      );
     }
   }
 
@@ -173,13 +216,25 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
   for (const [i, e] of entries.entries()) {
     if (e.value?.$tag !== "compaction") continue;
     const upto = entries.slice(0, i + 1).flatMap((x) => (x.value === undefined ? [] : [x.value]));
-    if (!contextEntries(upto).includes(e.value)) add("warning", "compaction-ignored", "this compaction cannot be applied (unknown ids, a range not entirely before it, or a range in another context) and has no effect", { entry: e.id ?? `#${i + 1}` });
+    if (!contextEntries(upto).includes(e.value))
+      add(
+        "warning",
+        "compaction-ignored",
+        "this compaction cannot be applied (unknown ids, a range not entirely before it, or a range in another context) and has no effect",
+        { entry: e.id ?? `#${i + 1}` },
+      );
   }
   for (const [i, e] of entries.entries()) {
     const v = e.value;
     if (v?.$tag !== "trim") continue;
     const before = entries.slice(0, i).flatMap((x) => (x.value === undefined ? [] : [x.value]));
-    if (!contextEntries(before).some((x) => "id" in x && x.id === v.upto)) add("warning", "trim-ignored", "this trim names an entry that is not in the context before it (unknown, or compacted away) and has no effect", { entry: e.id ?? `#${i + 1}` });
+    if (!contextEntries(before).some((x) => "id" in x && x.id === v.upto))
+      add(
+        "warning",
+        "trim-ignored",
+        "this trim names an entry that is not in the context before it (unknown, or compacted away) and has no effect",
+        { entry: e.id ?? `#${i + 1}` },
+      );
   }
   // ---- agent setups ----------------------------------------------------------------------------------------------
   const providerEntries = new Set<string>();
@@ -192,13 +247,25 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
     }
     if (e.value?.$tag !== "agent_setup") continue;
     const v = e.value;
-    if (flowFirstSetup && v.model === undefined) add("warning", "setup-incomplete", "the first agent_setup of an agent flow must name the model (a subagent starts from nothing)", { entry: label });
+    if (flowFirstSetup && v.model === undefined)
+      add("warning", "setup-incomplete", "the first agent_setup of an agent flow must name the model (a subagent starts from nothing)", {
+        entry: label,
+      });
     flowFirstSetup = false;
-    for (const id of v.acknowledges ?? []) if (!providerEntries.has(id)) add("warning", "acknowledges-unknown", `acknowledges ${id}, which is not an earlier provider-observed setup change on this branch`, { entry: label });
+    for (const id of v.acknowledges ?? [])
+      if (!providerEntries.has(id))
+        add(
+          "warning",
+          "acknowledges-unknown",
+          `acknowledges ${id}, which is not an earlier provider-observed setup change on this branch`,
+          { entry: label },
+        );
     if (v.reason === "provider" || v.reason === "resolved") {
       const next = entries[i + 1]?.value;
-      if (next?.$tag !== "assistant") add("error", "provider-setup-orphan", `a ${v.reason} setup change must be followed by the response it explains`, { entry: label });
-      else if (v.model === undefined || next.model !== (v.model.resolved ?? v.model.id)) add("warning", "provider-setup-mismatch", "the response's model is not the one this setup change recorded", { entry: label });
+      if (next?.$tag !== "assistant")
+        add("error", "provider-setup-orphan", `a ${v.reason} setup change must be followed by the response it explains`, { entry: label });
+      else if (v.model === undefined || next.model !== (v.model.resolved ?? v.model.id))
+        add("warning", "provider-setup-mismatch", "the response's model is not the one this setup change recorded", { entry: label });
     }
     if (v.reason === "provider") providerEntries.add(v.id);
   }
@@ -215,8 +282,13 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
   hashes.forEach((h, i) => {
     const w = wanted.get(h) as { bytes: number; entry: string };
     const info = blobInfo[i];
-    if (info === undefined) add("error", "blob-missing", `blob ${h.slice(0, 12)} is referenced but not in the tree`, { commit: tipCommit, entry: w.entry });
-    else if (info.size !== w.bytes) add("error", "blob-size", `blob ${h.slice(0, 12)} is ${info.size} bytes, the reference says ${w.bytes}`, { commit: tipCommit, entry: w.entry });
+    if (info === undefined)
+      add("error", "blob-missing", `blob ${h.slice(0, 12)} is referenced but not in the tree`, { commit: tipCommit, entry: w.entry });
+    else if (info.size !== w.bytes)
+      add("error", "blob-size", `blob ${h.slice(0, 12)} is ${info.size} bytes, the reference says ${w.bytes}`, {
+        commit: tipCommit,
+        entry: w.entry,
+      });
     else present.push(i);
   });
 
@@ -232,7 +304,11 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
         for (const [k, i] of chunk.entries()) {
           const h = hashes[i] as string;
           const bytes = got[k];
-          if (bytes === undefined || (await sha256Hex(bytes)) !== h) add("error", "blob-corrupt", `blob ${h.slice(0, 12)} does not match its hash`, { commit: tipCommit, entry: wanted.get(h)?.entry as string });
+          if (bytes === undefined || (await sha256Hex(bytes)) !== h)
+            add("error", "blob-corrupt", `blob ${h.slice(0, 12)} does not match its hash`, {
+              commit: tipCommit,
+              entry: wanted.get(h)?.entry as string,
+            });
         }
       }
       for (let at = 0; at < commits.length; at += WINDOW) {
@@ -241,7 +317,8 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
         for (const [k, c] of chunk.entries()) {
           const bytes = got[k];
           if (bytes === undefined) continue; // reported above
-          if (bytes.length > tip.length || !bytes.every((b, j) => b === tip[j])) add("error", "not-a-prefix", `${CHAT_FILE} at this commit is not a byte prefix of the tip's`, { commit: c.hash });
+          if (bytes.length > tip.length || !bytes.every((b, j) => b === tip[j]))
+            add("error", "not-a-prefix", `${CHAT_FILE} at this commit is not a byte prefix of the tip's`, { commit: c.hash });
         }
       }
     } finally {

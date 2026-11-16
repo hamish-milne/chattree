@@ -1,10 +1,26 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { Completed, ProviderAdapter } from "../../providers/types.ts";
-import { distance, formatProbeReport, judge, makeItems, nonAscii, parseProbeArgs, place, runProbe, type NativeChat } from "../../tools/copy-probe.ts";
+import {
+  distance,
+  formatProbeReport,
+  judge,
+  makeItems,
+  nonAscii,
+  parseProbeArgs,
+  place,
+  runProbe,
+  type NativeChat,
+} from "../../tools/copy-probe.ts";
 
 const usage = { input_tokens: 1, output_tokens: 1 };
-const reply = (blocks: Completed["blocks"], stop = "end_turn"): Completed => ({ blocks, stop_reason: stop, usage, observed: { model: "m" }, ext: {} });
+const reply = (blocks: Completed["blocks"], stop = "end_turn"): Completed => ({
+  blocks,
+  stop_reason: stop,
+  usage,
+  observed: { model: "m" },
+  ext: {},
+});
 
 describe("judging a copy", () => {
   test("distance counts single edits", () => {
@@ -33,7 +49,11 @@ describe("judging a copy", () => {
     assert.deepEqual(judge("PELICAN\u00a04417", "PELICAN"), { kind: "exact" }, "a no-break space between words does not change the copy");
     assert.deepEqual(nonAscii("PELICAN\u00a04417\u202f"), ["U+00A0", "U+202F"]);
     assert.deepEqual(nonAscii("plain ASCII\n\ttext"), []);
-    assert.deepEqual(judge("PEL\u200bIPCAN", "PELICAN"), { kind: "near", got: "PELIPCAN", distance: 1 }, "the typo is still found once the invisible character is taken out");
+    assert.deepEqual(
+      judge("PEL\u200bIPCAN", "PELICAN"),
+      { kind: "near", got: "PELIPCAN", distance: 1 },
+      "the typo is still found once the invisible character is taken out",
+    );
   });
 
   test("a wrong copy is placed by what the reasoning holds", () => {
@@ -68,9 +88,13 @@ function pretend(wrongInReasoning: boolean): { adapter: ProviderAdapter; native:
     async *stream(req: { context: { turns: { role: string; parts?: { text: string }[]; results?: { content: string }[] }[] } }) {
       const turns = req.context.turns;
       const toolResult = turns.find((t) => t.role === "tool_results")?.results?.[0]?.content;
-      if (toolResult === undefined && turns[0]?.parts?.[0]?.text.includes("note.txt") && !turns[0].parts[0].text.includes("Here is")) return reply([{ type: "tool_call", call_id: "r", name: "read", args: { path: "note.txt" } }], "tool_use");
+      if (toolResult === undefined && turns[0]?.parts?.[0]?.text.includes("note.txt") && !turns[0].parts[0].text.includes("Here is"))
+        return reply([{ type: "tool_call", call_id: "r", name: "read", args: { path: "note.txt" } }], "tool_use");
       const c = copy(wordIn(toolResult ?? turns[0]?.parts?.[0]?.text ?? ""));
-      return reply([{ type: "reasoning", provider: "p", visible: c.thought }, { type: "text", text: c.answer }]);
+      return reply([
+        { type: "reasoning", provider: "p", visible: c.thought },
+        { type: "text", text: c.answer },
+      ]);
     },
     retrieve: async () => undefined,
   } as unknown as ProviderAdapter;
@@ -81,7 +105,10 @@ function pretend(wrongInReasoning: boolean): { adapter: ProviderAdapter; native:
   return { adapter, native };
 }
 
-const one = [{ kind: "caps word", text: "PELICAN" }, { kind: "hex8", text: "1f08cd1f" }];
+const one = [
+  { kind: "caps word", text: "PELICAN" },
+  { kind: "hex8", text: "1f08cd1f" },
+];
 
 describe("running the probe", () => {
   test("every arm copies the strings, and a typo is found, attributed to its arm, and placed from the reasoning", async () => {
@@ -93,8 +120,14 @@ describe("running the probe", () => {
     const typos = samples.filter((s) => s.verdict.kind === "near");
     assert.equal(typos.length, 6, "two of every four PELICAN copies, in each arm");
     assert.ok(typos.every((s) => s.placed === "already wrong in the reasoning"));
-    assert.ok(samples.every((s) => s.error === undefined), samples.find((s) => s.error)?.error);
-    assert.ok(samples.every((s) => s.reasoning.length > 0), "the reasoning is kept");
+    assert.ok(
+      samples.every((s) => s.error === undefined),
+      samples.find((s) => s.error)?.error,
+    );
+    assert.ok(
+      samples.every((s) => s.reasoning.length > 0),
+      "the reasoning is kept",
+    );
     const report = formatProbeReport(samples, { flavor: "anthropic", model: "m", repeat: 4 });
     assert.match(report, /caps word\s+2\/4\s+2\/4\s+2\/4/);
     assert.match(report, /hex8\s+4\/4\s+4\/4\s+4\/4/);
@@ -103,11 +136,32 @@ describe("running the probe", () => {
   });
 
   test("an answer with a zero-width space inside the word is reported as hidden characters, per arm, and not as a typo", async () => {
-    const adapter = { $tag: "p", async *stream() { return reply([{ type: "text", text: "PEL\u200bICAN and 4417" }]); }, retrieve: async () => undefined } as unknown as ProviderAdapter;
+    const adapter = {
+      $tag: "p",
+      async *stream() {
+        return reply([{ type: "text", text: "PEL\u200bICAN and 4417" }]);
+      },
+      retrieve: async () => undefined,
+    } as unknown as ProviderAdapter;
     const native: NativeChat = async () => ({ content: "PELICAN and\u00a04417", thinking: "fine" });
-    const samples = await runProbe({ flavor: "anthropic", baseUrl: "http://x", model: "m", adapter, native, repeat: 2, arms: ["plain", "native"], items: [one[0] as (typeof one)[0]] });
-    assert.deepEqual(samples.map((s) => s.verdict.kind), ["hidden", "hidden", "exact", "exact"]);
-    assert.deepEqual(samples.map((s) => s.hidden), [["U+200B"], ["U+200B"], ["U+00A0"], ["U+00A0"]]);
+    const samples = await runProbe({
+      flavor: "anthropic",
+      baseUrl: "http://x",
+      model: "m",
+      adapter,
+      native,
+      repeat: 2,
+      arms: ["plain", "native"],
+      items: [one[0] as (typeof one)[0]],
+    });
+    assert.deepEqual(
+      samples.map((s) => s.verdict.kind),
+      ["hidden", "hidden", "exact", "exact"],
+    );
+    assert.deepEqual(
+      samples.map((s) => s.hidden),
+      [["U+200B"], ["U+200B"], ["U+00A0"], ["U+00A0"]],
+    );
     const report = formatProbeReport(samples, { flavor: "anthropic", model: "m" });
     assert.match(report, /plain\s+answers with any: 2\/2 \(U\+200B in 2\); reasoning: none/);
     assert.match(report, /native\s+answers with any: 2\/2 \(U\+00A0 in 2\)/);
@@ -117,17 +171,44 @@ describe("running the probe", () => {
 
   test("a typo with the right reasoning is placed in the answer, and arms can be chosen", async () => {
     const { adapter, native } = pretend(false);
-    const samples = await runProbe({ flavor: "anthropic", baseUrl: "http://x", model: "m", adapter, native, repeat: 2, arms: ["plain"], items: one });
+    const samples = await runProbe({
+      flavor: "anthropic",
+      baseUrl: "http://x",
+      model: "m",
+      adapter,
+      native,
+      repeat: 2,
+      arms: ["plain"],
+      items: one,
+    });
     assert.deepEqual([...new Set(samples.map((s) => s.arm))], ["plain"]);
-    assert.deepEqual(samples.filter((s) => s.verdict.kind === "near").map((s) => s.placed), ["right in the reasoning, wrong in the answer"]);
+    assert.deepEqual(
+      samples.filter((s) => s.verdict.kind === "near").map((s) => s.placed),
+      ["right in the reasoning, wrong in the answer"],
+    );
   });
 
   test("a model that never calls read, and a native call that fails, are reported as errors, not as copies", async () => {
-    const adapter = { $tag: "p", async *stream() { return reply([{ type: "text", text: "PELICAN" }]); }, retrieve: async () => undefined } as unknown as ProviderAdapter;
+    const adapter = {
+      $tag: "p",
+      async *stream() {
+        return reply([{ type: "text", text: "PELICAN" }]);
+      },
+      retrieve: async () => undefined,
+    } as unknown as ProviderAdapter;
     const native: NativeChat = async () => {
       throw new Error("ollama answered 500");
     };
-    const samples = await runProbe({ flavor: "anthropic", baseUrl: "http://x", model: "m", adapter, native, repeat: 1, arms: ["tool", "native"], items: [one[0] as (typeof one)[0]] });
+    const samples = await runProbe({
+      flavor: "anthropic",
+      baseUrl: "http://x",
+      model: "m",
+      adapter,
+      native,
+      repeat: 1,
+      arms: ["tool", "native"],
+      items: [one[0] as (typeof one)[0]],
+    });
     assert.equal(samples[0]?.error, "the model did not call read");
     assert.equal(samples[1]?.error, "ollama answered 500");
     assert.match(formatProbeReport(samples, { flavor: "anthropic", model: "m" }), /2 sample\(s\) had an error/);
@@ -136,7 +217,23 @@ describe("running the probe", () => {
 
 describe("the flags", () => {
   test("are checked, and the settings you leave out are not set", () => {
-    const { options } = parseProbeArgs(["--base-url", "http://h:11434", "--model", "m", "--arms", "plain,native", "--temperature", "0", "--reasoning-effort", "low", "--repeat", "3"], {});
+    const { options } = parseProbeArgs(
+      [
+        "--base-url",
+        "http://h:11434",
+        "--model",
+        "m",
+        "--arms",
+        "plain,native",
+        "--temperature",
+        "0",
+        "--reasoning-effort",
+        "low",
+        "--repeat",
+        "3",
+      ],
+      {},
+    );
     assert.deepEqual([options.arms, options.temperature, options.reasoningEffort, options.repeat], [["plain", "native"], 0, "low", 3]);
     assert.equal(parseProbeArgs(["--base-url", "u", "--model", "m", "--shape", "single"], {}).options.shape, "single");
     assert.throws(() => parseProbeArgs(["--base-url", "u", "--model", "m", "--shape", "triple"], {}), /--shape must be/);

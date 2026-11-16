@@ -91,7 +91,8 @@ export async function freePort(host: string): Promise<number> {
 }
 
 /** What makes the engine process itself different: a change here is a restart. */
-const processKey = (c: LocalModels): string => JSON.stringify({ e: c.engine, l: c.llama_cpp, s: { ...c.server, idle_exit_minutes: undefined }, t: c.hf_token_env });
+const processKey = (c: LocalModels): string =>
+  JSON.stringify({ e: c.engine, l: c.llama_cpp, s: { ...c.server, idle_exit_minutes: undefined }, t: c.hf_token_env });
 
 /** A preset file split into its sections, to see which models a change touches. */
 function sections(ini: string): Map<string, string> {
@@ -109,7 +110,17 @@ export class LocalModelHost {
   readonly #listeners = new Set<(e: HostEvent) => void>();
   readonly #log: string[] = [];
   #config: LocalModels;
-  #state: HostState = { phase: "idle", baseUrl: undefined, error: undefined, models: [], tag: undefined, backend: undefined, backendNote: undefined, restarts: 0, ids: {} };
+  #state: HostState = {
+    phase: "idle",
+    baseUrl: undefined,
+    error: undefined,
+    models: [],
+    tag: undefined,
+    backend: undefined,
+    backendNote: undefined,
+    restarts: 0,
+    ids: {},
+  };
   #proc: EngineProcess | undefined;
   #binary: string | undefined;
   #port: number | undefined;
@@ -149,7 +160,8 @@ export class LocalModelHost {
     this.#wanted = true;
     this.#abort = new AbortController();
     // The phase changes now, not when the queue gets to it, so whoever asked sees a start in progress and not the end of the last one.
-    if (this.#proc === undefined && ["idle", "stopped", "error"].includes(this.#state.phase)) this.#set({ phase: "installing", error: undefined });
+    if (this.#proc === undefined && ["idle", "stopped", "error"].includes(this.#state.phase))
+      this.#set({ phase: "installing", error: undefined });
     return this.#enqueue(async () => {
       if (this.#proc !== undefined) return this.#state;
       await this.#bringUp(this.#config);
@@ -202,7 +214,9 @@ export class LocalModelHost {
           const proc = this.#proc;
           await proc.reload();
           const shared = before.get("*") !== after.get("*");
-          const loaded = new Set((await proc.models()).filter((m) => m.state === "loaded" || m.state === "loading" || m.state === "sleeping").map((m) => m.name));
+          const loaded = new Set(
+            (await proc.models()).filter((m) => m.state === "loaded" || m.state === "loading" || m.state === "sleeping").map((m) => m.name),
+          );
           for (const name of loaded) if (shared || before.get(name) !== after.get(name)) await proc.unload(name).catch(() => undefined);
         }
         this.#set({ ids: prepared.ids, error: undefined });
@@ -226,7 +240,8 @@ export class LocalModelHost {
       const prev = this.#state;
       try {
         if (unknown.length > 0) throw new Error(`no model named ${unknown.join(", ")} in the settings`);
-        if (opts.force === true && this.#proc !== undefined) throw new Error("stop the model host first (`chattree models stop`): a model that is loaded cannot be fetched again");
+        if (opts.force === true && this.#proc !== undefined)
+          throw new Error("stop the model host first (`chattree models stop`): a model that is loaded cannot be fetched again");
         this.#lock ??= await Lock.open(join(this.#o.data, "lock.json"));
         if (opts.force === true) for (const n of wanted) await removeModelFiles(config, this.#lock, this.#o.data, n, { shared: true });
         const subset = { ...config, models: Object.fromEntries(wanted.map((n) => [n, config.models[n]])) } as LocalModels;
@@ -246,7 +261,8 @@ export class LocalModelHost {
     return this.#enqueue(async () => {
       if (this.#proc !== undefined) throw new Error("stop the model host first (`chattree models stop`): its models are in use");
       this.#lock ??= await Lock.open(join(this.#o.data, "lock.json"));
-      if (this.#config.models[name] === undefined && this.#lock.filesUnder(`models/${name}/`).length === 0) throw new Error(`no model named ${name}`);
+      if (this.#config.models[name] === undefined && this.#lock.filesUnder(`models/${name}/`).length === 0)
+        throw new Error(`no model named ${name}`);
       const r = await removeModelFiles(this.#config, this.#lock, this.#o.data, name);
       const { [name]: _gone, ...ids } = this.#state.ids;
       this.#set({ ids });
@@ -319,7 +335,12 @@ export class LocalModelHost {
       const mm = fetched.find((f) => f.model === name && f.role === "mmproj");
       const dr = fetched.find((f) => f.model === name && f.role === "draft");
       const template = config.models[name]?.chat_template;
-      files[name] = { file: model.dest, ...(mm === undefined ? {} : { mmproj: mm.dest }), ...(dr === undefined ? {} : { draft: dr.dest }), ...(template === undefined ? {} : { template: resolve(base, template) }) };
+      files[name] = {
+        file: model.dest,
+        ...(mm === undefined ? {} : { mmproj: mm.dest }),
+        ...(dr === undefined ? {} : { draft: dr.dest }),
+        ...(template === undefined ? {} : { template: resolve(base, template) }),
+      };
       const id = modelId(name, fetched);
       if (id !== undefined) ids[name] = id;
     }
@@ -404,7 +425,10 @@ export class LocalModelHost {
       } catch (e) {
         failures++;
         if (failures > b.maxFailures) {
-          this.#set({ phase: "error", error: `llama-server keeps stopping, so the host gave up after ${b.maxFailures} restarts: ${message(e)}` });
+          this.#set({
+            phase: "error",
+            error: `llama-server keeps stopping, so the host gave up after ${b.maxFailures} restarts: ${message(e)}`,
+          });
           return;
         }
       }

@@ -24,7 +24,8 @@ export interface ConvertKey {
 export const DEFAULT_CACHE_BYTES = 256 * 1024 * 1024;
 
 const slug = (s: string): string => s.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
-const fileName = (k: ConvertKey): string => `${k.source}.${slug(k.to)}.${createHash("sha256").update(k.converter).digest("hex").slice(0, 10)}`;
+const fileName = (k: ConvertKey): string =>
+  `${k.source}.${slug(k.to)}.${createHash("sha256").update(k.converter).digest("hex").slice(0, 10)}`;
 
 /** The cache in `dir`, kept to about `maxBytes` by removing the least recently written files first. */
 export function hostConvertCache(host: Host, dir: string, maxBytes: number = DEFAULT_CACHE_BYTES): ConvertCache {

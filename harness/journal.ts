@@ -71,7 +71,11 @@ export class JournalBusy extends Error {
   /** True when its modification time is recent enough that the request may still be running. */
   readonly live: boolean;
   constructor(path: string, live: boolean) {
-    super(live ? "another request is in flight on this branch" : "a request on this branch ended without being recorded; open the conversation again to recover it");
+    super(
+      live
+        ? "another request is in flight on this branch"
+        : "a request on this branch ended without being recorded; open the conversation again to recover it",
+    );
     this.path = path;
     this.live = live;
   }

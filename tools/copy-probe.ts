@@ -77,11 +77,21 @@ export function distance(a: string, b: string): number {
   return row[b.length] as number;
 }
 
-export type Verdict = { kind: "exact" } | { kind: "hidden"; chars: string[] } | { kind: "near"; got: string; distance: number } | { kind: "other" };
+export type Verdict =
+  | { kind: "exact" }
+  | { kind: "hidden"; chars: string[] }
+  | { kind: "near"; got: string; distance: number }
+  | { kind: "other" };
 
 /** The characters in `text` outside printable ASCII (the strings copied are all ASCII), as `U+200B`; they look like nothing or like a space when printed. */
 export function nonAscii(text: string): string[] {
-  return [...new Set([...text.matchAll(/[^\x20-\x7e\n\r\t]/gu)].map((m) => `U+${(m[0].codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`))];
+  return [
+    ...new Set(
+      [...text.matchAll(/[^\x20-\x7e\n\r\t]/gu)].map(
+        (m) => `U+${(m[0].codePointAt(0) as number).toString(16).toUpperCase().padStart(4, "0")}`,
+      ),
+    ),
+  ];
 }
 
 /**
@@ -118,8 +128,19 @@ export type NativeChat = (req: { prompt: string; signal: AbortSignal }) => Promi
 /** Ollama's own chat endpoint: no tools, no translation layer, no harness. */
 export function ollamaNative(o: { url: string; model: string; temperature?: number | undefined; think?: string | undefined }): NativeChat {
   return async ({ prompt, signal }) => {
-    const body = { model: o.model, stream: false, messages: [{ role: "user", content: prompt }], ...(o.think === undefined ? {} : { think: o.think }), ...(o.temperature === undefined ? {} : { options: { temperature: o.temperature } }) };
-    const res = await fetch(`${o.url.replace(/\/+$/, "")}/api/chat`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body), signal });
+    const body = {
+      model: o.model,
+      stream: false,
+      messages: [{ role: "user", content: prompt }],
+      ...(o.think === undefined ? {} : { think: o.think }),
+      ...(o.temperature === undefined ? {} : { options: { temperature: o.temperature } }),
+    };
+    const res = await fetch(`${o.url.replace(/\/+$/, "")}/api/chat`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal,
+    });
     if (!res.ok) throw new Error(`ollama answered ${res.status}: ${(await res.text()).slice(0, 200)}`);
     const j = (await res.json()) as { message?: { content?: string; thinking?: string } };
     return { content: j.message?.content ?? "", thinking: j.message?.thinking ?? "" };
@@ -167,22 +188,40 @@ export interface ProbeSample {
 
 export type Shape = "single" | "pair";
 /** `pair` is the sampler's "read two files" shape (a word and a number, answered together), where the typo was first seen. */
-const CONTENT = (x: string, shape: Shape): string => (shape === "pair" ? `the code word is ${x}\nthe number is 4417` : `the code word is ${x}`);
-export const PLAIN_PROMPT = (x: string, shape: Shape = "pair"): string => `Here is the content of note.txt:\n\n${CONTENT(x, shape)}\n\n${shape === "pair" ? "What is the code word and the number? Answer with both." : "What is the code word? Answer with just the code word."}`;
-export const TOOL_PROMPT = (shape: Shape = "pair"): string => (shape === "pair" ? "What is the code word and the number in note.txt? Answer with both." : "What is the code word in note.txt? Answer with just the code word.");
+const CONTENT = (x: string, shape: Shape): string =>
+  shape === "pair" ? `the code word is ${x}\nthe number is 4417` : `the code word is ${x}`;
+export const PLAIN_PROMPT = (x: string, shape: Shape = "pair"): string =>
+  `Here is the content of note.txt:\n\n${CONTENT(x, shape)}\n\n${shape === "pair" ? "What is the code word and the number? Answer with both." : "What is the code word? Answer with just the code word."}`;
+export const TOOL_PROMPT = (shape: Shape = "pair"): string =>
+  shape === "pair"
+    ? "What is the code word and the number in note.txt? Answer with both."
+    : "What is the code word in note.txt? Answer with just the code word.";
 
-const reasoningOf = (run: Pick<StreamRun, "completed">): string => (run.completed?.blocks ?? []).flatMap((b) => (b.type === "reasoning" && b.visible !== undefined ? [b.visible] : [])).join("\n");
-const textOf = (run: Pick<StreamRun, "completed">): string => (run.completed?.blocks ?? []).flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+const reasoningOf = (run: Pick<StreamRun, "completed">): string =>
+  (run.completed?.blocks ?? []).flatMap((b) => (b.type === "reasoning" && b.visible !== undefined ? [b.visible] : [])).join("\n");
+const textOf = (run: Pick<StreamRun, "completed">): string =>
+  (run.completed?.blocks ?? []).flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
 
 export async function runProbe(o: ProbeOptions): Promise<ProbeSample[]> {
   const adapter = o.adapter ?? makeAdapter(o);
   const arms = o.arms ?? ARMS;
   const repeat = o.repeat ?? 5;
   const items = o.items ?? makeItems();
-  const settings: Record<string, unknown> = { max_output_tokens: o.maxTokens ?? 4096, ...(o.temperature === undefined ? {} : { temperature: o.temperature }), ...(o.reasoningEffort !== undefined && o.flavor === "openai-compatible" ? { reasoning_effort: o.reasoningEffort } : {}) };
+  const settings: Record<string, unknown> = {
+    max_output_tokens: o.maxTokens ?? 4096,
+    ...(o.temperature === undefined ? {} : { temperature: o.temperature }),
+    ...(o.reasoningEffort !== undefined && o.flavor === "openai-compatible" ? { reasoning_effort: o.reasoningEffort } : {}),
+  };
   const model = { provider: "live", id: o.model, settings } as NonNullable<AgentSetup["model"]>;
   const setup: AgentSetup = { ...emptySetup(), model };
-  const native = o.native ?? ollamaNative({ url: o.ollamaUrl ?? o.baseUrl.replace(/\/v1\/?$/, ""), model: o.model, temperature: o.temperature, think: o.reasoningEffort });
+  const native =
+    o.native ??
+    ollamaNative({
+      url: o.ollamaUrl ?? o.baseUrl.replace(/\/v1\/?$/, ""),
+      model: o.model,
+      temperature: o.temperature,
+      think: o.reasoningEffort,
+    });
   const shape = o.shape ?? "pair";
   const timeoutMs = (o.timeoutSeconds ?? 180) * 1000;
   const out: ProbeSample[] = [];
@@ -197,12 +236,29 @@ export async function runProbe(o: ProbeOptions): Promise<ProbeSample[]> {
         try {
           if (arm === "tool") {
             const runs: StreamRun[] = [];
-            const r = await runAgentTask({ adapter, model, busybox: o.busybox, files: { "note.txt": `${CONTENT(item.text, shape)}\n` }, prompt: TOOL_PROMPT(shape), timeoutMs, onRequest: (run) => void runs.push(run) });
+            const r = await runAgentTask({
+              adapter,
+              model,
+              busybox: o.busybox,
+              files: { "note.txt": `${CONTENT(item.text, shape)}\n` },
+              prompt: TOOL_PROMPT(shape),
+              timeoutMs,
+              onRequest: (run) => void runs.push(run),
+            });
             answer = r.answer;
-            reasoning = runs.map(reasoningOf).filter((t) => t !== "").join("\n---\n");
+            reasoning = runs
+              .map(reasoningOf)
+              .filter((t) => t !== "")
+              .join("\n---\n");
             if (!r.used.has("read")) error = "the model did not call read";
           } else if (arm === "plain") {
-            const context: ModelContext = { system: "You are terse. Follow instructions exactly.", instructions: undefined, turns: [{ role: "user", parts: [{ type: "text", text: PLAIN_PROMPT(item.text, shape) }] }], tools: [], cacheHints: [] };
+            const context: ModelContext = {
+              system: "You are terse. Follow instructions exactly.",
+              instructions: undefined,
+              turns: [{ role: "user", parts: [{ type: "text", text: PLAIN_PROMPT(item.text, shape) }] }],
+              tools: [],
+              cacheHints: [],
+            };
             const run = await collectStream(adapter.stream({ context, setup, signal: AbortSignal.timeout(timeoutMs) }));
             if (run.error !== undefined) throw run.error;
             answer = textOf(run);
@@ -216,7 +272,20 @@ export async function runProbe(o: ProbeOptions): Promise<ProbeSample[]> {
           error = e instanceof Error ? e.message : String(e);
         }
         const verdict = judge(answer, item.text);
-        const s: ProbeSample = { arm, kind: item.kind, expected: item.text, n, verdict, ...(verdict.kind === "exact" ? {} : { placed: place(reasoning, item.text, verdict.kind === "near" ? verdict.got : undefined) }), hidden: nonAscii(answer), hiddenInReasoning: nonAscii(reasoning), answer, reasoning, ...(error === undefined ? {} : { error }), ms: Date.now() - t0 };
+        const s: ProbeSample = {
+          arm,
+          kind: item.kind,
+          expected: item.text,
+          n,
+          verdict,
+          ...(verdict.kind === "exact" ? {} : { placed: place(reasoning, item.text, verdict.kind === "near" ? verdict.got : undefined) }),
+          hidden: nonAscii(answer),
+          hiddenInReasoning: nonAscii(reasoning),
+          answer,
+          reasoning,
+          ...(error === undefined ? {} : { error }),
+          ms: Date.now() - t0,
+        };
         out.push(s);
         o.onSample?.(s, out.length, total);
       }
@@ -227,11 +296,17 @@ export async function runProbe(o: ProbeOptions): Promise<ProbeSample[]> {
 
 const frac = (a: number, b: number): string => (b === 0 ? "-" : `${a}/${b}`);
 
-export function formatProbeReport(samples: readonly ProbeSample[], o: Pick<ProbeOptions, "flavor" | "model" | "repeat" | "temperature" | "reasoningEffort">): string {
+export function formatProbeReport(
+  samples: readonly ProbeSample[],
+  o: Pick<ProbeOptions, "flavor" | "model" | "repeat" | "temperature" | "reasoningEffort">,
+): string {
   const arms = ARMS.filter((a) => samples.some((s) => s.arm === a));
   const kinds = [...new Set(samples.map((s) => s.kind))];
   const lines: string[] = [];
-  lines.push(`${o.flavor} ${o.model}: copy fidelity, ${o.repeat ?? 5} samples per string, temperature ${o.temperature ?? "server default"}, reasoning effort ${o.reasoningEffort ?? "server default"}`, "");
+  lines.push(
+    `${o.flavor} ${o.model}: copy fidelity, ${o.repeat ?? 5} samples per string, temperature ${o.temperature ?? "server default"}, reasoning effort ${o.reasoningEffort ?? "server default"}`,
+    "",
+  );
   const w = Math.max(...kinds.map((k) => k.length), 5);
   lines.push(`${"".padEnd(w)}  ${arms.map((a) => a.padStart(8)).join("  ")}`);
   for (const k of [...kinds, "all"]) {
@@ -254,25 +329,41 @@ export function formatProbeReport(samples: readonly ProbeSample[], o: Pick<Probe
       for (const s of mine) for (const c of s.hidden) inAnswer.set(c, (inAnswer.get(c) ?? 0) + 1);
       const inThought = new Map<string, number>();
       for (const s of mine) for (const c of s.hiddenInReasoning) inThought.set(c, (inThought.get(c) ?? 0) + 1);
-      const show = (m: Map<string, number>): string => ([...m].sort().map(([c, n]) => `${c} in ${n}`).join(", ") || "none");
-      lines.push(`  ${a.padEnd(6)} answers with any: ${frac(mine.filter((s) => s.hidden.length > 0).length, mine.length)} (${show(inAnswer)}); reasoning: ${show(inThought)}`);
+      const show = (m: Map<string, number>): string =>
+        [...m]
+          .sort()
+          .map(([c, n]) => `${c} in ${n}`)
+          .join(", ") || "none";
+      lines.push(
+        `  ${a.padEnd(6)} answers with any: ${frac(mine.filter((s) => s.hidden.length > 0).length, mine.length)} (${show(inAnswer)}); reasoning: ${show(inThought)}`,
+      );
     }
-    if (hiddenWrong.length > 0) lines.push(`  ${hiddenWrong.length} answer(s) were the right string with those characters inside it, so a plain comparison fails`);
+    if (hiddenWrong.length > 0)
+      lines.push(`  ${hiddenWrong.length} answer(s) were the right string with those characters inside it, so a plain comparison fails`);
   }
   if (near.length > 0) {
     lines.push("", "near misses (a typo in the copy):");
-    for (const s of near) lines.push(`  ${s.arm.padEnd(6)} ${s.expected} -> ${s.verdict.kind === "near" ? s.verdict.got : ""}   ${s.placed}`);
+    for (const s of near)
+      lines.push(`  ${s.arm.padEnd(6)} ${s.expected} -> ${s.verdict.kind === "near" ? s.verdict.got : ""}   ${s.placed}`);
     const where = new Map<string, number>();
     for (const s of near) where.set(`${s.arm}: ${s.placed}`, (where.get(`${s.arm}: ${s.placed}`) ?? 0) + 1);
     lines.push("", "where they happened:");
     for (const [k, c] of [...where].sort()) lines.push(`  ${String(c).padStart(3)}  ${k}`);
   }
-  if (other.length > 0) lines.push("", `${other.length} answer(s) held neither the string nor a near copy; first: ${other[0]?.arm} ${JSON.stringify(other[0]?.answer.slice(0, 80))}`);
-  if (errors.length > 0) lines.push("", `${errors.length} sample(s) had an error; first: ${errors[0]?.arm} ${errors[0]?.error?.slice(0, 120)}`);
+  if (other.length > 0)
+    lines.push(
+      "",
+      `${other.length} answer(s) held neither the string nor a near copy; first: ${other[0]?.arm} ${JSON.stringify(other[0]?.answer.slice(0, 80))}`,
+    );
+  if (errors.length > 0)
+    lines.push("", `${errors.length} sample(s) had an error; first: ${errors[0]?.arm} ${errors[0]?.error?.slice(0, 120)}`);
   return lines.join("\n");
 }
 
-export function parseProbeArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: ProbeOptions; out?: string; record?: string; list: boolean } {
+export function parseProbeArgs(
+  argv: readonly string[],
+  env: Record<string, string | undefined>,
+): { options: ProbeOptions; out?: string; record?: string; list: boolean } {
   const flags = new Map<string, string>();
   let list = false;
   for (let i = 0; i < argv.length; i++) {
@@ -284,7 +375,23 @@ export function parseProbeArgs(argv: readonly string[], env: Record<string, stri
       flags.set(a, v);
     } else throw new Error(`unexpected argument ${a}`);
   }
-  const known = new Set(["--flavor", "--base-url", "--model", "--api-key-env", "--repeat", "--arms", "--shape", "--temperature", "--reasoning-effort", "--max-tokens", "--ollama-url", "--timeout-seconds", "--busybox", "--out", "--record"]);
+  const known = new Set([
+    "--flavor",
+    "--base-url",
+    "--model",
+    "--api-key-env",
+    "--repeat",
+    "--arms",
+    "--shape",
+    "--temperature",
+    "--reasoning-effort",
+    "--max-tokens",
+    "--ollama-url",
+    "--timeout-seconds",
+    "--busybox",
+    "--out",
+    "--record",
+  ]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = flags.get("--flavor") ?? "anthropic";
   if (!(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${FLAVORS.join(", ")}`);
@@ -298,12 +405,17 @@ export function parseProbeArgs(argv: readonly string[], env: Record<string, stri
     if (!Number.isInteger(n) || n < 1) throw new Error(`${name} must be a whole number of at least 1`);
     return n;
   };
-  const armList = flags.get("--arms")?.split(",").map((a) => a.trim());
-  for (const a of armList ?? []) if (!(ARMS as readonly string[]).includes(a)) throw new Error(`--arms must be a list of ${ARMS.join(", ")}`);
+  const armList = flags
+    .get("--arms")
+    ?.split(",")
+    .map((a) => a.trim());
+  for (const a of armList ?? [])
+    if (!(ARMS as readonly string[]).includes(a)) throw new Error(`--arms must be a list of ${ARMS.join(", ")}`);
   const shape = flags.get("--shape");
   if (shape !== undefined && shape !== "single" && shape !== "pair") throw new Error("--shape must be single or pair");
   const temp = flags.get("--temperature");
-  if (temp !== undefined && (!Number.isFinite(Number(temp)) || Number(temp) < 0)) throw new Error("--temperature must be a number, 0 or more");
+  if (temp !== undefined && (!Number.isFinite(Number(temp)) || Number(temp) < 0))
+    throw new Error("--temperature must be a number, 0 or more");
   const keyEnv = flags.get("--api-key-env");
   let apiKey: string | undefined;
   if (keyEnv !== undefined) {
@@ -314,7 +426,8 @@ export function parseProbeArgs(argv: readonly string[], env: Record<string, stri
   const maxTokens = int("--max-tokens");
   const timeout = int("--timeout-seconds");
   const effort = flags.get("--reasoning-effort");
-  if (effort !== undefined && !["low", "medium", "high"].includes(effort)) throw new Error("--reasoning-effort must be low, medium or high");
+  if (effort !== undefined && !["low", "medium", "high"].includes(effort))
+    throw new Error("--reasoning-effort must be low, medium or high");
   const ollama = flags.get("--ollama-url");
   const busybox = flags.get("--busybox");
   const out = flags.get("--out");
@@ -355,8 +468,11 @@ async function main(): Promise<void> {
     ...options,
     busybox,
     onSample: (s, done, total) => {
-      console.error(`[${done}/${total}] ${s.arm} ${s.expected} #${s.n}: ${s.error !== undefined ? `ERROR ${s.error.slice(0, 60)}` : s.verdict.kind === "exact" ? "ok" : s.verdict.kind === "near" ? `TYPO ${s.verdict.got} (${s.placed})` : "other"}  ${(s.ms / 1000).toFixed(1)}s`);
-      if (record !== undefined) void writeFile(join(record, `${s.arm}-${s.expected}-${String(s.n).padStart(2, "0")}.json`), scrub(JSON.stringify(s, null, 2)));
+      console.error(
+        `[${done}/${total}] ${s.arm} ${s.expected} #${s.n}: ${s.error !== undefined ? `ERROR ${s.error.slice(0, 60)}` : s.verdict.kind === "exact" ? "ok" : s.verdict.kind === "near" ? `TYPO ${s.verdict.got} (${s.placed})` : "other"}  ${(s.ms / 1000).toFixed(1)}s`,
+      );
+      if (record !== undefined)
+        void writeFile(join(record, `${s.arm}-${s.expected}-${String(s.n).padStart(2, "0")}.json`), scrub(JSON.stringify(s, null, 2)));
     },
   });
   console.log(`\n${scrub(formatProbeReport(samples, options))}`);

@@ -25,7 +25,8 @@ export class LockHeldError extends Error {
   override name = "LockHeldError";
   holder: LockInfo | undefined;
   constructor(path: string, holder: LockInfo | undefined, now: number) {
-    const who = holder === undefined ? "an unknown holder" : `${holder.owner} (${Math.max(0, Math.round((now - holder.createdAt) / 1000))} s ago)`;
+    const who =
+      holder === undefined ? "an unknown holder" : `${holder.owner} (${Math.max(0, Math.round((now - holder.createdAt) / 1000))} s ago)`;
     super(`${path} is locked by ${who}; if that process is gone the lock goes stale after the configured timeout`);
     this.holder = holder;
   }
@@ -46,7 +47,8 @@ const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeou
 function parseInfo(bytes: Uint8Array): LockInfo | undefined {
   try {
     const v = JSON.parse(dec.decode(bytes)) as Partial<LockInfo>;
-    if (typeof v.token === "string" && typeof v.owner === "string" && typeof v.createdAt === "number") return { token: v.token, owner: v.owner, createdAt: v.createdAt };
+    if (typeof v.token === "string" && typeof v.owner === "string" && typeof v.createdAt === "number")
+      return { token: v.token, owner: v.owner, createdAt: v.createdAt };
   } catch {
     /* unreadable */
   }

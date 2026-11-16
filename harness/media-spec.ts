@@ -17,10 +17,7 @@ export interface MediaTarget {
 
 export type MediaSpec = { [K in MediaKind]?: readonly MediaTarget[] };
 
-export type MediaPlan =
-  | { action: "pass" }
-  | { action: "convert"; to: MediaTarget }
-  | { action: "refuse"; reason: string };
+export type MediaPlan = { action: "pass" } | { action: "convert"; to: MediaTarget } | { action: "refuse"; reason: string };
 
 const NOUN: Record<MediaKind, string> = { image: "pictures", audio: "sound", pdf: "PDFs" };
 
@@ -43,13 +40,21 @@ export function planMedia(
   if (targets === undefined || targets.length === 0) return { action: "refuse", reason: `this model does not take ${NOUN[format.kind]}` };
   const same = targets.find((t) => formatOf(t.mime)?.mime === format.mime);
   if (same !== undefined) {
-    if (same.maxBytes !== undefined && size > same.maxBytes) return { action: "refuse", reason: `at ${mb(size)} it is over the ${mb(same.maxBytes)} this model takes in ${format.mime}; make a smaller copy (lower resolution or a shorter clip)` };
+    if (same.maxBytes !== undefined && size > same.maxBytes)
+      return {
+        action: "refuse",
+        reason: `at ${mb(size)} it is over the ${mb(same.maxBytes)} this model takes in ${format.mime}; make a smaller copy (lower resolution or a shorter clip)`,
+      };
     return { action: "pass" };
   }
   const accepted = targets.map((t) => formatOf(t.mime)?.label ?? t.mime).join(", ");
   if (format.kind === "pdf") return { action: "refuse", reason: `${format.label} cannot be converted; this model takes ${accepted}` };
   const to = targets.find((t) => canConvert(format, t));
-  if (to === undefined) return { action: "refuse", reason: `${format.label} is not one this model takes (it takes ${accepted}) and cannot be converted to one of them` };
+  if (to === undefined)
+    return {
+      action: "refuse",
+      reason: `${format.label} is not one this model takes (it takes ${accepted}) and cannot be converted to one of them`,
+    };
   return { action: "convert", to };
 }
 

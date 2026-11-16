@@ -14,7 +14,8 @@ import type { Host } from "../src/host.ts";
 /** The hash a thread without a `harness.yml` has. Nothing to approve, so it is always trusted. */
 export const NO_CONFIG = "none";
 
-export const configHash = (bytes: Uint8Array | undefined): string => (bytes === undefined ? NO_CONFIG : createHash("sha256").update(bytes).digest("hex"));
+export const configHash = (bytes: Uint8Array | undefined): string =>
+  bytes === undefined ? NO_CONFIG : createHash("sha256").update(bytes).digest("hex");
 
 /** `trusted`: the file is the one approved (or there is none). `unknown`: this thread has never been approved. `changed`: it was, and the file is another now. */
 export interface ConfigTrust {

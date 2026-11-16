@@ -16,7 +16,12 @@ import { spacedJson } from "./scan.ts";
  *   deepseek-r1  the R1 distills (and R1): DeepSeek's original call format, which the models' template can only replay: it never writes the tool list.
  */
 
-const tool = (t: ToolDefinition): { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } } => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } });
+const tool = (
+  t: ToolDefinition,
+): { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } } => ({
+  type: "function",
+  function: { name: t.name, description: t.description, parameters: t.input_schema },
+});
 const ENDS = "<|im_end|>\n";
 
 // ---- Hermes / Qwen3 ---------------------------------------------------------------------------------------------------
@@ -25,7 +30,9 @@ const hermes: FamilySpec = {
   id: "hermes",
   head: ({ system, tools }) =>
     tools.length === 0
-      ? system === "" ? "" : `<|im_start|>system\n${system}${ENDS}`
+      ? system === ""
+        ? ""
+        : `<|im_start|>system\n${system}${ENDS}`
       : `<|im_start|>system\n${system === "" ? "" : `${system}\n\n`}# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>${tools.map((t) => `\n${spacedJson(tool(t))}`).join("")}\n</tools>\n\nFor each function call, return a json object with function name and arguments within <tool_call></tool_call> XML tags:\n<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>${ENDS}`,
   user: { open: "<|im_start|>user\n", close: ENDS },
   assistant: { open: "<|im_start|>assistant\n", close: ENDS },
@@ -39,7 +46,8 @@ const hermes: FamilySpec = {
 
 const mistral: FamilySpec = {
   id: "mistral",
-  head: ({ system, tools }) => `${system === "" ? "" : `[SYSTEM_PROMPT]${system}[/SYSTEM_PROMPT]`}${tools.length === 0 ? "" : `[AVAILABLE_TOOLS]${spacedJson(tools.map(tool))}[/AVAILABLE_TOOLS]`}`,
+  head: ({ system, tools }) =>
+    `${system === "" ? "" : `[SYSTEM_PROMPT]${system}[/SYSTEM_PROMPT]`}${tools.length === 0 ? "" : `[AVAILABLE_TOOLS]${spacedJson(tools.map(tool))}[/AVAILABLE_TOOLS]`}`,
   user: { open: "[INST]", close: "[/INST]" },
   assistant: { open: "", close: "</s>" },
   results: { item: "[TOOL_RESULTS]{content}[/TOOL_RESULTS]" },
@@ -55,7 +63,14 @@ const glm46: FamilySpec = {
   user: { open: "<|user|>\n", close: "" },
   assistant: { open: "<|assistant|>", close: "", lead: "\n" },
   results: { open: "<|observation|>", item: "\n<tool_response>\n{content}\n</tool_response>" },
-  call: { start: "<tool_call>", end: "</tool_call>", gap: "\n", gapEmpty: "\n", between: "\n", codec: tagParams({ head: "{name}\n", param: "<arg_key>{key}</arg_key>\n<arg_value>{value}</arg_value>\n" }) },
+  call: {
+    start: "<tool_call>",
+    end: "</tool_call>",
+    gap: "\n",
+    gapEmpty: "\n",
+    between: "\n",
+    codec: tagParams({ head: "{name}\n", param: "<arg_key>{key}</arg_key>\n<arg_value>{value}</arg_value>\n" }),
+  },
   think: { open: "\n<think>", close: "</think>", skip: "\n<think></think>", absent: "\n<think></think>" },
 };
 
@@ -69,7 +84,11 @@ const glm: FamilySpec = {
   user: { open: "<|user|>", close: "" },
   assistant: { open: "<|assistant|>", close: "" },
   results: { open: "<|observation|>", item: "<tool_response>{content}</tool_response>" },
-  call: { start: "<tool_call>", end: "</tool_call>", codec: tagParams({ head: "{name}", param: "<arg_key>{key}</arg_key><arg_value>{value}</arg_value>" }) },
+  call: {
+    start: "<tool_call>",
+    end: "</tool_call>",
+    codec: tagParams({ head: "{name}", param: "<arg_key>{key}</arg_key><arg_value>{value}</arg_value>" }),
+  },
   think: { open: "<think>", close: "</think>", start: "<think>", skip: "</think>", absent: "</think>" },
 };
 
@@ -106,8 +125,20 @@ const deepseekR1: FamilySpec = {
     `${system}${tools.length === 0 ? "" : `${system === "" ? "" : "\n\n"}# Tools\n\nYou may call one or more functions to assist with the user query.\n\nYou are provided with function signatures within <tools></tools> XML tags:\n<tools>${tools.map((t) => `\n${spacedJson(tool(t))}`).join("")}\n</tools>\n\nFor function calls, write them in this format (several calls go on separate lines inside one block):\n<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>function<｜tool▁sep｜><function-name>\n\`\`\`json\n<args-json-object>\n\`\`\`<｜tool▁call▁end｜><｜tool▁calls▁end｜>`}`,
   user: { open: "<｜User｜>", close: "" },
   assistant: { open: "<｜Assistant｜>", close: "<｜end▁of▁sentence｜>", lead: "\n\n" },
-  results: { open: "<｜tool▁outputs▁begin｜>", close: "<｜tool▁outputs▁end｜>", between: "\n", item: "<｜tool▁output▁begin｜>{content}<｜tool▁output▁end｜>", continues: true },
-  call: { start: "<｜tool▁call▁begin｜>", end: "<｜tool▁call▁end｜>", section: { open: "<｜tool▁calls▁begin｜>", close: "<｜tool▁calls▁end｜>" }, between: "\n", codec: fencedJson({ type: "function", sep: "<｜tool▁sep｜>" }) },
+  results: {
+    open: "<｜tool▁outputs▁begin｜>",
+    close: "<｜tool▁outputs▁end｜>",
+    between: "\n",
+    item: "<｜tool▁output▁begin｜>{content}<｜tool▁output▁end｜>",
+    continues: true,
+  },
+  call: {
+    start: "<｜tool▁call▁begin｜>",
+    end: "<｜tool▁call▁end｜>",
+    section: { open: "<｜tool▁calls▁begin｜>", close: "<｜tool▁calls▁end｜>" },
+    between: "\n",
+    codec: fencedJson({ type: "function", sep: "<｜tool▁sep｜>" }),
+  },
   think: { open: "<think>\n", close: "\n</think>\n\n", start: "<think>\n", skip: "<think>\n\n</think>\n\n", never: true },
 };
 

@@ -31,7 +31,13 @@ let queue: Reply[] = [];
 let requests = 0;
 
 const usage = { input_tokens: 10, output_tokens: 5 };
-const answer = (t: string): Completed => ({ blocks: [{ type: "text", text: t }], stop_reason: "end_turn", usage, observed: { model: "m1" }, ext: {} });
+const answer = (t: string): Completed => ({
+  blocks: [{ type: "text", text: t }],
+  stop_reason: "end_turn",
+  usage,
+  observed: { model: "m1" },
+  ext: {},
+});
 const calls = (...cs: { id: string; name: string; args: unknown }[]): Completed => ({
   blocks: cs.map((c) => ({ type: "tool_call" as const, call_id: c.id, name: c.name, args: c.args as never })),
   stop_reason: "tool_use",
@@ -65,7 +71,9 @@ const adapters = new AdapterRegistry().register(
 );
 
 const hangUntilAborted = (signal: AbortSignal): Promise<Completed> =>
-  new Promise((_, reject) => signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }));
+  new Promise((_, reject) =>
+    signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }),
+  );
 
 // ---- tools ------------------------------------------------------------------------------------------------------
 
@@ -101,7 +109,22 @@ async function drive(convo: Conversation, registry: ToolRegistry, extra: Partial
 }
 
 describe("the model's tool convention", () => {
-  const nested: Tool = { definition: { name: "nest", description: "a tool with a list of objects", input_schema: { type: "object", additionalProperties: false, required: ["items"], properties: { items: { type: "array", items: { type: "object", additionalProperties: false, properties: { a: { type: "string" } } } }, cfg: { type: "object", additionalProperties: false, properties: { b: { type: "string" } } } } } }, execute: () => Promise.resolve({ content: "ok" }) };
+  const nested: Tool = {
+    definition: {
+      name: "nest",
+      description: "a tool with a list of objects",
+      input_schema: {
+        type: "object",
+        additionalProperties: false,
+        required: ["items"],
+        properties: {
+          items: { type: "array", items: { type: "object", additionalProperties: false, properties: { a: { type: "string" } } } },
+          cfg: { type: "object", additionalProperties: false, properties: { b: { type: "string" } } },
+        },
+      },
+    },
+    execute: () => Promise.resolve({ content: "ok" }),
+  };
 
   test("a flat model is refused any tool with nested arguments, naming the tool and why", async () => {
     convention = "flat";
@@ -109,7 +132,15 @@ describe("the model's tool convention", () => {
       const registry = reg(echo, nested);
       const { convo } = await fresh(registry);
       queue = [answer("never")];
-      await assert.rejects(drive(convo, registry), (e: unknown) => e instanceof ToolsNotSupported && e.convention === "flat" && e.tools.length === 1 && e.tools[0]?.name === "nest" && /items is a list of objects, cfg is an object/.test(e.message));
+      await assert.rejects(
+        drive(convo, registry),
+        (e: unknown) =>
+          e instanceof ToolsNotSupported &&
+          e.convention === "flat" &&
+          e.tools.length === 1 &&
+          e.tools[0]?.name === "nest" &&
+          /items is a list of objects, cfg is an object/.test(e.message),
+      );
       assert.equal(requests, 0, "no request is made");
       const flat = reg(echo);
       const second = await fresh(flat);
@@ -145,13 +176,32 @@ describe("the tool loop", () => {
     assert.equal(result.status, "completed");
     assert.equal(result.requests, 2);
     const es = await entries(convo);
-    assert.deepEqual(es.slice(-4).map((e) => e.$tag), ["assistant", "tool_result", "tool_result", "assistant"]);
-    assert.deepEqual((await results(convo)).map((r) => [r.call_id, str(r.content), r.is_error]), [["c1", "echo c1", false], ["c2", "echo c2", false]]);
-    assert.deepEqual(events.filter((e) => e.type.startsWith("tool.")).map((e) => e.type), ["tool.start", "tool.result", "tool.start", "tool.result"]);
+    assert.deepEqual(
+      es.slice(-4).map((e) => e.$tag),
+      ["assistant", "tool_result", "tool_result", "assistant"],
+    );
+    assert.deepEqual(
+      (await results(convo)).map((r) => [r.call_id, str(r.content), r.is_error]),
+      [
+        ["c1", "echo c1", false],
+        ["c2", "echo c2", false],
+      ],
+    );
+    assert.deepEqual(
+      events.filter((e) => e.type.startsWith("tool.")).map((e) => e.type),
+      ["tool.start", "tool.result", "tool.start", "tool.result"],
+    );
     await assertHistoryInvariants(convo);
   });
 
-  const foldNow = async (c: Conversation, registry: ToolRegistry) => foldTip({ entries: await entries(c), registry, allow: (t) => c.grantStore().allow(t), nowMs: c.now(), ctx: { workspace: c.dir, host: c.host } });
+  const foldNow = async (c: Conversation, registry: ToolRegistry) =>
+    foldTip({
+      entries: await entries(c),
+      registry,
+      allow: (t) => c.grantStore().allow(t),
+      nowMs: c.now(),
+      ctx: { workspace: c.dir, host: c.host },
+    });
 
   test("a message queued while a request streams is answered by the same loop, and the answer records what it was built from", async () => {
     const registry = reg(echo);
@@ -170,11 +220,17 @@ describe("the tool loop", () => {
     assert.equal(result.status, "completed");
     assert.equal(result.requests, 2, "the queued message gets its own request");
     const es = await entries(convo);
-    assert.deepEqual(es.slice(-4).map((e) => e.$tag), ["user", "user", "assistant", "assistant"]);
+    assert.deepEqual(
+      es.slice(-4).map((e) => e.$tag),
+      ["user", "user", "assistant", "assistant"],
+    );
     const [first, second] = es.filter((e) => e.$tag === "assistant");
     assert.ok(first?.$tag === "assistant" && second?.$tag === "assistant");
     const q = es.filter((e) => e.$tag === "user")[1];
-    assert.ok(q?.$tag === "user" && first.context_tip !== undefined && first.context_tip < q.id, "the first answer was built before the message");
+    assert.ok(
+      q?.$tag === "user" && first.context_tip !== undefined && first.context_tip < q.id,
+      "the first answer was built before the message",
+    );
     assert.ok(second.context_tip !== undefined && second.context_tip >= q.id, "the second saw it");
     assert.equal((await foldNow(convo, registry)).kind, "awaiting_user");
     await assertHistoryInvariants(convo);
@@ -182,7 +238,14 @@ describe("the tool loop", () => {
 
   test("a queued message does not hide the calls that are still waiting for results", () => {
     const id = (n: number) => `01ARZ3NDEKTSV4RRFFQ69G${String(n).padStart(4, "0")}`;
-    const a: ChatEntry = { $tag: "assistant", id: id(1), provider: "f", model: "m1", stop_reason: "tool_use", blocks: [{ $tag: "tool_call", call_id: "c1", name: "echo", args: {} }] };
+    const a: ChatEntry = {
+      $tag: "assistant",
+      id: id(1),
+      provider: "f",
+      model: "m1",
+      stop_reason: "tool_use",
+      blocks: [{ $tag: "tool_call", call_id: "c1", name: "echo", args: {} }],
+    };
     const q: ChatEntry = { $tag: "user", id: id(2), queued: true, content: [{ $tag: "text", text: "hey" }] };
     const plain: ChatEntry = { ...q, queued: undefined } as ChatEntry;
     assert.deepEqual(unanswered([a, q]), ["c1"]);
@@ -200,7 +263,12 @@ describe("the tool loop", () => {
     ];
     // the loop died (here: stopped) before its second request
     const ac = new AbortController();
-    const { result } = await drive(convo, registry, { signal: ac.signal, beforeRequest: async () => { if (requests >= 1) ac.abort(); } });
+    const { result } = await drive(convo, registry, {
+      signal: ac.signal,
+      beforeRequest: async () => {
+        if (requests >= 1) ac.abort();
+      },
+    });
     assert.equal(result.status, "cancelled");
     assert.deepEqual(await foldNow(convo, registry), { kind: "ready", cause: "human" });
   });
@@ -230,7 +298,10 @@ describe("the tool loop", () => {
     const { result } = await drive(convo, registry);
     assert.equal(result.status, "completed");
     const rs = await results(convo);
-    assert.deepEqual(rs.map((r) => r.is_error), [true, true, true]);
+    assert.deepEqual(
+      rs.map((r) => r.is_error),
+      [true, true, true],
+    );
     assert.match(str(rs[0]!.content), /bogus is not a known argument/);
     assert.match(str(rs[1]!.content), /nope/);
     assert.match(str(rs[2]!.content), /kaput/);
@@ -245,7 +316,10 @@ describe("the tool loop", () => {
     const [r] = await results(convo);
     assert.equal(r!.is_error, true);
     assert.match(str(r!.content), /declined.*not now/);
-    assert.deepEqual(events.filter((e) => e.type === "tool.approval").map((e) => (e as { allowed: boolean }).allowed), [false]);
+    assert.deepEqual(
+      events.filter((e) => e.type === "tool.approval").map((e) => (e as { allowed: boolean }).allowed),
+      [false],
+    );
   });
 
   test("a long result is cut for the model and kept whole as a blob the entry references", async () => {
@@ -289,7 +363,19 @@ describe("the tool loop", () => {
     const { convo } = await fresh(registry);
     queue = [calls(call("c1", "t"), call("c2", "t"))];
     // simulate the crash: the first result is written, then the process dies
-    await convo.append({ $tag: "assistant", provider: "f", model: "m1", blocks: [{ $tag: "tool_call", call_id: "c1", name: "t", args: {} }, { $tag: "tool_call", call_id: "c2", name: "t", args: {} }], stop_reason: "tool_use", usage } as never).catch(() => undefined);
+    await convo
+      .append({
+        $tag: "assistant",
+        provider: "f",
+        model: "m1",
+        blocks: [
+          { $tag: "tool_call", call_id: "c1", name: "t", args: {} },
+          { $tag: "tool_call", call_id: "c2", name: "t", args: {} },
+        ],
+        stop_reason: "tool_use",
+        usage,
+      } as never)
+      .catch(() => undefined);
     queue = [answer("after")];
     ran = [];
     // whatever state the transcript is in, a new loop must not run old calls
@@ -303,7 +389,9 @@ describe("the tool loop", () => {
     const ac = new AbortController();
     const slow = tool("slow", (_a, ctx) => {
       queueMicrotask(() => ac.abort());
-      return new Promise((resolve) => ctx.signal.addEventListener("abort", () => resolve({ content: "stopped early", is_error: true }), { once: true }));
+      return new Promise((resolve) =>
+        ctx.signal.addEventListener("abort", () => resolve({ content: "stopped early", is_error: true }), { once: true }),
+      );
     });
     const registry = reg(slow, echo);
     const { convo } = await fresh(registry);
@@ -312,7 +400,10 @@ describe("the tool loop", () => {
     assert.equal(result.status, "stopped");
     assert.equal(requests, 1);
     const rs = await results(convo);
-    assert.deepEqual(rs.map((r) => r.call_id), ["c1", "c2"]);
+    assert.deepEqual(
+      rs.map((r) => r.call_id),
+      ["c1", "c2"],
+    );
     assert.match(str(rs[1]!.content), /did not run/);
     await assertHistoryInvariants(convo);
   });
@@ -321,10 +412,12 @@ describe("the tool loop", () => {
     const registry = reg(echo);
     const { convo } = await fresh(registry);
     const ac = new AbortController();
-    queue = [(signal) => {
-      queueMicrotask(() => ac.abort());
-      return hangUntilAborted(signal);
-    }];
+    queue = [
+      (signal) => {
+        queueMicrotask(() => ac.abort());
+        return hangUntilAborted(signal);
+      },
+    ];
     const { result } = await drive(convo, registry, { signal: ac.signal });
     assert.ok(result.status === "interrupted" || result.status === "cancelled");
     assert.equal(requests, 1);
@@ -335,7 +428,7 @@ describe("the tool loop", () => {
     const registry = reg(echo);
     const { convo } = await fresh(registry, "providers:\n  f:\n    $tag: fake\nlimits:\n  max_requests_per_turn: 1\n");
     queue = [calls(call("c1", "echo")), answer("ok")];
-    await assert.rejects(drive(convo, registry, { allowDrift: ["pricing_changed"] , cost: undefined as never }), LimitExceeded);
+    await assert.rejects(drive(convo, registry, { allowDrift: ["pricing_changed"], cost: undefined as never }), LimitExceeded);
     assert.equal((await results(convo)).length, 1);
     await assertHistoryInvariants(convo);
   });
@@ -343,7 +436,10 @@ describe("the tool loop", () => {
   test("the loop refuses to start when the host's tools differ from the agent's, and syncTools fixes it", async () => {
     const registry = reg(echo);
     const { convo } = await fresh(registry);
-    const other = reg(echo, tool("extra", () => Promise.resolve({ content: "" })));
+    const other = reg(
+      echo,
+      tool("extra", () => Promise.resolve({ content: "" })),
+    );
     assert.deepEqual((await toolDrift(convo, other)).missing, ["extra"]);
     await assert.rejects(drive(convo, other), ToolsOutOfSync);
     assert.ok(await syncTools(convo, other));
@@ -368,10 +464,16 @@ describe("approvals", () => {
     const { convo } = await fresh(registry, `${CFG}tools:\n  echo:\n    allow:\n      all: 2999-01-01\n`);
     queue = [calls(call("c1", "echo")), answer("ok")];
     let asked = 0;
-    const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true })) });
+    const { events } = await drive(convo, registry, {
+      grants: convo.grantStore(),
+      approve: () => (asked++, Promise.resolve({ allow: true })),
+    });
     assert.deepEqual(ran, ["c1"]);
     assert.equal(asked, 0);
-    assert.deepEqual(approvalEvents(events).map((e) => [e.allowed, e.via, e.keys]), [[true, "allowlist", ["all"]]]);
+    assert.deepEqual(
+      approvalEvents(events).map((e) => [e.allowed, e.via, e.keys]),
+      [[true, "allowlist", ["all"]]],
+    );
   });
 
   test("an expired key does not cover; the host is asked, with the keys the tool offers", async () => {
@@ -404,7 +506,10 @@ describe("approvals", () => {
     const before = await convo.git.isClean();
     queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("ok")];
     let asked = 0;
-    const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true, grant: { seconds: 300 } })) });
+    const { events } = await drive(convo, registry, {
+      grants: convo.grantStore(),
+      approve: () => (asked++, Promise.resolve({ allow: true, grant: { seconds: 300 } })),
+    });
     assert.equal(asked, 1, "the second call is covered by the grant just made");
     assert.deepEqual(ran, ["c1", "c2"]);
     const via = approvalEvents(events).map((e) => e.via);
@@ -421,13 +526,22 @@ describe("approvals", () => {
     const registry = reg(keyed("echo", ran));
     const { convo, dir } = await fresh(registry, CFG);
     queue = [calls(call("c1", "echo")), answer("ok")];
-    await drive(convo, registry, { grants: convo.grantStore(), approve: () => Promise.resolve({ allow: true, grant: { seconds: Infinity } }) });
+    await drive(convo, registry, {
+      grants: convo.grantStore(),
+      approve: () => Promise.resolve({ allow: true, grant: { seconds: Infinity } }),
+    });
     assert.match(await harnessYml(dir), /all: 2999-01-01/);
     const text = async (a: string[]) => new TextDecoder().decode((await convo.git.run(a)).stdout);
     const log = await text(["log", "--format=%s", "-n", "6"]);
     assert.match(log, /approvals: allow echo: all until 2999-01-01/);
     const files = await text(["log", "--name-only", "--format=", "--grep=approvals:", "-n", "1"]);
-    assert.ok(files.trim().split("\n").every((f: string) => f === "harness.yml" || f === ""), files);
+    assert.ok(
+      files
+        .trim()
+        .split("\n")
+        .every((f: string) => f === "harness.yml" || f === ""),
+      files,
+    );
   });
 
   test("a decline carries its reason to the model and the tool does not run", async () => {
@@ -448,7 +562,10 @@ describe("approvals", () => {
     queue = [calls(call("c1", "echo")), answer("ok")];
     const { events } = await drive(convo, registry, { grants: convo.grantStore() });
     assert.deepEqual(ran, []);
-    assert.deepEqual(approvalEvents(events).map((e) => [e.allowed, e.via]), [[false, "headless"]]);
+    assert.deepEqual(
+      approvalEvents(events).map((e) => [e.allowed, e.via]),
+      [[false, "headless"]],
+    );
     const [r] = await results(convo);
     assert.equal(r!.is_error, true);
     assert.match(str(r!.content), /needs the user's approval and none is available/);
@@ -462,7 +579,10 @@ describe("approvals", () => {
     const initial = await harnessYml(dir);
     queue = [calls(call("c1", "bare")), answer("ok")];
     const seen: (string[] | null)[] = [];
-    await drive(convo, registry, { grants: convo.grantStore(), approve: (r) => (seen.push(r.keys), Promise.resolve({ allow: true, grant: { seconds: Infinity } })) });
+    await drive(convo, registry, {
+      grants: convo.grantStore(),
+      approve: (r) => (seen.push(r.keys), Promise.resolve({ allow: true, grant: { seconds: Infinity } })),
+    });
     assert.deepEqual(seen, [null]);
     assert.deepEqual(ran, ["c1"]);
     assert.equal(await harnessYml(dir), initial);
@@ -470,12 +590,18 @@ describe("approvals", () => {
 
   test("keys the tool will not accept are not stored; the call the user approved still runs once", async () => {
     const ran: string[] = [];
-    const odd: Tool = { ...tool("odd", (_a, ctx) => (ran.push(ctx.callId), Promise.resolve({ content: "ran" }))), allowKeys: () => ["grep **"] };
+    const odd: Tool = {
+      ...tool("odd", (_a, ctx) => (ran.push(ctx.callId), Promise.resolve({ content: "ran" }))),
+      allowKeys: () => ["grep **"],
+    };
     const registry = reg(odd);
     const { convo, dir } = await fresh(registry, CFG);
     const initial = await harnessYml(dir);
     queue = [calls(call("c1", "odd")), answer("ok")];
-    const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => Promise.resolve({ allow: true, grant: { seconds: 60 } }) });
+    const { events } = await drive(convo, registry, {
+      grants: convo.grantStore(),
+      approve: () => Promise.resolve({ allow: true, grant: { seconds: 60 } }),
+    });
     assert.deepEqual(ran, ["c1"]);
     assert.match(approvalEvents(events)[0]?.grantError ?? "", /only the key "all"/);
     assert.equal(await harnessYml(dir), initial);
@@ -504,7 +630,14 @@ describe("approvals recorded in the thread", () => {
   });
   const approvals = async (c: Conversation) => (await entries(c)).flatMap((e) => (e.$tag === "approval" ? [e] : []));
   const harnessYml = (dir: string) => readFile(join(dir, "harness.yml"), "utf8");
-  const tip = async (c: Conversation, registry: ToolRegistry) => foldTip({ entries: await entries(c), registry, allow: (t) => c.grantStore().allow(t), nowMs: c.now(), ctx: { workspace: c.dir, host: c.host } });
+  const tip = async (c: Conversation, registry: ToolRegistry) =>
+    foldTip({
+      entries: await entries(c),
+      registry,
+      allow: (t) => c.grantStore().allow(t),
+      nowMs: c.now(),
+      ctx: { workspace: c.dir, host: c.host },
+    });
 
   test("an answer the host gave is recorded before the call's result; a call a grant covers records nothing", async () => {
     const ran: string[] = [];
@@ -516,8 +649,13 @@ describe("approvals recorded in the thread", () => {
 
     const second = await fresh(registry, CFG);
     queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("ok")];
-    await drive(second.convo, registry, { grants: second.convo.grantStore(), approve: (r) => Promise.resolve(r.callId === "c1" ? { allow: true } : { allow: false, reason: "no thanks" }) });
-    const kinds = (await entries(second.convo)).flatMap((e) => (e.$tag === "approval" ? [`approval:${e.call_id}:${e.allow}`] : e.$tag === "tool_result" ? [`result:${e.call_id}`] : []));
+    await drive(second.convo, registry, {
+      grants: second.convo.grantStore(),
+      approve: (r) => Promise.resolve(r.callId === "c1" ? { allow: true } : { allow: false, reason: "no thanks" }),
+    });
+    const kinds = (await entries(second.convo)).flatMap((e) =>
+      e.$tag === "approval" ? [`approval:${e.call_id}:${e.allow}`] : e.$tag === "tool_result" ? [`result:${e.call_id}`] : [],
+    );
     assert.deepEqual(kinds, ["approval:c1:true", "result:c1", "approval:c2:false", "result:c2"]);
     assert.equal((await approvals(second.convo))[1]?.reason, "no thanks");
     assert.deepEqual(await verifyHistory(second.convo), []);
@@ -531,10 +669,16 @@ describe("approvals recorded in the thread", () => {
     const initial = await harnessYml(dir);
     queue = [calls(call("c1", "echo"), call("c2", "echo")), answer("ok")];
     let asked = 0;
-    const { events } = await drive(convo, registry, { grants: convo.grantStore(), approve: () => (asked++, Promise.resolve({ allow: true, grant: { seconds: 300, scope: "thread" } })) });
+    const { events } = await drive(convo, registry, {
+      grants: convo.grantStore(),
+      approve: () => (asked++, Promise.resolve({ allow: true, grant: { seconds: 300, scope: "thread" } })),
+    });
     assert.equal(asked, 1);
     assert.deepEqual(ran, ["c1", "c2"]);
-    assert.deepEqual(events.flatMap((e) => (e.type === "tool.approval" ? [e.via] : [])), ["asked", "allowlist"]);
+    assert.deepEqual(
+      events.flatMap((e) => (e.type === "tool.approval" ? [e.via] : [])),
+      ["asked", "allowlist"],
+    );
     assert.equal(await harnessYml(dir), initial);
     const [only] = await approvals(convo);
     assert.deepEqual(only?.grant?.keys, ["all"]);
@@ -544,7 +688,10 @@ describe("approvals recorded in the thread", () => {
     // A grant for the project is in harness.yml and the entry carries no grant: one place each.
     const proj = await fresh(registry, CFG);
     queue = [calls(call("c1", "echo")), answer("ok")];
-    await drive(proj.convo, registry, { grants: proj.convo.grantStore(), approve: () => Promise.resolve({ allow: true, grant: { seconds: 300 } }) });
+    await drive(proj.convo, registry, {
+      grants: proj.convo.grantStore(),
+      approve: () => Promise.resolve({ allow: true, grant: { seconds: 300 } }),
+    });
     assert.equal((await approvals(proj.convo))[0]?.grant, undefined);
 
     // Another thread (here another conversation) does not have it.
@@ -552,7 +699,10 @@ describe("approvals recorded in the thread", () => {
     assert.equal((await tip(other.convo, registry)).kind, "ready");
     queue = [calls(call("c9", "echo")), answer("ok")];
     let askedOther = 0;
-    await drive(other.convo, registry, { grants: other.convo.grantStore(), approve: () => (askedOther++, Promise.resolve({ allow: true })) });
+    await drive(other.convo, registry, {
+      grants: other.convo.grantStore(),
+      approve: () => (askedOther++, Promise.resolve({ allow: true })),
+    });
     assert.equal(askedOther, 1);
   });
 
@@ -561,7 +711,10 @@ describe("approvals recorded in the thread", () => {
     const registry = reg(keyed("echo", ran));
     const { convo } = await fresh(registry, CFG);
     queue = [calls(call("c1", "echo")), answer("ok")];
-    await drive(convo, registry, { grants: convo.grantStore(), approve: () => Promise.resolve({ allow: true, grant: { seconds: 300, scope: "thread" } }) });
+    await drive(convo, registry, {
+      grants: convo.grantStore(),
+      approve: () => Promise.resolve({ allow: true, grant: { seconds: 300, scope: "thread" } }),
+    });
     const { conversation: forked } = await convo.fork(undefined, { name: "side" });
     assert.ok(forked !== undefined);
     const child = forked;
@@ -584,12 +737,21 @@ describe("approvals recorded in the thread", () => {
     assert.deepEqual(ran, []);
     assert.equal(requests, 1, "no request after the stop");
     assert.deepEqual(await results(convo), []);
-    assert.deepEqual(events.flatMap((e) => (e.type === "tool.result" ? [e.callId] : [])), []);
+    assert.deepEqual(
+      events.flatMap((e) => (e.type === "tool.result" ? [e.callId] : [])),
+      [],
+    );
     const state = await tip(convo, registry);
     assert.equal(state.kind, "needs_approval");
     if (state.kind === "needs_approval") {
       assert.equal(state.question.callId, "c1");
-      assert.deepEqual(state.calls.map((c) => [c.callId, c.status]), [["c1", "ask"], ["c2", "ask"]]);
+      assert.deepEqual(
+        state.calls.map((c) => [c.callId, c.status]),
+        [
+          ["c1", "ask"],
+          ["c2", "ask"],
+        ],
+      );
     }
   });
 
@@ -608,9 +770,21 @@ describe("approvals recorded in the thread", () => {
     const { result, events } = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
     assert.equal(result.status, "completed");
     assert.deepEqual(ran, ["c1"]);
-    assert.deepEqual(events.flatMap((e) => (e.type === "tool.approval" ? [[e.callId, e.allowed, e.via]] : [])), [["c1", true, "recorded"], ["c2", false, "recorded"]]);
+    assert.deepEqual(
+      events.flatMap((e) => (e.type === "tool.approval" ? [[e.callId, e.allowed, e.via]] : [])),
+      [
+        ["c1", true, "recorded"],
+        ["c2", false, "recorded"],
+      ],
+    );
     const rs = await results(convo);
-    assert.deepEqual(rs.map((r) => [r.call_id, r.is_error]), [["c1", false], ["c2", true]]);
+    assert.deepEqual(
+      rs.map((r) => [r.call_id, r.is_error]),
+      [
+        ["c1", false],
+        ["c2", true],
+      ],
+    );
     assert.match(str(rs[1]?.content), /declined.*not that/);
     assert.equal((await tip(convo, registry)).kind, "awaiting_user");
     assert.deepEqual(await verifyHistory(convo), []);
@@ -678,7 +852,15 @@ describe("the run lease", () => {
     const handle = await Conversation.open(host, convo.dir, { providers: { registry: adapters, secrets: envSource({}) }, leases: store });
     return { store, handle };
   }
-  const tip = async (c: Conversation, registry: ToolRegistry) => foldTip({ entries: await entries(c), registry, allow: (t) => c.grantStore().allow(t), nowMs: c.now(), ctx: { workspace: c.dir, host: c.host }, lease: await c.leaseState() });
+  const tip = async (c: Conversation, registry: ToolRegistry) =>
+    foldTip({
+      entries: await entries(c),
+      registry,
+      allow: (t) => c.grantStore().allow(t),
+      nowMs: c.now(),
+      ctx: { workspace: c.dir, host: c.host },
+      lease: await c.leaseState(),
+    });
 
   test("the thread is live while a call runs, held by the loop, and free when the loop ends", async () => {
     const seen: unknown[] = [];
@@ -703,7 +885,10 @@ describe("the run lease", () => {
     const { store, handle } = await otherProcess(convo);
     await store.hold(convo.branch, { pid: 99, session: "elsewhere" }, handle.leaseEnv, "loop", convo.now() + 60_000);
     queue = [answer("never")];
-    await assert.rejects(drive(convo, registry, { grants: convo.grantStore() }), (e: unknown) => e instanceof ThreadBusy && /session elsewhere/.test(e.message));
+    await assert.rejects(
+      drive(convo, registry, { grants: convo.grantStore() }),
+      (e: unknown) => e instanceof ThreadBusy && /session elsewhere/.test(e.message),
+    );
     assert.equal(requests, 0);
     const state = await tip(convo, registry);
     assert.equal(state.kind, "running");
@@ -715,7 +900,10 @@ describe("the run lease", () => {
     let held: unknown;
     let convoRef: Conversation | undefined;
     const hang: Tool = {
-      ...tool("echo", (_a, ctx) => new Promise((_, reject) => ctx.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true }))),
+      ...tool(
+        "echo",
+        (_a, ctx) => new Promise((_, reject) => ctx.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true })),
+      ),
       timeout: () => 1,
       allowKeys: () => ["all"],
     };
@@ -753,7 +941,11 @@ describe("the run lease", () => {
     assert.equal((await convo.leaseState()).state, "stale");
     const state = await tip(convo, registry);
     assert.equal(state.kind, "run");
-    if (state.kind === "run") assert.deepEqual(state.calls.map((c) => [c.callId, c.status]), [["c1", "lost"]]);
+    if (state.kind === "run")
+      assert.deepEqual(
+        state.calls.map((c) => [c.callId, c.status]),
+        [["c1", "lost"]],
+      );
     void handle;
 
     queue = [answer("after")];
@@ -770,7 +962,21 @@ describe("the run lease", () => {
       let resolve!: (o: ToolOutput) => void;
       return { promise: new Promise<ToolOutput>((r) => (resolve = r)), resolve };
     })();
-    const slow: Tool = { ...tool("slow", () => Promise.resolve({ started: { lease: { seconds: 60 }, summary: "slow thing", done: g.promise, stop: () => g.resolve({ content: "cut short", is_error: true }) } }) as never), background: true };
+    const slow: Tool = {
+      ...tool(
+        "slow",
+        () =>
+          Promise.resolve({
+            started: {
+              lease: { seconds: 60 },
+              summary: "slow thing",
+              done: g.promise,
+              stop: () => g.resolve({ content: "cut short", is_error: true }),
+            },
+          }) as never,
+      ),
+      background: true,
+    };
     const registry = reg(slow);
     const { convo } = await fresh(registry);
     const jobs = new JobRegistry(convo);
@@ -812,10 +1018,24 @@ describe("background jobs", () => {
     return { promise, resolve };
   };
   const slow = (g: ReturnType<typeof gate>, stopped: { n: number } = { n: 0 }): Tool => ({
-    ...tool("slow", () => Promise.resolve({ started: { lease: { seconds: 60 }, summary: "slow thing", done: g.promise, stop: () => (stopped.n++, g.resolve({ content: "cut short", is_error: true })) } }) as never),
+    ...tool(
+      "slow",
+      () =>
+        Promise.resolve({
+          started: {
+            lease: { seconds: 60 },
+            summary: "slow thing",
+            done: g.promise,
+            stop: () => (stopped.n++, g.resolve({ content: "cut short", is_error: true })),
+          },
+        }) as never,
+    ),
     background: true,
   });
-  const tags = async (c: Conversation) => (await entries(c)).map((e) => e.$tag === "tool_result" ? `result:${e.call_id}` : e.$tag === "job_event" ? `job:${e.job}:${e.status}` : e.$tag);
+  const tags = async (c: Conversation) =>
+    (await entries(c)).map((e) =>
+      e.$tag === "tool_result" ? `result:${e.call_id}` : e.$tag === "job_event" ? `job:${e.job}:${e.status}` : e.$tag,
+    );
   const events = async (c: Conversation) => (await entries(c)).flatMap((e) => (e.$tag === "job_event" ? [e] : []));
   const settle = () => new Promise((r) => setTimeout(r, 150));
   /** Wait until something that happens in the background (a commit) has happened, instead of guessing how long it takes. */
@@ -835,14 +1055,28 @@ describe("background jobs", () => {
       answer("done"),
     ];
     const { events: ev } = await drive(convo, registry, { jobs, onRequest: undefined } as never);
-    assert.deepEqual(await tags(convo), ["header", "agent_setup", "agent_setup", "user", "assistant", "result:c1", "assistant", "result:c2", "job:j1:completed", "assistant"]);
+    assert.deepEqual(await tags(convo), [
+      "header",
+      "agent_setup",
+      "agent_setup",
+      "user",
+      "assistant",
+      "result:c1",
+      "assistant",
+      "result:c2",
+      "job:j1:completed",
+      "assistant",
+    ]);
     const [r1] = await results(convo);
     assert.match(str(r1!.content), /^started job j1: slow thing/);
     const [je] = await events(convo);
     assert.equal(je!.call_id, "c1");
     assert.match(str(je!.summary), /slow thing completed after/);
     assert.equal(str(je!.output), "exit 0\nbuild ok");
-    assert.deepEqual(ev.filter((e) => e.type === "job.event").map((e) => (e as { job: string }).job), ["j1"]);
+    assert.deepEqual(
+      ev.filter((e) => e.type === "job.event").map((e) => (e as { job: string }).job),
+      ["j1"],
+    );
     void seen;
     await assertHistoryInvariants(convo);
   });
@@ -854,7 +1088,11 @@ describe("background jobs", () => {
       const { convo } = await fresh(registry);
       const told: string[][] = [];
       let resumed = 0;
-      const jobs = new JobRegistry(convo, { resume, onCommitted: (e) => told.push(e.map((x) => `${x.job}:${x.status}`)), onResume: () => resumed++ });
+      const jobs = new JobRegistry(convo, {
+        resume,
+        onCommitted: (e) => told.push(e.map((x) => `${x.job}:${x.status}`)),
+        onResume: () => resumed++,
+      });
       queue = [calls(call("c1", "slow")), answer("started")];
       await drive(convo, registry, { jobs });
       assert.deepEqual(told, []);
@@ -862,7 +1100,10 @@ describe("background jobs", () => {
       await until(() => told.length > 0 && (resumed > 0 || !resume));
       assert.deepEqual(told, [["j1:completed"]]);
       assert.equal(resumed, resume ? 1 : 0);
-      assert.deepEqual((await events(convo)).map((e) => e.job), ["j1"]);
+      assert.deepEqual(
+        (await events(convo)).map((e) => e.job),
+        ["j1"],
+      );
     }
   });
 
@@ -876,13 +1117,20 @@ describe("background jobs", () => {
     const jobs = new JobRegistry(convo);
     const registry = reg(a, b, ...jobTools(jobs));
     await syncTools(convo, registry);
-    queue = [calls(call("c1", "slow"), call("c2", "slow2")), calls(call("c3", "job_stop", { job: "j2" }), call("c4", "jobs")), answer("ok")];
+    queue = [
+      calls(call("c1", "slow"), call("c2", "slow2")),
+      calls(call("c3", "job_stop", { job: "j2" }), call("c4", "jobs")),
+      answer("ok"),
+    ];
     g1.resolve({ content: "exit 2\nboom", is_error: true });
     await drive(convo, registry, { jobs });
     await settle();
     assert.equal(stopped.n, 1);
     const evs = await events(convo);
-    assert.deepEqual(evs.map((e) => [e.job, e.status]).sort(), [["j1", "failed"], ["j2", "stopped"]]);
+    assert.deepEqual(evs.map((e) => [e.job, e.status]).sort(), [
+      ["j1", "failed"],
+      ["j2", "stopped"],
+    ]);
     const rs = await results(convo);
     assert.match(str(rs[2]!.content), /Asked job j2 to stop/);
     assert.match(str(rs[3]!.content), /j1  failed  slow thing/);
@@ -909,7 +1157,12 @@ describe("background jobs", () => {
   test("a job started and never ended in the history is marked lost once, and numbering continues after it", async () => {
     const registry = reg(echo);
     const { convo } = await fresh(registry);
-    await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "started job j1: run: sleep 100. It keeps running" });
+    await convo.append({
+      $tag: "tool_result",
+      call_id: "c1",
+      is_error: false,
+      content: "started job j1: run: sleep 100. It keeps running",
+    });
     await convo.append({ $tag: "tool_result", call_id: "c2", is_error: false, content: "started job j2: run: ls. It keeps running" });
     await convo.append({ $tag: "job_event", job: "j2", call_id: "c2", status: "completed", summary: "ls completed after 0s" });
     const jobs = new JobRegistry(convo);
@@ -931,7 +1184,10 @@ describe("background jobs", () => {
     await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "started job j1: run: x" });
     queue = [answer("ok")];
     const { events: ev } = await drive(convo, registry, { jobs: new JobRegistry(convo) });
-    assert.deepEqual(ev.filter((e) => e.type === "job.event").map((e) => [(e as { job: string }).job, (e as { status: string }).status]), [["j1", "lost"]]);
+    assert.deepEqual(
+      ev.filter((e) => e.type === "job.event").map((e) => [(e as { job: string }).job, (e as { status: string }).status]),
+      [["j1", "lost"]],
+    );
   });
 
   test("a fork made while a job runs is told the job is not running there, and the parent still gets its event", async () => {
@@ -944,14 +1200,21 @@ describe("background jobs", () => {
     assert.ok(side !== undefined);
     queue = [answer("fork answer")];
     const { events: ev } = await drive(side, registry, { jobs: new JobRegistry(side) });
-    assert.deepEqual(ev.filter((e) => e.type === "job.event").map((e) => (e as { job: string }).job), ["j1"]);
+    assert.deepEqual(
+      ev.filter((e) => e.type === "job.event").map((e) => (e as { job: string }).job),
+      ["j1"],
+    );
     const lost = (await events(side)).filter((e) => e.status === "lost");
     assert.equal(lost.length, 1);
     assert.match(str(lost[0]!.summary), /started on the thread this one was forked from \(main\); it is not running here/);
     assert.doesNotMatch(str(lost[0]!.summary), /output is gone/);
     g.resolve({ content: "done" });
     await settle();
-    assert.deepEqual((await events(convo)).map((e) => e.status), ["completed"], "the parent has its own event and no lost one");
+    assert.deepEqual(
+      (await events(convo)).map((e) => e.status),
+      ["completed"],
+      "the parent has its own event and no lost one",
+    );
     queue = [answer("again")];
     await drive(side, registry, { jobs: new JobRegistry(side) });
     assert.equal((await events(side)).filter((e) => e.status === "lost").length, 1, "once");
@@ -1005,7 +1268,10 @@ describe("background jobs", () => {
     for (const t of leafTools().filter((x) => x.definition.name === "run" || x.definition.name === "script")) {
       assert.equal(t.background, true);
       assert.deepEqual(flatProblems(t.definition.input_schema), []);
-      assert.equal((t.definition.input_schema as { properties: Record<string, { type: string }> }).properties["background"]?.type, "boolean");
+      assert.equal(
+        (t.definition.input_schema as { properties: Record<string, { type: string }> }).properties["background"]?.type,
+        "boolean",
+      );
     }
   });
 });

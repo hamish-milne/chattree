@@ -78,9 +78,15 @@ describe("permitted", () => {
   test("other keys are judged together by the tool, and expired keys are never offered to it", async () => {
     const seen: string[][] = [];
     const t = tool({ covers: (keys, args) => (seen.push([...keys]), args["v"] === 1 ? ["x"] : undefined) });
-    assert.deepEqual(await permitted(t, { v: 1 }, { x: FOREVER, y: FOREVER, old: "2020-01-01" }, NOW, ctx), { permitted: true, keys: ["x"] });
+    assert.deepEqual(await permitted(t, { v: 1 }, { x: FOREVER, y: FOREVER, old: "2020-01-01" }, NOW, ctx), {
+      permitted: true,
+      keys: ["x"],
+    });
     assert.deepEqual(await permitted(t, { v: 2 }, { x: FOREVER, y: FOREVER, old: "2020-01-01" }, NOW, ctx), { permitted: false });
-    assert.deepEqual(seen, [["x", "y"], ["x", "y"]]);
+    assert.deepEqual(seen, [
+      ["x", "y"],
+      ["x", "y"],
+    ]);
   });
   test("a tool without `covers` is covered only by all", async () => {
     assert.deepEqual(await permitted(tool(), {}, { "grep **": FOREVER }, NOW, ctx), { permitted: false });

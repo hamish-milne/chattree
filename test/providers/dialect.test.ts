@@ -61,16 +61,41 @@ const toy: Dialect = {
 };
 
 const chunk = (o: object) => `data: ${JSON.stringify(o)}\n\n`;
-const last = (extra: object = {}) => chunk({ content: "", stop: true, stop_type: "eos", tokens_evaluated: 50, tokens_cached: 57, tokens_predicted: 7, timings: { cache_n: 30, prompt_n: 20 }, ...extra });
+const last = (extra: object = {}) =>
+  chunk({
+    content: "",
+    stop: true,
+    stop_type: "eos",
+    tokens_evaluated: 50,
+    tokens_cached: 57,
+    tokens_predicted: 7,
+    timings: { cache_n: 30, prompt_n: 20 },
+    ...extra,
+  });
 
-const rt = (server: FakeServer): LocalModelsRuntime => ({ connect: async () => ({ baseUrl: server.url, ids: { qwen: "qwen@1a2b3c4d" } }), catalog: () => ({ qwen: { context_window: 16384 } }), resolve: (id) => id });
-const setup = (settings: object): AgentSetup => ({ ...emptySetup(), model: { provider: "local-models", id: "qwen", settings: { max_output_tokens: 99, ...settings } } });
-const context = { system: "SYS", instructions: undefined, turns: [{ role: "user" as const, parts: [{ type: "text" as const, text: "hi" }] }], tools: [{ name: "read", description: "d", input_schema: { type: "object" } }], cacheHints: [] };
+const rt = (server: FakeServer): LocalModelsRuntime => ({
+  connect: async () => ({ baseUrl: server.url, ids: { qwen: "qwen@1a2b3c4d" } }),
+  catalog: () => ({ qwen: { context_window: 16384 } }),
+  resolve: (id) => id,
+});
+const setup = (settings: object): AgentSetup => ({
+  ...emptySetup(),
+  model: { provider: "local-models", id: "qwen", settings: { max_output_tokens: 99, ...settings } },
+});
+const context = {
+  system: "SYS",
+  instructions: undefined,
+  turns: [{ role: "user" as const, parts: [{ type: "text" as const, text: "hi" }] }],
+  tools: [{ name: "read", description: "d", input_schema: { type: "object" } }],
+  cacheHints: [],
+};
 
 async function run(acts: string[], settings: object = { dialect: "toy" }, status = 200) {
   const server = await FakeServer.start([{ status, headers: { "content-type": "text/event-stream" }, acts }]);
   try {
-    const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [toy], today: () => "2026-11-11" })).get("local-models")!;
+    const def = new AdapterRegistry()
+      .register(localModelsDefinition(rt(server), { dialects: [toy], today: () => "2026-11-11" }))
+      .get("local-models")!;
     const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
     const result = await collectStream(adapter.stream({ context, setup: setup(settings), signal: new AbortController().signal }));
     return { result, server };
@@ -81,7 +106,14 @@ async function run(acts: string[], settings: object = { dialect: "toy" }, status
 
 describe("a model with a dialect", () => {
   test("is sent the rendered prompt to /completion, with the sampling, the stop strings and special tokens on", async () => {
-    const { result, server } = await run([chunk({ content: "ok", stop: false }), last()], { dialect: "toy", dialect_options: { tag: "T" }, reasoning_effort: "high", temperature: 0.5, stop: ["X"], extra: { top_k: 20, prompt: "no", cache_prompt: false } });
+    const { result, server } = await run([chunk({ content: "ok", stop: false }), last()], {
+      dialect: "toy",
+      dialect_options: { tag: "T" },
+      reasoning_effort: "high",
+      temperature: 0.5,
+      stop: ["X"],
+      extra: { top_k: 20, prompt: "no", cache_prompt: false },
+    });
     assert.equal(result.error, undefined);
     assert.equal(server.seen[0]!.url, "/completion");
     const body = JSON.parse(server.seen[0]!.body) as Record<string, unknown>;
@@ -97,12 +129,15 @@ describe("a model with a dialect", () => {
   });
 
   test("text and calls are read out of the raw stream, whatever the pieces", async () => {
-    const pieces = ["Let me ", "look. [", "[read {\"pa", "th\": \"a.txt\"}]", "]", " done"];
+    const pieces = ["Let me ", "look. [", '[read {"pa', 'th": "a.txt"}]', "]", " done"];
     const { result } = await run([...pieces.map((c) => chunk({ content: c, stop: false })), last()]);
     assert.equal(result.error, undefined);
     const c = result.completed!;
     assert.equal(c.stop_reason, "tool_use");
-    assert.deepEqual(c.blocks.map((b) => b.type), ["text", "tool_call", "text"]);
+    assert.deepEqual(
+      c.blocks.map((b) => b.type),
+      ["text", "tool_call", "text"],
+    );
     const call = c.blocks[1] as { name: string; args: unknown; call_id: string };
     assert.equal(call.name, "read");
     assert.deepEqual(call.args, { path: "a.txt" });
@@ -119,9 +154,9 @@ describe("a model with a dialect", () => {
   });
 
   test("a call cut off by the stream ending is closed as raw text", async () => {
-    const { result } = await run([chunk({ content: "[[read {\"a\":", stop: false }), last()]);
+    const { result } = await run([chunk({ content: '[[read {"a":', stop: false }), last()]);
     const call = result.completed!.blocks[0] as { args_raw?: string };
-    assert.equal(call.args_raw, "{\"a\":");
+    assert.equal(call.args_raw, '{"a":');
   });
 
   test("usage comes from the final chunk, with cached tokens counted apart from the input", async () => {
@@ -139,7 +174,11 @@ describe("a model with a dialect", () => {
   });
 
   test("a server error says what it said", async () => {
-    const { result } = await run([JSON.stringify({ error: { type: "exceed_context_size_error", message: "too long" } })], { dialect: "toy" }, 400);
+    const { result } = await run(
+      [JSON.stringify({ error: { type: "exceed_context_size_error", message: "too long" } })],
+      { dialect: "toy" },
+      400,
+    );
     const e = result.error as ProviderError;
     assert.equal(e.kind, "invalid_request");
     assert.match(e.message, /too long/);
@@ -151,12 +190,35 @@ describe("a model with a dialect", () => {
   });
 
   test("a dialect that does not write pictures is not given them to drop", async () => {
-    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true } })] } : { acts: [last()] }));
+    const server = await FakeServer.start((_n, req) =>
+      req.url.startsWith("/props")
+        ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true } })] }
+        : { acts: [last()] },
+    );
     try {
       const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [toy] })).get("local-models")!;
       const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
-      const ctx = { ...context, turns: [{ role: "user" as const, parts: [{ type: "attachment" as const, kind: "image" as const, name: "a.png", mime: "image/png", sha256: "x", bytes: new Uint8Array(1) }] }] };
-      const r = await collectStream(adapter.stream({ context: ctx, setup: setup({ dialect: "toy" }), signal: new AbortController().signal }));
+      const ctx = {
+        ...context,
+        turns: [
+          {
+            role: "user" as const,
+            parts: [
+              {
+                type: "attachment" as const,
+                kind: "image" as const,
+                name: "a.png",
+                mime: "image/png",
+                sha256: "x",
+                bytes: new Uint8Array(1),
+              },
+            ],
+          },
+        ],
+      };
+      const r = await collectStream(
+        adapter.stream({ context: ctx, setup: setup({ dialect: "toy" }), signal: new AbortController().signal }),
+      );
       assert.match((r.error as ProviderError).message, /does not write pictures into its prompt \(1 sent, 0 written\)/);
       assert.equal(server.seen.filter((x) => x.url === "/completion").length, 0);
     } finally {
@@ -165,7 +227,14 @@ describe("a model with a dialect", () => {
   });
 
   test("without a dialect the chat endpoint is used as before", async () => {
-    const server = await FakeServer.start([{ acts: [`data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "a" }, finish_reason: "stop" }] })}\n\n`, "data: [DONE]\n\n"] }]);
+    const server = await FakeServer.start([
+      {
+        acts: [
+          `data: ${JSON.stringify({ choices: [{ index: 0, delta: { content: "a" }, finish_reason: "stop" }] })}\n\n`,
+          "data: [DONE]\n\n",
+        ],
+      },
+    ]);
     try {
       const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [toy] })).get("local-models")!;
       const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
@@ -179,34 +248,77 @@ describe("a model with a dialect", () => {
   test("changing the dialect or its options is a cache break", () => {
     const def = localModelsDefinition(rt(undefined as never), { dialects: [toy] });
     const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
-    assert.equal(adapter.classify!(setup({ dialect: "toy" }), setup({ dialect: "toy", dialect_options: { a: 1 } }), { midLoop: false }).length, 1);
+    assert.equal(
+      adapter.classify!(setup({ dialect: "toy" }), setup({ dialect: "toy", dialect_options: { a: 1 } }), { midLoop: false }).length,
+      1,
+    );
     assert.equal(adapter.classify!(setup({ dialect: "toy" }), setup({ dialect: "toy" }), { midLoop: false }).length, 0);
   });
 });
 
 describe("pictures to the server", () => {
-  const picture = { type: "attachment" as const, kind: "image" as "image" | "audio", name: "a.png", mime: "image/png", sha256: "0".repeat(64), bytes: Uint8Array.from([1, 2, 3]) };
+  const picture = {
+    type: "attachment" as const,
+    kind: "image" as "image" | "audio",
+    name: "a.png",
+    mime: "image/png",
+    sha256: "0".repeat(64),
+    bytes: Uint8Array.from([1, 2, 3]),
+  };
   const ctx = { ...context, turns: [{ role: "user" as const, parts: [picture, { type: "text" as const, text: "what?" }] }], tools: [] };
   // A dialect that writes a user turn's text and pictures as the server's marker, the way the families do.
-  const seeing: Dialect = { ...toy, id: "seeing", render: (i) => { const media: (typeof picture)[] = []; return { prompt: `${userContent((i.context.turns[0] as unknown as { parts: never[] }).parts, i.marker, media)}`, stop: [], ...(media.length === 0 ? {} : { media }) }; } };
+  const seeing: Dialect = {
+    ...toy,
+    id: "seeing",
+    render: (i) => {
+      const media: (typeof picture)[] = [];
+      return {
+        prompt: `${userContent((i.context.turns[0] as unknown as { parts: never[] }).parts, i.marker, media)}`,
+        stop: [],
+        ...(media.length === 0 ? {} : { media }),
+      };
+    },
+  };
   const sse = (acts: string[]) => ({ status: 200, headers: { "content-type": "text/event-stream" }, acts });
-  const adapterFor = (server: FakeServer) => new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [seeing], today: () => "2026-11-11" })).get("local-models")!.create({ $tag: "local-models" } as never, { get: () => undefined });
-  const ask = (server: FakeServer, c = ctx) => collectStream(adapterFor(server).stream({ context: c, setup: setup({ dialect: "seeing" }), signal: new AbortController().signal }));
+  const adapterFor = (server: FakeServer) =>
+    new AdapterRegistry()
+      .register(localModelsDefinition(rt(server), { dialects: [seeing], today: () => "2026-11-11" }))
+      .get("local-models")!
+      .create({ $tag: "local-models" } as never, { get: () => undefined });
+  const ask = (server: FakeServer, c = ctx) =>
+    collectStream(adapterFor(server).stream({ context: c, setup: setup({ dialect: "seeing" }), signal: new AbortController().signal }));
 
   test("the prompt goes with the pictures as base64, in the server's own marker", async () => {
-    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true }, media_marker: "<__media_x__>" })] } : sse([chunk({ content: "a cat", stop: false }), last()])));
+    const server = await FakeServer.start((_n, req) =>
+      req.url.startsWith("/props")
+        ? {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            acts: [JSON.stringify({ modalities: { vision: true }, media_marker: "<__media_x__>" })],
+          }
+        : sse([chunk({ content: "a cat", stop: false }), last()]),
+    );
     try {
       const run = await ask(server);
       assert.equal(run.error, undefined);
-      const body = JSON.parse(server.seen.find((r) => r.url === "/completion")!.body) as { prompt: { prompt_string: string; multimodal_data: string[] } };
-      assert.deepEqual(body.prompt, { prompt_string: "<__media_x__>\nwhat?", multimodal_data: [Buffer.from([1, 2, 3]).toString("base64")] });
+      const body = JSON.parse(server.seen.find((r) => r.url === "/completion")!.body) as {
+        prompt: { prompt_string: string; multimodal_data: string[] };
+      };
+      assert.deepEqual(body.prompt, {
+        prompt_string: "<__media_x__>\nwhat?",
+        multimodal_data: [Buffer.from([1, 2, 3]).toString("base64")],
+      });
       assert.match(server.seen.find((r) => r.url.startsWith("/props"))!.url, /^\/props\?model=/);
     } finally {
       await server.close();
     }
   });
   test("a server without a projector is told so, and nothing is sent to /completion", async () => {
-    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: false } })] } : sse([last()])));
+    const server = await FakeServer.start((_n, req) =>
+      req.url.startsWith("/props")
+        ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: false } })] }
+        : sse([last()]),
+    );
     try {
       const run = await ask(server);
       assert.match((run.error as ProviderError).message, /no multimodal projector/);
@@ -218,14 +330,30 @@ describe("pictures to the server", () => {
   test("sound goes only to a server whose projector can hear, in the same way as a picture", async () => {
     const sound = { ...picture, kind: "audio" as const, name: "a.wav", mime: "audio/wav" };
     const hearing = { ...ctx, turns: [{ role: "user" as const, parts: [sound, { type: "text" as const, text: "what?" }] }] };
-    const mute = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true, audio: false } })] } : sse([last()])));
+    const mute = await FakeServer.start((_n, req) =>
+      req.url.startsWith("/props")
+        ? {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            acts: [JSON.stringify({ modalities: { vision: true, audio: false } })],
+          }
+        : sse([last()]),
+    );
     try {
       assert.match(((await ask(mute, hearing)).error as ProviderError).message, /cannot take sound/);
       assert.equal(mute.seen.filter((r) => r.url === "/completion").length, 0);
     } finally {
       await mute.close();
     }
-    const ear = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: false, audio: true } })] } : sse([chunk({ content: "a beep", stop: false }), last()])));
+    const ear = await FakeServer.start((_n, req) =>
+      req.url.startsWith("/props")
+        ? {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            acts: [JSON.stringify({ modalities: { vision: false, audio: true } })],
+          }
+        : sse([chunk({ content: "a beep", stop: false }), last()]),
+    );
     try {
       const run = await ask(ear, hearing);
       assert.equal(run.error, undefined);
@@ -236,10 +364,15 @@ describe("pictures to the server", () => {
     }
   });
   test("a build that does not say its marker gets the default one, and text-only requests do not ask", async () => {
-    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 404, acts: [] } : sse([chunk({ content: "ok", stop: false }), last()])));
+    const server = await FakeServer.start((_n, req) =>
+      req.url.startsWith("/props") ? { status: 404, acts: [] } : sse([chunk({ content: "ok", stop: false }), last()]),
+    );
     try {
       await ask(server);
-      assert.equal((JSON.parse(server.seen.find((r) => r.url === "/completion")!.body) as { prompt: { prompt_string: string } }).prompt.prompt_string, "<__media__>\nwhat?");
+      assert.equal(
+        (JSON.parse(server.seen.find((r) => r.url === "/completion")!.body) as { prompt: { prompt_string: string } }).prompt.prompt_string,
+        "<__media__>\nwhat?",
+      );
       const before = server.seen.length;
       await ask(server, { ...context, tools: [] });
       assert.equal(server.seen.slice(before).filter((r) => r.url.startsWith("/props")).length, 0);
@@ -248,7 +381,15 @@ describe("pictures to the server", () => {
     }
   });
   test("text that holds the marker is refused, since it would be taken for a picture", async () => {
-    const server = await FakeServer.start((_n, req) => (req.url.startsWith("/props") ? { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ modalities: { vision: true }, media_marker: "<__m__>" })] } : sse([last()])));
+    const server = await FakeServer.start((_n, req) =>
+      req.url.startsWith("/props")
+        ? {
+            status: 200,
+            headers: { "content-type": "application/json" },
+            acts: [JSON.stringify({ modalities: { vision: true }, media_marker: "<__m__>" })],
+          }
+        : sse([last()]),
+    );
     try {
       const run = await ask(server, { ...ctx, turns: [{ role: "user", parts: [picture, { type: "text", text: "say <__m__>" }] }] });
       assert.match((run.error as ProviderError).message, /contains the server's picture marker/);
@@ -261,17 +402,37 @@ describe("pictures to the server", () => {
 describe("the assembler", () => {
   test("reasoning, text and calls become separate blocks in order, and open ones are closed at the end", () => {
     const a = new Assembler("p", () => "c1");
-    a.feed([{ kind: "reasoning", text: "think" }, { kind: "text", text: "say" }, { kind: "call.start", name: "x" }, { kind: "call.args", delta: "{\"a\"" }, { kind: "call.args", delta: ":1}" }]);
+    a.feed([
+      { kind: "reasoning", text: "think" },
+      { kind: "text", text: "say" },
+      { kind: "call.start", name: "x" },
+      { kind: "call.args", delta: '{"a"' },
+      { kind: "call.args", delta: ":1}" },
+    ]);
     a.end();
-    assert.deepEqual(a.blocks, [{ type: "reasoning", provider: "p", visible: "think" }, { type: "text", text: "say" }, { type: "tool_call", call_id: "c1", name: "x", args: { a: 1 } }]);
+    assert.deepEqual(a.blocks, [
+      { type: "reasoning", provider: "p", visible: "think" },
+      { type: "text", text: "say" },
+      { type: "tool_call", call_id: "c1", name: "x", args: { a: 1 } },
+    ]);
   });
   test("a call the dialect could not read keeps what the model wrote and carries the error to say, which the registry answers with", async () => {
     const a = new Assembler("p", () => "c1");
-    a.feed([{ kind: "call.start", name: "x" }, { kind: "call.end", raw: "{\"cmd\": {}}", error: "say this" }]);
+    a.feed([
+      { kind: "call.start", name: "x" },
+      { kind: "call.end", raw: '{"cmd": {}}', error: "say this" },
+    ]);
     a.end();
-    assert.deepEqual(a.blocks, [{ type: "tool_call", call_id: "c1", name: "x", args: {}, args_raw: "{\"cmd\": {}}", ext: { call_error: "say this" } }]);
+    assert.deepEqual(a.blocks, [
+      { type: "tool_call", call_id: "c1", name: "x", args: {}, args_raw: '{"cmd": {}}', ext: { call_error: "say this" } },
+    ]);
     const { ToolRegistry } = await import("../../harness/tools.ts");
-    const reg = new ToolRegistry([{ definition: { name: "x", description: "d", input_schema: { type: "object", properties: {} } }, execute: () => Promise.resolve({ content: "" }) }]);
+    const reg = new ToolRegistry([
+      {
+        definition: { name: "x", description: "d", input_schema: { type: "object", properties: {} } },
+        execute: () => Promise.resolve({ content: "" }),
+      },
+    ]);
     assert.deepEqual(reg.check(a.blocks[0] as never), { error: "say this" });
   });
 });
@@ -283,13 +444,28 @@ describe("a special token the server gives no text", () => {
   const sse = (acts: string[]) => ({ status: 200, headers: { "content-type": "text/event-stream" }, acts });
   test("the text of a marker comes back from its id", async () => {
     const server = await FakeServer.start((_n, req) => {
-      if (req.url === "/tokenize") return { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ tokens: [(JSON.parse(req.body) as { content: string }).content === "[[" ? 9 : 32] })] };
-      return sse([chunk({ content: "", tokens: [9], stop: false }), chunk({ content: "read ", tokens: [5], stop: false }), chunk({ content: '{"path": "a"}', tokens: [6], stop: false }), chunk({ content: "", tokens: [32], stop: false }), last()]);
+      if (req.url === "/tokenize")
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          acts: [JSON.stringify({ tokens: [(JSON.parse(req.body) as { content: string }).content === "[[" ? 9 : 32] })],
+        };
+      return sse([
+        chunk({ content: "", tokens: [9], stop: false }),
+        chunk({ content: "read ", tokens: [5], stop: false }),
+        chunk({ content: '{"path": "a"}', tokens: [6], stop: false }),
+        chunk({ content: "", tokens: [32], stop: false }),
+        last(),
+      ]);
     });
     try {
-      const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" })).get("local-models")!;
+      const def = new AdapterRegistry()
+        .register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" }))
+        .get("local-models")!;
       const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
-      const result = await collectStream(adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }));
+      const result = await collectStream(
+        adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }),
+      );
       assert.equal(result.error, undefined);
       assert.equal(server.seen.filter((r) => r.url === "/tokenize").length, 2);
       assert.equal(server.seen.at(-1)!.url, "/completion");
@@ -307,18 +483,37 @@ describe("a special token the server gives no text", () => {
       if (req.url === "/tokenize") {
         tokenizeCalls++;
         if (tokenizeCalls <= 2) return { status: 503, acts: ["loading"] };
-        return { status: 200, headers: { "content-type": "application/json" }, acts: [JSON.stringify({ tokens: [(JSON.parse(req.body) as { content: string }).content === "[[" ? 9 : 32] })] };
+        return {
+          status: 200,
+          headers: { "content-type": "application/json" },
+          acts: [JSON.stringify({ tokens: [(JSON.parse(req.body) as { content: string }).content === "[[" ? 9 : 32] })],
+        };
       }
-      return sse([chunk({ content: "", tokens: [9], stop: false }), chunk({ content: "read ", tokens: [5], stop: false }), chunk({ content: '{"path": "a"}', tokens: [6], stop: false }), chunk({ content: "", tokens: [32], stop: false }), last()]);
+      return sse([
+        chunk({ content: "", tokens: [9], stop: false }),
+        chunk({ content: "read ", tokens: [5], stop: false }),
+        chunk({ content: '{"path": "a"}', tokens: [6], stop: false }),
+        chunk({ content: "", tokens: [32], stop: false }),
+        last(),
+      ]);
     });
     try {
-      const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" })).get("local-models")!;
+      const def = new AdapterRegistry()
+        .register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" }))
+        .get("local-models")!;
       const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
-      const ask = () => collectStream(adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }));
+      const ask = () =>
+        collectStream(adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }));
       const first = await ask();
-      assert.deepEqual(first.completed!.blocks.map((b) => b.type), ["text"]); // no markers yet: the call is plain text
+      assert.deepEqual(
+        first.completed!.blocks.map((b) => b.type),
+        ["text"],
+      ); // no markers yet: the call is plain text
       const second = await ask();
-      assert.deepEqual(second.completed!.blocks.map((b) => b.type), ["tool_call"]);
+      assert.deepEqual(
+        second.completed!.blocks.map((b) => b.type),
+        ["tool_call"],
+      );
       await ask();
       assert.equal(tokenizeCalls, 4); // answered once, and then remembered
     } finally {
@@ -326,11 +521,17 @@ describe("a special token the server gives no text", () => {
     }
   });
   test("a server that cannot tokenize leaves the stream as it is", async () => {
-    const server = await FakeServer.start((_n, req) => (req.url === "/tokenize" ? { status: 404, acts: ["no"] } : sse([chunk({ content: "plain", tokens: [5], stop: false }), last()])));
+    const server = await FakeServer.start((_n, req) =>
+      req.url === "/tokenize" ? { status: 404, acts: ["no"] } : sse([chunk({ content: "plain", tokens: [5], stop: false }), last()]),
+    );
     try {
-      const def = new AdapterRegistry().register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" })).get("local-models")!;
+      const def = new AdapterRegistry()
+        .register(localModelsDefinition(rt(server), { dialects: [marked], today: () => "2026-11-11" }))
+        .get("local-models")!;
       const adapter = def.create({ $tag: "local-models" } as never, { get: () => undefined });
-      const result = await collectStream(adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }));
+      const result = await collectStream(
+        adapter.stream({ context, setup: setup({ dialect: "marked" }), signal: new AbortController().signal }),
+      );
       assert.equal(result.error, undefined);
       assert.deepEqual(result.completed!.blocks, [{ type: "text", text: "plain" }]);
     } finally {

@@ -9,8 +9,10 @@ import { FORMATS, canonicalMime, formatOf, sniffFormat } from "../../harness/for
 
 const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
-const bytes = (...parts: (number[] | string)[]): Uint8Array => Uint8Array.from(parts.flatMap((p) => (typeof p === "string" ? ascii(p) : p)));
-const pad = (b: Uint8Array, n = 600): Uint8Array => (b.length >= n ? b : Uint8Array.from([...b, ...new Array<number>(n - b.length).fill(0)]));
+const bytes = (...parts: (number[] | string)[]): Uint8Array =>
+  Uint8Array.from(parts.flatMap((p) => (typeof p === "string" ? ascii(p) : p)));
+const pad = (b: Uint8Array, n = 600): Uint8Array =>
+  b.length >= n ? b : Uint8Array.from([...b, ...new Array<number>(n - b.length).fill(0)]);
 
 /** The start of a file in each format, as little as a detector needs: these are checked by content, not name. */
 const SAMPLES: [string, Uint8Array, string][] = [
@@ -22,14 +24,28 @@ const SAMPLES: [string, Uint8Array, string][] = [
   ["AVIF", bytes([0, 0, 0, 24], "ftypavif", [0, 0, 0, 0], "avifmif1"), "image/avif"],
   ["HEIC", bytes([0, 0, 0, 24], "ftypheic", [0, 0, 0, 0], "mif1heic"), "image/heic"],
   ["PDF", bytes("%PDF-1.7\n"), "application/pdf"],
-  ["WAV", bytes("RIFF", le32(100), "WAVEfmt ", le32(16), [1, 0, 1, 0], le32(16000), le32(32000), [2, 0, 16, 0], "data", le32(0)), "audio/wav"],
+  [
+    "WAV",
+    bytes("RIFF", le32(100), "WAVEfmt ", le32(16), [1, 0, 1, 0], le32(16000), le32(32000), [2, 0, 16, 0], "data", le32(0)),
+    "audio/wav",
+  ],
   ["FLAC", bytes("fLaC", [0, 0, 0, 34]), "audio/flac"],
   ["MP3 with an ID3 tag", pad(bytes("ID3", [3, 0, 0, 0, 0, 0, 0], [0xff, 0xfb, 0x90, 0x00])), "audio/mpeg"],
   ["MP3 frames without a tag", pad(bytes([0xff, 0xfb, 0x90, 0x00])), "audio/mpeg"],
   ["AIFF", bytes("FORM", [0, 0, 1, 0], "AIFFCOMM"), "audio/aiff"],
   ["M4A", bytes([0, 0, 0, 24], "ftypM4A ", [0, 0, 0, 0], "M4A mp42"), "audio/mp4"],
   ["MP4 video", bytes([0, 0, 0, 24], "ftypisom", [0, 0, 2, 0], "isomiso2"), "video/mp4"],
-  ["WebM", bytes([0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01, 0x42, 0xf7, 0x81, 0x01, 0x42, 0xf2, 0x81, 0x04, 0x42, 0xf3, 0x81, 0x08, 0x42, 0x82, 0x84], "webm"), "video/webm"],
+  [
+    "WebM",
+    bytes(
+      [
+        0x1a, 0x45, 0xdf, 0xa3, 0x9f, 0x42, 0x86, 0x81, 0x01, 0x42, 0xf7, 0x81, 0x01, 0x42, 0xf2, 0x81, 0x04, 0x42, 0xf3, 0x81, 0x08, 0x42,
+        0x82, 0x84,
+      ],
+      "webm",
+    ),
+    "video/webm",
+  ],
 ];
 
 describe("sniffing the format of bytes", () => {
@@ -57,12 +73,22 @@ describe("the table", () => {
   test("every format is canonical, once, and the aliases resolve to a format in it", () => {
     assert.equal(new Set(FORMATS.map((f) => f.mime)).size, FORMATS.length);
     for (const f of FORMATS) assert.equal(canonicalMime(f.mime), f.mime, f.mime);
-    for (const alias of ["audio/x-wav", "audio/vnd.wave", "audio/mp3", "audio/x-flac", "audio/x-m4a", "audio/ogg; codecs=opus", "AUDIO/WAV; rate=16000", "image/jpg", "image/x-ms-bmp"]) assert.ok(formatOf(alias) !== undefined, alias);
+    for (const alias of [
+      "audio/x-wav",
+      "audio/vnd.wave",
+      "audio/mp3",
+      "audio/x-flac",
+      "audio/x-m4a",
+      "audio/ogg; codecs=opus",
+      "AUDIO/WAV; rate=16000",
+      "image/jpg",
+      "image/x-ms-bmp",
+    ])
+      assert.ok(formatOf(alias) !== undefined, alias);
     assert.equal(formatOf("audio/x-wav")?.mime, "audio/wav");
     assert.equal(formatOf("audio/ogg; codecs=opus")?.mime, "audio/ogg");
     assert.equal(formatOf("text/plain"), undefined);
   });
-
 });
 
 describe("real files made by ffmpeg", () => {
@@ -70,7 +96,8 @@ describe("real files made by ffmpeg", () => {
     const exe = await findFfmpeg();
     if (exe === undefined) return t.skip("no ffmpeg here");
     const dir = await mkdtemp(join(tmpdir(), "formats-"));
-    const run = (args: string[]): boolean => spawnSync(exe, ["-hide_banner", "-loglevel", "error", "-y", ...args], { cwd: dir }).status === 0;
+    const run = (args: string[]): boolean =>
+      spawnSync(exe, ["-hide_banner", "-loglevel", "error", "-y", ...args], { cwd: dir }).status === 0;
     const sine = ["-f", "lavfi", "-i", "sine=frequency=440:duration=0.2"];
     const red = ["-f", "lavfi", "-i", "color=c=red:s=32x32:d=1", "-frames:v", "1"];
     const cases: [string[], string, string][] = [

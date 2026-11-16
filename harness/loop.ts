@@ -99,9 +99,28 @@ export type LoopEvent =
   | { type: "request.end"; n: number; result: TurnResult }
   | { type: "tool.start"; callId: string; name: string; args: Record<string, unknown> }
   /** The answer to the approval question, when it was asked. */
-  | { type: "tool.approval"; callId: string; name: string; allowed: boolean; reason?: string; via?: "allowlist" | "asked" | "headless" | "recorded"; keys?: string[]; granted?: { keys: string[]; until: string }; grantError?: string }
+  | {
+      type: "tool.approval";
+      callId: string;
+      name: string;
+      allowed: boolean;
+      reason?: string;
+      via?: "allowlist" | "asked" | "headless" | "recorded";
+      keys?: string[];
+      granted?: { keys: string[]; until: string };
+      grantError?: string;
+    }
   /** `content` is what was recorded; `skipped` says why a call that did not run got an error result instead. */
-  | { type: "tool.result"; callId: string; name: string; content: string; is_error: boolean; truncated: boolean; ms: number; skipped?: string };
+  | {
+      type: "tool.result";
+      callId: string;
+      name: string;
+      content: string;
+      is_error: boolean;
+      truncated: boolean;
+      ms: number;
+      skipped?: string;
+    };
 
 export type LoopResult = {
   /**
@@ -158,7 +177,11 @@ export class ToolsNotSupported extends Error {
  * The tools in the registry that the agent's model cannot be given: with a `flat` convention those with nested arguments, and with a model that
  * takes only the portable subset those whose schema cannot be narrowed to it (`projectSchema`).
  */
-export function toolConventionProblems(convo: Conversation, registry: ToolRegistry, model: ModelSetup | undefined): { convention: ToolConvention; tools: { name: string; why: string[] }[] } {
+export function toolConventionProblems(
+  convo: Conversation,
+  registry: ToolRegistry,
+  model: ModelSetup | undefined,
+): { convention: ToolConvention; tools: { name: string; why: string[] }[] } {
   const info = model === undefined ? undefined : convo.modelInfo(model.provider, servedModelId(model));
   const convention = info?.tool_convention ?? "full";
   const level = toolSchemaLevel(convo, model);
@@ -173,7 +196,10 @@ export function toolConventionProblems(convo: Conversation, registry: ToolRegist
 }
 
 /** How the agent's pinned tools differ from the registry. */
-export async function toolDrift(convo: Conversation, registry: ToolRegistry): Promise<{ missing: string[]; changed: string[]; extra: string[] }> {
+export async function toolDrift(
+  convo: Conversation,
+  registry: ToolRegistry,
+): Promise<{ missing: string[]; changed: string[]; extra: string[] }> {
   const pinned = (await convo.setup()).tools;
   const missing: string[] = [];
   const changed: string[] = [];
@@ -182,7 +208,13 @@ export async function toolDrift(convo: Conversation, registry: ToolRegistry): Pr
     if (pin === undefined) missing.push(def.name);
     else if (pin.hash !== (await hashDefinition("tool", def))) changed.push(def.name);
   }
-  return { missing, changed, extra: Object.keys(pinned).filter((n) => registry.get(n) === undefined).sort() };
+  return {
+    missing,
+    changed,
+    extra: Object.keys(pinned)
+      .filter((n) => registry.get(n) === undefined)
+      .sort(),
+  };
 }
 
 /**
@@ -302,11 +334,25 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   const toolSeconds = limits?.max_tool_seconds ?? DEFAULT_TOOL_SECONDS;
   const graceMs = opts.toolGraceMs ?? TOOL_GRACE_MS;
   const requestSeconds = limits?.max_request_seconds ?? DEFAULT_REQUEST_SECONDS;
-  const stopReason = (): "stopped" | "deadline" | undefined => (opts.signal?.aborted === true ? "stopped" : deadline !== undefined && now() >= deadline ? "deadline" : undefined);
+  const stopReason = (): "stopped" | "deadline" | undefined =>
+    opts.signal?.aborted === true ? "stopped" : deadline !== undefined && now() >= deadline ? "deadline" : undefined;
 
-  const record = async function* (call: { call_id: string; name: string }, out: ToolOutput, t0: number, skipped?: string): AsyncGenerator<LoopEvent, void, void> {
+  const record = async function* (
+    call: { call_id: string; name: string },
+    out: ToolOutput,
+    t0: number,
+    skipped?: string,
+  ): AsyncGenerator<LoopEvent, void, void> {
     if (out.recorded === true) {
-      yield { type: "tool.result", callId: call.call_id, name: call.name, content: out.content, is_error: out.is_error === true, truncated: false, ms: now() - t0 };
+      yield {
+        type: "tool.result",
+        callId: call.call_id,
+        name: call.name,
+        content: out.content,
+        is_error: out.is_error === true,
+        truncated: false,
+        ms: now() - t0,
+      };
       return;
     }
     let full: { $tag: "blob"; sha256: string; bytes: number; mime: string } | undefined;
@@ -319,12 +365,34 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       },
     });
     const media: { name?: string; data: { $tag: "blob"; sha256: string; bytes: number; mime: string } }[] = [];
-    for (const m of out.media ?? []) media.push({ ...(m.name === undefined ? {} : { name: m.name }), data: { $tag: "blob", sha256: await convo.store.put(m.bytes), bytes: m.bytes.length, mime: m.mime } });
-    await convo.append({ $tag: "tool_result", call_id: call.call_id, is_error: shaped.is_error, content: shaped.content, ...(shaped.truncated ? { truncated: true } : {}), ...(full === undefined ? {} : { full }), ...(media.length === 0 ? {} : { media }) });
-    yield { type: "tool.result", callId: call.call_id, name: call.name, content: shaped.content, is_error: shaped.is_error, truncated: shaped.truncated, ms: now() - t0, ...(skipped === undefined ? {} : { skipped }) };
+    for (const m of out.media ?? [])
+      media.push({
+        ...(m.name === undefined ? {} : { name: m.name }),
+        data: { $tag: "blob", sha256: await convo.store.put(m.bytes), bytes: m.bytes.length, mime: m.mime },
+      });
+    await convo.append({
+      $tag: "tool_result",
+      call_id: call.call_id,
+      is_error: shaped.is_error,
+      content: shaped.content,
+      ...(shaped.truncated ? { truncated: true } : {}),
+      ...(full === undefined ? {} : { full }),
+      ...(media.length === 0 ? {} : { media }),
+    });
+    yield {
+      type: "tool.result",
+      callId: call.call_id,
+      name: call.name,
+      content: shaped.content,
+      is_error: shaped.is_error,
+      truncated: shaped.truncated,
+      ms: now() - t0,
+      ...(skipped === undefined ? {} : { skipped }),
+    };
   };
 
-  if (opts.jobs !== undefined) for (const id of await opts.jobs.recover()) yield { type: "job.event", job: id, status: "lost", summary: `job ${id} was lost` };
+  if (opts.jobs !== undefined)
+    for (const id of await opts.jobs.recover()) yield { type: "job.event", job: id, status: "lost", summary: `job ${id} was lost` };
 
   // What the history already says: calls that have a decision, and grants the thread holds (the loop adds to both as it records more).
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
@@ -355,14 +423,34 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       yield* record(call, { content: checked.error, is_error: true }, t0);
       return "next";
     }
-    const decline = async function* (reason: string | undefined, via: "asked" | "headless" | "recorded"): AsyncGenerator<LoopEvent, void, void> {
-      yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via, ...(reason === undefined ? {} : { reason }) };
-      yield* record(call, { content: `The user declined to run this call${reason === undefined || reason === "" ? "." : `: ${reason}`}`, is_error: true }, t0);
+    const decline = async function* (
+      reason: string | undefined,
+      via: "asked" | "headless" | "recorded",
+    ): AsyncGenerator<LoopEvent, void, void> {
+      yield {
+        type: "tool.approval",
+        callId: call.call_id,
+        name: call.name,
+        allowed: false,
+        via,
+        ...(reason === undefined ? {} : { reason }),
+      };
+      yield* record(
+        call,
+        { content: `The user declined to run this call${reason === undefined || reason === "" ? "." : `: ${reason}`}`, is_error: true },
+        t0,
+      );
     };
     let proceed = true;
     /** Write down the answer to the question, so that every reader of the thread has it (and so a resumed loop does not ask again). */
     const recordDecision = async (d: Approval, grant?: { tool: string; keys: string[]; until: string }): Promise<void> => {
-      await convo.append({ $tag: "approval", call_id: call.call_id, allow: d.allow, ...(!d.allow && d.reason !== undefined && d.reason !== "" ? { reason: d.reason } : {}), ...(grant === undefined ? {} : { grant }) });
+      await convo.append({
+        $tag: "approval",
+        call_id: call.call_id,
+        allow: d.allow,
+        ...(!d.allow && d.reason !== undefined && d.reason !== "" ? { reason: d.reason } : {}),
+        ...(grant === undefined ? {} : { grant }),
+      });
       decisions.set(call.call_id, d.allow ? { allow: true } : { allow: false, ...(d.reason === undefined ? {} : { reason: d.reason }) });
       if (grant !== undefined) {
         const merged = mergeAllow(held.get(grant.tool), Object.fromEntries(grant.keys.map((k) => [k, grant.until])));
@@ -378,8 +466,15 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
         yield* decline(recorded.reason, "recorded");
       }
     } else if (opts.grants !== undefined) {
-      const hit = await permitted(checked.tool, checked.args, mergeAllow(await opts.grants.allow(call.name), held.get(call.name)), now(), approvalCtx);
-      if (hit.permitted) yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "allowlist", keys: hit.keys };
+      const hit = await permitted(
+        checked.tool,
+        checked.args,
+        mergeAllow(await opts.grants.allow(call.name), held.get(call.name)),
+        now(),
+        approvalCtx,
+      );
+      if (hit.permitted)
+        yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "allowlist", keys: hit.keys };
       else if (opts.approve === undefined) {
         const keys = (await checked.tool.allowKeys?.(checked.args, approvalCtx)) ?? null;
         if (opts.waitForApproval === true) {
@@ -388,16 +483,34 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
         }
         proceed = false;
         yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: false, via: "headless" };
-        yield* record(call, { content: "This call needs the user's approval and none is available here, so it did not run.", is_error: true }, t0);
+        yield* record(
+          call,
+          { content: "This call needs the user's approval and none is available here, so it did not run.", is_error: true },
+          t0,
+        );
       } else {
         const keys = (await checked.tool.allowKeys?.(checked.args, approvalCtx)) ?? null;
-        const decision = await whileAsking(() => (opts.approve as NonNullable<typeof opts.approve>)({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys }));
+        const decision = await whileAsking(() =>
+          (opts.approve as NonNullable<typeof opts.approve>)({
+            callId: call.call_id,
+            name: call.name,
+            args: checked.args,
+            tool: checked.tool,
+            keys,
+          }),
+        );
         if (!decision.allow) {
           proceed = false;
           await recordDecision(decision);
           yield* decline(decision.reason, "asked");
         } else {
-          const ev: Extract<LoopEvent, { type: "tool.approval" }> = { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "asked" };
+          const ev: Extract<LoopEvent, { type: "tool.approval" }> = {
+            type: "tool.approval",
+            callId: call.call_id,
+            name: call.name,
+            allowed: true,
+            via: "asked",
+          };
           let held_: { tool: string; keys: string[]; until: string } | undefined;
           if (decision.grant !== undefined && keys !== null && keys.length > 0) {
             const bad = keys.map((k) => keyProblem(checked.tool, k)).find((p) => p !== undefined);
@@ -405,7 +518,10 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
             try {
               if (bad !== undefined) throw new Error(bad);
               if (decision.grant.scope === "thread") held_ = { tool: call.name, keys, until };
-              else await opts.grants.grant(call.name, keys, until, { commit: decision.grant.commit ?? !Number.isFinite(decision.grant.seconds) });
+              else
+                await opts.grants.grant(call.name, keys, until, {
+                  commit: decision.grant.commit ?? !Number.isFinite(decision.grant.seconds),
+                });
               ev.granted = { keys, until };
             } catch (e) {
               ev.grantError = e instanceof Error ? e.message : String(e); // the user said yes: this call still runs, once
@@ -416,12 +532,33 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
         }
       }
     } else if (opts.approve !== undefined) {
-      const decision = await whileAsking(() => (opts.approve as NonNullable<typeof opts.approve>)({ callId: call.call_id, name: call.name, args: checked.args, tool: checked.tool, keys: null }));
+      const decision = await whileAsking(() =>
+        (opts.approve as NonNullable<typeof opts.approve>)({
+          callId: call.call_id,
+          name: call.name,
+          args: checked.args,
+          tool: checked.tool,
+          keys: null,
+        }),
+      );
       await recordDecision(decision);
-      yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: decision.allow, ...(decision.allow || decision.reason === undefined ? {} : { reason: decision.reason }) };
+      yield {
+        type: "tool.approval",
+        callId: call.call_id,
+        name: call.name,
+        allowed: decision.allow,
+        ...(decision.allow || decision.reason === undefined ? {} : { reason: decision.reason }),
+      };
       if (!decision.allow) {
         proceed = false;
-        yield* record(call, { content: `The user declined to run this call${decision.reason === undefined || decision.reason === "" ? "." : `: ${decision.reason}`}`, is_error: true }, t0);
+        yield* record(
+          call,
+          {
+            content: `The user declined to run this call${decision.reason === undefined || decision.reason === "" ? "." : `: ${decision.reason}`}`,
+            is_error: true,
+          },
+          t0,
+        );
       }
     }
     if (!proceed) return "next";
@@ -429,15 +566,31 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     // loop that is not heard from after that is dead. A tool that waits for another thread follows that thread's lease instead.
     const allowed = checked.tool.timeout?.(checked.args) ?? toolSeconds;
     const own = new AbortController();
-    const signals = [opts.signal, own.signal, deadline === undefined ? undefined : AbortSignal.timeout(Math.max(1, deadline - now()))].filter((s): s is AbortSignal => s !== undefined);
+    const signals = [
+      opts.signal,
+      own.signal,
+      deadline === undefined ? undefined : AbortSignal.timeout(Math.max(1, deadline - now())),
+    ].filter((s): s is AbortSignal => s !== undefined);
     const signal = AbortSignal.any(signals);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const timedOut = allowed === "thread" ? undefined : new Promise<"timeout">((resolve) => (timer = setTimeout(() => (resolve("timeout"), own.abort()), allowed * 1000 + graceMs)));
+    const timedOut =
+      allowed === "thread"
+        ? undefined
+        : new Promise<"timeout">((resolve) => (timer = setTimeout(() => (resolve("timeout"), own.abort()), allowed * 1000 + graceMs)));
     await lease.busyFor(allowed === "thread" ? 0 : allowed * 1000 + graceMs);
     const followKey = `call:${call.call_id}`;
     let out: ToolOutput;
     try {
-      const running = checked.tool.execute(checked.args, { signal, callId: call.call_id, thread: convo.branch, workspace: convo.dir, host: convo.host, blobs: convo.store, setup: () => convo.setup(), lease: { follow: (branch) => lease.follow(followKey, branch) } });
+      const running = checked.tool.execute(checked.args, {
+        signal,
+        callId: call.call_id,
+        thread: convo.branch,
+        workspace: convo.dir,
+        host: convo.host,
+        blobs: convo.store,
+        setup: () => convo.setup(),
+        lease: { follow: (branch) => lease.follow(followKey, branch) },
+      });
       const res = timedOut === undefined ? await running : await Promise.race([running, timedOut]);
       if (res !== "timeout" && !isStarted(res) && res.waiting !== undefined) {
         blocked = { callId: call.call_id, name: call.name, on: res.waiting };
@@ -452,7 +605,9 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
         out = { content: "background jobs are not available here", is_error: true };
       } else {
         const id = await opts.jobs.start(call.call_id, res.started);
-        out = { content: `started job ${id}: ${res.started.summary}. It keeps running; you will be told when it ends (jobs lists jobs, job_stop stops one).` };
+        out = {
+          content: `started job ${id}: ${res.started.summary}. It keeps running; you will be told when it ends (jobs lists jobs, job_stop stops one).`,
+        };
       }
     } catch (e) {
       out = { content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true };
@@ -473,12 +628,26 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   let resumedFinish = false;
   for (const id of unanswered(entries)) {
     const info = blocks.get(id);
-    const call = info === undefined ? undefined : ({ type: "tool_call", call_id: info.call_id, name: info.name, args: info.args, ...(info.args_raw === undefined ? {} : { args_raw: info.args_raw }) } as CallBlock);
+    const call =
+      info === undefined
+        ? undefined
+        : ({
+            type: "tool_call",
+            call_id: info.call_id,
+            name: info.name,
+            args: info.args,
+            ...(info.args_raw === undefined ? {} : { args_raw: info.args_raw }),
+          } as CallBlock);
     if (resumedFinish) {
       yield* record({ call_id: id, name: call?.name ?? "" }, { content: DID_NOT_RUN.finished, is_error: true }, now(), "finished");
       continue;
     }
-    const carryOn = call !== undefined && stopReason() === undefined && ((opts.waitForApproval === true && lease.before !== "stale") || registry.get(call.name)?.resumable === true || decisions.get(id)?.allow === false);
+    const carryOn =
+      call !== undefined &&
+      stopReason() === undefined &&
+      ((opts.waitForApproval === true && lease.before !== "stale") ||
+        registry.get(call.name)?.resumable === true ||
+        decisions.get(id)?.allow === false);
     if (!carryOn) {
       yield* record({ call_id: id, name: call?.name ?? "" }, { content: DID_NOT_RUN.stale, is_error: true }, now(), "stale");
       continue;
@@ -529,7 +698,8 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       }
       const why = stopReason();
       if (why !== undefined) {
-        for (const rest of calls.slice(i)) yield* record({ call_id: rest.call_id, name: rest.name }, { content: DID_NOT_RUN[why], is_error: true }, now(), why);
+        for (const rest of calls.slice(i))
+          yield* record({ call_id: rest.call_id, name: rest.name }, { content: DID_NOT_RUN[why], is_error: true }, now(), why);
         return { status: why, requests, last: result };
       }
       const end = yield* callOne(call);

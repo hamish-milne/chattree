@@ -3,7 +3,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseDocument } from "yaml";
 import { Daemon, DaemonRunning } from "../localmodels/daemon.ts";
-import { ensureDaemon, findDaemon, launchDetached, waitGone, DaemonError, type ClientEvent, type DaemonClient } from "../localmodels/client.ts";
+import {
+  ensureDaemon,
+  findDaemon,
+  launchDetached,
+  waitGone,
+  DaemonError,
+  type ClientEvent,
+  type DaemonClient,
+} from "../localmodels/client.ts";
 import { logFile } from "../localmodels/daemon-files.ts";
 import { LocalModelHost } from "../localmodels/host.ts";
 import { latestTag, type InstallPlan } from "../localmodels/install.ts";
@@ -21,29 +29,37 @@ import { loadSettings, settingsPath } from "./settings.ts";
 
 const USAGE = "usage: chattree models start|restart|stop|status|list|info <name>|pull [name...]|rm <name>|prune|logs|update|reload";
 
-export const bytes = (n: number): string => (n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} kB` : `${n} B`);
+export const bytes = (n: number): string =>
+  n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : n >= 1e6 ? `${(n / 1e6).toFixed(1)} MB` : n >= 1e3 ? `${(n / 1e3).toFixed(1)} kB` : `${n} B`;
 
 function dataOf(io: Pick<Io, "host" | "env" | "settings">): string {
   const data = dataDir(io.host, io.env, io.settings?.data_dir);
-  if (data === undefined) throw new CliError("there is no data directory on this machine", "set data_dir in the settings file, or CHATTREE_DATA");
+  if (data === undefined)
+    throw new CliError("there is no data directory on this machine", "set data_dir in the settings file, or CHATTREE_DATA");
   return data;
 }
 
 function localConfig(io: Pick<Io, "settings">) {
   const config = io.settings?.local_models;
-  if (config === undefined) throw new CliError("the settings file has no local_models section", "add one with `chattree settings edit` (docs/local-models.md shows what goes in it)");
+  if (config === undefined)
+    throw new CliError(
+      "the settings file has no local_models section",
+      "add one with `chattree settings edit` (docs/local-models.md shows what goes in it)",
+    );
   return config;
 }
 
 export function describePlan(p: InstallPlan): string {
-  const line = (label: string, f: InstallPlan["program"]): string => `  ${label}: ${f.name}${f.size === undefined ? "" : ` (${bytes(f.size)})`}\n    from ${f.url}\n    sha256 ${f.sha256 ?? "(not published; it will be recorded on first fetch)"}`;
+  const line = (label: string, f: InstallPlan["program"]): string =>
+    `  ${label}: ${f.name}${f.size === undefined ? "" : ` (${bytes(f.size)})`}\n    from ${f.url}\n    sha256 ${f.sha256 ?? "(not published; it will be recorded on first fetch)"}`;
   return `llama.cpp ${p.tag} (${p.backend}) is not installed. It will be downloaded and unpacked into ${p.dir}:\n${line("program", p.program)}${p.runtime === undefined ? "" : `\n${line("CUDA runtime", p.runtime)}`}`;
 }
 
 function describeStatus(s: DaemonStatus): string {
   const st = s.state;
   const lines = [`model host: ${st.phase}${st.baseUrl === undefined ? "" : ` at ${st.baseUrl}`} (process ${s.pid})`];
-  if (st.tag !== undefined) lines.push(`llama.cpp:  ${st.tag}${st.backend === undefined || st.backend === "custom" ? "" : ` (${st.backend})`}`);
+  if (st.tag !== undefined)
+    lines.push(`llama.cpp:  ${st.tag}${st.backend === undefined || st.backend === "custom" ? "" : ` (${st.backend})`}`);
   if (st.backendNote !== undefined) lines.push(`backend:    ${st.backendNote}`);
   if (st.restarts > 0) lines.push(`restarts:   ${st.restarts}`);
   for (const m of st.models) lines.push(`  ${m.name.padEnd(24)} ${m.state}${st.ids[m.name] === undefined ? "" : `   ${st.ids[m.name]}`}`);
@@ -71,7 +87,8 @@ function printer(io: Io): (e: ClientEvent) => void {
       else say(`installed ${e.event.binary}`);
     } else if (e.type === "store") {
       if (e.event.type === "resolve") say(`looking up ${e.event.what} on Hugging Face`);
-      else if (e.event.type === "download") tick(`m:${e.event.model}:${e.event.file}`, `downloading ${e.event.model} (${e.event.file})`, e.event.received, e.event.total);
+      else if (e.event.type === "download")
+        tick(`m:${e.event.model}:${e.event.file}`, `downloading ${e.event.model} (${e.event.file})`, e.event.received, e.event.total);
       else if (e.event.type === "have") say(`${e.event.model}: ${e.event.file} is already here`);
       else say(`${e.event.model}: ${e.event.file} done (${bytes(e.event.size)})`);
     }
@@ -113,7 +130,8 @@ async function follow(io: Io, client: DaemonClient, action: Action): Promise<num
     if (state === undefined) return;
     if (state.phase === "starting" && !phaseShown) {
       phaseShown = true;
-      if (state.backend !== undefined && state.backend !== "custom") say(`backend: ${state.backend}${state.backendNote === undefined ? "" : ` (${state.backendNote})`}`);
+      if (state.backend !== undefined && state.backend !== "custom")
+        say(`backend: ${state.backend}${state.backendNote === undefined ? "" : ` (${state.backendNote})`}`);
       say("starting llama-server");
     }
     if (state.phase !== "ready" && e.type !== "status") leftReady = true;
@@ -175,7 +193,10 @@ export async function serve(io: Io): Promise<number> {
     data,
     host: { ...thisMachine(), env: io.env },
     watch: path === undefined ? undefined : { path },
-    codeWatch: { root: fileURLToPath(new URL("..", import.meta.url)), dirs: ["cli", "harness", "hosts", "localmodels", "providers", "src"] },
+    codeWatch: {
+      root: fileURLToPath(new URL("..", import.meta.url)),
+      dirs: ["cli", "harness", "hosts", "localmodels", "providers", "src"],
+    },
     log: (m) => io.out(`${m}\n`),
     loadSettings: async () => {
       const s = await loadSettings(io);
@@ -223,7 +244,14 @@ async function readInventory(io: Io, data: string): Promise<ModelInfo[]> {
 /** A host that is not started: fetching and deleting files need none of the server, and no daemon should be started for them. */
 function idleHost(io: Io, data: string, o: ModelsOptions): LocalModelHost {
   const path = settingsPath(io.host, io.env);
-  return new LocalModelHost({ data, config: localConfig(io), baseDir: path === undefined ? data : dirname(path), ...thisMachine(), env: io.env, fetch: o.fetch });
+  return new LocalModelHost({
+    data,
+    config: localConfig(io),
+    baseDir: path === undefined ? data : dirname(path),
+    ...thisMachine(),
+    env: io.env,
+    fetch: o.fetch,
+  });
 }
 
 function describeModels(models: ModelInfo[], states: Map<string, string>): string {
@@ -246,7 +274,8 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
     if (rest.length !== n) throw new CliError(USAGE);
   };
   const running = async (): Promise<DaemonClient | undefined> => await findDaemon(data, o.fetch);
-  const states = async (): Promise<Map<string, string>> => new Map((await (await running())?.status())?.state.models.map((m) => [m.name, m.state]) ?? []);
+  const states = async (): Promise<Map<string, string>> =>
+    new Map((await (await running())?.status())?.state.models.map((m) => [m.name, m.state]) ?? []);
   try {
     switch (sub) {
       case "status": {
@@ -275,7 +304,12 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
           await old.stop();
           if (!(await waitGone(pid, 60_000))) throw new CliError(`the model host (process ${pid}) did not stop within a minute`);
         }
-        const client = await ensureDaemon({ data, fetch: o.fetch, launch: o.launch ?? (() => launchDetached(data, io.env)), onLaunch: () => io.err("starting the model host\n") });
+        const client = await ensureDaemon({
+          data,
+          fetch: o.fetch,
+          launch: o.launch ?? (() => launchDetached(data, io.env)),
+          onLaunch: () => io.err("starting the model host\n"),
+        });
         return await follow(io, client, { kind: "start", yes: o.yes });
       }
       case "reload": {
@@ -296,17 +330,43 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
         const name = rest[0] as string;
         const m = (await readInventory(io, data)).find((x) => x.name === name);
         const cfg = localConfig(io).models[name];
-        if (m === undefined || cfg === undefined) throw new CliError(`no model named ${name} in the settings`, "`chattree models list` shows them");
+        if (m === undefined || cfg === undefined)
+          throw new CliError(`no model named ${name} in the settings`, "`chattree models list` shows them");
         const state = (await states()).get(name);
-        const lines = [`${m.name}${m.id === undefined ? "" : `   ${m.id}`}`, `  source:   ${m.source}`, `  state:    ${state ?? (m.complete ? "downloaded" : "not downloaded")}`];
-        for (const f of m.files) lines.push(`  ${f.role === "mmproj" ? "projector" : f.role === "draft" ? "draft" : "file"}:     ${f.dest} (${bytes(f.size)})\n            sha256 ${f.sha256}`);
-        const settings = Object.entries(cfg).filter(([k, v]) => v !== undefined && !["url", "hf", "file", "revision", "mmproj", "sha256"].includes(k));
-        for (const [k, v] of settings.filter(([k]) => k !== "sampling")) lines.push(`  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
-        const found = await lookupSampling(io, name, { fetch: o.fetch, hfBase: o.hfBase, localFile: m.files.find((f) => f.role === "model")?.dest });
+        const lines = [
+          `${m.name}${m.id === undefined ? "" : `   ${m.id}`}`,
+          `  source:   ${m.source}`,
+          `  state:    ${state ?? (m.complete ? "downloaded" : "not downloaded")}`,
+        ];
+        for (const f of m.files)
+          lines.push(
+            `  ${f.role === "mmproj" ? "projector" : f.role === "draft" ? "draft" : "file"}:     ${f.dest} (${bytes(f.size)})\n            sha256 ${f.sha256}`,
+          );
+        const settings = Object.entries(cfg).filter(
+          ([k, v]) => v !== undefined && !["url", "hf", "file", "revision", "mmproj", "sha256"].includes(k),
+        );
+        for (const [k, v] of settings.filter(([k]) => k !== "sampling"))
+          lines.push(`  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
+        const found = await lookupSampling(io, name, {
+          fetch: o.fetch,
+          hfBase: o.hfBase,
+          localFile: m.files.find((f) => f.role === "model")?.dest,
+        });
         if (found.source === undefined) lines.push("  sampling: none set (the server's own defaults apply)");
         else {
-          lines.push(`  sampling: ${Object.entries(found.values).map(([k, v]) => `${k} ${v}`).join(", ")}`, `            from ${found.detail}`);
-          if (found.source !== "settings") lines.push("            not in the settings yet: `chattree init` pins it; to fix it here, add", ...samplingYaml(name, found.values).split("\n").map((l) => `              ${l}`));
+          lines.push(
+            `  sampling: ${Object.entries(found.values)
+              .map(([k, v]) => `${k} ${v}`)
+              .join(", ")}`,
+            `            from ${found.detail}`,
+          );
+          if (found.source !== "settings")
+            lines.push(
+              "            not in the settings yet: `chattree init` pins it; to fix it here, add",
+              ...samplingYaml(name, found.values)
+                .split("\n")
+                .map((l) => `              ${l}`),
+            );
         }
         for (const n of found.notes) lines.push(`  note: ${n}`);
         io.out(`${lines.join("\n")}\n`);
@@ -338,7 +398,9 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
           if (e instanceof DaemonError) throw new CliError(e.message);
           throw new CliError(e instanceof Error ? e.message : String(e));
         }
-        io.out(`deleted ${r.files} file${r.files === 1 ? "" : "s"} (${bytes(r.bytes)}) of ${name}${r.kept > 0 ? `; ${r.kept} more stay, since another model uses them` : ""}; it is fetched again when the host starts, while it is in the settings\n`);
+        io.out(
+          `deleted ${r.files} file${r.files === 1 ? "" : "s"} (${bytes(r.bytes)}) of ${name}${r.kept > 0 ? `; ${r.kept} more stay, since another model uses them` : ""}; it is fetched again when the host starts, while it is in the settings\n`,
+        );
         return 0;
       }
       case "prune": {
@@ -356,7 +418,12 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
         if (client === undefined) {
           const text = await readFile(logFile(data), "utf8").catch(() => undefined);
           if (text === undefined) return (io.out("there is no log: the model host has not run\n"), 0);
-          io.out(`${text.split("\n").slice(-n - 1).join("\n")}`);
+          io.out(
+            `${text
+              .split("\n")
+              .slice(-n - 1)
+              .join("\n")}`,
+          );
           return 0;
         }
         for (const l of await client.logs(n)) io.out(`${l}\n`);
@@ -385,7 +452,8 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
         if (current === latest) return (io.out(`llama.cpp ${latest} is the newest\n`), 0);
         io.out(`the newest llama.cpp is ${latest}; the settings have ${current ?? "no tag"}\n`);
         let ok = o.yes;
-        if (!ok && io.ask !== undefined) ok = ["y", "yes"].includes((await io.ask(`set local_models.llama_cpp.tag to ${latest} in ${path}? (y/N)`, "n")).toLowerCase());
+        if (!ok && io.ask !== undefined)
+          ok = ["y", "yes"].includes((await io.ask(`set local_models.llama_cpp.tag to ${latest} in ${path}? (y/N)`, "n")).toLowerCase());
         if (!ok) {
           io.out(`not changed: set llama_cpp.tag to ${latest} yourself, or run with -y\n`);
           return 1;
@@ -393,7 +461,9 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
         const doc = parseDocument(await readFile(path, "utf8"));
         doc.setIn(["local_models", "llama_cpp", "tag"], latest);
         await io.host.fs.writeAtomic(path, new TextEncoder().encode(String(doc)));
-        io.out(`set llama_cpp.tag to ${latest}. A running model host applies it and asks before downloading; otherwise \`chattree models start\` does\n`);
+        io.out(
+          `set llama_cpp.tag to ${latest}. A running model host applies it and asks before downloading; otherwise \`chattree models start\` does\n`,
+        );
         return 0;
       }
       default:
@@ -415,5 +485,9 @@ export async function ensureLocalModels(io: Io, o: Partial<ModelsOptions> = {}):
   const client = await findDaemon(data, o.fetch);
   if (client !== undefined && (await client.status()).state.phase === "ready") return;
   const code = await runModels(io, ["start"], { yes: o.yes === true, fetch: o.fetch, launch: o.launch });
-  if (code !== 0) throw new CliError("the local model host is not running", "`chattree models status` shows why; `chattree models start -y` agrees to installing llama.cpp without asking");
+  if (code !== 0)
+    throw new CliError(
+      "the local model host is not running",
+      "`chattree models status` shows why; `chattree models start -y` agrees to installing llama.cpp without asking",
+    );
 }

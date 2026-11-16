@@ -21,7 +21,18 @@ test("every scenario is a well-formed conversation: calls have JSON arguments an
     assert.equal(open.size, 0, `${s.name}: every call has its result`);
     assert.ok(s.tools.length > 0);
   }
-  assert.deepEqual(scenarios().map((s) => s.name), ["one-call", "reasoning-between-calls", "after-final-answer", "nested-schema", "multiline-argument", "error-result", "two-calls-at-once"]);
+  assert.deepEqual(
+    scenarios().map((s) => s.name),
+    [
+      "one-call",
+      "reasoning-between-calls",
+      "after-final-answer",
+      "nested-schema",
+      "multiline-argument",
+      "error-result",
+      "two-calls-at-once",
+    ],
+  );
 });
 
 test("saves the template, the prompts and, live, what the model writes; says which reasoning reached the prompt", async () => {
@@ -31,11 +42,28 @@ test("saves the template, the prompts and, live, what the model writes; says whi
   try {
     server.on("/props", { body: JSON.stringify({ chat_template: "{{ messages }}", chat_template_caps: { supports_tools: true } }) });
     // a template that keeps the first reasoning mark only
-    server.on("/apply-template", { body: JSON.stringify({ prompt: "<system>MARK-ALPHA record_items(items: {sku: string}[])<assistant>" }) });
-    server.on("/completion", { body: JSON.stringify({ content: "<|channel|>analysis<|message|>hm", stop_type: "eos", tokens_predicted: 7, completion_probabilities: [{ token: "<|channel|>" }, { token: "analysis" }] }) });
+    server.on("/apply-template", {
+      body: JSON.stringify({ prompt: "<system>MARK-ALPHA record_items(items: {sku: string}[])<assistant>" }),
+    });
+    server.on("/completion", {
+      body: JSON.stringify({
+        content: "<|channel|>analysis<|message|>hm",
+        stop_type: "eos",
+        tokens_predicted: 7,
+        completion_probabilities: [{ token: "<|channel|>" }, { token: "analysis" }],
+      }),
+    });
     await compare(server.base, ["m"], { out, live: true, log: (l) => lines.push(l) });
     const files = await readdir(join(out, "m"));
-    for (const f of ["props.json", "chat-template.jinja", "one-call.prompt.txt", "one-call.raw.txt", "one-call.probs.json", "nested-schema.request.json"]) assert.ok(files.includes(f), f);
+    for (const f of [
+      "props.json",
+      "chat-template.jinja",
+      "one-call.prompt.txt",
+      "one-call.raw.txt",
+      "one-call.probs.json",
+      "nested-schema.request.json",
+    ])
+      assert.ok(files.includes(f), f);
     assert.equal(await readFile(join(out, "m", "chat-template.jinja"), "utf8"), "{{ messages }}");
     const text = lines.join("\n");
     assert.match(text, /reasoning MARK-ALPHA in the prompt: yes/);

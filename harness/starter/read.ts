@@ -47,12 +47,19 @@ async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{
       const shown = names.slice(0, MAX_ENTRIES);
       const lines: string[] = [];
       for (const n of shown) lines.push(`${n}${(await host.fs.stat(host.path.join(abs, n)))?.isDirectory === true ? "/" : ""}`);
-      return { text: `=== ${name}/ (${names.length} entries) ===\n${lines.join("\n")}${names.length > shown.length ? `\n... ${names.length - shown.length} more entries` : ""}`, ok: true };
+      return {
+        text: `=== ${name}/ (${names.length} entries) ===\n${lines.join("\n")}${names.length > shown.length ? `\n... ${names.length - shown.length} more entries` : ""}`,
+        ok: true,
+      };
     }
     if (st.size > MAX_FILE_BYTES) return failed(name, `${st.size} bytes is too large to read whole; use run with head, tail or grep`);
     bytes = await host.fs.read(abs);
   }
-  if (bytes.subarray(0, 8000).includes(0)) return failed(name, mmRead ? "a binary file; if it is a picture, sound or PDF, use mm_read to see it (when it is among your tools)" : "a binary file");
+  if (bytes.subarray(0, 8000).includes(0))
+    return failed(
+      name,
+      mmRead ? "a binary file; if it is a picture, sound or PDF, use mm_read to see it (when it is among your tools)" : "a binary file",
+    );
   let text: string;
   try {
     text = dec.decode(bytes);
@@ -68,8 +75,12 @@ async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{
   if (offset >= all.length) return failed(name, `only ${all.length} lines; offset ${offset} is past the end`);
   const slice = all.slice(offset, offset + limit);
   const partial = offset > 0 || offset + limit < all.length;
-  const head = (partial ? `lines ${offset + 1}-${offset + slice.length} of ${all.length}` : `${all.length} line${all.length === 1 ? "" : "s"}`) + v;
-  const more = offset + slice.length < all.length ? `\n... ${all.length - offset - slice.length} more lines; read again with offset ${offset + slice.length} for the rest` : "";
+  const head =
+    (partial ? `lines ${offset + 1}-${offset + slice.length} of ${all.length}` : `${all.length} line${all.length === 1 ? "" : "s"}`) + v;
+  const more =
+    offset + slice.length < all.length
+      ? `\n... ${all.length - offset - slice.length} more lines; read again with offset ${offset + slice.length} for the rest`
+      : "";
   return { text: `=== ${name} (${head}) ===\n${lineNumbered(slice, offset + 1)}${more}`, ok: true };
 }
 

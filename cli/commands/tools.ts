@@ -31,7 +31,8 @@ const tools: Command = {
       for (const name of set.registry.names()) {
         const map = await store.allow(name);
         const live = liveKeys(map, now);
-        const keys = live.length === 0 ? "asks every time" : live.map((k) => `${k === "all" ? "everything" : k} until ${map?.[k]}`).join("; ");
+        const keys =
+          live.length === 0 ? "asks every time" : live.map((k) => `${k === "all" ? "everything" : k} until ${map?.[k]}`).join("; ");
         lines.push(`${name.padEnd(11)} ${keys}`);
       }
       yield { type: "text", text: lines.join("\n") };
@@ -67,7 +68,11 @@ const tools: Command = {
       yield { type: "notice", message: `${name}: ${more[0] === undefined ? "every grant removed" : `${more[0]} removed`}` };
       return;
     }
-    yield { type: "error", message: `/tools ${name} needs allow or revoke`, hint: "/tools <name> allow [key] [5m|1h|forever]   or   /tools <name> revoke [key]" };
+    yield {
+      type: "error",
+      message: `/tools ${name} needs allow or revoke`,
+      hint: "/tools <name> allow [key] [5m|1h|forever]   or   /tools <name> revoke [key]",
+    };
   },
   async complete(ctx, previous, partial) {
     const set = await ctx.engine.toolset();
@@ -92,11 +97,18 @@ const jobs: Command = {
     if (args[0] === "stop") {
       const id = args[1];
       if (id === undefined) yield { type: "error", message: "which job?", hint: "/jobs stop <id>" };
-      else yield set.jobs.stop(id) ? { type: "notice", message: `asked ${id} to stop` } : { type: "error", message: `${id} is not a running job` };
+      else
+        yield set.jobs.stop(id)
+          ? { type: "notice", message: `asked ${id} to stop` }
+          : { type: "error", message: `${id} is not a running job` };
       return;
     }
     const list = set.jobs.list();
-    yield { type: "text", text: list.length === 0 ? "no background jobs in this session" : list.map((j) => `${j.id}  ${j.status.padEnd(9)} ${j.label}`).join("\n") };
+    yield {
+      type: "text",
+      text:
+        list.length === 0 ? "no background jobs in this session" : list.map((j) => `${j.id}  ${j.status.padEnd(9)} ${j.label}`).join("\n"),
+    };
   },
 };
 
@@ -114,7 +126,10 @@ const expand: Command = {
     const results = (await entriesOf(ctx)).filter((e): e is Extract<ChatEntry, { $tag: "tool_result" }> => e.$tag === "tool_result");
     const e = results.at(-n);
     if (e === undefined) {
-      yield { type: "error", message: results.length === 0 ? "there are no tool results yet" : `there are only ${results.length} tool results` };
+      yield {
+        type: "error",
+        message: results.length === 0 ? "there are no tool results yet" : `there are only ${results.length} tool results`,
+      };
       return;
     }
     const ref = e.full ?? (typeof e.content === "string" ? undefined : e.content);
@@ -158,7 +173,10 @@ const runs: Command = {
   async complete(ctx, previous, partial) {
     const set = await ctx.engine.toolset();
     if (previous.length === 0) return ["stop", "say", "close"].filter((v) => v.startsWith(partial));
-    if (previous.length === 1) return [...(set?.runs.list() ?? []), ...(ctx.engine.pump()?.runs.list() ?? [])].map((r) => r.branch).filter((b) => b.startsWith(partial));
+    if (previous.length === 1)
+      return [...(set?.runs.list() ?? []), ...(ctx.engine.pump()?.runs.list() ?? [])]
+        .map((r) => r.branch)
+        .filter((b) => b.startsWith(partial));
     return [];
   },
   async *run(ctx, args, rest) {
@@ -168,17 +186,47 @@ const runs: Command = {
       return;
     }
     // A fork that works by itself runs in the tool set; subagents run in the pump.
-    const groups = [set.runs, ...(ctx.engine.pump() === undefined ? [] : [(ctx.engine.pump() as NonNullable<ReturnType<typeof ctx.engine.pump>>).runs])];
+    const groups = [
+      set.runs,
+      ...(ctx.engine.pump() === undefined ? [] : [(ctx.engine.pump() as NonNullable<ReturnType<typeof ctx.engine.pump>>).runs]),
+    ];
     if (args.length === 0) {
       const list = groups.flatMap((g) => g.list());
       const now = ctx.io.now();
-      yield { type: "text", text: list.length === 0 ? "no runs" : list.map((r) => `${r.branch}  ${r.kind}  ${r.state}  ${r.cycles} run${r.cycles === 1 ? "" : "s"}  ${Math.max(0, Math.round((now - r.startedAt) / 1000))}s`).join("\n") };
+      yield {
+        type: "text",
+        text:
+          list.length === 0
+            ? "no runs"
+            : list
+                .map(
+                  (r) =>
+                    `${r.branch}  ${r.kind}  ${r.state}  ${r.cycles} run${r.cycles === 1 ? "" : "s"}  ${Math.max(0, Math.round((now - r.startedAt) / 1000))}s`,
+                )
+                .join("\n"),
+      };
       return;
     }
     const [verb, which] = args;
-    const run = which === undefined ? undefined : groups.flatMap((g) => [g.get(which) ?? g.list().filter((r) => r.branch.startsWith(which)).map((r) => g.get(r.branch)).find((r) => r !== undefined)]).find((r) => r !== undefined);
+    const run =
+      which === undefined
+        ? undefined
+        : groups
+            .flatMap((g) => [
+              g.get(which) ??
+                g
+                  .list()
+                  .filter((r) => r.branch.startsWith(which))
+                  .map((r) => g.get(r.branch))
+                  .find((r) => r !== undefined),
+            ])
+            .find((r) => r !== undefined);
     if (verb !== "stop" && verb !== "say" && verb !== "close") {
-      yield { type: "error", message: `${verb} is not stop, say or close`, hint: "/runs  |  /runs stop <branch>  |  /runs say <branch> <message>  |  /runs close <branch>" };
+      yield {
+        type: "error",
+        message: `${verb} is not stop, say or close`,
+        hint: "/runs  |  /runs stop <branch>  |  /runs say <branch> <message>  |  /runs close <branch>",
+      };
       return;
     }
     if (run === undefined) {
@@ -186,7 +234,13 @@ const runs: Command = {
       return;
     }
     if (verb === "stop") {
-      yield run.state === "running" ? (run.abort(), { type: "notice" as const, message: `stopping ${run.branch}; /runs say ${run.branch} <message> talks to it, /runs close ${run.branch} ends it` }) : { type: "error" as const, message: `${run.branch} is ${run.state}, not running` };
+      yield run.state === "running"
+        ? (run.abort(),
+          {
+            type: "notice" as const,
+            message: `stopping ${run.branch}; /runs say ${run.branch} <message> talks to it, /runs close ${run.branch} ends it`,
+          })
+        : { type: "error" as const, message: `${run.branch} is ${run.state}, not running` };
       return;
     }
     if (verb === "close") {
@@ -200,7 +254,11 @@ const runs: Command = {
       return;
     }
     if (run.state !== "idle") {
-      yield { type: "error", message: `${run.branch} is ${run.state}`, ...(run.state === "running" ? { hint: `/runs stop ${run.branch} first` } : {}) };
+      yield {
+        type: "error",
+        message: `${run.branch} is ${run.state}`,
+        ...(run.state === "running" ? { hint: `/runs stop ${run.branch} first` } : {}),
+      };
       return;
     }
     await run.convo.append({ $tag: "user", content: [{ $tag: "text", text }] });

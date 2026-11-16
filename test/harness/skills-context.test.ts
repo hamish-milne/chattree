@@ -14,11 +14,27 @@ import { tempDir } from "../support/tmp.ts";
 const host = nodeHost();
 const sonnet = { provider: "anthropic", id: "claude-sonnet-5-5", settings: { max_output_tokens: 8000 } };
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "claude-sonnet-5-5", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
-const texts = (turns: { role: string; parts?: { type: string; text?: string }[] }[]): string[] => turns.map((t) => `${t.role}:${(t.parts ?? []).map((p) => p.text ?? "").join("|")}`);
+const reply = (text: string): NewEntry => ({
+  $tag: "assistant",
+  provider: "anthropic",
+  model: "claude-sonnet-5-5",
+  blocks: [{ $tag: "text", text }],
+  stop_reason: "end_turn",
+});
+const texts = (turns: { role: string; parts?: { type: string; text?: string }[] }[]): string[] =>
+  turns.map((t) => `${t.role}:${(t.parts ?? []).map((p) => p.text ?? "").join("|")}`);
 const entries = async (c: Conversation): Promise<ChatEntry[]> => (await c.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-const sk = (name: string, description: string, body = `${name} body`, dir = `.agents/skills/${name}`): SkillValue => ({ name, description, body, dir });
-const scanOf = (...skills: SkillValue[]): SkillScan => ({ skills: Object.fromEntries(skills.map((s) => [s.name, s])), problems: [], unreadable: new Set() });
+const sk = (name: string, description: string, body = `${name} body`, dir = `.agents/skills/${name}`): SkillValue => ({
+  name,
+  description,
+  body,
+  dir,
+});
+const scanOf = (...skills: SkillValue[]): SkillScan => ({
+  skills: Object.fromEntries(skills.map((s) => [s.name, s])),
+  problems: [],
+  unreadable: new Set(),
+});
 
 /** A thread with the skill tool pinned (the catalog is shown only to a model that has it), instructions v1 and the given skills in its first setup. */
 async function fresh(initial: SkillValue[] = [], opts: { tool?: boolean } = {}) {
@@ -28,7 +44,9 @@ async function fresh(initial: SkillValue[] = [], opts: { tool?: boolean } = {}) 
   await convo.setupChange({
     model: sonnet,
     instructions: await pinDefinition("instructions", "v1", { store: "blob", blobs: convo.store }),
-    ...(opts.tool === false ? {} : { tools: { set: { skill: await pinDefinition("tool", skillTool().definition, { store: "blob", blobs: convo.store }) } } }),
+    ...(opts.tool === false
+      ? {}
+      : { tools: { set: { skill: await pinDefinition("tool", skillTool().definition, { store: "blob", blobs: convo.store }) } } }),
     ...(initial.length > 0 ? { skills: { set: skills } } : {}),
   });
   return { convo, pin };
@@ -39,7 +57,10 @@ const talk = async (convo: Conversation): Promise<void> => {
 };
 const prep = (convo: Conversation) => prepareContext(convo, { system: "s", cost: false });
 const callSkill = async (convo: Conversation, name: string) => {
-  const out = await skillTool().execute({ name }, { signal: new AbortController().signal, callId: "c", workspace: convo.dir, host, blobs: convo.store, setup: () => convo.setup() });
+  const out = await skillTool().execute(
+    { name },
+    { signal: new AbortController().signal, callId: "c", workspace: convo.dir, host, blobs: convo.store, setup: () => convo.setup() },
+  );
   assert.ok(!("started" in out));
   return out;
 };
@@ -49,7 +70,10 @@ describe("the catalog", () => {
     const { convo } = await fresh([sk("pdf", "Work with PDFs"), sk("alpha", "Does\n  alpha things")]);
     await convo.append(user("hi"));
     const { context } = await prep(convo);
-    assert.match(context.instructions ?? "", /^v1\n\n\[Skills\]\nA skill is a set of instructions for one kind of task\..*\n- alpha: Does alpha things\n- pdf: Work with PDFs$/s);
+    assert.match(
+      context.instructions ?? "",
+      /^v1\n\n\[Skills\]\nA skill is a set of instructions for one kind of task\..*\n- alpha: Does alpha things\n- pdf: Work with PDFs$/s,
+    );
   });
 
   test("no catalog without the skill tool, and none when there are no skills", async () => {
@@ -63,7 +87,11 @@ describe("the catalog", () => {
 
   test("skills and no instructions: the catalog stands alone", async () => {
     const convo = await Conversation.create(host, join(await tempDir(), "c"), {});
-    await convo.setupChange({ model: sonnet, tools: { set: { skill: await pinDefinition("tool", skillTool().definition, { store: "blob", blobs: convo.store }) } }, skills: { set: { a: await pinSkill(sk("a", "d"), convo.store) } } });
+    await convo.setupChange({
+      model: sonnet,
+      tools: { set: { skill: await pinDefinition("tool", skillTool().definition, { store: "blob", blobs: convo.store }) } },
+      skills: { set: { a: await pinSkill(sk("a", "d"), convo.store) } },
+    });
     await convo.append(user("hi"));
     assert.match((await prep(convo)).context.instructions ?? "", /^\[Skills\]/);
   });
@@ -92,7 +120,11 @@ describe("skills are appendable", () => {
     assert.ok(!(context.instructions ?? "").includes("second"), "the catalog in the prefix is untouched");
     assert.match(context.instructions ?? "", /- a: first skill$/);
     assert.equal(prefixLags(setup), true);
-    assert.deepEqual(texts(context.turns as never), ["user:hi", "assistant:", "user:[The skills changed; this overrides the skill list you were given earlier where they differ]\nAdded:\n- b: second skill|again"]);
+    assert.deepEqual(texts(context.turns as never), [
+      "user:hi",
+      "assistant:",
+      "user:[The skills changed; this overrides the skill list you were given earlier where they differ]\nAdded:\n- b: second skill|again",
+    ]);
   });
 
   test("a changed skill is announced as changed, a removed one as removed; the tool serves the new text and refuses the removed", async () => {
@@ -103,7 +135,10 @@ describe("skills are appendable", () => {
     const { context } = await prep(convo);
     assert.match(context.instructions ?? "", /- a: alpha\n- b: beta/, "the catalog lines stay until a rebuild");
     const notice = texts(context.turns as never).at(-1) ?? "";
-    assert.match(notice, /Changed \(call the skill tool again.*\):\n- a: alpha v2\nRemoved \(the skill tool no longer serves these\):\n- b/);
+    assert.match(
+      notice,
+      /Changed \(call the skill tool again.*\):\n- a: alpha v2\nRemoved \(the skill tool no longer serves these\):\n- b/,
+    );
     assert.ok(!notice.includes("Added"));
     const served = await callSkill(convo, "a");
     assert.equal(served.is_error, undefined);
@@ -116,17 +151,29 @@ describe("skills are appendable", () => {
   test("an update made while a tool call is open waits for its result", async () => {
     const { convo, pin } = await fresh();
     await convo.append(user("go"));
-    await convo.append({ $tag: "assistant", provider: "anthropic", model: "claude-sonnet-5-5", stop_reason: "tool_use", blocks: [{ $tag: "tool_call", call_id: "c1", name: "run", args: {} }] });
+    await convo.append({
+      $tag: "assistant",
+      provider: "anthropic",
+      model: "claude-sonnet-5-5",
+      stop_reason: "tool_use",
+      blocks: [{ $tag: "tool_call", call_id: "c1", name: "run", args: {} }],
+    });
     await convo.setupChange({ skills: { set: { a: await pin(sk("a", "d")) } } }); // no mid_loop flag: nothing is lost
     await convo.append({ $tag: "tool_result", call_id: "c1", is_error: false, content: "done" });
     const { context } = await prep(convo);
-    assert.deepEqual(context.turns.map((t) => t.role), ["user", "assistant", "tool_results", "user"]);
+    assert.deepEqual(
+      context.turns.map((t) => t.role),
+      ["user", "assistant", "tool_results", "user"],
+    );
   });
 
   test("one entry that changes instructions and skills is one append, and both are shown", async () => {
     const { convo, pin } = await fresh([sk("a", "d")]);
     await talk(convo);
-    await convo.setupChange({ instructions: await pinDefinition("instructions", "v2", { store: "blob", blobs: convo.store }), skills: { set: { b: await pin(sk("b", "new")) } } });
+    await convo.setupChange({
+      instructions: await pinDefinition("instructions", "v2", { store: "blob", blobs: convo.store }),
+      skills: { set: { b: await pin(sk("b", "new")) } },
+    });
     assert.equal(((await entries(convo)).at(-1) as { apply?: string }).apply, "append");
     await convo.append(user("x"));
     const { context } = await prep(convo);
@@ -154,7 +201,10 @@ describe("skills are appendable", () => {
     const { convo, pin } = await fresh([sk("a", "alpha")]);
     await talk(convo);
     await convo.setupChange({ skills: { set: { b: await pin(sk("b", "beta")) }, remove: ["a"] } });
-    await assert.rejects(convo.rebuildPrefix(), (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("cache_break") && e.allowWith.includes("instructions_changed"));
+    await assert.rejects(
+      convo.rebuildPrefix(),
+      (e) => e instanceof ChangeNotAllowed && e.allowWith.includes("cache_break") && e.allowWith.includes("instructions_changed"),
+    );
     assert.equal(prefixLags(await convo.setup()), true, "a refused rebuild changes nothing");
     await convo.rebuildPrefix({ allow: ["cache_break", "instructions_changed"] });
     const { context, setup } = await prep(convo);
@@ -197,7 +247,10 @@ describe("skills are appendable", () => {
   test("a skills difference counts as an instructions change to the cache; an MCP pin changes nothing the model is shown", () => {
     const from = foldSetup([{ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: sonnet } as ChatEntry]);
     const withSkill = { ...from, skills: { a: { hash: "a1".repeat(32), store: "blob" as const } } };
-    assert.deepEqual(coreClassify(from, withSkill, { midLoop: false }).map((c) => c.kind), ["instructions_changed"]);
+    assert.deepEqual(
+      coreClassify(from, withSkill, { midLoop: false }).map((c) => c.kind),
+      ["instructions_changed"],
+    );
     assert.deepEqual(coreClassify(from, { ...from, mcp: withSkill.skills }, { midLoop: false }), []);
   });
 
@@ -214,7 +267,10 @@ describe("skills are appendable", () => {
     assert.deepEqual(Object.keys(childSetup.skills).sort(), ["a", "b"]);
     assert.equal(prefixLags(childSetup), false, "a fresh context starts from a complete first setup");
     // The subagent tool then pins the child's own registry (syncTools); with the skill tool in it the child sees the catalog.
-    await child.setupChange({ tools: { set: { skill: await pinDefinition("tool", skillTool().definition, { store: "blob", blobs: child.store }) } } }, { allow: ["tools_changed", "cache_break"] });
+    await child.setupChange(
+      { tools: { set: { skill: await pinDefinition("tool", skillTool().definition, { store: "blob", blobs: child.store }) } } },
+      { allow: ["tools_changed", "cache_break"] },
+    );
     const { context } = await prep(child);
     assert.match(context.instructions ?? "", /- a: alpha\n- b: beta$/);
     assert.ok(!JSON.stringify(context.turns).includes("skills changed"));
@@ -250,7 +306,10 @@ describe("syncSkills", () => {
   test("records added, changed and removed skills as one append, and nothing when the disk matches", async () => {
     const { convo } = await fresh([sk("keep", "k"), sk("edit", "e"), sk("drop", "x")]);
     await talk(convo);
-    assert.equal(await syncSkills(convo, scanOf(sk("keep", "k"), sk("edit", "e", "edited body"), sk("new", "n"))).then((d) => JSON.stringify(d)), JSON.stringify({ added: ["new"], changed: ["edit"], removed: ["drop"] }));
+    assert.equal(
+      await syncSkills(convo, scanOf(sk("keep", "k"), sk("edit", "e", "edited body"), sk("new", "n"))).then((d) => JSON.stringify(d)),
+      JSON.stringify({ added: ["new"], changed: ["edit"], removed: ["drop"] }),
+    );
     const last = (await entries(convo)).at(-1) as { apply?: string; skills?: { set?: object; remove?: string[] } };
     assert.equal(last.apply, "append");
     assert.deepEqual(last.skills?.remove, ["drop"]);

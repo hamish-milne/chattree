@@ -44,7 +44,9 @@ const EXAMPLES: Record<string, { what: string; example: string }> = {
 };
 
 /** The same, as strongly as it can be put, with an example of each call and an error for a call that breaks the rules (`strict`). */
-const strictGuidance = (names: string[]): string => `IMPORTANT. You MUST follow these rules exactly for the built-in tools ${names.join(" and ")}. They are not functions.
+const strictGuidance = (
+  names: string[],
+): string => `IMPORTANT. You MUST follow these rules exactly for the built-in tools ${names.join(" and ")}. They are not functions.
 1. You MUST call a built-in tool on the analysis channel, with the recipient set to the tool's name (${names.map((n) => `to=${n}`).join(", ")}). You MUST NOT use the commentary channel or the functions. prefix for them.
 2. The message MUST be only the ${names.map((n) => EXAMPLES[n]?.what).join(" or ")} itself, as bare text. You MUST NOT wrap it in JSON, you MUST NOT use argument names such as "code", "cmd" or "command", and you MUST NOT use quotes or arrays.
 ${names.map((n) => `Example call to ${n}:\n  channel: analysis\n  recipient: ${n}\n  message: ${EXAMPLES[n]?.example}`).join("\n")}
@@ -54,8 +56,8 @@ const guidance = (kind: string, names: string[]): string =>
   kind === "strict"
     ? strictGuidance(names)
     : kind === "builtin"
-    ? `Built-in tools: ${names.join(", ")}. Call a built-in tool on the analysis channel with the recipient set to its name (to=${names[0]}), and send the code or command itself as the message: bare text, no JSON, no quotes around it. Call every other tool on the commentary channel with to=functions.NAME and JSON-encoded arguments.`
-    : `Call every tool, including ${names.join(" and ")}, on the commentary channel with to=functions.NAME and JSON-encoded arguments, as its declaration says.`;
+      ? `Built-in tools: ${names.join(", ")}. Call a built-in tool on the analysis channel with the recipient set to its name (to=${names[0]}), and send the code or command itself as the message: bare text, no JSON, no quotes around it. Call every other tool on the commentary channel with to=functions.NAME and JSON-encoded arguments.`
+      : `Call every tool, including ${names.join(" and ")}, on the commentary channel with to=functions.NAME and JSON-encoded arguments, as its declaration says.`;
 
 export const pythonTool = ordinaryTools[0] as Tool;
 
@@ -67,7 +69,12 @@ export const bashTool: Tool = {
   definition: {
     name: "bash",
     description: "Run a shell command in the workspace and return its output.",
-    input_schema: { type: "object", additionalProperties: false, required: ["command"], properties: { command: { type: "string", description: "The command line." } } },
+    input_schema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["command"],
+      properties: { command: { type: "string", description: "The command line." } },
+    },
   },
   async execute(args, ctx) {
     const [exe, ...pre] = busybox === undefined ? ["sh"] : [busybox, "sh"];
@@ -82,8 +89,12 @@ export const bashTool: Tool = {
  * comes from here and not from a validator that talks about arguments.
  */
 const strictTool = (tool: Tool, arg: string): Tool => ({
-  definition: { ...tool.definition, input_schema: { type: "object", additionalProperties: true, properties: { [arg]: { type: "string" } } } },
-  execute: (args, ctx) => (typeof args["__violation"] === "string" ? Promise.resolve({ content: args["__violation"], is_error: true }) : tool.execute(args, ctx)),
+  definition: {
+    ...tool.definition,
+    input_schema: { type: "object", additionalProperties: true, properties: { [arg]: { type: "string" } } },
+  },
+  execute: (args, ctx) =>
+    typeof args["__violation"] === "string" ? Promise.resolve({ content: args["__violation"], is_error: true }) : tool.execute(args, ctx),
 });
 export const strictPython = strictTool(pythonTool, "code");
 const strictBash = strictTool(bashTool, "command");
@@ -126,21 +137,46 @@ export const probeDialect: Dialect = {
     const strings = (input.options["strings"] ?? []) as string[];
     const visible = input.context.tools.filter((t) => !builtins.includes(t.name));
     const kind = input.options["guidance"];
-    const told = typeof kind === "string" ? guidance(kind, kind === "builtin" || kind === "strict" ? builtins : (input.context.tools.map((t) => t.name).filter((n) => n === "python" || n === "bash"))) : undefined;
+    const told =
+      typeof kind === "string"
+        ? guidance(
+            kind,
+            kind === "builtin" || kind === "strict"
+              ? builtins
+              : input.context.tools.map((t) => t.name).filter((n) => n === "python" || n === "bash"),
+          )
+        : undefined;
     const instructions = [input.context.instructions ?? "", told ?? ""].filter((x) => x !== "").join("\n\n");
-    let { prompt, stop } = renderHarmony({ ...input, context: { ...input.context, instructions: instructions === "" ? undefined : instructions, tools: visible }, options: {} });
+    let { prompt, stop } = renderHarmony({
+      ...input,
+      context: { ...input.context, instructions: instructions === "" ? undefined : instructions, tools: visible },
+      options: {},
+    });
     if (input.options["no_functions_line"] === true) prompt = prompt.replace(FUNCTIONS_LINE, "");
-    if (builtins.length > 0) prompt = prompt.replace("\n\n# Valid channels:", `\n\n# Tools\n\n${builtins.map((b) => PROSE[b]).join("\n\n")}\n\n# Valid channels:`);
+    if (builtins.length > 0)
+      prompt = prompt.replace("\n\n# Valid channels:", `\n\n# Tools\n\n${builtins.map((b) => PROSE[b]).join("\n\n")}\n\n# Valid channels:`);
     for (const b of builtins) {
       // An earlier call to a built-in: on analysis, to=NAME, the code bare after the word `code` the model writes there; its result from NAME on analysis (a guess at the format).
       prompt = prompt
-        .replace(new RegExp(`<\\|start\\|>assistant<\\|channel\\|>commentary to=functions\\.${b} <\\|constrain\\|>json<\\|message\\|>([\\s\\S]*?)<\\|call\\|>`, "g"), (_m, body: string) => `<|start|>assistant<|channel|>analysis to=${b} code<|message|>${bare(body)}<|call|>`)
-        .replaceAll(`<|start|>functions.${b} to=assistant<|channel|>commentary<|message|>`, `<|start|>${b} to=assistant<|channel|>analysis<|message|>`);
+        .replace(
+          new RegExp(
+            `<\\|start\\|>assistant<\\|channel\\|>commentary to=functions\\.${b} <\\|constrain\\|>json<\\|message\\|>([\\s\\S]*?)<\\|call\\|>`,
+            "g",
+          ),
+          (_m, body: string) => `<|start|>assistant<|channel|>analysis to=${b} code<|message|>${bare(body)}<|call|>`,
+        )
+        .replaceAll(
+          `<|start|>functions.${b} to=assistant<|channel|>commentary<|message|>`,
+          `<|start|>${b} to=assistant<|channel|>analysis<|message|>`,
+        );
     }
     for (const s of strings) {
       prompt = prompt
         .replace(new RegExp(`type ${s} = \\(_: \\{[\\s\\S]*?\\n\\}\\) => any;`), `type ${s} = (_: string) => any;`)
-        .replace(new RegExp(`(to=functions\\.${s} <\\|constrain\\|>json<\\|message\\|>)([\\s\\S]*?)(<\\|call\\|>)`, "g"), (_m, a: string, body: string, c: string) => `${a}${bare(body)}${c}`);
+        .replace(
+          new RegExp(`(to=functions\\.${s} <\\|constrain\\|>json<\\|message\\|>)([\\s\\S]*?)(<\\|call\\|>)`, "g"),
+          (_m, a: string, body: string, c: string) => `${a}${bare(body)}${c}`,
+        );
     }
     return { prompt, stop };
   },
@@ -182,8 +218,18 @@ interface Task {
 }
 
 const TASKS: Record<string, Task> = {
-  python: { name: "python arithmetic", prompt: "What is 123456789 * 987654321? Use Python to work it out, and write the result into answer.txt.", files: {}, wants: /121932631112635269/ },
-  bash: { name: "bash line count", prompt: "Use bash to count the lines in notes.txt, and write the number into answer.txt.", files: { "notes.txt": "a\nb\nc\nd\ne\nf\ng\n" }, wants: /\b7\b/ },
+  python: {
+    name: "python arithmetic",
+    prompt: "What is 123456789 * 987654321? Use Python to work it out, and write the result into answer.txt.",
+    files: {},
+    wants: /121932631112635269/,
+  },
+  bash: {
+    name: "bash line count",
+    prompt: "Use bash to count the lines in notes.txt, and write the number into answer.txt.",
+    files: { "notes.txt": "a\nb\nc\nd\ne\nf\ng\n" },
+    wants: /\b7\b/,
+  },
 };
 
 interface Arm {
@@ -197,29 +243,94 @@ const ARMS: Arm[] = [
   // Without help.
   { label: "python as built-in", options: { builtins: { python: true } }, tools: [pythonTool], tasks: ["python"] },
   { label: "bash as built-in (ours)", options: { builtins: { bash: true } }, tools: [bashTool], tasks: ["bash"] },
-  { label: "python and bash as built-ins", options: { builtins: { python: true, bash: true } }, tools: [pythonTool, bashTool], tasks: ["python", "bash"] },
+  {
+    label: "python and bash as built-ins",
+    options: { builtins: { python: true, bash: true } },
+    tools: [pythonTool, bashTool],
+    tasks: ["python", "bash"],
+  },
   { label: "python as function, string argument", options: { strings: ["python"] }, tools: [pythonTool], tasks: ["python"] },
   { label: "python as function, object argument", options: {}, tools: [pythonTool], tasks: ["python"] },
   { label: "bash as function, string argument", options: { strings: ["bash"] }, tools: [bashTool], tasks: ["bash"] },
   { label: "bash as function, object argument", options: {}, tools: [bashTool], tasks: ["bash"] },
   // Without the line that sends every call to the commentary channel.
-  { label: "python as built-in, no functions line", options: { builtins: { python: true }, no_functions_line: true }, tools: [pythonTool], tasks: ["python"] },
-  { label: "bash as built-in, no functions line", options: { builtins: { bash: true }, no_functions_line: true }, tools: [bashTool], tasks: ["bash"] },
+  {
+    label: "python as built-in, no functions line",
+    options: { builtins: { python: true }, no_functions_line: true },
+    tools: [pythonTool],
+    tasks: ["python"],
+  },
+  {
+    label: "bash as built-in, no functions line",
+    options: { builtins: { bash: true }, no_functions_line: true },
+    tools: [bashTool],
+    tasks: ["bash"],
+  },
   // Told how to call them.
-  { label: "python as built-in, told", options: { builtins: { python: true }, guidance: "builtin" }, tools: [pythonTool], tasks: ["python"] },
+  {
+    label: "python as built-in, told",
+    options: { builtins: { python: true }, guidance: "builtin" },
+    tools: [pythonTool],
+    tasks: ["python"],
+  },
   { label: "bash as built-in, told", options: { builtins: { bash: true }, guidance: "builtin" }, tools: [bashTool], tasks: ["bash"] },
-  { label: "python as built-in, told, no functions line", options: { builtins: { python: true }, guidance: "builtin", no_functions_line: true }, tools: [pythonTool], tasks: ["python"] },
-  { label: "bash as built-in, told, no functions line", options: { builtins: { bash: true }, guidance: "builtin", no_functions_line: true }, tools: [bashTool], tasks: ["bash"] },
-  { label: "python and bash as built-ins, told", options: { builtins: { python: true, bash: true }, guidance: "builtin" }, tools: [pythonTool, bashTool], tasks: ["python", "bash"] },
+  {
+    label: "python as built-in, told, no functions line",
+    options: { builtins: { python: true }, guidance: "builtin", no_functions_line: true },
+    tools: [pythonTool],
+    tasks: ["python"],
+  },
+  {
+    label: "bash as built-in, told, no functions line",
+    options: { builtins: { bash: true }, guidance: "builtin", no_functions_line: true },
+    tools: [bashTool],
+    tasks: ["bash"],
+  },
+  {
+    label: "python and bash as built-ins, told",
+    options: { builtins: { python: true, bash: true }, guidance: "builtin" },
+    tools: [pythonTool, bashTool],
+    tasks: ["python", "bash"],
+  },
   { label: "python as function, told JSON", options: { guidance: "functions" }, tools: [pythonTool], tasks: ["python"] },
   { label: "bash as function, told JSON", options: { guidance: "functions" }, tools: [bashTool], tasks: ["bash"] },
   // As strongly as it can be put, with an example, and a clear error for a call that breaks the convention.
-  { label: "python as built-in, strict", options: { builtins: { python: true }, guidance: "strict", strict: true }, tools: [strictPython], tasks: ["python"] },
-  { label: "bash as built-in, strict", options: { builtins: { bash: true }, guidance: "strict", strict: true }, tools: [strictBash], tasks: ["bash"] },
-  { label: "python and bash as built-ins, strict", options: { builtins: { python: true, bash: true }, guidance: "strict", strict: true }, tools: [strictPython, strictBash], tasks: ["python", "bash"] },
-  { label: "python as built-in, strict, no functions line", options: { builtins: { python: true }, guidance: "strict", strict: true, no_functions_line: true }, tools: [strictPython], tasks: ["python"] },
-  { label: "bash as built-in, strict, no functions line", options: { builtins: { bash: true }, guidance: "strict", strict: true, no_functions_line: true }, tools: [strictBash], tasks: ["bash"] },
-  { label: "python and bash as built-ins, strict, no functions line", options: { builtins: { python: true, bash: true }, guidance: "strict", strict: true, no_functions_line: true }, tools: [strictPython, strictBash], tasks: ["python", "bash"] },
+  {
+    label: "python as built-in, strict",
+    options: { builtins: { python: true }, guidance: "strict", strict: true },
+    tools: [strictPython],
+    tasks: ["python"],
+  },
+  {
+    label: "bash as built-in, strict",
+    options: { builtins: { bash: true }, guidance: "strict", strict: true },
+    tools: [strictBash],
+    tasks: ["bash"],
+  },
+  {
+    label: "python and bash as built-ins, strict",
+    options: { builtins: { python: true, bash: true }, guidance: "strict", strict: true },
+    tools: [strictPython, strictBash],
+    tasks: ["python", "bash"],
+  },
+  {
+    label: "python as built-in, strict, no functions line",
+    options: { builtins: { python: true }, guidance: "strict", strict: true, no_functions_line: true },
+    tools: [strictPython],
+    tasks: ["python"],
+  },
+  {
+    label: "bash as built-in, strict, no functions line",
+    options: { builtins: { bash: true }, guidance: "strict", strict: true, no_functions_line: true },
+    tools: [strictBash],
+    tasks: ["bash"],
+  },
+  {
+    label: "python and bash as built-ins, strict, no functions line",
+    options: { builtins: { python: true, bash: true }, guidance: "strict", strict: true, no_functions_line: true },
+    tools: [strictPython, strictBash],
+    tasks: ["python", "bash"],
+  },
 ];
 
 export interface Message {
@@ -265,11 +376,25 @@ interface Sample {
   calls: Message[];
 }
 
-function args(argv: readonly string[]): { model: string; repeat: number; out: string | undefined; yes: boolean; busybox: string | undefined; only: string[] } {
+function args(argv: readonly string[]): {
+  model: string;
+  repeat: number;
+  out: string | undefined;
+  yes: boolean;
+  busybox: string | undefined;
+  only: string[];
+} {
   const v = (f: string): string | undefined => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
   const model = v("--model");
   if (model === undefined) throw new Error("--model is required: a gpt-oss name from local_models in the settings file");
-  return { model, repeat: Number(v("--repeat") ?? 10), out: v("--out"), yes: argv.includes("--yes"), busybox: v("--busybox"), only: argv.flatMap((a, i) => (a === "--only" ? [argv[i + 1] as string] : [])) };
+  return {
+    model,
+    repeat: Number(v("--repeat") ?? 10),
+    out: v("--out"),
+    yes: argv.includes("--yes"),
+    busybox: v("--busybox"),
+    only: argv.flatMap((a, i) => (a === "--only" ? [argv[i + 1] as string] : [])),
+  };
 }
 
 const tally = (xs: (string | undefined)[]): string => {
@@ -285,7 +410,10 @@ async function main(): Promise<void> {
   await ensureLocalModels(io, { yes: o.yes });
   busybox = await requireBusybox(o.busybox);
   setBusybox(busybox);
-  const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, probeDialect] }).create({ $tag: "local-models" }, { get: () => undefined });
+  const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, probeDialect] }).create(
+    { $tag: "local-models" },
+    { get: () => undefined },
+  );
   const sampling = samplingSettings((await lookupSampling(io, o.model)).values) as Record<string, unknown>;
   const samples: Sample[] = [];
   const arms = ARMS.filter((a) => o.only.length === 0 || o.only.some((x) => a.label.includes(x)));
@@ -294,25 +422,53 @@ async function main(): Promise<void> {
       for (const key of arm.tasks) {
         const task = TASKS[key] as Task;
         raws.length = 0;
-        const model = { provider: "live", id: o.model, settings: { max_output_tokens: 4096, ...sampling, dialect: "harmony-probe", dialect_options: arm.options } } as NonNullable<AgentSetup["model"]>;
-        const r = await runAgentTask({ adapter, model, files: task.files, prompt: task.prompt, busybox, timeoutMs: 120_000, extraTools: arm.tools, without: ["run", "script"] });
+        const model = {
+          provider: "live",
+          id: o.model,
+          settings: { max_output_tokens: 4096, ...sampling, dialect: "harmony-probe", dialect_options: arm.options },
+        } as NonNullable<AgentSetup["model"]>;
+        const r = await runAgentTask({
+          adapter,
+          model,
+          files: task.files,
+          prompt: task.prompt,
+          busybox,
+          timeoutMs: 120_000,
+          extraTools: arm.tools,
+          without: ["run", "script"],
+        });
         const right = task.wants.test((await r.read("answer.txt")) ?? "");
         const mine = [...raws];
-        samples.push({ arm: arm.label, task: task.name, n, right, steps: r.steps.map((s) => `${s.name}${s.is_error === true ? "!" : ""}`), raws: mine, calls: mine.flatMap(callsIn) });
+        samples.push({
+          arm: arm.label,
+          task: task.name,
+          n,
+          right,
+          steps: r.steps.map((s) => `${s.name}${s.is_error === true ? "!" : ""}`),
+          raws: mine,
+          calls: mine.flatMap(callsIn),
+        });
         console.error(`#${n} ${arm.label} / ${task.name}: ${samples.at(-1)?.steps.join(", ") || "(no call)"} ${right ? "right" : "wrong"}`);
       }
     }
   }
-  const lines = ["| arm | task | right | first call: channel, recipient | constrain | word before message | body (JSON object / bare) | other tools used |", "|---|---|---|---|---|---|---|---|"];
+  const lines = [
+    "| arm | task | right | first call: channel, recipient | constrain | word before message | body (JSON object / bare) | other tools used |",
+    "|---|---|---|---|---|---|---|---|",
+  ];
   for (const arm of arms) {
     for (const key of arm.tasks) {
       const task = TASKS[key] as Task;
       const mine = samples.filter((s) => s.arm === arm.label && s.task === task.name);
       const tools = ["python", "bash"].filter((t) => arm.tools.some((x) => x.definition.name === t));
-      const mineCalls = mine.flatMap((s) => s.calls.filter((c) => tools.some((t) => c.recipient === t || c.recipient === `functions.${t}`)));
+      const mineCalls = mine.flatMap((s) =>
+        s.calls.filter((c) => tools.some((t) => c.recipient === t || c.recipient === `functions.${t}`)),
+      );
       const first = mine.map((s) => s.calls[0]);
       const others = mine.flatMap((s) => s.steps.map((x) => x.replace("!", "")).filter((x) => !tools.includes(x) && x !== "write"));
-      lines.push(`| ${arm.label} | ${task.name} | ${mine.filter((s) => s.right).length}/${mine.length} | ${tally(first.map((c) => (c === undefined ? undefined : `${c.channel} ${c.recipient}`)))} | ${tally(mineCalls.map((c) => c.constrain))} | ${tally(mineCalls.map((c) => (c.tail === "" ? undefined : c.tail)))} | ${tally(mineCalls.map((c) => c.body))} | ${tally(others)} |`);
+      lines.push(
+        `| ${arm.label} | ${task.name} | ${mine.filter((s) => s.right).length}/${mine.length} | ${tally(first.map((c) => (c === undefined ? undefined : `${c.channel} ${c.recipient}`)))} | ${tally(mineCalls.map((c) => c.constrain))} | ${tally(mineCalls.map((c) => (c.tail === "" ? undefined : c.tail)))} | ${tally(mineCalls.map((c) => c.body))} | ${tally(others)} |`,
+      );
     }
   }
   const dir = o.out ?? join("bench-runs", `harmony-raw-probe-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);

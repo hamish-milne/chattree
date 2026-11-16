@@ -15,7 +15,13 @@ import { slow, slowOptions } from "../support/slow.ts";
 const host = nodeHost();
 const CONFIG = "providers:\n  main:\n    $tag: anthropic\n    api_key_env: K\n";
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "m", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
+const reply = (text: string): NewEntry => ({
+  $tag: "assistant",
+  provider: "anthropic",
+  model: "m",
+  blocks: [{ $tag: "text", text }],
+  stop_reason: "end_turn",
+});
 const FILES = ["a.txt", "b.txt", "dir/c.txt", "dir/d.txt"];
 
 async function scribble(c: Conversation, r: Rng): Promise<void> {
@@ -95,7 +101,10 @@ async function run(seed: number, steps: number): Promise<void> {
       if (i % 10 === 9) await check();
     }
     await check(true);
-    if (process.env["FUZZ_LOG"] !== undefined) console.log(`seed ${seed}: ${[...new Set(log)].join(",")} (${model.length} entries, ${(await convo.listBranches()).length} branches)`);
+    if (process.env["FUZZ_LOG"] !== undefined)
+      console.log(
+        `seed ${seed}: ${[...new Set(log)].join(",")} (${model.length} entries, ${(await convo.listBranches()).length} branches)`,
+      );
   } catch (e) {
     throw new Error(`seed ${seed}: ${log.join(", ")}\n${e instanceof Error ? (e.stack ?? e.message) : String(e)}`);
   }

@@ -18,7 +18,9 @@ const strip = (s: string): string => s.replace(new RegExp(`${ESC}\\[[0-9;?]*[A-Z
 /** A streamed reply in which the model asks for tools. */
 const callTools = (...calls: { id: string; name: string; args: object }[]): Reply => ({
   acts: [
-    ...calls.map((c, i) => chunk({ tool_calls: [{ index: i, id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } }] })),
+    ...calls.map((c, i) =>
+      chunk({ tool_calls: [{ index: i, id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.args) } }] }),
+    ),
     chunk({}, "tool_calls"),
     usageChunk(30, 8),
     "data: [DONE]\n\n",
@@ -53,7 +55,13 @@ function terminal(dir: string, over: Parameters<typeof testIo>[1] = {}) {
   output.on("data", (d: Buffer) => void (raw += d.toString()));
   const io = testIo(dir, { interactive: true, tty: { input, output }, env: { PATH: process.env["PATH"] }, ...over });
   const done = main(["chat", "--thread", "main"], io);
-  return { io, type: (s: string) => void input.write(s), screen: () => strip(raw + io.stdout + io.stderr), done, end: () => void input.end() };
+  return {
+    io,
+    type: (s: string) => void input.write(s),
+    screen: () => strip(raw + io.stdout + io.stderr),
+    done,
+    end: () => void input.end(),
+  };
 }
 
 describe("/retry at a tool call", () => {
@@ -74,7 +82,9 @@ describe("/retry at a tool call", () => {
 
 describe("tools in a plain chat", () => {
   test("a call the starting grants cover runs, and is shown as a start line and a result line", async () => {
-    const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "hello.txt" } }), answer("It says hello.")], { "hello.txt": "hello world\n" });
+    const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "hello.txt" } }), answer("It says hello.")], {
+      "hello.txt": "hello world\n",
+    });
     try {
       const io = testIo(dir, { stdin: "what does hello.txt say?\n" });
       assert.equal(await main(["chat", "--plain"], io), 0, io.stderr);
@@ -91,7 +101,10 @@ describe("tools in a plain chat", () => {
   });
 
   test("a call no grant covers is declined when nobody can be asked, and the model is told", async () => {
-    const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo hi > out.txt" } }), answer("I could not run it.")]);
+    const { server, dir } = await started([
+      callTools({ id: "c1", name: "run", args: { command: "echo hi > out.txt" } }),
+      answer("I could not run it."),
+    ]);
     try {
       const io = testIo(dir, { stdin: "run it\n" });
       await main(["chat", "--plain"], io);
@@ -106,7 +119,9 @@ describe("tools in a plain chat", () => {
   });
 
   test("a key written by hand in harness.yml covers the command", async () => {
-    const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "cat hello.txt" } }), answer("done")], { "hello.txt": "hello world\n" });
+    const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "cat hello.txt" } }), answer("done")], {
+      "hello.txt": "hello world\n",
+    });
     try {
       const yml = await readFile(join(dir, "harness.yml"), "utf8");
       await writeFile(join(dir, "harness.yml"), yml.replace("  run:\n", '  run:\n    allow: { "cat **": 2999-01-01 }\n'));
@@ -122,9 +137,13 @@ describe("tools in a plain chat", () => {
   });
 
   test("/tools lists what is allowed; /tools <name> allow adds a key and revoke removes it; /expand shows a whole result", async () => {
-    const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "hello.txt" } }), answer("ok")], { "hello.txt": "one\ntwo\nthree\nfour\nfive\n" });
+    const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "hello.txt" } }), answer("ok")], {
+      "hello.txt": "one\ntwo\nthree\nfour\nfive\n",
+    });
     try {
-      const io = testIo(dir, { stdin: "read\n/tools\n/tools run allow 'cat **' 1h\n/tools\n/tools run revoke\n/tools run allow 'xargs **'\n/expand\n/jobs\n" });
+      const io = testIo(dir, {
+        stdin: "read\n/tools\n/tools run allow 'cat **' 1h\n/tools\n/tools run revoke\n/tools run allow 'xargs **'\n/expand\n/jobs\n",
+      });
       await main(["chat", "--plain"], io);
       assert.match(io.stdout, /read\s+everything until 2999-01-01/);
       assert.match(io.stdout, /run\s+asks every time/);
@@ -162,7 +181,10 @@ describe("approvals in the terminal", () => {
       t.type("/quit\n");
       await t.done;
       const rs = await toolResults(dir);
-      assert.deepEqual(rs.map((r) => r.is_error), [false, false]);
+      assert.deepEqual(
+        rs.map((r) => r.is_error),
+        [false, false],
+      );
       assert.match(text(rs[0]!.content), /first/);
       const yml = await readFile(join(dir, "harness.yml"), "utf8");
       assert.match(yml, /echo second: 2999-01-01/);
@@ -177,7 +199,10 @@ describe("approvals in the terminal", () => {
   });
 
   test("no sends the reason to the model, and the command does not run", async () => {
-    const { server, dir } = await started([callTools({ id: "c1", name: "run", args: { command: "echo nope > out.txt" } }), answer("understood")]);
+    const { server, dir } = await started([
+      callTools({ id: "c1", name: "run", args: { command: "echo nope > out.txt" } }),
+      answer("understood"),
+    ]);
     const t = terminal(dir);
     try {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
@@ -223,7 +248,11 @@ describe("questions from commands in a terminal", () => {
   test("/undo asks through the terminal's own prompt, and the prompt works afterwards", async () => {
     const { server, dir } = await started([answer("hi")]);
     // A second prompt on the same keyboard is what left the session stuck, so one here would fail the test.
-    const t = terminal(dir, { ask: async () => { throw new Error("a second prompt was opened"); } });
+    const t = terminal(dir, {
+      ask: async () => {
+        throw new Error("a second prompt was opened");
+      },
+    });
     try {
       await waitFor(() => t.screen().includes("Ctrl-D leaves"), "the prompt");
       t.type("hello\n\n");
@@ -248,14 +277,50 @@ describe("which tools are offered", () => {
     const { server, dir } = await started([]);
     try {
       const names = async () => {
-        const set = await buildToolSet(testIo(dir), await Conversation.open(host, dir), { busy: () => false, onCommitted: () => undefined, onResume: () => undefined });
-        return set.registry.definitions().map((d) => d.name).sort();
+        const set = await buildToolSet(testIo(dir), await Conversation.open(host, dir), {
+          busy: () => false,
+          onCommitted: () => undefined,
+          onResume: () => undefined,
+        });
+        return set.registry
+          .definitions()
+          .map((d) => d.name)
+          .sort();
       };
-      assert.deepEqual(await names(), ["edit", "job_output", "job_stop", "jobs", "read", "run", "script", "search", "skill", "thread_read", "thread_send", "write"]);
+      assert.deepEqual(await names(), [
+        "edit",
+        "job_output",
+        "job_stop",
+        "jobs",
+        "read",
+        "run",
+        "script",
+        "search",
+        "skill",
+        "thread_read",
+        "thread_send",
+        "write",
+      ]);
       const yml = join(dir, "harness.yml");
-      await writeFile(yml, (await readFile(yml, "utf8")).replace(/ {2}script:\n {4}allow: \{\}\n/, "").replace(/ {2}write:\n {4}allow: \{ all: 2999-01-01 \}\n/, ""));
+      await writeFile(
+        yml,
+        (await readFile(yml, "utf8"))
+          .replace(/ {2}script:\n {4}allow: \{\}\n/, "")
+          .replace(/ {2}write:\n {4}allow: \{ all: 2999-01-01 \}\n/, ""),
+      );
       await approve(dir);
-      assert.deepEqual(await names(), ["edit", "job_output", "job_stop", "jobs", "read", "run", "search", "skill", "thread_read", "thread_send"]);
+      assert.deepEqual(await names(), [
+        "edit",
+        "job_output",
+        "job_stop",
+        "jobs",
+        "read",
+        "run",
+        "search",
+        "skill",
+        "thread_read",
+        "thread_send",
+      ]);
     } finally {
       await server.close();
     }
@@ -285,9 +350,14 @@ describe("init on Windows", () => {
 
 describe("/display", () => {
   test("tool calls and results in the history follow /display tools: brief by default, off hides them, full shows the arguments and the whole result", async () => {
-    const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "hello.txt" } }), answer("It says hello.")], { "hello.txt": "hello world\nsecond line\n" });
+    const { server, dir } = await started([callTools({ id: "c1", name: "read", args: { path: "hello.txt" } }), answer("It says hello.")], {
+      "hello.txt": "hello world\nsecond line\n",
+    });
     try {
-      const io = testIo(dir, { stdin: "what does hello.txt say?\n/history 4\n/display tools off\n/history 4\n/display tools full\n/history 4\n/display\n/display tools loud\n/display nonsense\n" });
+      const io = testIo(dir, {
+        stdin:
+          "what does hello.txt say?\n/history 4\n/display tools off\n/history 4\n/display tools full\n/history 4\n/display\n/display tools loud\n/display nonsense\n",
+      });
       await main(["chat", "--plain", "-y"], io);
       const out = io.stdout;
       const [brief, off, full] = out.split(/^you:$/m).slice(-3);
@@ -372,7 +442,10 @@ describe("putting a draft aside with Ctrl-O", () => {
       t.type("/quit\n");
       await t.done;
       const sent = (await entries(dir)).find((e) => e.$tag === "user");
-      assert.equal(sent?.$tag === "user" && sent.content[0]?.$tag === "text" ? sent.content[0].text : "", "first line\nsecond half and more");
+      assert.equal(
+        sent?.$tag === "user" && sent.content[0]?.$tag === "text" ? sent.content[0].text : "",
+        "first line\nsecond half and more",
+      );
     } finally {
       t.end();
       await server.close();
@@ -547,12 +620,15 @@ describe("stopping at a question", () => {
 describe("background jobs in a session", () => {
   test("a job the model starts is reported when it ends, committed, and read by job_output", async () => {
     const node = process.execPath.replaceAll("\\", "/");
-    const { server, dir } = await started([
-      callTools({ id: "c1", name: "run", args: { command: `${node} job.js`, background: true } }),
-      answer("started it"),
-      callTools({ id: "c2", name: "job_output", args: { job: "j1" } }),
-      answer("it printed the line"),
-    ], { "job.js": `setTimeout(() => console.log("job output here"), 300)\n` }); // a script file: no quoting to get wrong on Windows
+    const { server, dir } = await started(
+      [
+        callTools({ id: "c1", name: "run", args: { command: `${node} job.js`, background: true } }),
+        answer("started it"),
+        callTools({ id: "c2", name: "job_output", args: { job: "j1" } }),
+        answer("it printed the line"),
+      ],
+      { "job.js": `setTimeout(() => console.log("job output here"), 300)\n` },
+    ); // a script file: no quoting to get wrong on Windows
     const yml = await readFile(join(dir, "harness.yml"), "utf8");
     await writeFile(join(dir, "harness.yml"), yml.replace("  run:\n", `  run:\n    allow: { "${node} **": 2999-01-01 }\n`));
     await approve(dir);
@@ -565,7 +641,15 @@ describe("background jobs in a session", () => {
         await waitFor(() => /background job j1 (completed|failed)/.test(t.screen()), "the job notice");
       } catch (e) {
         const all = await entries(dir);
-        const seen = all.map((x) => (x.$tag === "tool_result" ? `tool_result ${text(x.content)}` : x.$tag === "job_event" ? `job_event ${x.status} ${x.summary}` : x.$tag)).join("\n");
+        const seen = all
+          .map((x) =>
+            x.$tag === "tool_result"
+              ? `tool_result ${text(x.content)}`
+              : x.$tag === "job_event"
+                ? `job_event ${x.status} ${x.summary}`
+                : x.$tag,
+          )
+          .join("\n");
         throw new Error(`${e instanceof Error ? e.message : String(e)}\n--- screen\n${t.screen()}\n--- entries\n${seen}`);
       }
       assert.match(t.screen(), /background job j1 completed/);

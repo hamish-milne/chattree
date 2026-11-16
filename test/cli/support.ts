@@ -7,10 +7,14 @@ import { FakeServer, type Reply } from "../support/fake-server.ts";
 
 export const host = nodeHost();
 
-export const chunk = (delta: object, finish: string | null = null): string => `data: ${JSON.stringify({ id: "c1", model: "qwen3:4b", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
-export const usageChunk = (p: number, c: number): string => `data: ${JSON.stringify({ id: "c1", model: "qwen3:4b", choices: [], usage: { prompt_tokens: p, completion_tokens: c } })}\n\n`;
+export const chunk = (delta: object, finish: string | null = null): string =>
+  `data: ${JSON.stringify({ id: "c1", model: "qwen3:4b", choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;
+export const usageChunk = (p: number, c: number): string =>
+  `data: ${JSON.stringify({ id: "c1", model: "qwen3:4b", choices: [], usage: { prompt_tokens: p, completion_tokens: c } })}\n\n`;
 /** A complete streamed answer. */
-export const answer = (text: string, p = 20, c = 5): Reply => ({ acts: [chunk({ content: text }), chunk({}, "stop"), usageChunk(p, c), "data: [DONE]\n\n"] });
+export const answer = (text: string, p = 20, c = 5): Reply => ({
+  acts: [chunk({ content: text }), chunk({}, "stop"), usageChunk(p, c), "data: [DONE]\n\n"],
+});
 
 export interface Captured extends Io {
   stdout: string;
@@ -42,4 +46,15 @@ export async function project(server: FakeServer, opts: { cwd?: string } = {}): 
   return { dir, base };
 }
 
-export const initArgs = (server: FakeServer, dir: string): string[] => ["init", dir, "--provider", "compatible", "--base-url", `${server.url}/v1`, "--model", "qwen3:4b", "--max-output", "256"];
+export const initArgs = (server: FakeServer, dir: string): string[] => [
+  "init",
+  dir,
+  "--provider",
+  "compatible",
+  "--base-url",
+  `${server.url}/v1`,
+  "--model",
+  "qwen3:4b",
+  "--max-output",
+  "256",
+];

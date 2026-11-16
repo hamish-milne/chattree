@@ -14,12 +14,17 @@ import type { trimRule } from "./entries.ts";
 export type TrimRule = z.infer<typeof trimRule>;
 
 /** What stands in place of a tool's output. */
-export const outputLeftOut = (bytes: number): string => `[The ${size(bytes)} of output of this call were left out to save context. Run it again if the output is needed.]`;
+export const outputLeftOut = (bytes: number): string =>
+  `[The ${size(bytes)} of output of this call were left out to save context. Run it again if the output is needed.]`;
 /** What stands in place of a long text inside a call's arguments. */
 export const valueLeftOut = (bytes: number): string => `[${size(bytes)} left out to save context]`;
 
 function size(bytes: number): string {
-  return bytes < 1024 ? `${bytes} bytes` : bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return bytes < 1024
+    ? `${bytes} bytes`
+    : bytes < 1024 * 1024
+      ? `${(bytes / 1024).toFixed(1)} KB`
+      : `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 const enc = new TextEncoder();
@@ -29,11 +34,16 @@ export const textBytes = (t: string | { bytes: number }): number => (typeof t ==
 /** Both rules at once: a part applies if either does, at the smaller size. */
 export function mergeRules(a: TrimRule | undefined, b: TrimRule): TrimRule {
   if (a === undefined) return b;
-  const least = (x: number | undefined, y: number | undefined): number | undefined => (x === undefined ? y : y === undefined ? x : Math.min(x, y));
+  const least = (x: number | undefined, y: number | undefined): number | undefined =>
+    x === undefined ? y : y === undefined ? x : Math.min(x, y);
   const tool_results = least(a.tool_results, b.tool_results);
   const tool_args = least(a.tool_args, b.tool_args);
   const reasoning = a.reasoning === true || b.reasoning === true ? true : (a.reasoning ?? b.reasoning);
-  return { ...(tool_results === undefined ? {} : { tool_results }), ...(tool_args === undefined ? {} : { tool_args }), ...(reasoning === undefined ? {} : { reasoning }) };
+  return {
+    ...(tool_results === undefined ? {} : { tool_results }),
+    ...(tool_args === undefined ? {} : { tool_args }),
+    ...(reasoning === undefined ? {} : { reasoning }),
+  };
 }
 
 /**
@@ -95,7 +105,8 @@ export function elidedBytes(e: ChatEntry, rule: TrimRule | undefined): number {
   if (e.$tag === "assistant") {
     let sum = 0;
     for (const b of e.blocks) {
-      if (b.$tag === "reasoning" && rule.reasoning === true) sum += (b.visible === undefined ? 0 : textBytes(b.visible)) + (b.payload === undefined ? 0 : JSON.stringify(b.payload).length);
+      if (b.$tag === "reasoning" && rule.reasoning === true)
+        sum += (b.visible === undefined ? 0 : textBytes(b.visible)) + (b.payload === undefined ? 0 : JSON.stringify(b.payload).length);
       if (b.$tag === "tool_call" && rule.tool_args !== undefined) sum += argBytes(b.args, rule.tool_args);
     }
     return sum;
@@ -116,7 +127,15 @@ export interface TrimPlan {
  */
 export function planTrim(entries: readonly ChatEntry[], keepRecent: number, rule: TrimRule): TrimPlan | undefined {
   const visible = contextEntries(entries);
-  const carries = (e: ChatEntry): boolean => e.$tag === "user" || e.$tag === "assistant" || e.$tag === "tool_result" || e.$tag === "compaction" || e.$tag === "subagent_result" || e.$tag === "fork_merge" || e.$tag === "job_event" || e.$tag === "interrupted";
+  const carries = (e: ChatEntry): boolean =>
+    e.$tag === "user" ||
+    e.$tag === "assistant" ||
+    e.$tag === "tool_result" ||
+    e.$tag === "compaction" ||
+    e.$tag === "subagent_result" ||
+    e.$tag === "fork_merge" ||
+    e.$tag === "job_event" ||
+    e.$tag === "interrupted";
   let kept = 0;
   let end = visible.length - 1;
   while (end >= 0 && kept < keepRecent) {

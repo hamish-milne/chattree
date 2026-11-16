@@ -15,7 +15,11 @@ export interface FakeTool {
 }
 
 export const DEFAULT_TOOLS: FakeTool[] = [
-  { name: "echo", description: "Repeat the text back.", inputSchema: { type: "object", properties: { text: { type: "string", description: "what to say" } }, required: ["text"] } },
+  {
+    name: "echo",
+    description: "Repeat the text back.",
+    inputSchema: { type: "object", properties: { text: { type: "string", description: "what to say" } }, required: ["text"] },
+  },
   { name: "fail", description: "Always fails.", inputSchema: { type: "object", properties: {} } },
   { name: "slow", description: "Waits until it is cancelled.", inputSchema: { type: "object", properties: {} } },
   { name: "picture", description: "Returns an image and some text.", inputSchema: { type: "object", properties: {} } },
@@ -50,7 +54,12 @@ export class FakeMcp {
     const params = (m.params ?? {}) as Record<string, unknown>;
     switch (m.method) {
       case "initialize":
-        return ok({ protocolVersion: "2025-06-18", capabilities: { tools: { listChanged: true } }, serverInfo: { name: "fake", version: "1.2.3" }, instructions: "be careful" });
+        return ok({
+          protocolVersion: "2025-06-18",
+          capabilities: { tools: { listChanged: true } },
+          serverInfo: { name: "fake", version: "1.2.3" },
+          instructions: "be careful",
+        });
       case "ping":
         return ok({});
       case "tools/list": {
@@ -67,7 +76,12 @@ export class FakeMcp {
           case "fail":
             return ok({ content: [{ type: "text", text: "it broke" }], isError: true });
           case "picture":
-            return ok({ content: [{ type: "text", text: "here" }, { type: "image", data: "AAAA", mimeType: "image/png" }] });
+            return ok({
+              content: [
+                { type: "text", text: "here" },
+                { type: "image", data: "AAAA", mimeType: "image/png" },
+              ],
+            });
           case "change":
             this.#push({ jsonrpc: "2.0", method: "notifications/tools/list_changed" });
             return ok({ content: [{ type: "text", text: "changed" }] });
@@ -100,7 +114,10 @@ const readBody = async (req: IncomingMessage): Promise<string> => {
 
 /** An HTTP MCP endpoint. `sse` answers requests as event streams (with a progress notification first) instead of plain JSON; `auth` demands that header value. */
 export async function startHttp(opts: { tools?: FakeTool[]; page?: number; sse?: boolean; auth?: string } = {}): Promise<HttpFake> {
-  const server = new FakeMcp({ ...(opts.tools === undefined ? {} : { tools: opts.tools }), ...(opts.page === undefined ? {} : { page: opts.page }) });
+  const server = new FakeMcp({
+    ...(opts.tools === undefined ? {} : { tools: opts.tools }),
+    ...(opts.page === undefined ? {} : { page: opts.page }),
+  });
   const headers: HttpFake["headers"] = [];
   let sessions = 0;
   const http: Server = createServer(async (req, res) => {
@@ -130,7 +147,16 @@ export async function startHttp(opts: { tools?: FakeTool[]; page?: number; sse?:
   });
   await new Promise<void>((r) => http.listen(0, "127.0.0.1", r));
   const port = (http.address() as { port: number }).port;
-  return { url: `http://127.0.0.1:${port}/mcp`, server, headers, close: () => new Promise<void>((r) => { http.closeAllConnections(); http.close(() => r()); }) };
+  return {
+    url: `http://127.0.0.1:${port}/mcp`,
+    server,
+    headers,
+    close: () =>
+      new Promise<void>((r) => {
+        http.closeAllConnections();
+        http.close(() => r());
+      }),
+  };
 }
 
 // ---- run as a program: JSON-RPC lines on stdin and stdout --------------------------------------------------------

@@ -106,7 +106,12 @@ export interface AgentTaskResult {
 export const AGENT_SYSTEM = "You are a terse coding agent working in a workspace. Use the tools; do not guess file contents.";
 
 export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult> {
-  const registry = new ToolRegistry([...leafTools({ busybox: o.busybox, mmRead: o.media === true }).filter((t) => !(o.without ?? []).includes(t.definition.name) && (o.media === true || t.definition.name !== "mm_read")), ...(o.extraTools ?? [])]);
+  const registry = new ToolRegistry([
+    ...leafTools({ busybox: o.busybox, mmRead: o.media === true }).filter(
+      (t) => !(o.without ?? []).includes(t.definition.name) && (o.media === true || t.definition.name !== "mm_read"),
+    ),
+    ...(o.extraTools ?? []),
+  ]);
   const live = new AdapterRegistry().register(
     defineAdapter({
       $tag: "live",
@@ -118,7 +123,10 @@ export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult
     }),
   );
   const dir = join(await mkdtemp(join(tmpdir(), "chattree-live-")), "c");
-  const convo = await Conversation.create(nodeHost(), dir, { providers: { registry: live, secrets: envSource({}) }, config: `providers:\n  live:\n    $tag: live\nlimits:\n  max_requests_per_turn: ${o.maxRequests ?? 40}\n` });
+  const convo = await Conversation.create(nodeHost(), dir, {
+    providers: { registry: live, secrets: envSource({}) },
+    config: `providers:\n  live:\n    $tag: live\nlimits:\n  max_requests_per_turn: ${o.maxRequests ?? 40}\n`,
+  });
   await convo.setupChange({ model: o.model });
   await syncTools(convo, registry);
   for (const [name, text] of Object.entries(o.files)) await writeFile(join(dir, name), text);
@@ -130,7 +138,13 @@ export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult
   let status = "";
   let requests = 0;
   try {
-    const gen = runLoop(convo, { system: o.system ?? AGENT_SYSTEM, cost: false, registry, environment: o.environment, signal: AbortSignal.timeout(o.timeoutMs ?? 180_000) });
+    const gen = runLoop(convo, {
+      system: o.system ?? AGENT_SYSTEM,
+      cost: false,
+      registry,
+      environment: o.environment,
+      signal: AbortSignal.timeout(o.timeoutMs ?? 180_000),
+    });
     for (;;) {
       const n = await gen.next();
       if (n.done === true) {
@@ -159,7 +173,8 @@ export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult
   for (const name of Object.keys(o.files)) after[name] = (await read(name)) ?? "";
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const lastAssistant = entries.findLast((e) => e.$tag === "assistant");
-  const answer = lastAssistant?.$tag === "assistant" ? lastAssistant.blocks.flatMap((b) => (b.$tag === "text" ? [b.text] : [])).join("") : "";
+  const answer =
+    lastAssistant?.$tag === "assistant" ? lastAssistant.blocks.flatMap((b) => (b.$tag === "text" ? [b.text] : [])).join("") : "";
   const problems = await verifyHistory(convo).catch((e: unknown) => [String(e)]);
   return { dir, status, requests, steps, used, errors, after, read, answer, problems };
 }
@@ -170,7 +185,10 @@ export function benchEnvironment(busybox?: string): HostEnvironment {
   return {
     os: windows ? "Windows" : process.platform === "darwin" ? "macOS" : "Linux",
     platform: windows ? "windows" : "posix",
-    utilities: windows && busybox !== undefined ? "`run` takes one command or pipeline in a bash-like syntax, with busybox utilities and the programs on the PATH; `script` runs a POSIX sh script with busybox." : "`run` takes one command or pipeline in a bash-like syntax, using this machine's own utilities and programs; `script` runs a POSIX sh script.",
+    utilities:
+      windows && busybox !== undefined
+        ? "`run` takes one command or pipeline in a bash-like syntax, with busybox utilities and the programs on the PATH; `script` runs a POSIX sh script with busybox."
+        : "`run` takes one command or pipeline in a bash-like syntax, using this machine's own utilities and programs; `script` runs a POSIX sh script.",
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
   };
 }

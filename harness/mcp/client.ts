@@ -19,7 +19,14 @@ export class McpError extends Error {
   }
 }
 
-export type JsonRpcMessage = { jsonrpc: "2.0"; id?: number | string; method?: string; params?: unknown; result?: unknown; error?: { code: number; message: string; data?: unknown } };
+export type JsonRpcMessage = {
+  jsonrpc: "2.0";
+  id?: number | string;
+  method?: string;
+  params?: unknown;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+};
 
 /** How messages travel. Start it with the handlers; `send` rejects when the message could not be sent. */
 export interface McpTransport {
@@ -38,7 +45,12 @@ export interface McpTool {
   annotations?: Record<string, unknown>;
 }
 
-export type McpContent = { type: "text"; text: string } | { type: "image" | "audio"; data: string; mimeType: string } | { type: "resource"; resource: { uri: string; mimeType?: string; text?: string; blob?: string } } | { type: "resource_link"; uri: string; name?: string; mimeType?: string } | { type: string; [k: string]: unknown };
+export type McpContent =
+  | { type: "text"; text: string }
+  | { type: "image" | "audio"; data: string; mimeType: string }
+  | { type: "resource"; resource: { uri: string; mimeType?: string; text?: string; blob?: string } }
+  | { type: "resource_link"; uri: string; name?: string; mimeType?: string }
+  | { type: string; [k: string]: unknown };
 
 export interface McpCallResult {
   content: McpContent[];
@@ -78,15 +90,25 @@ export class McpClient {
   /** Start the transport and do the handshake. Throws `McpError` if the server does not answer or speaks another protocol. */
   static async connect(transport: McpTransport, opts: ConnectOptions): Promise<McpClient> {
     const client = new McpClient(transport);
-    await transport.start((m) => client.#onMessage(m), (why) => client.#onClose(why));
+    await transport.start(
+      (m) => client.#onMessage(m),
+      (why) => client.#onClose(why),
+    );
     try {
-      const r = await client.#request("initialize", { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: opts.clientName, version: opts.clientVersion } }, { timeoutMs: opts.timeoutMs ?? 30_000 });
-      if (!isObject(r) || typeof r["protocolVersion"] !== "string") throw new McpError("the server's reply to initialize was not understood");
+      const r = await client.#request(
+        "initialize",
+        { protocolVersion: PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: opts.clientName, version: opts.clientVersion } },
+        { timeoutMs: opts.timeoutMs ?? 30_000 },
+      );
+      if (!isObject(r) || typeof r["protocolVersion"] !== "string")
+        throw new McpError("the server's reply to initialize was not understood");
       const version = r["protocolVersion"];
-      if (!["2025-06-18", "2025-03-26", "2024-11-05"].includes(version)) throw new McpError(`the server speaks protocol version ${version}, which this client does not`);
+      if (!["2025-06-18", "2025-03-26", "2024-11-05"].includes(version))
+        throw new McpError(`the server speaks protocol version ${version}, which this client does not`);
       transport.negotiated?.(version);
       const info = r["serverInfo"];
-      if (isObject(info) && typeof info["name"] === "string") client.serverInfo = { name: info["name"], version: typeof info["version"] === "string" ? info["version"] : "" };
+      if (isObject(info) && typeof info["name"] === "string")
+        client.serverInfo = { name: info["name"], version: typeof info["version"] === "string" ? info["version"] : "" };
       if (typeof r["instructions"] === "string") client.instructions = r["instructions"];
       await transport.send({ jsonrpc: "2.0", method: "notifications/initialized" });
       return client;
@@ -140,11 +162,21 @@ export class McpClient {
   }
 
   /** Call a tool. Aborting `signal` tells the server (`notifications/cancelled`) and rejects. */
-  async callTool(name: string, args: Record<string, unknown>, opts: { signal?: AbortSignal; timeoutMs?: number } = {}): Promise<McpCallResult> {
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    opts: { signal?: AbortSignal; timeoutMs?: number } = {},
+  ): Promise<McpCallResult> {
     const r = await this.#request("tools/call", { name, arguments: args }, opts);
     if (!isObject(r)) throw new McpError("the server's result was not understood");
-    const content = Array.isArray(r["content"]) ? (r["content"].filter((c) => isObject(c) && typeof c["type"] === "string") as McpContent[]) : [];
-    return { content, ...(r["isError"] === true ? { isError: true } : {}), ...(r["structuredContent"] === undefined ? {} : { structuredContent: r["structuredContent"] }) };
+    const content = Array.isArray(r["content"])
+      ? (r["content"].filter((c) => isObject(c) && typeof c["type"] === "string") as McpContent[])
+      : [];
+    return {
+      content,
+      ...(r["isError"] === true ? { isError: true } : {}),
+      ...(r["structuredContent"] === undefined ? {} : { structuredContent: r["structuredContent"] }),
+    };
   }
 
   async close(): Promise<void> {
@@ -165,7 +197,10 @@ export class McpClient {
       const cancel = (reason: string, error: McpError): void => {
         if (!this.#pending.has(id)) return;
         done();
-        if (method !== "initialize") void this.#transport.send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason } }).catch(() => undefined);
+        if (method !== "initialize")
+          void this.#transport
+            .send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason } })
+            .catch(() => undefined);
         reject(error);
       };
       const onAbort = (): void => cancel("the caller stopped", new McpError(`${method} was stopped`));
@@ -182,7 +217,11 @@ export class McpClient {
       });
       if (opts.signal?.aborted === true) return onAbort();
       opts.signal?.addEventListener("abort", onAbort, { once: true });
-      if (opts.timeoutMs !== undefined) timer = setTimeout(() => cancel("timed out", new McpError(`${method} timed out after ${Math.round((opts.timeoutMs as number) / 1000)} s`)), opts.timeoutMs);
+      if (opts.timeoutMs !== undefined)
+        timer = setTimeout(
+          () => cancel("timed out", new McpError(`${method} timed out after ${Math.round((opts.timeoutMs as number) / 1000)} s`)),
+          opts.timeoutMs,
+        );
       this.#transport.send({ jsonrpc: "2.0", id, method, params }).catch((e: unknown) => {
         if (!this.#pending.has(id)) return;
         done();
@@ -198,7 +237,10 @@ export class McpClient {
         return; // other notifications (progress, logging, resources) are not used
       }
       // A request from the server. Only `ping` is answered; everything else is a capability this client does not have.
-      const reply: JsonRpcMessage = m.method === "ping" ? { jsonrpc: "2.0", id: m.id, result: {} } : { jsonrpc: "2.0", id: m.id, error: { code: -32601, message: `method not found: ${m.method}` } };
+      const reply: JsonRpcMessage =
+        m.method === "ping"
+          ? { jsonrpc: "2.0", id: m.id, result: {} }
+          : { jsonrpc: "2.0", id: m.id, error: { code: -32601, message: `method not found: ${m.method}` } };
       void this.#transport.send(reply).catch(() => undefined);
       return;
     }
@@ -212,7 +254,8 @@ export class McpClient {
   #onClose(why: string): void {
     if (this.#closed !== undefined) return;
     this.#closed = why;
-    for (const p of [...this.#pending.values()]) p.reject(new McpError(`the server's connection ended (${why}) before it answered ${p.method}`));
+    for (const p of [...this.#pending.values()])
+      p.reject(new McpError(`the server's connection ended (${why}) before it answered ${p.method}`));
   }
 }
 
@@ -231,7 +274,8 @@ export function stdioTransport(host: Host, o: StdioOptions): McpTransport {
   const enc = new TextEncoder();
   return {
     async start(onMessage, onClose) {
-      if (host.spawn === undefined) throw new McpError("this host cannot start long-running programs, which an MCP server over stdio needs");
+      if (host.spawn === undefined)
+        throw new McpError("this host cannot start long-running programs, which an MCP server over stdio needs");
       try {
         proc = await host.spawn(o.command, o.args, { cwd: o.cwd, env: o.env });
       } catch (e) {
@@ -293,7 +337,13 @@ export function httpTransport(o: HttpOptions): McpTransport {
   let deliver: ((m: JsonRpcMessage) => void) | undefined;
   let ended: ((why: string) => void) | undefined;
   const controller = new AbortController();
-  const headers = (): Record<string, string> => ({ ...o.headers, "content-type": "application/json", accept: "application/json, text/event-stream", ...(session === undefined ? {} : { "mcp-session-id": session }), ...(version === undefined ? {} : { "mcp-protocol-version": version }) });
+  const headers = (): Record<string, string> => ({
+    ...o.headers,
+    "content-type": "application/json",
+    accept: "application/json, text/event-stream",
+    ...(session === undefined ? {} : { "mcp-session-id": session }),
+    ...(version === undefined ? {} : { "mcp-protocol-version": version }),
+  });
   const dispatch = (v: unknown): void => {
     for (const m of Array.isArray(v) ? v : [v]) if (isObject(m) && m["jsonrpc"] === "2.0") deliver?.(m as JsonRpcMessage);
   };
@@ -349,7 +399,11 @@ export function httpTransport(o: HttpOptions): McpTransport {
     },
     async close() {
       controller.abort();
-      if (session !== undefined) await f(o.url, { method: "DELETE", headers: { ...o.headers, "mcp-session-id": session, ...(version === undefined ? {} : { "mcp-protocol-version": version }) } }).catch(() => undefined);
+      if (session !== undefined)
+        await f(o.url, {
+          method: "DELETE",
+          headers: { ...o.headers, "mcp-session-id": session, ...(version === undefined ? {} : { "mcp-protocol-version": version }) },
+        }).catch(() => undefined);
     },
   };
 }

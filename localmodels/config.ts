@@ -5,9 +5,14 @@ import { z } from "zod";
  * llama.cpp release to run them with, and how the server is reached. Pure data: nothing here touches the network or the disk.
  */
 
-const name = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/, "letters, digits and . _ : -, starting with a letter or digit, at most 64 characters");
+const name = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/, "letters, digits and . _ : -, starting with a letter or digit, at most 64 characters");
 const envName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
-const sha256 = z.string().regex(/^[0-9a-fA-F]{64}$/, "64 hexadecimal digits").transform((s) => s.toLowerCase());
+const sha256 = z
+  .string()
+  .regex(/^[0-9a-fA-F]{64}$/, "64 hexadecimal digits")
+  .transform((s) => s.toLowerCase());
 
 /** `b12110` (a llama.cpp build) or `v0.9.0` (a release that points at one: `resolveTag`). */
 export const LLAMA_TAG = /^(b\d+|v\d+\.\d+(\.\d+)?)$/;
@@ -21,7 +26,17 @@ const nonNegative = z.number().int().min(0);
 const optionValue = z.union([z.string(), z.number(), z.boolean()]);
 
 /** The types of speculative decoding (docs/local-models.md, 9.8), named as llama-server's `--spec-type` does. */
-export const SPEC_TYPES = ["none", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache", "draft-simple", "draft-mtp", "draft-eagle3"] as const;
+export const SPEC_TYPES = [
+  "none",
+  "ngram-simple",
+  "ngram-map-k",
+  "ngram-map-k4v",
+  "ngram-mod",
+  "ngram-cache",
+  "draft-simple",
+  "draft-mtp",
+  "draft-eagle3",
+] as const;
 /** The types that run a second model. */
 export const DRAFT_TYPES = ["draft-simple", "draft-mtp", "draft-eagle3"] as const;
 export const isDraftType = (t: string): boolean => (DRAFT_TYPES as readonly string[]).includes(t);
@@ -46,13 +61,22 @@ const sidecar = z.union([z.literal("auto"), sidecarObject]);
 export type Sidecar = z.infer<typeof sidecar>;
 const sidecarIssues = (what: string, v: Sidecar | undefined, modelHf: boolean, path: (string | number)[], ctx: z.RefinementCtx): void => {
   if (v === undefined || v === "auto") {
-    if (v === "auto" && !modelHf) ctx.addIssue({ code: "custom", path, message: `${what}: auto looks in the model's Hugging Face repository; this model has a url` });
+    if (v === "auto" && !modelHf)
+      ctx.addIssue({ code: "custom", path, message: `${what}: auto looks in the model's Hugging Face repository; this model has a url` });
     return;
   }
-  if (v.url !== undefined && (v.hf !== undefined || v.file !== undefined)) ctx.addIssue({ code: "custom", path, message: `${what}: give a url, or hf and file, not both` });
-  if (v.url === undefined && v.hf === undefined && v.file === undefined) ctx.addIssue({ code: "custom", path, message: `${what}: give a url, a file, an hf repository, or auto` });
-  if (v.file !== undefined && v.hf === undefined && !modelHf) ctx.addIssue({ code: "custom", path: [...path, "file"], message: `${what}: a file belongs to a Hugging Face repository: give hf, or use a url` });
-  if (v.revision !== undefined && v.hf === undefined) ctx.addIssue({ code: "custom", path: [...path, "revision"], message: `${what}: revision goes with hf` });
+  if (v.url !== undefined && (v.hf !== undefined || v.file !== undefined))
+    ctx.addIssue({ code: "custom", path, message: `${what}: give a url, or hf and file, not both` });
+  if (v.url === undefined && v.hf === undefined && v.file === undefined)
+    ctx.addIssue({ code: "custom", path, message: `${what}: give a url, a file, an hf repository, or auto` });
+  if (v.file !== undefined && v.hf === undefined && !modelHf)
+    ctx.addIssue({
+      code: "custom",
+      path: [...path, "file"],
+      message: `${what}: a file belongs to a Hugging Face repository: give hf, or use a url`,
+    });
+  if (v.revision !== undefined && v.hf === undefined)
+    ctx.addIssue({ code: "custom", path: [...path, "revision"], message: `${what}: revision goes with hf` });
 };
 
 const speculativeObject = z
@@ -72,11 +96,16 @@ const speculativeObject = z
     p_min: z.number().min(0).max(1).optional(),
   })
   .superRefine((v, ctx) => {
-    if (v.type === "ngram-mod" && (v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: "ngram-mod has no ngram_m or min_hits" });
-    if (isDraftType(v.type) && v.draft === undefined) ctx.addIssue({ code: "custom", message: `${v.type} needs a draft: auto, a url, a file, or an hf repository` });
-    if (!isDraftType(v.type) && (v.draft !== undefined || v.p_min !== undefined)) ctx.addIssue({ code: "custom", message: `${v.type} has no draft model or p_min` });
-    if (isDraftType(v.type) && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: `${v.type} has no n-gram options` });
-    if (v.type === "ngram-cache" && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined)) ctx.addIssue({ code: "custom", message: "ngram-cache has no n-gram options" });
+    if (v.type === "ngram-mod" && (v.ngram_m !== undefined || v.min_hits !== undefined))
+      ctx.addIssue({ code: "custom", message: "ngram-mod has no ngram_m or min_hits" });
+    if (isDraftType(v.type) && v.draft === undefined)
+      ctx.addIssue({ code: "custom", message: `${v.type} needs a draft: auto, a url, a file, or an hf repository` });
+    if (!isDraftType(v.type) && (v.draft !== undefined || v.p_min !== undefined))
+      ctx.addIssue({ code: "custom", message: `${v.type} has no draft model or p_min` });
+    if (isDraftType(v.type) && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined))
+      ctx.addIssue({ code: "custom", message: `${v.type} has no n-gram options` });
+    if (v.type === "ngram-cache" && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined))
+      ctx.addIssue({ code: "custom", message: "ngram-cache has no n-gram options" });
   });
 export type Speculative = z.infer<typeof speculativeObject>;
 
@@ -111,7 +140,6 @@ const sampling = z.strictObject({
 });
 export type Sampling = z.infer<typeof sampling>;
 
-
 const modelEntry = z
   .strictObject({
     /** Where the GGUF file is: a direct URL, or ... */
@@ -137,8 +165,10 @@ const modelEntry = z
     ...params,
   })
   .superRefine((m, ctx) => {
-    if ((m.url === undefined) === (m.hf === undefined)) ctx.addIssue({ code: "custom", message: "give either url or hf, not both and not neither" });
-    if (m.url !== undefined && m.file !== undefined) ctx.addIssue({ code: "custom", path: ["file"], message: "file goes with hf; a url already names the file" });
+    if ((m.url === undefined) === (m.hf === undefined))
+      ctx.addIssue({ code: "custom", message: "give either url or hf, not both and not neither" });
+    if (m.url !== undefined && m.file !== undefined)
+      ctx.addIssue({ code: "custom", path: ["file"], message: "file goes with hf; a url already names the file" });
     sidecarIssues("the projector", m.mmproj, m.hf !== undefined, ["mmproj"], ctx);
     sidecarIssues("the draft model", m.speculative?.draft, m.hf !== undefined, ["speculative", "draft"], ctx);
   });
@@ -149,7 +179,10 @@ const llamaCpp = z.strictObject({
   tag: z.string().regex(LLAMA_TAG, "a build such as b12110, or a version such as v0.9.0").optional(),
   backend: z.enum(BACKENDS).default("auto"),
   /** With the cuda backend, the CUDA version to prefer (`12.8`); default the newest the release has. */
-  cuda: z.string().regex(/^\d+(\.\d+)?$/).optional(),
+  cuda: z
+    .string()
+    .regex(/^\d+(\.\d+)?$/)
+    .optional(),
   /** Use this llama-server instead of fetching one. */
   path: z.string().min(1).optional(),
 });
@@ -180,12 +213,18 @@ export const localModelsSchema = z
     models: z.record(name, modelEntry).default({}),
   })
   .superRefine((c, ctx) => {
-    if (c.defaults.speculative?.draft !== undefined) ctx.addIssue({ code: "custom", path: ["defaults", "speculative", "draft"], message: "a draft model belongs to one model: set speculative on the model" });
+    if (c.defaults.speculative?.draft !== undefined)
+      ctx.addIssue({
+        code: "custom",
+        path: ["defaults", "speculative", "draft"],
+        message: "a draft model belongs to one model: set speculative on the model",
+      });
     const seen = new Map<string, string>();
     for (const [model, m] of Object.entries(c.models)) {
       for (const n of [model, ...(m.aliases ?? [])]) {
         const other = seen.get(n);
-        if (other !== undefined && other !== model) ctx.addIssue({ code: "custom", path: ["models", model], message: `the name ${n} is also used by ${other}` });
+        if (other !== undefined && other !== model)
+          ctx.addIssue({ code: "custom", path: ["models", model], message: `the name ${n} is also used by ${other}` });
         seen.set(n, model);
       }
     }
@@ -194,9 +233,18 @@ export const localModelsSchema = z
 export type LocalModels = z.infer<typeof localModelsSchema>;
 
 /** Where a model's file comes from, as far as the settings alone say. */
-export type ModelSource = { kind: "url"; url: string; file: string } | { kind: "hf"; repo: string; revision: string; file: string } | { kind: "hf-quant"; repo: string; revision: string; quant: string | undefined };
+export type ModelSource =
+  | { kind: "url"; url: string; file: string }
+  | { kind: "hf"; repo: string; revision: string; file: string }
+  | { kind: "hf-quant"; repo: string; revision: string; quant: string | undefined };
 
-const lastSegment = (path: string): string => decodeURIComponent(path.split("/").filter((s) => s !== "").at(-1) ?? "");
+const lastSegment = (path: string): string =>
+  decodeURIComponent(
+    path
+      .split("/")
+      .filter((s) => s !== "")
+      .at(-1) ?? "",
+  );
 
 /** The file a model entry names, or what has to be asked of Hugging Face to find it. Undefined for a url that does not end in `.gguf`. */
 export function modelSource(m: ModelEntry): ModelSource | undefined {
@@ -212,4 +260,5 @@ export function modelSource(m: ModelEntry): ModelSource | undefined {
 }
 
 /** The address a file of a Hugging Face repository is downloaded from. */
-export const hfUrl = (repo: string, revision: string, file: string): string => `https://huggingface.co/${repo}/resolve/${encodeURIComponent(revision)}/${file.split("/").map(encodeURIComponent).join("/")}`;
+export const hfUrl = (repo: string, revision: string, file: string): string =>
+  `https://huggingface.co/${repo}/resolve/${encodeURIComponent(revision)}/${file.split("/").map(encodeURIComponent).join("/")}`;

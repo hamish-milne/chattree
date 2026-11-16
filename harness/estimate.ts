@@ -43,7 +43,8 @@ export function contextJson(value: unknown): string {
 export function estimateInputTokens(ctx: ModelContext): number {
   const text = contextJson({ system: ctx.system, instructions: ctx.instructions, tools: ctx.tools, turns: ctx.turns });
   let attached = 0;
-  const guess = (p: { kind: "image" | "pdf" | "audio"; bytes: Uint8Array }): number => (p.kind === "image" ? IMAGE_TOKEN_GUESS : p.kind === "audio" ? audioTokenGuess(p.bytes.length) : pdfTokenGuess(p.bytes.length));
+  const guess = (p: { kind: "image" | "pdf" | "audio"; bytes: Uint8Array }): number =>
+    p.kind === "image" ? IMAGE_TOKEN_GUESS : p.kind === "audio" ? audioTokenGuess(p.bytes.length) : pdfTokenGuess(p.bytes.length);
   for (const t of ctx.turns) {
     if (t.role === "tool_results") for (const r of t.results) for (const m of r.media ?? []) attached += guess(m);
     if (t.role !== "user") continue;
@@ -52,7 +53,13 @@ export function estimateInputTokens(ctx: ModelContext): number {
   return Math.ceil(new TextEncoder().encode(text).length / BYTES_PER_TOKEN) + attached;
 }
 
-export function estimateRequest(ctx: ModelContext, model: { id: string; settings?: unknown }, table: PriceTable | undefined, info?: ModelInfo, counted?: number): Estimate {
+export function estimateRequest(
+  ctx: ModelContext,
+  model: { id: string; settings?: unknown },
+  table: PriceTable | undefined,
+  info?: ModelInfo,
+  counted?: number,
+): Estimate {
   const inputTokens = counted ?? estimateInputTokens(ctx);
   const maxOutputTokens = Number((model.settings as { max_output_tokens?: unknown } | undefined)?.max_output_tokens ?? 0);
   const price = table === undefined ? undefined : findModel(table, model.id);
@@ -64,25 +71,45 @@ export function estimateRequest(ctx: ModelContext, model: { id: string; settings
     const per = r === undefined ? undefined : promptRate(r, (model.settings as { cache_ttl?: unknown } | undefined)?.cache_ttl);
     if (r?.output !== undefined && per !== undefined) usd = (inputTokens * per + maxOutputTokens * r.output) / 1_000_000;
   }
-  return { inputTokens, maxOutputTokens, usd, contextWindow: info?.context_window, longContextAt: price?.long_context?.above_tokens, ...(counted === undefined ? {} : { counted: true }) };
+  return {
+    inputTokens,
+    maxOutputTokens,
+    usd,
+    contextWindow: info?.context_window,
+    longContextAt: price?.long_context?.above_tokens,
+    ...(counted === undefined ? {} : { counted: true }),
+  };
 }
 
 /**
  * What switching model or tier does to the next request at the current conversation size, as a `cost_increase`
  * change when it is at least `ratio` times dearer (and at least a cent). The host calls this from its classifier.
  */
-export function costIncrease(opts: { tokens: number; maxOutputTokens: number; from: { price: ModelPrice | undefined; tier?: string | undefined }; to: { price: ModelPrice | undefined; tier?: string | undefined }; ratio?: number }): Change | undefined {
+export function costIncrease(opts: {
+  tokens: number;
+  maxOutputTokens: number;
+  from: { price: ModelPrice | undefined; tier?: string | undefined };
+  to: { price: ModelPrice | undefined; tier?: string | undefined };
+  ratio?: number;
+}): Change | undefined {
   const at = (p: { price: ModelPrice | undefined; tier?: string | undefined }): number | undefined => {
     if (p.price?.free === true) return 0;
     const r = p.price === undefined ? undefined : ratesFor(p.price, p.tier, opts.tokens);
-    return r?.input === undefined || r.output === undefined ? undefined : (opts.tokens * r.input + opts.maxOutputTokens * r.output) / 1_000_000;
+    return r?.input === undefined || r.output === undefined
+      ? undefined
+      : (opts.tokens * r.input + opts.maxOutputTokens * r.output) / 1_000_000;
   };
   const a = at(opts.from);
   const b = at(opts.to);
-  if (b === undefined) return { kind: "cost_increase", message: "the price of the new model is unknown, so the cost of the next request cannot be estimated" };
+  if (b === undefined)
+    return { kind: "cost_increase", message: "the price of the new model is unknown, so the cost of the next request cannot be estimated" };
   if (a === undefined || b - a < 0.01) return undefined;
   const times = a === 0 ? Infinity : b / a;
   if (times < (opts.ratio ?? 2)) return undefined;
   const usd = (n: number): string => `$${n < 0.1 ? n.toFixed(3) : n.toFixed(2)}`;
-  return { kind: "cost_increase", message: `the next request costs about ${usd(a)} now and about ${usd(b)} after${Number.isFinite(times) ? ` (${times >= 10 ? Math.round(times) : times.toFixed(1)}x)` : ""}, at this conversation's size`, estimatedCost: b - a };
+  return {
+    kind: "cost_increase",
+    message: `the next request costs about ${usd(a)} now and about ${usd(b)} after${Number.isFinite(times) ? ` (${times >= 10 ? Math.round(times) : times.toFixed(1)}x)` : ""}, at this conversation's size`,
+    estimatedCost: b - a,
+  };
 }

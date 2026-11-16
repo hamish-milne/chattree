@@ -53,14 +53,18 @@ const isUtf8 = (b: Uint8Array): boolean => {
 
 class RunRefused extends Error {}
 
-const GIT_REFUSED = "git is not used here: the working directory is a repository that stores a log of this conversation and the changes to its files, and your changes are saved automatically (the user can allow git with tools.run.git: true in harness.yml)";
+const GIT_REFUSED =
+  "git is not used here: the working directory is a repository that stores a log of this conversation and the changes to its files, and your changes are saved automatically (the user can allow git with tools.run.git: true in harness.yml)";
 
 /** Replace `$VAR` and `${VAR}` in one argument, only for allowed names. */
 export function expandEnv(arg: string, opts: RunToolOptions["env"]): string {
   return arg.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, a: string | undefined, b: string | undefined) => {
     const name = (a ?? b) as string;
     const allowed = opts !== undefined && (opts.allow === "*" || opts.allow.includes(name));
-    if (!allowed) throw new RunRefused(`$${name} is not an allowed environment variable (names are listed under tools.env in harness.yml); for a literal $ use the script tool`);
+    if (!allowed)
+      throw new RunRefused(
+        `$${name} is not an allowed environment variable (names are listed under tools.env in harness.yml); for a literal $ use the script tool`,
+      );
     const v = opts?.values[name];
     if (v === undefined) throw new RunRefused(`$${name} is not set`);
     return v;
@@ -68,9 +72,16 @@ export function expandEnv(arg: string, opts: RunToolOptions["env"]): string {
 }
 
 /** Environment lookup for the command parser: allowed names only. */
-const envLookup = (opts: RunToolOptions["env"]) => (name: string): string => expandEnv(`$${name}`, opts);
+const envLookup =
+  (opts: RunToolOptions["env"]) =>
+  (name: string): string =>
+    expandEnv(`$${name}`, opts);
 
-async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOptions): Promise<{ stages: string[][]; verbatim: boolean[] }> {
+async function prepare(
+  parsed: ParsedCommand,
+  ctx: ToolContext,
+  opts: RunToolOptions,
+): Promise<{ stages: string[][]; verbatim: boolean[] }> {
   const out: string[][] = [];
   const verbatim: boolean[] = [];
   for (const stage of parsed.stages) {
@@ -87,8 +98,14 @@ async function prepare(parsed: ParsedCommand, ctx: ToolContext, opts: RunToolOpt
     if (ctx.host.platform === "windows" && mapped[0] === words[0]) {
       const found = await findProgram(ctx.host, ctx.workspace, words[0] as string, opts.hostEnv ?? {});
       if (found !== undefined && isBatch(found.path)) {
-        if (opts.batch !== true) throw new RunRefused(`${words[0]} is a batch program (${found.path}), which run does not start by default because cmd.exe re-interprets its arguments; the user can allow it with tools.run.batch: true in harness.yml`);
-        if (found.local !== undefined && !localAllowed(found.local, opts.batchLocal ?? [])) throw new RunRefused(`${words[0]} resolves to ${found.local}, a batch file inside the workspace, and tools.run.local in harness.yml does not list it (for example ./node_modules/.bin/*.cmd)`);
+        if (opts.batch !== true)
+          throw new RunRefused(
+            `${words[0]} is a batch program (${found.path}), which run does not start by default because cmd.exe re-interprets its arguments; the user can allow it with tools.run.batch: true in harness.yml`,
+          );
+        if (found.local !== undefined && !localAllowed(found.local, opts.batchLocal ?? []))
+          throw new RunRefused(
+            `${words[0]} resolves to ${found.local}, a batch file inside the workspace, and tools.run.local in harness.yml does not list it (for example ./node_modules/.bin/*.cmd)`,
+          );
         const problem = batchProblem(found.path, words.slice(1));
         if (problem !== undefined) throw new RunRefused(`${words[0]}: ${problem}`);
         out.push(batchStage(opts.hostEnv?.["ComSpec"] ?? opts.hostEnv?.["COMSPEC"] ?? "cmd.exe", found.path, words.slice(1)));
@@ -106,8 +123,13 @@ function report(outcome: RunOutcome, timeoutSeconds: number, extra: string[], mm
   const lines = [`exit ${outcome.exitCode}${outcome.stageCodes.length > 1 ? ` (stages: ${outcome.stageCodes.join(", ")})` : ""}`];
   if (outcome.timedOut) lines.push(`timed out after ${timeoutSeconds} seconds and was killed`);
   if (outcome.aborted && !outcome.timedOut) lines.push("stopped before it finished");
-  const binary = outcome.output.subarray(0, 8000).includes(0) || !isUtf8(outcome.dropped > 0 ? outcome.output.subarray(0, Math.max(0, outcome.output.length - 3)) : outcome.output);
-  if (binary) lines.push(`(the output is binary data, not text, so it is not shown; write it to a file with > ${mm ? "and look at it with mm_read if it is a picture or sound" : "and use a tool that reads that format"})`);
+  const binary =
+    outcome.output.subarray(0, 8000).includes(0) ||
+    !isUtf8(outcome.dropped > 0 ? outcome.output.subarray(0, Math.max(0, outcome.output.length - 3)) : outcome.output);
+  if (binary)
+    lines.push(
+      `(the output is binary data, not text, so it is not shown; write it to a file with > ${mm ? "and look at it with mm_read if it is a picture or sound" : "and use a tool that reads that format"})`,
+    );
   else {
     const text = dec.decode(outcome.output);
     lines.push(text === "" ? "(no output)" : text.replace(/\n$/, ""));
@@ -117,9 +139,18 @@ function report(outcome: RunOutcome, timeoutSeconds: number, extra: string[], mm
   return { content: lines.join("\n"), is_error: outcome.exitCode !== 0 || outcome.timedOut || outcome.aborted };
 }
 
-const timeoutProp = { type: "integer", minimum: 1, maximum: MAX_TIMEOUT, description: `Seconds before the command is killed. Default 120 (3600 with background), at most ${MAX_TIMEOUT}.` };
+const timeoutProp = {
+  type: "integer",
+  minimum: 1,
+  maximum: MAX_TIMEOUT,
+  description: `Seconds before the command is killed. Default 120 (3600 with background), at most ${MAX_TIMEOUT}.`,
+};
 
-const backgroundProp = { type: "boolean", description: "Start it as a background job and return at once, for something long (a build, a server, a test run). You are told when it ends; the jobs, job_output and job_stop tools manage it. Default false." };
+const backgroundProp = {
+  type: "boolean",
+  description:
+    "Start it as a background job and return at once, for something long (a build, a server, a test run). You are told when it ends; the jobs, job_output and job_stop tools manage it. Default false.",
+};
 
 /** Let a tool be started as a background job (`background: true`): the same execution, not tied to the turn, with a long default timeout. */
 function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => string, defaultSeconds: number | undefined): Tool {
@@ -129,8 +160,12 @@ function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => st
     ...tool,
     background: true,
     // Started in the background the call returns at once; otherwise it is as long as the command's own timeout.
-    timeout: (args) => (args["background"] === true ? 60 : Math.min((args["timeout_seconds"] as number | undefined) ?? defaultSeconds ?? 120, MAX_TIMEOUT)),
-    definition: { ...tool.definition, input_schema: { ...schema, properties: { ...schema.properties, background: backgroundProp } } as never },
+    timeout: (args) =>
+      args["background"] === true ? 60 : Math.min((args["timeout_seconds"] as number | undefined) ?? defaultSeconds ?? 120, MAX_TIMEOUT),
+    definition: {
+      ...tool.definition,
+      input_schema: { ...schema, properties: { ...schema.properties, background: backgroundProp } } as never,
+    },
     async execute(args, ctx) {
       if (args["background"] !== true) return inner(args, ctx);
       const stop = new AbortController();
@@ -155,7 +190,11 @@ export function runTool(opts: RunToolOptions = {}): Tool {
 }
 
 export function scriptTool(opts: RunToolOptions = {}): Tool {
-  return backgroundable(plainScriptTool(opts), (a) => `script: ${oneLine((a["script"] as string).split("\n")[0] ?? "")}`, opts.timeoutSeconds);
+  return backgroundable(
+    plainScriptTool(opts),
+    (a) => `script: ${oneLine((a["script"] as string).split("\n")[0] ?? "")}`,
+    opts.timeoutSeconds,
+  );
 }
 
 function plainRunTool(opts: RunToolOptions): Tool {
@@ -169,7 +208,10 @@ function plainRunTool(opts: RunToolOptions): Tool {
         additionalProperties: false,
         required: ["command"],
         properties: {
-          command: { type: "string", description: "One command or pipeline on a single line, for example: grep -n TODO src/*.ts | sort | head -20" },
+          command: {
+            type: "string",
+            description: "One command or pipeline on a single line, for example: grep -n TODO src/*.ts | sort | head -20",
+          },
           timeout_seconds: timeoutProp,
         },
       },
@@ -213,11 +255,20 @@ function plainRunTool(opts: RunToolOptions): Tool {
         if (target !== undefined && outcome.stdout !== undefined) {
           if (out?.append === true) await host.fs.append(target, outcome.stdout);
           else await host.fs.writeAtomic(target, outcome.stdout, { keepMode: true });
-          extra.push(`stdout ${out?.append === true ? "appended to" : "written to"} ${display(host, workspace, target)} (${outcome.stdout.length} bytes)`);
+          extra.push(
+            `stdout ${out?.append === true ? "appended to" : "written to"} ${display(host, workspace, target)} (${outcome.stdout.length} bytes)`,
+          );
         }
         return report(outcome, timeout, extra, opts.mmRead === true);
       } catch (e) {
-        if (e instanceof RunRefused || e instanceof CommandSyntax || e instanceof NotAvailable || e instanceof GlobError || e instanceof PathRefused) return { content: e.message, is_error: true };
+        if (
+          e instanceof RunRefused ||
+          e instanceof CommandSyntax ||
+          e instanceof NotAvailable ||
+          e instanceof GlobError ||
+          e instanceof PathRefused
+        )
+          return { content: e.message, is_error: true };
         throw e;
       }
     },

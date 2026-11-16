@@ -67,8 +67,16 @@ export function join(...parts: Float32Array[]): Float32Array {
 
 const WORD_NUMBERS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10 };
 /** The numbers an answer states, as digits or as words. */
-const numbersIn = (a: string): number[] => [...a.toLowerCase().matchAll(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/g)].map((m) => WORD_NUMBERS[m[1] as string] ?? Number(m[1]));
-const words = (a: string): string => a.toLowerCase().replace(/[^a-z0-9 ]+/g, " ").replace(/\s+/g, " ").trim();
+const numbersIn = (a: string): number[] =>
+  [...a.toLowerCase().matchAll(/\b(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/g)].map(
+    (m) => WORD_NUMBERS[m[1] as string] ?? Number(m[1]),
+  );
+const words = (a: string): string =>
+  a
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 
 /** `samples` followed by silence up to `seconds`, when it is shorter: some encoders may not give a short sound the attention they give a clip of speech. */
 export function padTo(samples: Float32Array, seconds: number, rate = RATE): Float32Array {
@@ -83,20 +91,48 @@ function make(kind: Exclude<AudioKind, "speech" | "listen">, seed: number, index
     const n = 2 + Math.floor(r() * 5);
     const parts: Float32Array[] = [silence(0.3)];
     for (let i = 0; i < n; i++) parts.push(tone(880, 0.2), silence(0.25));
-    return { kind, id, wav: encodeWav(padTo(join(...parts), pad)), question: "How many beeps do you hear? Answer with just the number.", expected: String(n), check: (a) => numbersIn(a).length > 0 && numbersIn(a).every((x) => x === n) };
+    return {
+      kind,
+      id,
+      wav: encodeWav(padTo(join(...parts), pad)),
+      question: "How many beeps do you hear? Answer with just the number.",
+      expected: String(n),
+      check: (a) => numbersIn(a).length > 0 && numbersIn(a).every((x) => x === n),
+    };
   }
   const firstHigher = r() < 0.5;
-  const ordinal = (a: string, want: "first" | "second"): boolean => new RegExp(`\\b${want}\\b`, "i").test(a) && !new RegExp(`\\b${want === "first" ? "second" : "first"}\\b`, "i").test(a);
+  const ordinal = (a: string, want: "first" | "second"): boolean =>
+    new RegExp(`\\b${want}\\b`, "i").test(a) && !new RegExp(`\\b${want === "first" ? "second" : "first"}\\b`, "i").test(a);
   const want = firstHigher ? "first" : "second";
   if (kind === "pitch") {
     const [a, b] = firstHigher ? [880, 330] : [330, 880];
-    return { kind, id, wav: encodeWav(padTo(join(silence(0.2), tone(a, 0.7), silence(0.4), tone(b, 0.7)), pad)), question: "Two tones play one after the other. Which one is higher in pitch, the first or the second? Answer with just 'first' or 'second'.", expected: want, check: (x) => ordinal(x, want) };
+    return {
+      kind,
+      id,
+      wav: encodeWav(padTo(join(silence(0.2), tone(a, 0.7), silence(0.4), tone(b, 0.7)), pad)),
+      question:
+        "Two tones play one after the other. Which one is higher in pitch, the first or the second? Answer with just 'first' or 'second'.",
+      expected: want,
+      check: (x) => ordinal(x, want),
+    };
   }
   const [a, b] = firstHigher ? [0.8, 0.08] : [0.08, 0.8];
-  return { kind, id, wav: encodeWav(padTo(join(silence(0.2), tone(440, 0.7, a), silence(0.4), tone(440, 0.7, b)), pad)), question: "Two tones play one after the other. Which one is louder, the first or the second? Answer with just 'first' or 'second'.", expected: want, check: (x) => ordinal(x, want) };
+  return {
+    kind,
+    id,
+    wav: encodeWav(padTo(join(silence(0.2), tone(440, 0.7, a), silence(0.4), tone(440, 0.7, b)), pad)),
+    question: "Two tones play one after the other. Which one is louder, the first or the second? Answer with just 'first' or 'second'.",
+    expected: want,
+    check: (x) => ordinal(x, want),
+  };
 }
 
-export function scenarios(o: { kinds?: readonly AudioKind[] | undefined; count: number; seed: number; pad?: number | undefined }): AudioScenario[] {
+export function scenarios(o: {
+  kinds?: readonly AudioKind[] | undefined;
+  count: number;
+  seed: number;
+  pad?: number | undefined;
+}): AudioScenario[] {
   const out: AudioScenario[] = [];
   for (const kind of o.kinds ?? (["beeps", "pitch", "loudness"] as const)) {
     if (kind === "speech" || kind === "listen") continue;
@@ -108,10 +144,21 @@ export function scenarios(o: { kinds?: readonly AudioKind[] | undefined; count: 
 /** A recording and the words said in it, as a scenario: the answer is right when it holds all of the words, in any case and punctuation. */
 export function speechScenario(name: string, wav: Uint8Array, said: string, question?: string): AudioScenario {
   const expected = words(said);
-  return { kind: "speech", id: `speech-${name}`, wav, question: question ?? "What is said in this recording? Answer with just the words.", expected: said.trim(), check: (a) => words(a).includes(expected) };
+  return {
+    kind: "speech",
+    id: `speech-${name}`,
+    wav,
+    question: question ?? "What is said in this recording? Answer with just the words.",
+    expected: said.trim(),
+    check: (a) => words(a).includes(expected),
+  };
 }
 
 /** A recording with no known words (an accent sample, an illusion): the model is asked `question`, and its answer is only to be read. */
-export function listenScenario(name: string, wav: Uint8Array, question = "Transcribe what is said, then describe the speaker's accent in a few words."): AudioScenario {
+export function listenScenario(
+  name: string,
+  wav: Uint8Array,
+  question = "Transcribe what is said, then describe the speaker's accent in a few words.",
+): AudioScenario {
   return { kind: "listen", id: `listen-${name}`, wav, question, expected: "(read the answer)", check: () => true };
 }

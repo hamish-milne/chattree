@@ -31,7 +31,9 @@ export interface InjectionContext {
   since(key: string): number | undefined;
 }
 
-export type InjectionRule = (ctx: InjectionContext) => InjectionItem | readonly InjectionItem[] | undefined | Promise<InjectionItem | readonly InjectionItem[] | undefined>;
+export type InjectionRule = (
+  ctx: InjectionContext,
+) => InjectionItem | readonly InjectionItem[] | undefined | Promise<InjectionItem | readonly InjectionItem[] | undefined>;
 
 function flowOf(entries: readonly ChatEntry[]): ChatEntry[] {
   let start = 0;
@@ -87,8 +89,14 @@ export function compactionRule(s: CompactionSettings): InjectionRule {
     if (tokens === undefined || threshold === undefined || tokens < threshold * SOON_SHARE) return undefined;
     const since = ctx.since("compaction:soon");
     if (since !== undefined && since < USAGE_REPEAT) return undefined;
-    const what = s.auto === "full" ? "At the start of the next turn the older part of this conversation will be replaced by a summary, and before that the long tool output, long tool arguments and reasoning of older steps are left out." : "The long tool output, long tool arguments and reasoning of older steps will be left out.";
-    return { key: "compaction:soon", text: `The context is filling up (about ${tokens} tokens; it is reduced at ${threshold}). ${what} Your own text and the user's messages stay. Before then, write down what you will need later (decisions, findings, file paths, what is left to do) in a file or in your reply, and do not repeat earlier output.` };
+    const what =
+      s.auto === "full"
+        ? "At the start of the next turn the older part of this conversation will be replaced by a summary, and before that the long tool output, long tool arguments and reasoning of older steps are left out."
+        : "The long tool output, long tool arguments and reasoning of older steps will be left out.";
+    return {
+      key: "compaction:soon",
+      text: `The context is filling up (about ${tokens} tokens; it is reduced at ${threshold}). ${what} Your own text and the user's messages stay. Before then, write down what you will need later (decisions, findings, file paths, what is left to do) in a file or in your reply, and do not repeat earlier output.`,
+    };
   };
 }
 
@@ -118,7 +126,11 @@ export function rulesFromConfig(cfg: HarnessConfig["injections"], readFile: (pat
  * Run the rules and record what they return, in rule order. A rule that throws is skipped and reported (the request must still go out), and
  * the text of a rule that returns nothing, or an empty text, is not recorded. Resolves to how many entries were written and what failed.
  */
-export async function runInjections(convo: Conversation, rules: readonly InjectionRule[], prepared: Prepared): Promise<{ appended: number; failures: CostWarning[] }> {
+export async function runInjections(
+  convo: Conversation,
+  rules: readonly InjectionRule[],
+  prepared: Prepared,
+): Promise<{ appended: number; failures: CostWarning[] }> {
   if (rules.length === 0) return { appended: 0, failures: [] };
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const ctx = injectionContext(entries, prepared, convo.now());
@@ -130,7 +142,10 @@ export async function runInjections(convo: Conversation, rules: readonly Injecti
     try {
       items = await rule(ctx);
     } catch (e) {
-      failures.push({ kind: "injection_failed", message: `an injection rule failed and was skipped: ${e instanceof Error ? e.message : String(e)}` });
+      failures.push({
+        kind: "injection_failed",
+        message: `an injection rule failed and was skipped: ${e instanceof Error ? e.message : String(e)}`,
+      });
       continue;
     }
     for (const item of items === undefined ? [] : Array.isArray(items) ? items : [items as InjectionItem]) {

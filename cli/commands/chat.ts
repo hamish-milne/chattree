@@ -9,7 +9,8 @@ import { detectMime } from "../mime.ts";
 import type { Output } from "../output.ts";
 import { failure, runTurn } from "../turn.ts";
 
-const kb = (n: number): string => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1024 / 1024).toFixed(1)} MiB`);
+const kb = (n: number): string =>
+  n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1024 / 1024).toFixed(1)} MiB`;
 
 /** Read the staged files again and turn them into attachment parts; stop with the reason if one changed or is gone. */
 async function materialize(ctx: Ctx): Promise<Extract<NewEntry, { $tag: "user" }>["content"]> {
@@ -17,7 +18,8 @@ async function materialize(ctx: Ctx): Promise<Extract<NewEntry, { $tag: "user" }
   for (const a of ctx.state.attachments) {
     const st = await ctx.io.host.fs.stat(a.path);
     if (st === undefined) throw new ConversationError(`${a.name} is gone (${a.path}); /detach it or put it back`);
-    if (st.size !== a.size || st.mtimeMs !== a.mtimeMs) throw new ConversationError(`${a.name} changed since it was staged; /attach it again to send the new version, or /detach it`);
+    if (st.size !== a.size || st.mtimeMs !== a.mtimeMs)
+      throw new ConversationError(`${a.name} changed since it was staged; /attach it again to send the new version, or /detach it`);
     const bytes = await ctx.io.host.fs.read(a.path);
     parts.push(await ctx.convo.attach(bytes, { mime: a.mime, name: a.name, ...(a.charset === undefined ? {} : { charset: a.charset }) }));
   }
@@ -115,9 +117,17 @@ const retry: Command = {
     const last = [...entries].reverse().find((e) => e.$tag !== "agent_setup" && e.$tag !== "approval");
     // Where the model is owed a reply: a user message, a tool result (or a job's event after one), or an assistant turn that
     // ended on tool calls nothing has answered (the loop answers those "did not run" and asks again; it never re-runs a call).
-    const owed = last?.$tag === "user" || last?.$tag === "tool_result" || last?.$tag === "job_event" || (last?.$tag === "assistant" && last.blocks.some((b) => b.$tag === "tool_call"));
+    const owed =
+      last?.$tag === "user" ||
+      last?.$tag === "tool_result" ||
+      last?.$tag === "job_event" ||
+      (last?.$tag === "assistant" && last.blocks.some((b) => b.$tag === "tool_call"));
     if (!owed) {
-      yield { type: "error", message: `there is nothing to retry: the last entry is ${last === undefined ? "missing" : `a ${last.$tag}`}`, ...(last?.$tag === "interrupted" ? { hint: "/continue asks the model to carry on from where it stopped" } : {}) };
+      yield {
+        type: "error",
+        message: `there is nothing to retry: the last entry is ${last === undefined ? "missing" : `a ${last.$tag}`}`,
+        ...(last?.$tag === "interrupted" ? { hint: "/continue asks the model to carry on from where it stopped" } : {}),
+      };
       return;
     }
     yield* runTurn(ctx);
@@ -160,7 +170,10 @@ const abort: Command = {
     if (r === "requested") yield { type: "notice", message: "asked the session that owns the request to stop it" };
     else if (r === "stale") {
       const rec = await ctx.convo.recoverRequest();
-      yield { type: "notice", message: `the request's process is gone; recorded what it had received (${rec?.outcome ?? "nothing to record"})` };
+      yield {
+        type: "notice",
+        message: `the request's process is gone; recorded what it had received (${rec?.outcome ?? "nothing to record"})`,
+      };
     } else yield { type: "notice", message: "nothing is running on this thread" };
   },
 };
@@ -189,9 +202,17 @@ const attach: Command = {
   async *run(ctx, args) {
     let parsed;
     try {
-      parsed = parseArgs({ args, allowPositionals: true, options: { mime: { type: "string" }, charset: { type: "string" }, name: { type: "string" } } });
+      parsed = parseArgs({
+        args,
+        allowPositionals: true,
+        options: { mime: { type: "string" }, charset: { type: "string" }, name: { type: "string" } },
+      });
     } catch (e) {
-      yield { type: "error", message: e instanceof Error ? e.message : String(e), hint: "usage: /attach <path> [--mime T] [--charset C] [--name N]" };
+      yield {
+        type: "error",
+        message: e instanceof Error ? e.message : String(e),
+        hint: "usage: /attach <path> [--mime T] [--charset C] [--name N]",
+      };
       return;
     }
     if (parsed.positionals.length !== 1) {
@@ -207,12 +228,26 @@ const attach: Command = {
     const name = parsed.values.name ?? basename(path);
     try {
       const bytes = await ctx.io.host.fs.read(path);
-      const found = await detectMime(name, bytes, { ...(parsed.values.mime === undefined ? {} : { mime: parsed.values.mime }), ...(parsed.values.charset === undefined ? {} : { charset: parsed.values.charset }) });
-      if (attachmentKind(found.mime) === undefined) throw new Error(`${found.mime} files cannot be given to a model (pictures, sound, PDFs and text)`);
+      const found = await detectMime(name, bytes, {
+        ...(parsed.values.mime === undefined ? {} : { mime: parsed.values.mime }),
+        ...(parsed.values.charset === undefined ? {} : { charset: parsed.values.charset }),
+      });
+      if (attachmentKind(found.mime) === undefined)
+        throw new Error(`${found.mime} files cannot be given to a model (pictures, sound, PDFs and text)`);
       if (attachmentKind(found.mime) === "text") decodeText(bytes, found.charset);
-      const staged: StagedAttachment = { path, name, mime: found.mime, ...(found.charset === undefined ? {} : { charset: found.charset }), size: bytes.length, mtimeMs: st.mtimeMs ?? 0 };
+      const staged: StagedAttachment = {
+        path,
+        name,
+        mime: found.mime,
+        ...(found.charset === undefined ? {} : { charset: found.charset }),
+        size: bytes.length,
+        mtimeMs: st.mtimeMs ?? 0,
+      };
       ctx.state.attachments = [...ctx.state.attachments.filter((a) => a.path !== path), staged];
-      yield { type: "notice", message: `staged ${name} (${found.mime}${found.charset === undefined ? "" : `, ${found.charset}`}, ${kb(bytes.length)}); it is sent with your next message` };
+      yield {
+        type: "notice",
+        message: `staged ${name} (${found.mime}${found.charset === undefined ? "" : `, ${found.charset}`}, ${kb(bytes.length)}); it is sent with your next message`,
+      };
     } catch (e) {
       yield failure(e);
     }
@@ -226,7 +261,13 @@ const attachments: Command = {
   busy: "allowed",
   async *run(ctx) {
     if (ctx.state.attachments.length === 0) yield { type: "text", text: "nothing is staged" };
-    else yield { type: "text", text: ctx.state.attachments.map((a, i) => `${i + 1}. ${a.name}  ${a.mime}${a.charset === undefined ? "" : ` (${a.charset})`}  ${kb(a.size)}  ${a.path}`).join("\n") };
+    else
+      yield {
+        type: "text",
+        text: ctx.state.attachments
+          .map((a, i) => `${i + 1}. ${a.name}  ${a.mime}${a.charset === undefined ? "" : ` (${a.charset})`}  ${kb(a.size)}  ${a.path}`)
+          .join("\n"),
+      };
   },
 };
 
@@ -248,7 +289,9 @@ const detach: Command = {
     if (which === "all") ctx.state.attachments = [];
     else ctx.state.attachments = ctx.state.attachments.filter((a, i) => !(String(i + 1) === which || a.name === which));
     const removed = before - ctx.state.attachments.length;
-    yield removed === 0 ? { type: "error", message: `nothing staged matches ${which}` } : { type: "notice", message: `unstaged ${removed} file${removed === 1 ? "" : "s"}` };
+    yield removed === 0
+      ? { type: "error", message: `nothing staged matches ${which}` }
+      : { type: "notice", message: `unstaged ${removed} file${removed === 1 ? "" : "s"}` };
   },
 };
 

@@ -11,7 +11,8 @@ export interface Fixture {
   response: { status: number; headers: Record<string, string>; body: string };
 }
 
-const SENSITIVE = /^(authorization|x-api-key|api-key|proxy-authorization|cookie|set-cookie|x-goog-api-key|openai-organization|openai-project|anthropic-organization-id|request-id|x-request-id|cf-ray)$/i;
+const SENSITIVE =
+  /^(authorization|x-api-key|api-key|proxy-authorization|cookie|set-cookie|x-goog-api-key|openai-organization|openai-project|anthropic-organization-id|request-id|x-request-id|cf-ray)$/i;
 
 export function scrubText(text: string, secrets: readonly string[]): string {
   let out = text;
@@ -27,7 +28,11 @@ const scrubHeaders = (h: Record<string, string>, secrets: readonly string[]): Re
  * exchange to `sink` once the body has been read to the end. Headers that identify the account or the request
  * are dropped; every string in `secrets` is replaced everywhere.
  */
-export function recordingFetch(real: typeof fetch, sink: (fixture: Fixture) => void | Promise<void>, secrets: readonly string[] = []): typeof fetch {
+export function recordingFetch(
+  real: typeof fetch,
+  sink: (fixture: Fixture) => void | Promise<void>,
+  secrets: readonly string[] = [],
+): typeof fetch {
   return async (input, init) => {
     const res = await real(input, init);
     if (res.body === null) return res;
@@ -46,7 +51,12 @@ export function recordingFetch(real: typeof fetch, sink: (fixture: Fixture) => v
       }
       await sink({
         version: 1,
-        request: { url: scrubText(url, secrets), method: init?.method ?? "GET", headers: scrubHeaders(headers, secrets), body: scrubText(body, secrets) },
+        request: {
+          url: scrubText(url, secrets),
+          method: init?.method ?? "GET",
+          headers: scrubHeaders(headers, secrets),
+          body: scrubText(body, secrets),
+        },
         response: { status: res.status, headers: scrubHeaders(Object.fromEntries(res.headers), secrets), body: scrubText(text, secrets) },
       });
     })();

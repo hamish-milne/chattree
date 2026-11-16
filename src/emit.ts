@@ -22,8 +22,10 @@ type Form = Shape & { tag: string };
 function shapeOf(v: Value): Shape {
   if (v === null) return { kind: "inline", text: "null" };
   switch (typeof v) {
-    case "boolean": return { kind: "inline", text: v ? "true" : "false" };
-    case "number": return { kind: "inline", text: formatNumber(v) };
+    case "boolean":
+      return { kind: "inline", text: v ? "true" : "false" };
+    case "number":
+      return { kind: "inline", text: formatNumber(v) };
     case "string": {
       assertWellFormed(v);
       if (v === "") return { kind: "inline", text: '""' };
@@ -72,10 +74,20 @@ function emitMap(out: string[], m: Map<string, Value>, col: number, lead: string
     first = false;
     const f = formOf(v);
     switch (f.kind) {
-      case "inline": out.push(`${head} ${tagPrefix(f)}${f.text}`); break;
-      case "block": pushBlock(out, head, f, col + 2); break;
-      case "seq": out.push(head + tagSuffix(f)); emitSeq(out, f.items, col, depth + 1); break; // compact: items at the key's column
-      case "map": out.push(head + tagSuffix(f)); emitMap(out, f.map, col + 2, " ".repeat(col + 2), depth + 1); break;
+      case "inline":
+        out.push(`${head} ${tagPrefix(f)}${f.text}`);
+        break;
+      case "block":
+        pushBlock(out, head, f, col + 2);
+        break;
+      case "seq":
+        out.push(head + tagSuffix(f));
+        emitSeq(out, f.items, col, depth + 1);
+        break; // compact: items at the key's column
+      case "map":
+        out.push(head + tagSuffix(f));
+        emitMap(out, f.map, col + 2, " ".repeat(col + 2), depth + 1);
+        break;
     }
   }
 }
@@ -86,8 +98,12 @@ function emitSeq(out: string[], items: Value[], col: number, depth: number): voi
   for (const item of items) {
     const f = formOf(item);
     switch (f.kind) {
-      case "inline": out.push(`${pad}- ${tagPrefix(f)}${f.text}`); break;
-      case "block": pushBlock(out, `${pad}-`, f, col + 2); break;
+      case "inline":
+        out.push(`${pad}- ${tagPrefix(f)}${f.text}`);
+        break;
+      case "block":
+        pushBlock(out, `${pad}-`, f, col + 2);
+        break;
       case "map":
         if (f.tag === "") emitMap(out, f.map, col + 2, `${pad}- `, depth + 1); // untagged: first key shares the dash line
         else {
@@ -95,7 +111,10 @@ function emitSeq(out: string[], items: Value[], col: number, depth: number): voi
           emitMap(out, f.map, col + 2, " ".repeat(col + 2), depth + 1);
         }
         break;
-      case "seq": out.push(`${pad}-${tagSuffix(f)}`); emitSeq(out, f.items, col + 2, depth + 1); break;
+      case "seq":
+        out.push(`${pad}-${tagSuffix(f)}`);
+        emitSeq(out, f.items, col + 2, depth + 1);
+        break;
     }
   }
 }

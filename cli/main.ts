@@ -92,26 +92,37 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
         force: values.force,
         yes: values.yes,
       });
-      io.out(`started a conversation in ${r.root}\n  thread: ${r.branch}\n  model:  ${r.provider}/${r.model}${r.pinned ? "  (prices pinned)" : ""}\n`);
+      io.out(
+        `started a conversation in ${r.root}\n  thread: ${r.branch}\n  model:  ${r.provider}/${r.model}${r.pinned ? "  (prices pinned)" : ""}\n`,
+      );
       for (const n of r.notes) io.err(`note: ${n}\n`);
       io.out(`next: cd ${r.root} && chattree chat\n`);
       return 0;
     }
     // The settings file is read once, here. `settings` is handled before that, so that a broken file can still be shown and edited.
     if (verb === "settings") {
-      if (args.length === 0) return (where.out(`${describeSettings({ host: where.host, env: where.env, settings: await loadSettings(where) })}\n`), 0);
-      if (args[0] === "edit" && args.length === 1 && where.edit !== undefined) return (await where.edit(await ensureSettingsFile(where), editorFor(where))) ? 0 : 1;
+      if (args.length === 0)
+        return (where.out(`${describeSettings({ host: where.host, env: where.env, settings: await loadSettings(where) })}\n`), 0);
+      if (args[0] === "edit" && args.length === 1 && where.edit !== undefined)
+        return (await where.edit(await ensureSettingsFile(where), editorFor(where))) ? 0 : 1;
       throw new CliError("usage: chattree settings [edit]", "edit needs a terminal");
     }
     where.settings = await loadSettings(where);
     if (verb === "models") {
-      return await runModels(where, args, { yes: values.yes === true, force: values.force === true, follow: values.follow === true, ...(values.lines === undefined ? {} : { lines: Number(values.lines) }) });
+      return await runModels(where, args, {
+        yes: values.yes === true,
+        force: values.force === true,
+        follow: values.follow === true,
+        ...(values.lines === undefined ? {} : { lines: Number(values.lines) }),
+      });
     }
     const registry = new Registry(defaultCommands());
     if (verb === "run") return await runRunner(where, start, { thread: values.thread ?? args[0], once: values.once === true });
     if (verb === "chat") {
-      if (values.thinking !== undefined && !["on", "off", "brief"].includes(values.thinking)) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
-      if (values.tools !== undefined && !["full", "brief", "off"].includes(values.tools)) throw new CliError(`--tools takes full, brief or off, not ${values.tools}`);
+      if (values.thinking !== undefined && !["on", "off", "brief"].includes(values.thinking))
+        throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
+      if (values.tools !== undefined && !["full", "brief", "off"].includes(values.tools))
+        throw new CliError(`--tools takes full, brief or off, not ${values.tools}`);
       return await runChat(where, start, {
         thread: values.thread ?? args[0],
         session: values.session,
@@ -132,10 +143,12 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     const sessions = await SessionStore.open(where, project.git);
     // `chattree trust` asks, as the session command does; every other verb answers its questions with -y or no.
     const ask = verb === "trust" ? where.ask?.bind(where) : undefined;
-    const confirm = async (q: string): Promise<boolean> => values.yes === true || (ask !== undefined && /^y(es)?$/i.test(await ask(q, "n")));
+    const confirm = async (q: string): Promise<boolean> =>
+      values.yes === true || (ask !== undefined && /^y(es)?$/i.test(await ask(q, "n")));
     const engine = new Engine({ io: where, project, opened, sessions, confirm });
     if (values.thinking !== undefined) {
-      if (!["on", "off", "brief"].includes(values.thinking)) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
+      if (!["on", "off", "brief"].includes(values.thinking))
+        throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
       engine.state.thinking = values.thinking as Thinking;
     }
     if (values.tools !== undefined) {
@@ -150,7 +163,8 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
         if (staged !== 0) return staged;
       }
       let text = args.join(" ");
-      if (text === "-" || (text === "" && !io.interactive && (values.attach ?? []).length === 0)) text = new TextDecoder().decode(await io.readStdin());
+      if (text === "-" || (text === "" && !io.interactive && (values.attach ?? []).length === 0))
+        text = new TextDecoder().decode(await io.readStdin());
       line = text.trim() === "" ? "/say" : `/say ${text}`;
     } else line = `/${verb}${args.map((a) => ` ${quote(a)}`).join("")}`;
     return await drain(engine, line, io);

@@ -14,7 +14,8 @@ async function started(replies = [answer("hello there")]) {
   assert.equal(await main(initArgs(server, dir), testIo(dir)), 0);
   return { server, dir };
 }
-const handEdit = async (dir: string) => writeFile(join(dir, "harness.yml"), (await readFile(join(dir, "harness.yml"), "utf8")).replace("max_turn_usd: 5", "max_turn_usd: 500"));
+const handEdit = async (dir: string) =>
+  writeFile(join(dir, "harness.yml"), (await readFile(join(dir, "harness.yml"), "utf8")).replace("max_turn_usd: 5", "max_turn_usd: 500"));
 
 describe("approving harness.yml", () => {
   test("a file changed outside chattree is not used: the session says so, nothing is sent, and /trust shows the edit and approves it", async () => {

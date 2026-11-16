@@ -49,7 +49,8 @@ export interface HarmonyOptions {
 const IDENTITY = "You are ChatGPT, a large language model trained by OpenAI.";
 
 /** An option that is a string, `false` for nothing, or absent for the default. */
-const text = (v: unknown, fallback: string | undefined): string | undefined => (v === false ? undefined : typeof v === "string" ? v : fallback);
+const text = (v: unknown, fallback: string | undefined): string | undefined =>
+  v === false ? undefined : typeof v === "string" ? v : fallback;
 
 export function harmonyOptions(o: Record<string, unknown>): HarmonyOptions {
   const date = typeof o["date"] === "string" ? o["date"] : "none";
@@ -67,7 +68,11 @@ export function harmonyOptions(o: Record<string, unknown>): HarmonyOptions {
 
 export { spacedJson } from "./scan.ts";
 
-const comment = (text: string): string => text.split("\n").map((l) => `// ${l}`.trimEnd()).join("\n");
+const comment = (text: string): string =>
+  text
+    .split("\n")
+    .map((l) => `// ${l}`.trimEnd())
+    .join("\n");
 
 const TYPE_NAMES: Record<string, string> = { string: "string", integer: "number", number: "number", boolean: "boolean", null: "null" };
 
@@ -97,7 +102,10 @@ const unique = (xs: string[]): string[] => [...new Set(xs)];
 function properties(n: SchemaNode, full: boolean): string {
   const required = new Set(n.required);
   return (n.properties ?? [])
-    .map(([name, p]) => `${p.description === undefined ? "" : `${comment(p.description)}\n`}${name}${required.has(name) ? "" : "?"}: ${typeOf(p, full)},`)
+    .map(
+      ([name, p]) =>
+        `${p.description === undefined ? "" : `${comment(p.description)}\n`}${name}${required.has(name) ? "" : "?"}: ${typeOf(p, full)},`,
+    )
     .join("\n");
 }
 
@@ -108,9 +116,20 @@ function declaration(t: ToolDefinition, full: boolean): string {
   return `${desc}type ${t.name} = (_: {\n${properties(root, full)}\n}) => any;`;
 }
 
-function systemBlock(input: RenderInput, o: HarmonyOptions, hasTools: boolean, builtins: readonly (readonly [string, BuiltinSpec])[]): string {
+function systemBlock(
+  input: RenderInput,
+  o: HarmonyOptions,
+  hasTools: boolean,
+  builtins: readonly (readonly [string, BuiltinSpec])[],
+): string {
   const effort = input.effort === "low" || input.effort === "high" ? input.effort : "medium";
-  const head = [o.identity, o.cutoff === undefined ? undefined : `Knowledge cutoff: ${o.cutoff}`, o.date === undefined ? undefined : `Current date: ${o.date === "today" ? input.date : o.date}`].filter((l) => l !== undefined).join("\n");
+  const head = [
+    o.identity,
+    o.cutoff === undefined ? undefined : `Knowledge cutoff: ${o.cutoff}`,
+    o.date === undefined ? undefined : `Current date: ${o.date === "today" ? input.date : o.date}`,
+  ]
+    .filter((l) => l !== undefined)
+    .join("\n");
   const calls = hasTools ? "\nCalls to these tools must go to the commentary channel: 'functions'." : "";
   const tools = builtins.length === 0 ? "" : `# Tools\n\n${builtins.map(([, b]) => b.prose).join("\n\n")}\n\n`;
   return `${START}system${MESSAGE}${head === "" ? "" : `${head}\n\n`}Reasoning: ${effort}
@@ -118,19 +137,28 @@ function systemBlock(input: RenderInput, o: HarmonyOptions, hasTools: boolean, b
 ${tools}# Valid channels: analysis, commentary, final. Channel must be included for every message.${calls}${END}`;
 }
 
-function developerBlock(input: RenderInput, o: HarmonyOptions, functions: readonly ToolDefinition[], builtins: readonly (readonly [string, BuiltinSpec])[]): string {
+function developerBlock(
+  input: RenderInput,
+  o: HarmonyOptions,
+  functions: readonly ToolDefinition[],
+  builtins: readonly (readonly [string, BuiltinSpec])[],
+): string {
   const parts: string[] = [];
   const how = builtins.length === 0 ? "" : builtinPreamble(builtins, functions.length > 0);
   const instructions = [input.context.system, input.context.instructions ?? "", how].filter((x) => x !== "").join("\n\n");
   if (instructions !== "") parts.push(`# Instructions\n\n${instructions}`);
-  if (functions.length > 0) parts.push(`# Tools\n\n## functions\n\nnamespace functions {\n\n${functions.map((t) => declaration(t, o.full)).join("\n\n")}\n\n} // namespace functions`);
+  if (functions.length > 0)
+    parts.push(
+      `# Tools\n\n## functions\n\nnamespace functions {\n\n${functions.map((t) => declaration(t, o.full)).join("\n\n")}\n\n} // namespace functions`,
+    );
   return parts.length === 0 ? "" : `${START}developer${MESSAGE}${parts.join("\n\n")}${END}`;
 }
 
 const message = (channel: string, body: string, end = END): string => `${START}assistant${CHANNEL}${channel}${MESSAGE}${body}${end}`;
 
 /** Whether reasoning that this turn wrote is replayed to this request's model. */
-const sameModel = (t: Extract<Turn, { role: "assistant" }>, input: RenderInput): boolean => t.provider === input.provider && t.model.split("@")[0] === input.model.split("@")[0];
+const sameModel = (t: Extract<Turn, { role: "assistant" }>, input: RenderInput): boolean =>
+  t.provider === input.provider && t.model.split("@")[0] === input.model.split("@")[0];
 
 export function renderHarmony(input: RenderInput): { prompt: string; stop: string[] } {
   const o = harmonyOptions(input.options);
@@ -159,10 +187,19 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
           if (b.text !== "") out += message(hasCalls ? "commentary" : "final", b.text);
         } else if (b.type === "tool_call") {
           const made = (b.ext as { builtin?: { name?: unknown; message?: unknown } } | undefined)?.builtin;
-          const name = typeof made?.name === "string" && o.builtin.has(made.name) ? made.name : own(b.name) && o.builtin.has(b.name) ? b.name : undefined;
+          const name =
+            typeof made?.name === "string" && o.builtin.has(made.name)
+              ? made.name
+              : own(b.name) && o.builtin.has(b.name)
+                ? b.name
+                : undefined;
           const spec = name === undefined ? undefined : o.builtin.get(name);
           const r = results.get(b.call_id);
-          if (r?.media !== undefined) throw new ProviderError({ kind: "invalid_request", message: "this format has no picture or sound in a tool result: the model is text only" });
+          if (r?.media !== undefined)
+            throw new ProviderError({
+              kind: "invalid_request",
+              message: "this format has no picture or sound in a tool result: the model is text only",
+            });
           if (name !== undefined && spec !== undefined) {
             // A built-in: on analysis, the recipient its name, the message the bare text, and the result from the tool on analysis.
             const given = typeof made?.message === "string" ? made.message : b.args[spec.arg];
@@ -196,7 +233,10 @@ type Mode = "header" | "text" | "reasoning" | "call" | "done";
  * sometimes calls from `analysis`); `analysis` is reasoning; everything else is text. Output that does not start like a message at all
  * is taken as plain text, so a model that ignores the format still answers.
  */
-export function harmonyParser(tools: readonly { name: string; input_schema: Record<string, unknown> }[] = [], builtin: ReadonlyMap<string, BuiltinSpec> = new Map()): Parser {
+export function harmonyParser(
+  tools: readonly { name: string; input_schema: Record<string, unknown> }[] = [],
+  builtin: ReadonlyMap<string, BuiltinSpec> = new Map(),
+): Parser {
   let buf = "";
   let mode: Mode = "header";
   let header = "";
@@ -326,4 +366,8 @@ export function harmonyParser(tools: readonly { name: string; input_schema: Reco
   };
 }
 
-export const harmony: Dialect = { id: "harmony", render: renderHarmony, parser: (options, tools) => harmonyParser(tools, harmonyOptions(options).builtin) };
+export const harmony: Dialect = {
+  id: "harmony",
+  render: renderHarmony,
+  parser: (options, tools) => harmonyParser(tools, harmonyOptions(options).builtin),
+};

@@ -69,7 +69,10 @@ describe("externalize", () => {
   test("binary data is always externalized, and identical content is stored once", async () => {
     const store = new MemoryBlobStore();
     const png = Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0, 255);
-    const out = await externalizeMap(entry({ a: new BlobData(png, "image/png"), b: new BlobData(png, "image/png"), c: "z".repeat(5000), d: "z".repeat(5000) }), store);
+    const out = await externalizeMap(
+      entry({ a: new BlobData(png, "image/png"), b: new BlobData(png, "image/png"), c: "z".repeat(5000), d: "z".repeat(5000) }),
+      store,
+    );
     const a = out.get("a") as BlobRef;
     assert.equal(a.mime, "image/png");
     assert.equal(a.bytes, 6);

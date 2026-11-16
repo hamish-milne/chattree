@@ -37,13 +37,19 @@ export function mmReadTool(): Tool {
       if (st === undefined) return fail(`${name}: no such file`);
       if (st.isDirectory) return fail(`${name} is a directory`);
       if (st.size === 0) return fail(`${name} is empty (0 bytes), so there is nothing to show`);
-      if (st.size > MM_READ_MAX_BYTES) return fail(`${name} is ${st.size} bytes, over the ${MM_READ_MAX_BYTES} byte limit for mm_read; make a smaller copy (a lower resolution or a shorter clip)`);
+      if (st.size > MM_READ_MAX_BYTES)
+        return fail(
+          `${name} is ${st.size} bytes, over the ${MM_READ_MAX_BYTES} byte limit for mm_read; make a smaller copy (a lower resolution or a shorter clip)`,
+        );
       const bytes = await host.fs.read(abs);
       const found = await sniffFormat(bytes);
       if (found === undefined) return fail(`${name} is not a picture, sound or PDF that mm_read knows; for text use read`);
       if (found.kind === "video") return fail(`${name} is ${found.label}; video is not supported yet`);
       // Whether this model takes the format, and converting it when it does not, is decided when the request is built (harness/prepare-media.ts).
-      return { content: `${name}: ${found.kind === "image" ? "picture" : found.kind === "audio" ? "sound" : "document"} (${found.mime}, ${bytes.length} bytes), shown below`, media: [{ name, mime: found.mime, bytes }] };
+      return {
+        content: `${name}: ${found.kind === "image" ? "picture" : found.kind === "audio" ? "sound" : "document"} (${found.mime}, ${bytes.length} bytes), shown below`,
+        media: [{ name, mime: found.mime, bytes }],
+      };
     },
   };
 }

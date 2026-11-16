@@ -33,7 +33,8 @@ export class Registry {
     for (const c of commands) {
       if (c.stages === undefined) continue;
       for (const partner of [c.stages.show, c.stages.clear]) {
-        if (!this.#byName.has(partner)) throw new Error(`/${c.name} stages state for the next prompt, so /${partner} must exist to show or clear it`);
+        if (!this.#byName.has(partner))
+          throw new Error(`/${c.name} stages state for the next prompt, so /${partner} must exist to show or clear it`);
       }
     }
   }

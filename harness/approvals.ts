@@ -42,7 +42,13 @@ export function liveKeys(map: AllowMap | undefined, nowMs: number): string[] {
 export type Permit = { permitted: true; keys: string[] } | { permitted: false };
 
 /** Is this call covered by live keys? `all` covers everything; the rest is the tool's to judge, jointly. */
-export async function permitted(tool: Tool, args: Record<string, unknown>, map: AllowMap | undefined, nowMs: number, ctx: ApprovalContext): Promise<Permit> {
+export async function permitted(
+  tool: Tool,
+  args: Record<string, unknown>,
+  map: AllowMap | undefined,
+  nowMs: number,
+  ctx: ApprovalContext,
+): Promise<Permit> {
   const live = liveKeys(map, nowMs);
   if (live.includes(ALL)) return { permitted: true, keys: [ALL] };
   const others = live.filter((k) => k !== ALL);
@@ -60,7 +66,10 @@ export function keyProblem(tool: Tool, key: string): string | undefined {
 
 export type ApprovalsEdit = { ok: true; text: string; value: HarnessConfig } | { ok: false; message: string };
 
-const fail = (r: Extract<ConfigResult<unknown>, { ok: false }>): ApprovalsEdit => ({ ok: false, message: r.issues.map((i) => `${i.path === "" ? "" : `${i.path}: `}${i.message}`).join("; ") });
+const fail = (r: Extract<ConfigResult<unknown>, { ok: false }>): ApprovalsEdit => ({
+  ok: false,
+  message: r.issues.map((i) => `${i.path === "" ? "" : `${i.path}: `}${i.message}`).join("; "),
+});
 
 /** Remove every expired key from every tool's map (a tool whose map empties keeps its other settings). */
 function prune(doc: Document.Parsed, nowMs: number): void {

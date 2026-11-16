@@ -110,7 +110,10 @@ const NESTING = {
           type: "object",
           additionalProperties: false,
           required: ["name", "quantity"],
-          properties: { name: { type: "string", description: "The item's name." }, quantity: { type: "integer", minimum: 1, description: "How many." } },
+          properties: {
+            name: { type: "string", description: "The item's name." },
+            quantity: { type: "integer", minimum: 1, description: "How many." },
+          },
         },
       },
     },
@@ -122,13 +125,23 @@ const NESTING_PROMPTS = [
   "Use the record_items tool to record this order: 10 bolts and 12 nuts.",
 ];
 
-const WEATHER = { name: "get_weather", description: "Get the current weather for a city.", input_schema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] } };
+const WEATHER = {
+  name: "get_weather",
+  description: "Get the current weather for a city.",
+  input_schema: { type: "object", properties: { city: { type: "string" } }, required: ["city"] },
+};
 
 export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   const adapter = makeAdapter(o);
   const maxTokens = o.maxTokens ?? 512;
   const setup: AgentSetup = { ...emptySetup(), model: { provider: "live", id: o.model, settings: { max_output_tokens: maxTokens } } };
-  const ctx = (turns: Turn[], tools: ModelContext["tools"] = []): ModelContext => ({ system: "You are terse. Follow instructions exactly.", instructions: undefined, turns, tools, cacheHints: [] });
+  const ctx = (turns: Turn[], tools: ModelContext["tools"] = []): ModelContext => ({
+    system: "You are terse. Follow instructions exactly.",
+    instructions: undefined,
+    turns,
+    tools,
+    cacheHints: [],
+  });
   const secrets = o.apiKey === undefined ? [] : [o.apiKey];
   let current = "";
   const go = async (c: ModelContext, signal = new AbortController().signal): Promise<StreamRun> => {
@@ -142,278 +155,429 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
     if (run.error !== undefined) throw run.error;
     return run;
   };
-  const assistantTurn = (blocks: Block[], ext?: Record<string, unknown>): Turn => ({ role: "assistant", provider: "live", model: o.model, blocks, ...(ext === undefined ? {} : { ext }) });
+  const assistantTurn = (blocks: Block[], ext?: Record<string, unknown>): Turn => ({
+    role: "assistant",
+    provider: "live",
+    model: o.model,
+    blocks,
+    ...(ext === undefined ? {} : { ext }),
+  });
   const textOf = (blocks: readonly Block[]): string => blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
 
   /** One task through the real loop in a temporary workspace (tools/agent-task.ts), recorded under the scenario's name. */
   const agent = async (scenario: string, label: string, task: Task) => {
-    const r = await runAgentTask({ adapter, busybox: o.busybox, model: setup.model as NonNullable<AgentSetup["model"]>, files: task.files, prompt: task.prompt, onRequest: (run, c) => o.onRun?.(scenario, run, summary(c)) });
-    await o.onLog?.(scenario, label, { workspace: r.dir, prompt: task.prompt, status: r.status, steps: r.steps, answer: r.answer, files: r.after });
+    const r = await runAgentTask({
+      adapter,
+      busybox: o.busybox,
+      model: setup.model as NonNullable<AgentSetup["model"]>,
+      files: task.files,
+      prompt: task.prompt,
+      onRequest: (run, c) => o.onRun?.(scenario, run, summary(c)),
+    });
+    await o.onLog?.(scenario, label, {
+      workspace: r.dir,
+      prompt: task.prompt,
+      status: r.status,
+      steps: r.steps,
+      answer: r.answer,
+      files: r.after,
+    });
     return { ...r, outcome: await task.check(r) };
   };
 
-  const picture = (bytes: Uint8Array, name: string, mime: string): AttachmentPart => ({ type: "attachment", kind: "image", name, mime, sha256: createHash("sha256").update(bytes).digest("hex"), bytes });
+  const picture = (bytes: Uint8Array, name: string, mime: string): AttachmentPart => ({
+    type: "attachment",
+    kind: "image",
+    name,
+    mime,
+    sha256: createHash("sha256").update(bytes).digest("hex"),
+    bytes,
+  });
   /** A model that cannot take pictures says so with a request error: that is a skip, not a failure of the adapter. */
   const skipIfNoPictures = (run: StreamRun): void => {
-    if (run.error instanceof ProviderError && run.error.kind === "invalid_request" && /image|vision|multimodal|picture|content/i.test(run.error.message)) skip(`the model does not seem to take pictures: ${run.error.message.slice(0, 120)}`);
+    if (
+      run.error instanceof ProviderError &&
+      run.error.kind === "invalid_request" &&
+      /image|vision|multimodal|picture|content/i.test(run.error.message)
+    )
+      skip(`the model does not seem to take pictures: ${run.error.message.slice(0, 120)}`);
   };
 
   const scenarios: [string, () => Promise<string>][] = [
-    ["plain", async () => {
-      const r = clean(await go(ctx([user("Reply with the single word: pong")])));
-      const text = r.completed?.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("") ?? "";
-      ok(text.trim().length > 0, "no text in the reply");
-      ok(r.completed?.stop_reason !== undefined, "no stop reason");
-      return `${JSON.stringify(text.trim().slice(0, 40))}, stop=${r.completed?.stop_reason}`;
-    }],
-    ["usage", async () => {
-      const r = clean(await go(ctx([user("Say hi.")])));
-      const u = r.completed?.usage;
-      ok(u !== undefined, "no usage reported");
-      ok((u?.output_tokens ?? 0) > 0, "output_tokens is zero");
-      return `in=${u?.input_tokens} cache_read=${u?.cache_read_tokens} out=${u?.output_tokens} reasoning=${u?.reasoning_tokens}`;
-    }],
-    ["streaming", async () => {
-      const r = clean(await go(ctx([user("Count from 1 to 20, separated by spaces.")])));
-      const deltas = r.events.filter((e) => e.type === "text.delta").length;
-      ok(deltas > 1, `only ${deltas} text delta(s): the server is not streaming incrementally`);
-      return `${deltas} text deltas`;
-    }],
-    ["tool-call", async () => {
-      const c1 = ctx([user("What is the weather in Paris? Use the tool.")], [WEATHER]);
-      const r1 = clean(await go(c1));
-      const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
-      if (call?.type !== "tool_call") return skip("the model did not call the tool (it may not support tools)");
-      ok(call.name === "get_weather", `called ${call.name}`);
-      ok(r1.completed?.stop_reason === "tool_use", `stop_reason ${r1.completed?.stop_reason}`);
-      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? []), { role: "tool_results", results: [{ call_id: call.call_id, is_error: false, content: "18C and cloudy", truncated: false }] }], [WEATHER]);
-      const r2 = clean(await go(c2));
-      const text = r2.completed?.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("") ?? "";
-      ok(text.trim().length > 0, "no answer after the tool result");
-      return `args=${JSON.stringify(call.args)} → ${JSON.stringify(text.trim().slice(0, 50))}`;
-    }],
-    ["tools-schema", async () => {
-      const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
-      const c1 = ctx([user("Use the read tool to read the file notes.txt. Do not answer from memory.")], starter.definitions());
-      const r1 = clean(await go(c1));
-      const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
-      if (call?.type !== "tool_call") return skip("the model did not call a tool (it may not support tools)");
-      ok(call.name === "read", `called ${call.name}`);
-      const checked = starter.check(call);
-      ok(!("error" in checked), `the call fails the schema: ${"error" in checked ? checked.error : ""}`);
-      return `${starter.names().length} definitions accepted; read args=${JSON.stringify(call.args)}`;
-    }],
-    ["tools-nesting", async () => {
-      // Does the model fill a list of objects exactly as the schema says, with no repair? If not, the setup should say `tool_convention: flat` for it.
-      let exact = 0;
-      let made = 0;
-      const seen: string[] = [];
-      for (const prompt of NESTING_PROMPTS) {
-        const r = clean(await go(ctx([user(prompt)], [NESTING])));
-        const call = (r.completed?.blocks ?? []).find((b) => b.type === "tool_call");
-        if (call?.type !== "tool_call" || call.name !== "record_items") continue;
-        made++;
-        if (validateArgs(NESTING.input_schema, call.args).length === 0) exact++;
-        else if (seen.length < 2) seen.push(JSON.stringify(call.args).slice(0, 80));
-      }
-      if (made === 0) return skip("the model did not call the tool (it may not support tools)");
-      const verdict = exact === made ? "full" : "flat";
-      return `tool_convention: ${verdict} (${exact} of ${made} calls had the list of objects exactly right${seen.length > 0 ? `; for example ${seen.join(" and ")}` : ""})${verdict === "flat" ? "; set it under providers.<name>.models in harness.yml" : ""}`;
-    }],
-    ["tools-parallel", async () => {
-      // Asking for a read and a run: two different tools cannot be batched into one call.
-      const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
-      const c1 = ctx([user("Do two independent things: read the file a.txt, and run `ls -la`. Neither needs the other's result, so request both tools in the same step.")], starter.definitions());
-      const r1 = clean(await go(c1));
-      const found = (r1.completed?.blocks ?? []).filter((b) => b.type === "tool_call");
-      if (found.length === 0) return skip("the model did not call a tool (it may not support tools)");
-      const ids = new Set(found.map((b) => b.call_id));
-      ok(ids.size === found.length, "two calls share an id");
-      for (const c of found) {
-        const checked = starter.check(c);
-        ok(!("error" in checked), `a call fails the schema: ${"error" in checked ? checked.error : ""}`);
-      }
-      const results = found.map((b) => ({ call_id: b.call_id, is_error: false, content: b.name === "read" ? "a.txt:\n1\thello" : "exit 0\ntotal 4\n-rw-r--r-- 1 u u 6 a.txt", truncated: false }));
-      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? []), { role: "tool_results", results }], starter.definitions());
-      const r2 = clean(await go(c2));
-      ok((r2.completed?.blocks.length ?? 0) > 0, "no reply after the results");
-      return found.length === 1 ? `one call only (${found[0]?.name}); the model did not use parallel calls; round-trip ok` : `${found.length} calls (${found.map((b) => b.name).join(", ")}) with distinct ids; all results accepted`;
-    }],
-    ["tools-reliability", async () => {
-      // Schema validity of `run` calls (a command line with pipes, redirects, globs). What `edit` calls achieve is scored by tools-edit.
-      const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
-      const prompts = [
-        "Use the run tool to list the files in the current directory with ls -la.",
-        "Use the run tool to print the word hello with echo, then pipe it through wc -c.",
-        "Use the run tool to count the lines in every .ts file under src using wc -l and a glob.",
-        "Use the run tool to find lines containing TODO in notes.txt with grep -n, and save the output to todo.txt.",
-      ];
-      let valid = 0;
-      let made = 0;
-      const other: string[] = [];
-      const bad: string[] = [];
-      for (const prompt of prompts) {
-        const r = clean(await go(ctx([user(prompt)], starter.definitions())));
-        const call = (r.completed?.blocks ?? []).find((b) => b.type === "tool_call");
-        if (call?.type !== "tool_call") continue;
-        if (call.name !== "run") {
-          other.push(call.name); // a model may reasonably choose script or look first; not a malformed call
-          continue;
-        }
-        made++;
+    [
+      "plain",
+      async () => {
+        const r = clean(await go(ctx([user("Reply with the single word: pong")])));
+        const text = r.completed?.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("") ?? "";
+        ok(text.trim().length > 0, "no text in the reply");
+        ok(r.completed?.stop_reason !== undefined, "no stop reason");
+        return `${JSON.stringify(text.trim().slice(0, 40))}, stop=${r.completed?.stop_reason}`;
+      },
+    ],
+    [
+      "usage",
+      async () => {
+        const r = clean(await go(ctx([user("Say hi.")])));
+        const u = r.completed?.usage;
+        ok(u !== undefined, "no usage reported");
+        ok((u?.output_tokens ?? 0) > 0, "output_tokens is zero");
+        return `in=${u?.input_tokens} cache_read=${u?.cache_read_tokens} out=${u?.output_tokens} reasoning=${u?.reasoning_tokens}`;
+      },
+    ],
+    [
+      "streaming",
+      async () => {
+        const r = clean(await go(ctx([user("Count from 1 to 20, separated by spaces.")])));
+        const deltas = r.events.filter((e) => e.type === "text.delta").length;
+        ok(deltas > 1, `only ${deltas} text delta(s): the server is not streaming incrementally`);
+        return `${deltas} text deltas`;
+      },
+    ],
+    [
+      "tool-call",
+      async () => {
+        const c1 = ctx([user("What is the weather in Paris? Use the tool.")], [WEATHER]);
+        const r1 = clean(await go(c1));
+        const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
+        if (call?.type !== "tool_call") return skip("the model did not call the tool (it may not support tools)");
+        ok(call.name === "get_weather", `called ${call.name}`);
+        ok(r1.completed?.stop_reason === "tool_use", `stop_reason ${r1.completed?.stop_reason}`);
+        const c2 = ctx(
+          [
+            ...c1.turns,
+            assistantTurn(r1.completed?.blocks ?? []),
+            { role: "tool_results", results: [{ call_id: call.call_id, is_error: false, content: "18C and cloudy", truncated: false }] },
+          ],
+          [WEATHER],
+        );
+        const r2 = clean(await go(c2));
+        const text = r2.completed?.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("") ?? "";
+        ok(text.trim().length > 0, "no answer after the tool result");
+        return `args=${JSON.stringify(call.args)} → ${JSON.stringify(text.trim().slice(0, 50))}`;
+      },
+    ],
+    [
+      "tools-schema",
+      async () => {
+        const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
+        const c1 = ctx([user("Use the read tool to read the file notes.txt. Do not answer from memory.")], starter.definitions());
+        const r1 = clean(await go(c1));
+        const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
+        if (call?.type !== "tool_call") return skip("the model did not call a tool (it may not support tools)");
+        ok(call.name === "read", `called ${call.name}`);
         const checked = starter.check(call);
-        if ("error" in checked) bad.push(checked.error.split("\n")[0] as string);
-        else valid++;
-      }
-      if (made + other.length === 0) return skip("the model did not call a tool (it may not support tools)");
-      ok(valid > 0 || made === 0, `no valid run call: ${bad.join("; ")}`);
-      return `run ${valid}/${made} valid${other.length > 0 ? `; ${other.length} used another tool (${other.join(", ")})` : ""}${bad.length > 0 ? `; problems: ${bad.slice(0, 3).join("; ")}` : ""}`;
-    }],
-    ["tools-edit", async () => {
-      // Scored by outcome: did the file end up right? Each case is a fresh workspace and the real loop (read first, then edit).
-      let right = 0;
-      let attempted = 0;
-      const notes: string[] = [];
-      for (const task of EDIT_TASKS) {
-        const r = await agent("tools-edit", task.name.replaceAll(" ", "-"), task);
-        if (r.used.size === 0) continue;
-        attempted++;
-        if (r.outcome === undefined) right++;
-        notes.push(`${task.name}: ${r.outcome === undefined ? "ok" : `WRONG ${r.outcome}`}${r.errors > 0 ? ` (${r.errors} tool error${r.errors === 1 ? "" : "s"})` : ""}`);
-      }
-      if (attempted === 0) return skip("the model did not call a tool (it may not support tools)");
-      ok(right > 0, `no case came out right: ${notes.join("; ")}`);
-      return `${right}/${attempted} correct; ${notes.join("; ")}`;
-    }],
-    ["agent-loop", async () => {
-      const task = TASKS.find((t) => t.name === "edit then run") as Task;
-      const r = await agent("agent-loop", "loop", task);
-      if (r.used.size === 0) return skip("the model did not call a tool (it may not support tools)");
-      ok(r.outcome === undefined, `${r.outcome} after ${r.steps.map((s) => s.name).join(" → ")}`);
-      ok(r.problems.length === 0, `the history does not verify: ${JSON.stringify(r.problems).slice(0, 300)}`);
-      return `${r.requests} requests, tools used: ${[...r.used].sort().join(", ")}${r.errors > 0 ? `, ${r.errors} tool error(s) recovered` : ""}; file edited; history verifies`;
-    }],
-    ["vision", async () => {
-      const picts = pictureScenarios({ kinds: ["shape"], count: 3, seed: 11 });
-      let right = 0;
-      const notes: string[] = [];
-      for (const sc of picts) {
-        const r = await go(ctx([{ role: "user", parts: [picture(sc.png, `${sc.id}.png`, "image/png"), { type: "text", text: sc.question }] }]));
-        skipIfNoPictures(r);
-        const answer = textOf(clean(r).completed?.blocks ?? []);
-        if (sc.check(answer)) right++;
-        notes.push(`${sc.expected}: ${JSON.stringify(answer.trim().slice(0, 40))}`);
-      }
-      ok(right > 0, `no picture was read right: ${notes.join("; ")}`);
-      return `${right}/${picts.length} right; ${notes.join("; ")}`;
-    }],
-    ["vision-convert", async () => {
-      const ffmpeg = o.ffmpeg ?? (await findFfmpeg());
-      if (ffmpeg === undefined) return skip("no ffmpeg (--ffmpeg PATH, CHATTREE_FFMPEG, or on the PATH)");
-      if (adapter.mediaSpec === undefined) return skip("this adapter has no media spec");
-      const picts = pictureScenarios({ kinds: ["shape"], count: 2, seed: 12 });
-      const work = await mkdtemp(join(tmpdir(), "chattree-live-"));
-      try {
+        ok(!("error" in checked), `the call fails the schema: ${"error" in checked ? checked.error : ""}`);
+        return `${starter.names().length} definitions accepted; read args=${JSON.stringify(call.args)}`;
+      },
+    ],
+    [
+      "tools-nesting",
+      async () => {
+        // Does the model fill a list of objects exactly as the schema says, with no repair? If not, the setup should say `tool_convention: flat` for it.
+        let exact = 0;
+        let made = 0;
+        const seen: string[] = [];
+        for (const prompt of NESTING_PROMPTS) {
+          const r = clean(await go(ctx([user(prompt)], [NESTING])));
+          const call = (r.completed?.blocks ?? []).find((b) => b.type === "tool_call");
+          if (call?.type !== "tool_call" || call.name !== "record_items") continue;
+          made++;
+          if (validateArgs(NESTING.input_schema, call.args).length === 0) exact++;
+          else if (seen.length < 2) seen.push(JSON.stringify(call.args).slice(0, 80));
+        }
+        if (made === 0) return skip("the model did not call the tool (it may not support tools)");
+        const verdict = exact === made ? "full" : "flat";
+        return `tool_convention: ${verdict} (${exact} of ${made} calls had the list of objects exactly right${seen.length > 0 ? `; for example ${seen.join(" and ")}` : ""})${verdict === "flat" ? "; set it under providers.<name>.models in harness.yml" : ""}`;
+      },
+    ],
+    [
+      "tools-parallel",
+      async () => {
+        // Asking for a read and a run: two different tools cannot be batched into one call.
+        const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
+        const c1 = ctx(
+          [
+            user(
+              "Do two independent things: read the file a.txt, and run `ls -la`. Neither needs the other's result, so request both tools in the same step.",
+            ),
+          ],
+          starter.definitions(),
+        );
+        const r1 = clean(await go(c1));
+        const found = (r1.completed?.blocks ?? []).filter((b) => b.type === "tool_call");
+        if (found.length === 0) return skip("the model did not call a tool (it may not support tools)");
+        const ids = new Set(found.map((b) => b.call_id));
+        ok(ids.size === found.length, "two calls share an id");
+        for (const c of found) {
+          const checked = starter.check(c);
+          ok(!("error" in checked), `a call fails the schema: ${"error" in checked ? checked.error : ""}`);
+        }
+        const results = found.map((b) => ({
+          call_id: b.call_id,
+          is_error: false,
+          content: b.name === "read" ? "a.txt:\n1\thello" : "exit 0\ntotal 4\n-rw-r--r-- 1 u u 6 a.txt",
+          truncated: false,
+        }));
+        const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? []), { role: "tool_results", results }], starter.definitions());
+        const r2 = clean(await go(c2));
+        ok((r2.completed?.blocks.length ?? 0) > 0, "no reply after the results");
+        return found.length === 1
+          ? `one call only (${found[0]?.name}); the model did not use parallel calls; round-trip ok`
+          : `${found.length} calls (${found.map((b) => b.name).join(", ")}) with distinct ids; all results accepted`;
+      },
+    ],
+    [
+      "tools-reliability",
+      async () => {
+        // Schema validity of `run` calls (a command line with pipes, redirects, globs). What `edit` calls achieve is scored by tools-edit.
+        const starter = new ToolRegistry(leafTools({ busybox: o.busybox }));
+        const prompts = [
+          "Use the run tool to list the files in the current directory with ls -la.",
+          "Use the run tool to print the word hello with echo, then pipe it through wc -c.",
+          "Use the run tool to count the lines in every .ts file under src using wc -l and a glob.",
+          "Use the run tool to find lines containing TODO in notes.txt with grep -n, and save the output to todo.txt.",
+        ];
+        let valid = 0;
+        let made = 0;
+        const other: string[] = [];
+        const bad: string[] = [];
+        for (const prompt of prompts) {
+          const r = clean(await go(ctx([user(prompt)], starter.definitions())));
+          const call = (r.completed?.blocks ?? []).find((b) => b.type === "tool_call");
+          if (call?.type !== "tool_call") continue;
+          if (call.name !== "run") {
+            other.push(call.name); // a model may reasonably choose script or look first; not a malformed call
+            continue;
+          }
+          made++;
+          const checked = starter.check(call);
+          if ("error" in checked) bad.push(checked.error.split("\n")[0] as string);
+          else valid++;
+        }
+        if (made + other.length === 0) return skip("the model did not call a tool (it may not support tools)");
+        ok(valid > 0 || made === 0, `no valid run call: ${bad.join("; ")}`);
+        return `run ${valid}/${made} valid${other.length > 0 ? `; ${other.length} used another tool (${other.join(", ")})` : ""}${bad.length > 0 ? `; problems: ${bad.slice(0, 3).join("; ")}` : ""}`;
+      },
+    ],
+    [
+      "tools-edit",
+      async () => {
+        // Scored by outcome: did the file end up right? Each case is a fresh workspace and the real loop (read first, then edit).
+        let right = 0;
+        let attempted = 0;
+        const notes: string[] = [];
+        for (const task of EDIT_TASKS) {
+          const r = await agent("tools-edit", task.name.replaceAll(" ", "-"), task);
+          if (r.used.size === 0) continue;
+          attempted++;
+          if (r.outcome === undefined) right++;
+          notes.push(
+            `${task.name}: ${r.outcome === undefined ? "ok" : `WRONG ${r.outcome}`}${r.errors > 0 ? ` (${r.errors} tool error${r.errors === 1 ? "" : "s"})` : ""}`,
+          );
+        }
+        if (attempted === 0) return skip("the model did not call a tool (it may not support tools)");
+        ok(right > 0, `no case came out right: ${notes.join("; ")}`);
+        return `${right}/${attempted} correct; ${notes.join("; ")}`;
+      },
+    ],
+    [
+      "agent-loop",
+      async () => {
+        const task = TASKS.find((t) => t.name === "edit then run") as Task;
+        const r = await agent("agent-loop", "loop", task);
+        if (r.used.size === 0) return skip("the model did not call a tool (it may not support tools)");
+        ok(r.outcome === undefined, `${r.outcome} after ${r.steps.map((s) => s.name).join(" → ")}`);
+        ok(r.problems.length === 0, `the history does not verify: ${JSON.stringify(r.problems).slice(0, 300)}`);
+        return `${r.requests} requests, tools used: ${[...r.used].sort().join(", ")}${r.errors > 0 ? `, ${r.errors} tool error(s) recovered` : ""}; file edited; history verifies`;
+      },
+    ],
+    [
+      "vision",
+      async () => {
+        const picts = pictureScenarios({ kinds: ["shape"], count: 3, seed: 11 });
         let right = 0;
         const notes: string[] = [];
         for (const sc of picts) {
-          const bmp = await reencode(ffmpeg, sc.png, "png", "bmp");
-          const asked = ctx([{ role: "user", parts: [picture(bmp.bytes, `${sc.id}.bmp`, bmp.mime), { type: "text", text: sc.question }] }]);
-          const prepared = await throughSinkAt(adapter, setup, asked, ffmpeg, join(work, "w"));
-          ok(prepared.warnings.length === 0, `the picture was not sent: ${prepared.warnings.map((w) => w.message).join("; ")}`);
-          const r = await go(prepared.context);
+          const r = await go(
+            ctx([{ role: "user", parts: [picture(sc.png, `${sc.id}.png`, "image/png"), { type: "text", text: sc.question }] }]),
+          );
           skipIfNoPictures(r);
           const answer = textOf(clean(r).completed?.blocks ?? []);
           if (sc.check(answer)) right++;
-          notes.push(`${prepared.converted.map((c) => `${c.from} -> ${c.to}`).join(", ") || "sent as it was"}: ${sc.expected} -> ${JSON.stringify(answer.trim().slice(0, 40))}`);
+          notes.push(`${sc.expected}: ${JSON.stringify(answer.trim().slice(0, 40))}`);
         }
-        ok(right > 0, `no converted picture was read right: ${notes.join("; ")}`);
+        ok(right > 0, `no picture was read right: ${notes.join("; ")}`);
         return `${right}/${picts.length} right; ${notes.join("; ")}`;
-      } finally {
-        await rm(work, { recursive: true, force: true });
-      }
-    }],
-    ["tool-result-picture", async () => {
-      const [sc] = pictureScenarios({ kinds: ["shape"], count: 1, seed: 13 });
-      if (sc === undefined) return skip("no picture");
-      const SHOW = { name: "show_picture", description: "Show the picture the user is asking about. Its result is the picture itself.", input_schema: { type: "object", properties: {} } };
-      const c1 = ctx([user("Call the show_picture tool, then tell me what is in the picture. Answer in the form: <colour> <shape>.")], [SHOW]);
-      const r1 = clean(await go(c1));
-      const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
-      if (call?.type !== "tool_call") return skip("the model did not call the tool (it may not support tools)");
-      const media = picture(sc.png, "picture.png", "image/png");
-      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? []), { role: "tool_results", results: [{ call_id: call.call_id, is_error: false, content: "picture.png (a picture, shown below)", truncated: false, media: [media] }] }], [SHOW]);
-      const r2 = await go(c2);
-      skipIfNoPictures(r2);
-      const answer = textOf(clean(r2).completed?.blocks ?? []);
-      ok(sc.check(answer), `expected ${sc.expected}, answered ${JSON.stringify(answer.trim().slice(0, 80))}`);
-      return `${sc.expected} -> ${JSON.stringify(answer.trim().slice(0, 40))}`;
-    }],
-    ["reasoning-replay", async () => {
-      const c1 = ctx([user("What is 17 * 23? Think it through.")]);
-      const r1 = clean(await go(c1));
-      const blocks = r1.completed?.blocks ?? [];
-      if (!blocks.some((b) => b.type === "reasoning")) return skip("the model produced no reasoning blocks");
-      const c2 = ctx([...c1.turns, assistantTurn(blocks), user("Now add 9 to that.")]);
-      const r2 = clean(await go(c2));
-      ok((r2.completed?.blocks.length ?? 0) > 0, "no reply on the second turn");
-      return `${blocks.filter((b) => b.type === "reasoning").length} reasoning block(s) replayed`;
-    }],
-    ["chaining", async () => {
-      const c1 = ctx([user("Remember the number 7421. Reply only: ok")]);
-      const r1 = clean(await go(c1));
-      const stored = r1.completed?.ext?.["store"] === true;
-      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? [], r1.completed?.ext), user("What number did I ask you to remember? Reply with the number only.")]);
-      const r2 = clean(await go(c2));
-      const answer = textOf(r2.completed?.blocks ?? []);
-      ok(answer.includes("7421"), `the second turn lost the first: ${JSON.stringify(answer.slice(0, 60))}`);
-      const chained = r2.completed?.ext?.["chained"] === true;
-      if (!stored && !chained) return `ok; the server does not confirm storage, so the whole context was replayed`;
-      ok(!stored || chained, "the server stored the response but the second request did not continue it");
-      return chained ? "second turn continued the stored response (previous_response_id)" : "ok";
-    }],
-    ["retrieve", async () => {
-      if (adapter.retrieve === undefined) return skip("this adapter does not retrieve responses");
-      const r = clean(await go(ctx([user("Reply with the single word: pong")])));
-      const id = r.completed?.observed.response_id;
-      if (id === undefined || r.completed?.ext?.["store"] !== true) return skip("the server did not confirm that it stored the response");
-      const got = await adapter.retrieve({ responseId: id, setup, signal: new AbortController().signal });
-      ok(got !== undefined, `the stored response ${id} could not be retrieved`);
-      ok(textOf(got.blocks).trim() === textOf(r.completed?.blocks ?? []).trim(), "the retrieved text differs from the streamed text");
-      return `retrieved ${id}`;
-    }],
-    ["abort", async () => {
-      const ac = new AbortController();
-      const stream = adapter.stream({ context: ctx([user("Write a long story about a fox, at least 500 words.")]), setup, signal: ac.signal });
-      const run = { events: [] as StreamRun["events"] } as StreamRun;
-      try {
-        for (;;) {
-          const n = await stream.next();
-          if (n.done === true) {
-            run.completed = n.value;
-            break;
+      },
+    ],
+    [
+      "vision-convert",
+      async () => {
+        const ffmpeg = o.ffmpeg ?? (await findFfmpeg());
+        if (ffmpeg === undefined) return skip("no ffmpeg (--ffmpeg PATH, CHATTREE_FFMPEG, or on the PATH)");
+        if (adapter.mediaSpec === undefined) return skip("this adapter has no media spec");
+        const picts = pictureScenarios({ kinds: ["shape"], count: 2, seed: 12 });
+        const work = await mkdtemp(join(tmpdir(), "chattree-live-"));
+        try {
+          let right = 0;
+          const notes: string[] = [];
+          for (const sc of picts) {
+            const bmp = await reencode(ffmpeg, sc.png, "png", "bmp");
+            const asked = ctx([
+              { role: "user", parts: [picture(bmp.bytes, `${sc.id}.bmp`, bmp.mime), { type: "text", text: sc.question }] },
+            ]);
+            const prepared = await throughSinkAt(adapter, setup, asked, ffmpeg, join(work, "w"));
+            ok(prepared.warnings.length === 0, `the picture was not sent: ${prepared.warnings.map((w) => w.message).join("; ")}`);
+            const r = await go(prepared.context);
+            skipIfNoPictures(r);
+            const answer = textOf(clean(r).completed?.blocks ?? []);
+            if (sc.check(answer)) right++;
+            notes.push(
+              `${prepared.converted.map((c) => `${c.from} -> ${c.to}`).join(", ") || "sent as it was"}: ${sc.expected} -> ${JSON.stringify(answer.trim().slice(0, 40))}`,
+            );
           }
-          run.events.push(n.value);
-          if ((n.value.type === "text.delta" || n.value.type === "reasoning.delta") && !ac.signal.aborted) ac.abort();
+          ok(right > 0, `no converted picture was read right: ${notes.join("; ")}`);
+          return `${right}/${picts.length} right; ${notes.join("; ")}`;
+        } finally {
+          await rm(work, { recursive: true, force: true });
         }
-      } catch (e) {
-        run.error = e;
-      }
-      await o.onRun?.(current, run);
-      if (run.completed !== undefined) return skip("the reply finished before the abort took effect");
-      ok(run.error instanceof ProviderError && run.error.kind === "aborted", `expected aborted, got ${String(run.error)}`);
-      const problems = conformanceProblems(run, { secrets });
-      ok(problems.length === 0, `conformance: ${problems.join("; ")}`);
-      return "aborted mid-stream";
-    }],
-    ["bad-model", async () => {
-      const bad: AgentSetup = { ...setup, model: { provider: "live", id: "chattree-no-such-model", settings: { max_output_tokens: 16 } } };
-      const run = await collectStream(adapter.stream({ context: ctx([user("hi")]), setup: bad, signal: new AbortController().signal }));
-      await o.onRun?.(current, run);
-      ok(run.error instanceof ProviderError, `expected an error, got ${run.completed === undefined ? "nothing" : "a reply"}`);
-      ok(run.error.kind === "invalid_request", `kind ${run.error.kind}: ${run.error.message}`);
-      return `${run.error.kind}: ${run.error.message.slice(0, 60)}`;
-    }],
+      },
+    ],
+    [
+      "tool-result-picture",
+      async () => {
+        const [sc] = pictureScenarios({ kinds: ["shape"], count: 1, seed: 13 });
+        if (sc === undefined) return skip("no picture");
+        const SHOW = {
+          name: "show_picture",
+          description: "Show the picture the user is asking about. Its result is the picture itself.",
+          input_schema: { type: "object", properties: {} },
+        };
+        const c1 = ctx(
+          [user("Call the show_picture tool, then tell me what is in the picture. Answer in the form: <colour> <shape>.")],
+          [SHOW],
+        );
+        const r1 = clean(await go(c1));
+        const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
+        if (call?.type !== "tool_call") return skip("the model did not call the tool (it may not support tools)");
+        const media = picture(sc.png, "picture.png", "image/png");
+        const c2 = ctx(
+          [
+            ...c1.turns,
+            assistantTurn(r1.completed?.blocks ?? []),
+            {
+              role: "tool_results",
+              results: [
+                {
+                  call_id: call.call_id,
+                  is_error: false,
+                  content: "picture.png (a picture, shown below)",
+                  truncated: false,
+                  media: [media],
+                },
+              ],
+            },
+          ],
+          [SHOW],
+        );
+        const r2 = await go(c2);
+        skipIfNoPictures(r2);
+        const answer = textOf(clean(r2).completed?.blocks ?? []);
+        ok(sc.check(answer), `expected ${sc.expected}, answered ${JSON.stringify(answer.trim().slice(0, 80))}`);
+        return `${sc.expected} -> ${JSON.stringify(answer.trim().slice(0, 40))}`;
+      },
+    ],
+    [
+      "reasoning-replay",
+      async () => {
+        const c1 = ctx([user("What is 17 * 23? Think it through.")]);
+        const r1 = clean(await go(c1));
+        const blocks = r1.completed?.blocks ?? [];
+        if (!blocks.some((b) => b.type === "reasoning")) return skip("the model produced no reasoning blocks");
+        const c2 = ctx([...c1.turns, assistantTurn(blocks), user("Now add 9 to that.")]);
+        const r2 = clean(await go(c2));
+        ok((r2.completed?.blocks.length ?? 0) > 0, "no reply on the second turn");
+        return `${blocks.filter((b) => b.type === "reasoning").length} reasoning block(s) replayed`;
+      },
+    ],
+    [
+      "chaining",
+      async () => {
+        const c1 = ctx([user("Remember the number 7421. Reply only: ok")]);
+        const r1 = clean(await go(c1));
+        const stored = r1.completed?.ext?.["store"] === true;
+        const c2 = ctx([
+          ...c1.turns,
+          assistantTurn(r1.completed?.blocks ?? [], r1.completed?.ext),
+          user("What number did I ask you to remember? Reply with the number only."),
+        ]);
+        const r2 = clean(await go(c2));
+        const answer = textOf(r2.completed?.blocks ?? []);
+        ok(answer.includes("7421"), `the second turn lost the first: ${JSON.stringify(answer.slice(0, 60))}`);
+        const chained = r2.completed?.ext?.["chained"] === true;
+        if (!stored && !chained) return `ok; the server does not confirm storage, so the whole context was replayed`;
+        ok(!stored || chained, "the server stored the response but the second request did not continue it");
+        return chained ? "second turn continued the stored response (previous_response_id)" : "ok";
+      },
+    ],
+    [
+      "retrieve",
+      async () => {
+        if (adapter.retrieve === undefined) return skip("this adapter does not retrieve responses");
+        const r = clean(await go(ctx([user("Reply with the single word: pong")])));
+        const id = r.completed?.observed.response_id;
+        if (id === undefined || r.completed?.ext?.["store"] !== true) return skip("the server did not confirm that it stored the response");
+        const got = await adapter.retrieve({ responseId: id, setup, signal: new AbortController().signal });
+        ok(got !== undefined, `the stored response ${id} could not be retrieved`);
+        ok(textOf(got.blocks).trim() === textOf(r.completed?.blocks ?? []).trim(), "the retrieved text differs from the streamed text");
+        return `retrieved ${id}`;
+      },
+    ],
+    [
+      "abort",
+      async () => {
+        const ac = new AbortController();
+        const stream = adapter.stream({
+          context: ctx([user("Write a long story about a fox, at least 500 words.")]),
+          setup,
+          signal: ac.signal,
+        });
+        const run = { events: [] as StreamRun["events"] } as StreamRun;
+        try {
+          for (;;) {
+            const n = await stream.next();
+            if (n.done === true) {
+              run.completed = n.value;
+              break;
+            }
+            run.events.push(n.value);
+            if ((n.value.type === "text.delta" || n.value.type === "reasoning.delta") && !ac.signal.aborted) ac.abort();
+          }
+        } catch (e) {
+          run.error = e;
+        }
+        await o.onRun?.(current, run);
+        if (run.completed !== undefined) return skip("the reply finished before the abort took effect");
+        ok(run.error instanceof ProviderError && run.error.kind === "aborted", `expected aborted, got ${String(run.error)}`);
+        const problems = conformanceProblems(run, { secrets });
+        ok(problems.length === 0, `conformance: ${problems.join("; ")}`);
+        return "aborted mid-stream";
+      },
+    ],
+    [
+      "bad-model",
+      async () => {
+        const bad: AgentSetup = {
+          ...setup,
+          model: { provider: "live", id: "chattree-no-such-model", settings: { max_output_tokens: 16 } },
+        };
+        const run = await collectStream(adapter.stream({ context: ctx([user("hi")]), setup: bad, signal: new AbortController().signal }));
+        await o.onRun?.(current, run);
+        ok(run.error instanceof ProviderError, `expected an error, got ${run.completed === undefined ? "nothing" : "a reply"}`);
+        ok(run.error.kind === "invalid_request", `kind ${run.error.kind}: ${run.error.message}`);
+        return `${run.error.kind}: ${run.error.message.slice(0, 60)}`;
+      },
+    ],
   ];
 
   const results: ScenarioResult[] = [];
@@ -425,7 +589,10 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
     try {
       r = { name, status: "pass", detail: await fn(), ms: Date.now() - t0 };
     } catch (e) {
-      r = e instanceof Skip ? { name, status: "skip", detail: e.message, ms: Date.now() - t0 } : { name, status: "fail", detail: e instanceof Error ? e.message : String(e), ms: Date.now() - t0 };
+      r =
+        e instanceof Skip
+          ? { name, status: "skip", detail: e.message, ms: Date.now() - t0 }
+          : { name, status: "fail", detail: e instanceof Error ? e.message : String(e), ms: Date.now() - t0 };
     }
     results.push(r);
     o.onResult?.(r);
@@ -433,9 +600,31 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   return results;
 }
 
-export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "tools-schema", "tools-nesting", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop", "vision", "vision-convert", "tool-result-picture", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
+export const SCENARIO_NAMES = [
+  "plain",
+  "usage",
+  "streaming",
+  "tool-call",
+  "tools-schema",
+  "tools-nesting",
+  "tools-parallel",
+  "tools-reliability",
+  "tools-edit",
+  "agent-loop",
+  "vision",
+  "vision-convert",
+  "tool-result-picture",
+  "reasoning-replay",
+  "chaining",
+  "retrieve",
+  "abort",
+  "bad-model",
+];
 
-export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: LiveOptions; record?: string; list: boolean } {
+export function parseArgs(
+  argv: readonly string[],
+  env: Record<string, string | undefined>,
+): { options: LiveOptions; record?: string; list: boolean } {
   const flags = new Map<string, string[]>();
   let list = false;
   for (let i = 0; i < argv.length; i++) {
@@ -448,7 +637,17 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     } else throw new Error(`unexpected argument ${a}`);
   }
   const one = (name: string): string | undefined => flags.get(name)?.[0];
-  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--record", "--only", "--busybox", "--ffmpeg"]);
+  const known = new Set([
+    "--flavor",
+    "--base-url",
+    "--model",
+    "--max-tokens",
+    "--api-key-env",
+    "--record",
+    "--only",
+    "--busybox",
+    "--ffmpeg",
+  ]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = one("--flavor") ?? "anthropic";
   if (!(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${FLAVORS.join(", ")}`);
@@ -468,7 +667,16 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
   const busybox = one("--busybox");
   const ffmpeg = one("--ffmpeg");
   return {
-    options: { flavor: flavor as Flavor, baseUrl: baseUrl ?? "", model: model ?? "", ...(maxTokens === undefined ? {} : { maxTokens: Number(maxTokens) }), ...(apiKey === undefined ? {} : { apiKey }), ...(only === undefined ? {} : { only }), ...(busybox === undefined ? {} : { busybox }), ...(ffmpeg === undefined ? {} : { ffmpeg }) },
+    options: {
+      flavor: flavor as Flavor,
+      baseUrl: baseUrl ?? "",
+      model: model ?? "",
+      ...(maxTokens === undefined ? {} : { maxTokens: Number(maxTokens) }),
+      ...(apiKey === undefined ? {} : { apiKey }),
+      ...(only === undefined ? {} : { only }),
+      ...(busybox === undefined ? {} : { busybox }),
+      ...(ffmpeg === undefined ? {} : { ffmpeg }),
+    },
     ...(record === undefined ? {} : { record }),
     list,
   };
@@ -499,14 +707,21 @@ async function main(): Promise<void> {
       if (record === undefined) return;
       const n = (counts.get(scenario) ?? 0) + 1;
       counts.set(scenario, n);
-      await save(`${scenario}-${String(n).padStart(2, "0")}`, { request, events: run.events, completed: run.completed, error: run.error instanceof Error ? { name: run.error.name, message: run.error.message } : undefined });
+      await save(`${scenario}-${String(n).padStart(2, "0")}`, {
+        request,
+        events: run.events,
+        completed: run.completed,
+        error: run.error instanceof Error ? { name: run.error.name, message: run.error.message } : undefined,
+      });
     },
     onLog: async (scenario, label, data) => {
       if (record !== undefined) await save(`${scenario}-${label}`, data);
     },
   });
   const failed = results.filter((r) => r.status === "fail").length;
-  console.log(`\n${results.filter((r) => r.status === "pass").length} passed, ${failed} failed, ${results.filter((r) => r.status === "skip").length} skipped`);
+  console.log(
+    `\n${results.filter((r) => r.status === "pass").length} passed, ${failed} failed, ${results.filter((r) => r.status === "skip").length} skipped`,
+  );
   if (failed > 0) process.exitCode = 1;
 }
 

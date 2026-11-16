@@ -45,7 +45,8 @@ const SPEC: FamilySpec = {
   head: ({ system, tools, options }) => {
     const given = options["instructions"];
     const instructions = given === false ? "" : typeof given === "string" ? `\n\n${given}` : INSTRUCTIONS;
-    if (tools.length > 0) return `<|im_start|>system\n# Tools\n\nYou have access to the following functions:\n\n<tools>${tools.map((t) => `\n${spacedJson({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } })}`).join("")}\n</tools>${instructions}${system === "" ? "" : `\n\n${system}`}<|im_end|>\n`;
+    if (tools.length > 0)
+      return `<|im_start|>system\n# Tools\n\nYou have access to the following functions:\n\n<tools>${tools.map((t) => `\n${spacedJson({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } })}`).join("")}\n</tools>${instructions}${system === "" ? "" : `\n\n${system}`}<|im_end|>\n`;
     return system === "" ? "" : `<|im_start|>system\n${system}<|im_end|>\n`;
   },
   user: { open: "<|im_start|>user\n", close: "<|im_end|>\n" },
@@ -57,11 +58,15 @@ const SPEC: FamilySpec = {
     gap: "\n\n",
     gapEmpty: "",
     between: "\n",
-    codec: anyOf(tagParams({ head: "\n<function={name}>\n", param: "<parameter={key}>\n{value}\n</parameter>\n", tail: "</function>\n" }), jsonCall()),
+    codec: anyOf(
+      tagParams({ head: "\n<function={name}>\n", param: "<parameter={key}>\n{value}\n</parameter>\n", tail: "</function>\n" }),
+      jsonCall(),
+    ),
   },
   think: { open: "<think>\n", close: "\n</think>\n\n", start: "<think>\n", skip: "<think>\n\n</think>\n\n", emptyBlock: true },
 };
 
 export const qwenXml: Dialect = defineFamily(SPEC);
 export const renderQwen = (input: RenderInput): { prompt: string; stop: string[] } => qwenXml.render(input);
-export const qwenParser = (options: Record<string, unknown>, tools: Parameters<typeof argNode>[0], prompt: string): Parser => qwenXml.parser(options, tools as readonly ToolDefinition[], prompt);
+export const qwenParser = (options: Record<string, unknown>, tools: Parameters<typeof argNode>[0], prompt: string): Parser =>
+  qwenXml.parser(options, tools as readonly ToolDefinition[], prompt);

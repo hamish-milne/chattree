@@ -97,8 +97,17 @@ export interface BenchSample {
 export const clean = (s: Pick<BenchSample, "ok" | "firstTry" | "status">): boolean => s.ok && s.firstTry && s.status === "completed";
 
 const describeError = (e: unknown): NonNullable<RequestRecord["error"]> => {
-  if (e instanceof ProviderError) return { name: e.name, message: e.message, kind: e.kind, ...(e.status === undefined ? {} : { status: e.status }), retryable: e.retryable, ...(e.cause === undefined ? {} : { cause: String((e.cause as Error)?.stack ?? e.cause) }) };
-  if (e instanceof Error) return { name: e.name, message: e.message, ...(e.cause === undefined ? {} : { cause: String((e.cause as Error)?.stack ?? e.cause) }) };
+  if (e instanceof ProviderError)
+    return {
+      name: e.name,
+      message: e.message,
+      kind: e.kind,
+      ...(e.status === undefined ? {} : { status: e.status }),
+      retryable: e.retryable,
+      ...(e.cause === undefined ? {} : { cause: String((e.cause as Error)?.stack ?? e.cause) }),
+    };
+  if (e instanceof Error)
+    return { name: e.name, message: e.message, ...(e.cause === undefined ? {} : { cause: String((e.cause as Error)?.stack ?? e.cause) }) };
   return { name: "unknown", message: String(e) };
 };
 
@@ -142,7 +151,13 @@ export async function runOne(o: BenchOptions, task: Task, n: number): Promise<Be
         tokens.in += u.input_tokens + (u.cache_read_tokens ?? 0);
         tokens.out += u.output_tokens;
       }
-      requests.push({ stop_reason: run.completed?.stop_reason, ...(u === undefined ? {} : { usage: { input: u.input_tokens, cached: u.cache_read_tokens ?? 0, output: u.output_tokens } }), model: run.completed?.observed.model, blocks: run.completed?.blocks, ...(run.error === undefined ? {} : { error: describeError(run.error) }) });
+      requests.push({
+        stop_reason: run.completed?.stop_reason,
+        ...(u === undefined ? {} : { usage: { input: u.input_tokens, cached: u.cache_read_tokens ?? 0, output: u.output_tokens } }),
+        model: run.completed?.observed.model,
+        blocks: run.completed?.blocks,
+        ...(run.error === undefined ? {} : { error: describeError(run.error) }),
+      });
     },
   });
   const ms = Date.now() - t0;
@@ -154,7 +169,22 @@ export async function runOne(o: BenchOptions, task: Task, n: number): Promise<Be
     problem = `the check failed: ${e instanceof Error ? e.message : String(e)}`;
   }
   const wire = (await o.wire?.drain()) ?? [];
-  const s: BenchSample = { model: o.model, arm: o.arm.label, task: task.name, group: task.group, n, ok: problem === undefined, firstTry: problem === undefined && r.errors === 0, ...(problem === undefined ? {} : { problem }), status: r.status, noTools, ms, requests: r.requests, toolErrors: r.errors, tokens };
+  const s: BenchSample = {
+    model: o.model,
+    arm: o.arm.label,
+    task: task.name,
+    group: task.group,
+    n,
+    ok: problem === undefined,
+    firstTry: problem === undefined && r.errors === 0,
+    ...(problem === undefined ? {} : { problem }),
+    status: r.status,
+    noTools,
+    ms,
+    requests: r.requests,
+    toolErrors: r.errors,
+    tokens,
+  };
   if (!clean(s)) s.detail = { steps: r.steps, answer: r.answer, requests, wire, settings };
   return s;
 }
@@ -213,14 +243,25 @@ export function summarize(samples: readonly BenchSample[]): ArmSummary[] {
       noTools: mine.filter((s) => s.noTools).length,
       endedBadly: mine.filter((s) => s.status !== "completed").length,
       meanSeconds: mean(mine.map((s) => s.ms / 1000)),
-      p90Seconds: quantile(mine.map((s) => s.ms / 1000), 0.9),
+      p90Seconds: quantile(
+        mine.map((s) => s.ms / 1000),
+        0.9,
+      ),
       meanRequests: mean(mine.map((s) => s.requests)),
       meanIn: mean(mine.map((s) => s.tokens.in)),
       meanCached: mean(mine.map((s) => s.tokens.cached)),
       meanOut: mean(mine.map((s) => s.tokens.out)),
       byGroup,
-      toolErrors: tally(mine.flatMap((s) => (s.detail?.steps ?? []).filter((x) => x.is_error === true).map((x) => blur(x.name, x.result ?? "")))),
-      requestErrors: tally(mine.flatMap((s) => (s.detail?.requests ?? []).flatMap((r) => (r.error === undefined ? [] : [`${r.error.kind ?? r.error.name}: ${r.error.message.slice(0, 140)}`])))),
+      toolErrors: tally(
+        mine.flatMap((s) => (s.detail?.steps ?? []).filter((x) => x.is_error === true).map((x) => blur(x.name, x.result ?? ""))),
+      ),
+      requestErrors: tally(
+        mine.flatMap((s) =>
+          (s.detail?.requests ?? []).flatMap((r) =>
+            r.error === undefined ? [] : [`${r.error.kind ?? r.error.name}: ${r.error.message.slice(0, 140)}`],
+          ),
+        ),
+      ),
     };
   });
 }
@@ -230,17 +271,35 @@ const f1 = (n: number): string => n.toFixed(1);
 const k = (n: number): string => (n >= 10_000 ? `${(n / 1000).toFixed(1)}k` : String(Math.round(n)));
 
 export function formatSummary(sum: readonly ArmSummary[], meta: { when: string; repeat: number }): string {
-  const out: string[] = [`# Dialect benchmark, ${meta.when}`, "", `${meta.repeat} samples per task and arm. Tokens are per sample (a sample is a whole task: several requests).`, ""];
+  const out: string[] = [
+    `# Dialect benchmark, ${meta.when}`,
+    "",
+    `${meta.repeat} samples per task and arm. Tokens are per sample (a sample is a whole task: several requests).`,
+    "",
+  ];
   for (const model of [...new Set(sum.map((s) => s.model))]) {
     const rows = sum.filter((s) => s.model === model);
-    out.push(`## ${model}`, "", "| arm | correct | first-try | no tool | ended badly | mean s | p90 s | requests | prompt tok | of which cached | output tok |", "|---|---|---|---|---|---|---|---|---|---|---|");
-    for (const r of rows) out.push(`| ${r.arm} | ${rate(r.correct, r.samples)} | ${rate(r.firstTry, r.samples)} | ${r.noTools} | ${r.endedBadly} | ${f1(r.meanSeconds)} | ${f1(r.p90Seconds)} | ${f1(r.meanRequests)} | ${k(r.meanIn)} | ${k(r.meanCached)} | ${k(r.meanOut)} |`);
+    out.push(
+      `## ${model}`,
+      "",
+      "| arm | correct | first-try | no tool | ended badly | mean s | p90 s | requests | prompt tok | of which cached | output tok |",
+      "|---|---|---|---|---|---|---|---|---|---|---|",
+    );
+    for (const r of rows)
+      out.push(
+        `| ${r.arm} | ${rate(r.correct, r.samples)} | ${rate(r.firstTry, r.samples)} | ${r.noTools} | ${r.endedBadly} | ${f1(r.meanSeconds)} | ${f1(r.p90Seconds)} | ${f1(r.meanRequests)} | ${k(r.meanIn)} | ${k(r.meanCached)} | ${k(r.meanOut)} |`,
+      );
     const groups = [...new Set(rows.flatMap((r) => Object.keys(r.byGroup)))].sort();
     out.push("", "By group (first-try / correct):", "", `| arm | ${groups.join(" | ")} |`, `|---|${groups.map(() => "---").join("|")}|`);
-    for (const r of rows) out.push(`| ${r.arm} | ${groups.map((g) => (r.byGroup[g] === undefined ? "-" : `${r.byGroup[g].firstTry}/${r.byGroup[g].correct}/${r.byGroup[g].samples}`)).join(" | ")} |`);
+    for (const r of rows)
+      out.push(
+        `| ${r.arm} | ${groups.map((g) => (r.byGroup[g] === undefined ? "-" : `${r.byGroup[g].firstTry}/${r.byGroup[g].correct}/${r.byGroup[g].samples}`)).join(" | ")} |`,
+      );
     for (const r of rows) {
-      if (r.requestErrors.length > 0) out.push("", `Failed requests, ${r.arm}:`, "", ...r.requestErrors.slice(0, 10).map((e) => `- ${e.count} × ${e.message}`));
-      if (r.toolErrors.length > 0) out.push("", `Most common tool errors, ${r.arm}:`, "", ...r.toolErrors.slice(0, 8).map((e) => `- ${e.count} × ${e.message}`));
+      if (r.requestErrors.length > 0)
+        out.push("", `Failed requests, ${r.arm}:`, "", ...r.requestErrors.slice(0, 10).map((e) => `- ${e.count} × ${e.message}`));
+      if (r.toolErrors.length > 0)
+        out.push("", `Most common tool errors, ${r.arm}:`, "", ...r.toolErrors.slice(0, 8).map((e) => `- ${e.count} × ${e.message}`));
     }
     out.push("");
   }
@@ -287,7 +346,22 @@ export function parseArgs(argv: readonly string[]): CliOptions {
       flags.set(a, [...(flags.get(a) ?? []), v]);
     } else throw new Error(`unexpected argument ${a}`);
   }
-  const known = new Set(["--model", "--arms", "--arm", "--setting", "--repeat", "--task", "--group", "--max-tokens", "--timeout-seconds", "--max-requests", "--out", "--resume", "--summarize", "--busybox"]);
+  const known = new Set([
+    "--model",
+    "--arms",
+    "--arm",
+    "--setting",
+    "--repeat",
+    "--task",
+    "--group",
+    "--max-tokens",
+    "--timeout-seconds",
+    "--max-requests",
+    "--out",
+    "--resume",
+    "--summarize",
+    "--busybox",
+  ]);
   for (const f of flags.keys()) if (!known.has(f)) throw new Error(`unknown flag ${f}`);
   const one = (n: string): string | undefined => flags.get(n)?.[0];
   const int = (n: string, d: number): number => {
@@ -311,15 +385,20 @@ export function parseArgs(argv: readonly string[]): CliOptions {
   const custom = (flags.get("--arm") ?? []).map((kv): Arm => {
     const at = kv.indexOf("=");
     const v = at < 1 ? undefined : json(kv.slice(at + 1));
-    if (typeof v !== "object" || v === null || Array.isArray(v)) throw new Error(`--arm takes LABEL=JSON, an object of model settings, not ${kv}`);
+    if (typeof v !== "object" || v === null || Array.isArray(v))
+      throw new Error(`--arm takes LABEL=JSON, an object of model settings, not ${kv}`);
     return { label: kv.slice(0, at), settings: v as Record<string, unknown> };
   });
   const resume = one("--resume");
   const summarizeDir = one("--summarize");
-  if (models.length === 0 && resume === undefined && summarizeDir === undefined) throw new Error("--model is required: a name from local_models in the settings file, optionally NAME=DIALECT");
+  if (models.length === 0 && resume === undefined && summarizeDir === undefined)
+    throw new Error("--model is required: a name from local_models in the settings file, optionally NAME=DIALECT");
   return {
     models,
-    arms: one("--arms")?.split(",").map((a) => a.trim()).filter((a) => a !== "") ?? [...DEFAULT_ARMS],
+    arms: one("--arms")
+      ?.split(",")
+      .map((a) => a.trim())
+      .filter((a) => a !== "") ?? [...DEFAULT_ARMS],
     custom,
     settings,
     repeat: int("--repeat", 10),
@@ -338,13 +417,16 @@ export function parseArgs(argv: readonly string[]): CliOptions {
 
 export async function readSamples(file: string): Promise<BenchSample[]> {
   const text = await readFile(file, "utf8").catch(() => "");
-  return text.split("\n").filter((l) => l.trim() !== "").flatMap((l) => {
-    try {
-      return [JSON.parse(l) as BenchSample];
-    } catch {
-      return []; // a line cut off by a crash
-    }
-  });
+  return text
+    .split("\n")
+    .filter((l) => l.trim() !== "")
+    .flatMap((l) => {
+      try {
+        return [JSON.parse(l) as BenchSample];
+      } catch {
+        return []; // a line cut off by a crash
+      }
+    });
 }
 
 async function writeSummary(dir: string, samples: BenchSample[], repeat: number): Promise<void> {
@@ -378,7 +460,10 @@ async function main(): Promise<void> {
   const busybox = await requireBusybox(plan.busybox);
   const { run: tasks } = selectTasks({ tasks: plan.tasks, groups: plan.groups, busybox });
   let wireBuf: WireRecord[] = [];
-  const tap = tapFetch((u) => u.endsWith("/chat/completions") || u.endsWith("/completion"), (r) => void wireBuf.push(r));
+  const tap = tapFetch(
+    (u) => u.endsWith("/chat/completions") || u.endsWith("/completion"),
+    (r) => void wireBuf.push(r),
+  );
   const wire = {
     drain: async (): Promise<WireRecord[]> => {
       await tap.flush();
@@ -401,10 +486,27 @@ async function main(): Promise<void> {
       for (let n = 1; n <= plan.repeat; n++) {
         for (const arm of arms) {
           if (done.has(`${m.name}|${arm.label}|${task.name}|${n}`)) continue;
-          const s = await runOne({ adapter, model: m.name, arm, sampling, settings: plan.settings, maxTokens: plan.maxTokens, busybox, timeoutSeconds: plan.timeoutSeconds, maxRequests: plan.maxRequests, wire }, task, n);
+          const s = await runOne(
+            {
+              adapter,
+              model: m.name,
+              arm,
+              sampling,
+              settings: plan.settings,
+              maxTokens: plan.maxTokens,
+              busybox,
+              timeoutSeconds: plan.timeoutSeconds,
+              maxRequests: plan.maxRequests,
+              wire,
+            },
+            task,
+            n,
+          );
           await appendFile(file, `${JSON.stringify(s)}\n`);
           all.push(s);
-          console.error(`[${++count}/${total}] ${m.name} ${arm.label} ${task.name} #${n}: ${s.ok ? (s.firstTry ? "ok" : "ok (after a tool error)") : `WRONG (${(s.problem ?? "").slice(0, 60)})`}  ${s.requests} req, ${(s.ms / 1000).toFixed(1)}s, ${s.tokens.in}/${s.tokens.out} tok`);
+          console.error(
+            `[${++count}/${total}] ${m.name} ${arm.label} ${task.name} #${n}: ${s.ok ? (s.firstTry ? "ok" : "ok (after a tool error)") : `WRONG (${(s.problem ?? "").slice(0, 60)})`}  ${s.requests} req, ${(s.ms / 1000).toFixed(1)}s, ${s.tokens.in}/${s.tokens.out} tok`,
+          );
         }
       }
       await writeSummary(dir, all, plan.repeat); // after every task, so a stopped run has a summary too

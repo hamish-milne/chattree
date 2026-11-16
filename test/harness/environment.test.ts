@@ -4,9 +4,22 @@ import type { ChatEntry } from "../../harness/entries.ts";
 import { ENVIRONMENT_KEY, SYSTEM_PROMPT, environmentRule, environmentText, type EnvironmentFacts } from "../../harness/environment.ts";
 import type { InjectionContext } from "../../harness/injections.ts";
 
-const facts: EnvironmentFacts = { os: "Linux 6.1", platform: "posix", utilities: "`run` takes a command.", timeZone: "Europe/London", thread: "main", workspace: "/work/p" };
+const facts: EnvironmentFacts = {
+  os: "Linux 6.1",
+  platform: "posix",
+  utilities: "`run` takes a command.",
+  timeZone: "Europe/London",
+  thread: "main",
+  workspace: "/work/p",
+};
 const at = (iso: string): number => Date.parse(iso);
-const ctx = (now: number, entries: ChatEntry[] = []): InjectionContext => ({ now, entries, turns: 0, since: () => undefined, prepared: {} as never });
+const ctx = (now: number, entries: ChatEntry[] = []): InjectionContext => ({
+  now,
+  entries,
+  turns: 0,
+  since: () => undefined,
+  prepared: {} as never,
+});
 const said = (text: string): ChatEntry => ({ $tag: "injection", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", key: ENVIRONMENT_KEY, text });
 
 describe("the environment note", () => {

@@ -49,7 +49,12 @@ export function classifyLocal(from: AgentSetup, to: AgentSetup): Change[] {
   const out = classifyCompatible(from, to);
   const f = (from.model?.settings ?? {}) as Record<string, unknown>;
   const t = (to.model?.settings ?? {}) as Record<string, unknown>;
-  if (from.model !== undefined && to.model !== undefined && !out.some((c) => c.kind === "cache_break") && ["dialect", "dialect_options"].some((k) => stable(f[k] ?? null) !== stable(t[k] ?? null))) {
+  if (
+    from.model !== undefined &&
+    to.model !== undefined &&
+    !out.some((c) => c.kind === "cache_break") &&
+    ["dialect", "dialect_options"].some((k) => stable(f[k] ?? null) !== stable(t[k] ?? null))
+  ) {
     out.push({ kind: "cache_break", message: "changing the dialect changes the prompt the server sees" });
   }
   return out;
@@ -72,7 +77,10 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
     $tag: "local-models",
     config: providerConfig,
     settings: localModelsSettings,
-    jsonSchema: () => ({ config: z.toJSONSchema(providerConfig, { io: "input" }), settings: z.toJSONSchema(localModelsSettings, { io: "input" }) }),
+    jsonSchema: () => ({
+      config: z.toJSONSchema(providerConfig, { io: "input" }),
+      settings: z.toJSONSchema(localModelsSettings, { io: "input" }),
+    }),
     secrets: () => [],
     // Everything a local server costs is nothing, unless the config says otherwise.
     prices: (c) => pricesFor(undefined, { ...c, pricing: c.pricing ?? { free: true } }),
@@ -95,10 +103,20 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
             throw new ProviderError({ kind: "network", message: e instanceof Error ? e.message : String(e), retryable: false, cause: e });
           }
           const settings = localModelsSettings.safeParse(req.setup.model?.settings ?? {});
-          if (!settings.success) throw new ProviderError({ kind: "invalid_request", message: `invalid model settings for this provider: ${settings.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}` });
+          if (!settings.success)
+            throw new ProviderError({
+              kind: "invalid_request",
+              message: `invalid model settings for this provider: ${settings.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
+            });
           if (settings.data.dialect !== undefined) {
             const mapper = completionMapper(
-              { baseUrl: conn.baseUrl, dialects, today, modelName: (id) => runtime.resolve(modelNameOf(id)), observe: (requested) => conn.ids[requested] },
+              {
+                baseUrl: conn.baseUrl,
+                dialects,
+                today,
+                modelName: (id) => runtime.resolve(modelNameOf(id)),
+                observe: (requested) => conn.ids[requested],
+              },
               () => settings.data as DialectSettings,
             );
             return yield* httpStream(mapper, req, httpOptionsFor(c));

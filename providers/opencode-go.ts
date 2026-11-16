@@ -37,7 +37,10 @@ export interface GoRow {
 const costTier = (input: number): "low" | "medium" | "high" => (input <= 0.5 ? "low" : input <= 2.5 ? "medium" : "high");
 
 /** The catalog, the price table and each model's native API, from rows. */
-export function catalogFrom(rows: readonly GoRow[], asOf: string): { models: Record<string, ModelInfo>; prices: PriceTable; api: Record<string, GoApi> } {
+export function catalogFrom(
+  rows: readonly GoRow[],
+  asOf: string,
+): { models: Record<string, ModelInfo>; prices: PriceTable; api: Record<string, GoApi> } {
   const models: Record<string, ModelInfo> = {};
   const prices: Record<string, ModelPrice> = {};
   const api: Record<string, GoApi> = {};
@@ -55,11 +58,42 @@ export function catalogFrom(rows: readonly GoRow[], asOf: string): { models: Rec
       r.price.input === 0 && r.price.output === 0
         ? { free: true }
         : {
-            rates: { standard: { input: r.price.input, output: r.price.output, ...(r.price.cache_read === undefined ? {} : { cache_read: r.price.cache_read }), ...(r.price.cache_write === undefined ? {} : { cache_write: r.price.cache_write }) } },
-            ...(r.long === undefined ? {} : { long_context: { above_tokens: r.long.above_tokens, rates: { standard: { input: r.long.input, output: r.long.output, ...(r.long.cache_read === undefined ? {} : { cache_read: r.long.cache_read }), ...(r.long.cache_write === undefined ? {} : { cache_write: r.long.cache_write }) } } } }),
+            rates: {
+              standard: {
+                input: r.price.input,
+                output: r.price.output,
+                ...(r.price.cache_read === undefined ? {} : { cache_read: r.price.cache_read }),
+                ...(r.price.cache_write === undefined ? {} : { cache_write: r.price.cache_write }),
+              },
+            },
+            ...(r.long === undefined
+              ? {}
+              : {
+                  long_context: {
+                    above_tokens: r.long.above_tokens,
+                    rates: {
+                      standard: {
+                        input: r.long.input,
+                        output: r.long.output,
+                        ...(r.long.cache_read === undefined ? {} : { cache_read: r.long.cache_read }),
+                        ...(r.long.cache_write === undefined ? {} : { cache_write: r.long.cache_write }),
+                      },
+                    },
+                  },
+                }),
           };
   }
-  return { models, prices: { version: 1, as_of: asOf, source: `${OPENCODE_GO_BASE}/v1/models (read through a summarising tool; the unit is assumed to be USD per million tokens)`, currency: "USD", models: prices }, api };
+  return {
+    models,
+    prices: {
+      version: 1,
+      as_of: asOf,
+      source: `${OPENCODE_GO_BASE}/v1/models (read through a summarising tool; the unit is assumed to be USD per million tokens)`,
+      currency: "USD",
+      models: prices,
+    },
+    api,
+  };
 }
 
 export const OPENCODE_GO_CATALOG = catalogFrom(OPENCODE_GO_ROWS, "2026-10-30");
@@ -79,7 +113,10 @@ export const opencodeGoDefinition = defineAdapter({
   $tag: "opencode-go",
   config: opencodeGoConfig,
   settings: compatibleSettings,
-  jsonSchema: () => ({ config: z.toJSONSchema(opencodeGoConfig, { io: "input" }), settings: z.toJSONSchema(compatibleSettings, { io: "input" }) }),
+  jsonSchema: () => ({
+    config: z.toJSONSchema(opencodeGoConfig, { io: "input" }),
+    settings: z.toJSONSchema(compatibleSettings, { io: "input" }),
+  }),
   secrets: (c) => [c.api_key_env],
   prices: (c) => pricesFor(OPENCODE_GO_CATALOG.prices, c),
   models: (c) => modelsFor(OPENCODE_GO_CATALOG.models, c),

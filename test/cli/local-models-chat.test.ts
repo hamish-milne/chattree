@@ -16,19 +16,22 @@ import { testIo } from "./support.ts";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "support", "fake-llama-server.mjs");
 
-test("chat with a local model: init takes the model from the settings, and the first message starts the host", { skip: process.platform === "win32" }, async () => {
-  const server = await HttpFixture.start();
-  const dir = await tempDir();
-  server.on("/alpha.gguf", { body: Buffer.from("alpha".repeat(1000)) });
-  const binary = join(dir, "fake-llama-server");
-  await writeFile(binary, `#!/usr/bin/env node\n${await readFile(script, "utf8")}`);
-  await chmod(binary, 0o755);
-  const settings = join(dir, "settings.yml");
-  const data = join(dir, "data");
-  const log = join(dir, "requests.log");
-  await writeFile(
-    settings,
-    `data_dir: ${JSON.stringify(data)}
+test(
+  "chat with a local model: init takes the model from the settings, and the first message starts the host",
+  { skip: process.platform === "win32" },
+  async () => {
+    const server = await HttpFixture.start();
+    const dir = await tempDir();
+    server.on("/alpha.gguf", { body: Buffer.from("alpha".repeat(1000)) });
+    const binary = join(dir, "fake-llama-server");
+    await writeFile(binary, `#!/usr/bin/env node\n${await readFile(script, "utf8")}`);
+    await chmod(binary, 0o755);
+    const settings = join(dir, "settings.yml");
+    const data = join(dir, "data");
+    const log = join(dir, "requests.log");
+    await writeFile(
+      settings,
+      `data_dir: ${JSON.stringify(data)}
 local_models:
   llama_cpp: { path: ${JSON.stringify(binary)} }
   server: { health_timeout: 20 }
@@ -39,69 +42,82 @@ local_models:
       ctx_size: 4096
       sampling: { temperature: 0.6, top_k: 20 }
 `,
-  );
-  const env = { ...process.env, CHATTREE_SETTINGS: settings, CHATTREE_ENVIRONMENT: "off", FAKE_LLAMA_LOG: log };
-  const project = join(dir, "p");
-  let pid: number | undefined;
-  try {
-    const init = testIo(dir, { env });
-    assert.equal(await main(["init", project, "--provider", "local-models", "--model", "a", "--max-output", "256"], init), 0, init.stderr);
-    const config = await readFile(join(project, "harness.yml"), "utf8");
-    assert.match(config, /local-models:\n\s+\$tag: local-models/);
-    assert.doesNotMatch(config, /base_url|api_key/);
+    );
+    const env = { ...process.env, CHATTREE_SETTINGS: settings, CHATTREE_ENVIRONMENT: "off", FAKE_LLAMA_LOG: log };
+    const project = join(dir, "p");
+    let pid: number | undefined;
+    try {
+      const init = testIo(dir, { env });
+      assert.equal(
+        await main(["init", project, "--provider", "local-models", "--model", "a", "--max-output", "256"], init),
+        0,
+        init.stderr,
+      );
+      const config = await readFile(join(project, "harness.yml"), "utf8");
+      assert.match(config, /local-models:\n\s+\$tag: local-models/);
+      assert.doesNotMatch(config, /base_url|api_key/);
 
-    const first = testIo(project, { env });
-    assert.equal(await main(["say", "hi"], first), 0, first.stderr);
-    assert.match(first.stderr, /starting the model host/);
-    assert.match(first.stderr, /ready at http:\/\/127\.0\.0\.1:\d+/);
-    assert.equal(first.stdout, "hello from alpha\n");
-    pid = (await findDaemon(data))?.info.pid;
-    assert.ok(pid !== undefined && pidAlive(pid));
+      const first = testIo(project, { env });
+      assert.equal(await main(["say", "hi"], first), 0, first.stderr);
+      assert.match(first.stderr, /starting the model host/);
+      assert.match(first.stderr, /ready at http:\/\/127\.0\.0\.1:\d+/);
+      assert.equal(first.stdout, "hello from alpha\n");
+      pid = (await findDaemon(data))?.info.pid;
+      assert.ok(pid !== undefined && pidAlive(pid));
 
-    const requests = (await readFile(log, "utf8")).trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
-    assert.equal(requests[0]?.["model"], "alpha"); // the alias is resolved to the model's name
-    assert.equal(requests[0]?.["temperature"], 0.6); // sampling pinned in the setup
-    assert.equal(requests[0]?.["top_k"], 20);
+      const requests = (await readFile(log, "utf8"))
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l) as Record<string, unknown>);
+      assert.equal(requests[0]?.["model"], "alpha"); // the alias is resolved to the model's name
+      assert.equal(requests[0]?.["temperature"], 0.6); // sampling pinned in the setup
+      assert.equal(requests[0]?.["top_k"], 20);
 
-    // The history says which file answered.
-    assert.match(execFileSync("git", ["-C", project, "log", "--all", "-p", "--format="], { encoding: "utf8" }), /alpha@[0-9a-f]{8}/);
+      // The history says which file answered.
+      assert.match(execFileSync("git", ["-C", project, "log", "--all", "-p", "--format="], { encoding: "utf8" }), /alpha@[0-9a-f]{8}/);
 
-    const second = testIo(project, { env });
-    assert.equal(await main(["say", "again"], second), 0, second.stderr);
-    assert.doesNotMatch(second.stderr, /starting the model host/);
-    assert.equal((await findDaemon(data))?.info.pid, pid);
+      const second = testIo(project, { env });
+      assert.equal(await main(["say", "again"], second), 0, second.stderr);
+      assert.doesNotMatch(second.stderr, /starting the model host/);
+      assert.equal((await findDaemon(data))?.info.pid, pid);
 
-    // A settings file that stopped being valid is an error for the session that asks for the model (it reads the file itself), and the host
-    // reports it too, in `models status` and to every consumer that asks it for the model.
-    const good = await readFile(settings, "utf8");
-    await writeFile(settings, good.replace("ctx_size: 4096", "ctx_size: -5"));
-    for (let i = 0; i < 100 && (await findDaemon(data).then((c) => c?.status()))?.settingsError === undefined; i++) await new Promise((r) => setTimeout(r, 100));
-    const broken = testIo(project, { env });
-    assert.equal(await main(["say", "third"], broken), 1);
-    assert.match(broken.stderr, /is not valid/);
-    await writeFile(settings, good);
-    for (let i = 0; i < 100 && (await findDaemon(data).then((c) => c?.status()))?.settingsError !== undefined; i++) await new Promise((r) => setTimeout(r, 100));
+      // A settings file that stopped being valid is an error for the session that asks for the model (it reads the file itself), and the host
+      // reports it too, in `models status` and to every consumer that asks it for the model.
+      const good = await readFile(settings, "utf8");
+      await writeFile(settings, good.replace("ctx_size: 4096", "ctx_size: -5"));
+      for (let i = 0; i < 100 && (await findDaemon(data).then((c) => c?.status()))?.settingsError === undefined; i++)
+        await new Promise((r) => setTimeout(r, 100));
+      const broken = testIo(project, { env });
+      assert.equal(await main(["say", "third"], broken), 1);
+      assert.match(broken.stderr, /is not valid/);
+      await writeFile(settings, good);
+      for (let i = 0; i < 100 && (await findDaemon(data).then((c) => c?.status()))?.settingsError !== undefined; i++)
+        await new Promise((r) => setTimeout(r, 100));
 
-    // A daemon that has gone (stopped, or exited because its code changed) is replaced by the next session that needs the host.
-    assert.equal(await main(["models", "stop"], testIo(dir, { env })), 0);
-    for (let i = 0; i < 100 && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
-    const revived = testIo(project, { env });
-    assert.equal(await main(["say", "fourth"], revived), 0, revived.stderr);
-    const next = (await findDaemon(data))?.info.pid;
-    assert.ok(next !== undefined && next !== pid);
-    pid = next;
-  } finally {
-    await main(["models", "stop"], testIo(dir, { env }));
-    for (let i = 0; i < 100 && pid !== undefined && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
-    if (pid !== undefined && pidAlive(pid)) process.kill(pid);
-    await server.close();
-  }
-});
+      // A daemon that has gone (stopped, or exited because its code changed) is replaced by the next session that needs the host.
+      assert.equal(await main(["models", "stop"], testIo(dir, { env })), 0);
+      for (let i = 0; i < 100 && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
+      const revived = testIo(project, { env });
+      assert.equal(await main(["say", "fourth"], revived), 0, revived.stderr);
+      const next = (await findDaemon(data))?.info.pid;
+      assert.ok(next !== undefined && next !== pid);
+      pid = next;
+    } finally {
+      await main(["models", "stop"], testIo(dir, { env }));
+      for (let i = 0; i < 100 && pid !== undefined && pidAlive(pid); i++) await new Promise((r) => setTimeout(r, 50));
+      if (pid !== undefined && pidAlive(pid)) process.kill(pid);
+      await server.close();
+    }
+  },
+);
 
 test("init with local-models needs the model to be in the settings", async () => {
   const dir = await tempDir();
   const settings = join(dir, "settings.yml");
-  await writeFile(settings, `local_models:\n  models:\n    alpha: { url: "https://x.test/a.gguf" }\n    beta: { url: "https://x.test/b.gguf" }\n`);
+  await writeFile(
+    settings,
+    `local_models:\n  models:\n    alpha: { url: "https://x.test/a.gguf" }\n    beta: { url: "https://x.test/b.gguf" }\n`,
+  );
   const env = { CHATTREE_SETTINGS: settings, CHATTREE_ENVIRONMENT: "off" };
   const none = testIo(dir, { env });
   assert.equal(await main(["init", join(dir, "p1"), "--provider", "local-models"], none), 1);
@@ -120,7 +136,10 @@ test("init pins the sampling a model's own header carries, and says so; the sett
   try {
     server.on("/m.gguf", { body: gguf(SAMPLING) });
     const settings = join(dir, "settings.yml");
-    await writeFile(settings, `local_models:\n  models:\n    plain: { url: "${server.base}/m.gguf" }\n    gemma-test: { url: "${server.base}/m.gguf" }\n    set: { url: "${server.base}/m.gguf", sampling: { temperature: 0.1 } }\n`);
+    await writeFile(
+      settings,
+      `local_models:\n  models:\n    plain: { url: "${server.base}/m.gguf" }\n    gemma-test: { url: "${server.base}/m.gguf" }\n    set: { url: "${server.base}/m.gguf", sampling: { temperature: 0.1 } }\n`,
+    );
     const env = { CHATTREE_SETTINGS: settings, CHATTREE_ENVIRONMENT: "off" };
     const settingsOf = async (project: string) => {
       const entries = (await (await Conversation.open(nodeHost(), project)).readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
@@ -129,7 +148,10 @@ test("init pins the sampling a model's own header carries, and says so; the sett
 
     const a = testIo(dir, { env });
     assert.equal(await main(["init", join(dir, "a"), "--provider", "local-models", "--model", "plain"], a), 0, a.stderr);
-    assert.match(a.stderr, /note: sampling pinned from general\.sampling in .*m\.gguf: temperature 0\.6, top_p 0\.95, top_k 20, repeat_penalty 1\.1/);
+    assert.match(
+      a.stderr,
+      /note: sampling pinned from general\.sampling in .*m\.gguf: temperature 0\.6, top_p 0\.95, top_k 20, repeat_penalty 1\.1/,
+    );
     const pinned = await settingsOf(join(dir, "a"));
     assert.match(pinned, /"temperature":0\.6/);
     assert.match(pinned, /"top_k":20/);

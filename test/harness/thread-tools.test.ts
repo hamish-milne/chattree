@@ -11,7 +11,13 @@ import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "claude-sonnet-5-5", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
+const reply = (text: string): NewEntry => ({
+  $tag: "assistant",
+  provider: "anthropic",
+  model: "claude-sonnet-5-5",
+  blocks: [{ $tag: "text", text }],
+  stop_reason: "end_turn",
+});
 
 async function world(siblings = false) {
   const dir = join(await tempDir(), "conv");
@@ -21,9 +27,20 @@ async function world(siblings = false) {
   const one = (await main.spawnSubagent({ brief: "do part one", callId: "toolu_1", name: "sub/one" })).conversation as Conversation;
   const two = (await main.spawnSubagent({ brief: "do part two", callId: "toolu_2", name: "sub/two" })).conversation as Conversation;
   const [read, send] = threadTools({ convo: main, siblings }) as [Tool, Tool];
-  const call = async (tool: Tool, thread: string, args: Record<string, unknown>): Promise<ToolOutput> => (await tool.execute(args, { thread, callId: "c1", signal: new AbortController().signal, workspace: dir, host })) as ToolOutput;
+  const call = async (tool: Tool, thread: string, args: Record<string, unknown>): Promise<ToolOutput> =>
+    (await tool.execute(args, { thread, callId: "c1", signal: new AbortController().signal, workspace: dir, host })) as ToolOutput;
   const entriesOf = async (c: Conversation): Promise<ChatEntry[]> => (await c.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-  return { main, one, two, a, call: { read: (t: string, args: Record<string, unknown>) => call(read, t, args), send: (t: string, args: Record<string, unknown>) => call(send, t, args) }, entriesOf };
+  return {
+    main,
+    one,
+    two,
+    a,
+    call: {
+      read: (t: string, args: Record<string, unknown>) => call(read, t, args),
+      send: (t: string, args: Record<string, unknown>) => call(send, t, args),
+    },
+    entriesOf,
+  };
 }
 
 describe("thread_read", () => {
@@ -63,7 +80,8 @@ describe("thread_read", () => {
 
   test("long output is cut to a bounded size, oldest first", async () => {
     const w = await world();
-    for (let i = 0; i < 30; i++) await w.one.append({ $tag: "tool_result", call_id: `c${i}`, is_error: false, content: `${i}:${"x".repeat(3000)}` });
+    for (let i = 0; i < 30; i++)
+      await w.one.append({ $tag: "tool_result", call_id: `c${i}`, is_error: false, content: `${i}:${"x".repeat(3000)}` });
     const out = await w.call.read("main", { thread: "sub/one", last: 30, full: true });
     assert.ok(out.content.length < 20_000, `${out.content.length}`);
     assert.match(out.content, /older entries were left out/);
@@ -83,8 +101,18 @@ describe("thread_send", () => {
     assert.equal(last.from, "main");
     assert.equal(last.queued, true);
     assert.deepEqual(last.content, [{ $tag: "text", text: "[Message from thread main]\nalso check the lexer" }]);
-    const state = await foldTip({ entries: there, registry: new ToolRegistry(), allow: async () => undefined, nowMs: Date.now(), ctx: { workspace: w.one.dir, host } });
-    assert.deepEqual([state.kind, state.kind === "ready" ? state.cause : undefined], ["ready", "human"], "a pump runs a thread that was waiting");
+    const state = await foldTip({
+      entries: there,
+      registry: new ToolRegistry(),
+      allow: async () => undefined,
+      nowMs: Date.now(),
+      ctx: { workspace: w.one.dir, host },
+    });
+    assert.deepEqual(
+      [state.kind, state.kind === "ready" ? state.cause : undefined],
+      ["ready", "human"],
+      "a pump runs a thread that was waiting",
+    );
   });
 
   test("a child writes to its parent without ending, and the parent's own transcript has it", async () => {
@@ -95,7 +123,10 @@ describe("thread_send", () => {
     const last = mine.at(-1);
     assert.ok(last?.$tag === "user" && last.from === "sub/one");
     const child = await w.entriesOf(await Conversation.open(host, w.one.dir));
-    assert.ok(child.every((e) => e.$tag !== "subagent_result"), "the child did not hand back");
+    assert.ok(
+      child.every((e) => e.$tag !== "subagent_result"),
+      "the child did not hand back",
+    );
   });
 
   test("strangers, itself and an empty message are refused; siblings only with the setting", async () => {

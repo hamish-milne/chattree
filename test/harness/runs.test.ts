@@ -16,8 +16,17 @@ const host = nodeHost();
 type Reply = Completed | ((signal: AbortSignal) => Promise<Completed>);
 let queue: Reply[] = [];
 const usage = { input_tokens: 1, output_tokens: 1 };
-const answer = (t: string): Completed => ({ blocks: [{ type: "text", text: t }], stop_reason: "end_turn", usage, observed: { model: "m1" }, ext: {} });
-const hang = (signal: AbortSignal): Promise<Completed> => new Promise((_, reject) => signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }));
+const answer = (t: string): Completed => ({
+  blocks: [{ type: "text", text: t }],
+  stop_reason: "end_turn",
+  usage,
+  observed: { model: "m1" },
+  ext: {},
+});
+const hang = (signal: AbortSignal): Promise<Completed> =>
+  new Promise((_, reject) =>
+    signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }),
+  );
 
 const adapters = new AdapterRegistry().register(
   defineAdapter({
@@ -41,7 +50,10 @@ const adapters = new AdapterRegistry().register(
 );
 
 async function fresh() {
-  const convo = await Conversation.create(host, join(await tempDir(), "c"), { providers: { registry: adapters, secrets: envSource({}) }, config: "providers:\n  f:\n    $tag: fake\n" });
+  const convo = await Conversation.create(host, join(await tempDir(), "c"), {
+    providers: { registry: adapters, secrets: envSource({}) },
+    config: "providers:\n  f:\n    $tag: fake\n",
+  });
   await convo.setupChange({ model: { provider: "f", id: "m1", settings: {} } });
   const registry = new ToolRegistry();
   await syncTools(convo, registry);

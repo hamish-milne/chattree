@@ -9,7 +9,8 @@ import type { Output } from "../output.ts";
 import { failure } from "../turn.ts";
 import { sendMessage } from "./chat.ts";
 
-const loadSkill = async (convo: Conversation, name: string, pin: AgentSetup["skills"][string]): Promise<SkillValue | undefined> => asSkill(await loadPinned("skill", name, pin, { blobs: convo.store }).catch(() => undefined));
+const loadSkill = async (convo: Conversation, name: string, pin: AgentSetup["skills"][string]): Promise<SkillValue | undefined> =>
+  asSkill(await loadPinned("skill", name, pin, { blobs: convo.store }).catch(() => undefined));
 const flat = (s: string, max: number): string => {
   const t = s.replace(/\s+/g, " ").trim();
   return t.length <= max ? t : `${t.slice(0, max - 1).trimEnd()}…`;
@@ -55,13 +56,28 @@ const skills: Command = {
       for (const name of names) {
         const pin = setup.skills[name];
         const shown = setup.prefix.skills[name];
-        const state = pin === undefined ? "removed, still in the catalog until /rebuild" : shown === undefined ? "announced only (not in the catalog until /rebuild)" : stable(shown) === stable(pin) ? "in the catalog" : "in the catalog (older text; the model was told of the change)";
+        const state =
+          pin === undefined
+            ? "removed, still in the catalog until /rebuild"
+            : shown === undefined
+              ? "announced only (not in the catalog until /rebuild)"
+              : stable(shown) === stable(pin)
+                ? "in the catalog"
+                : "in the catalog (older text; the model was told of the change)";
         const value = pin === undefined ? undefined : await loadSkill(ctx.convo, name, pin);
         rows.push(`${name}  [${state}]${value === undefined ? "" : `  ${flat(value.description, 100)}`}`);
       }
       yield { type: "text", text: rows.length === 0 ? "no skills are pinned to this thread" : rows.join("\n") };
-      if (names.length > 0 && !hasSkillTool(setup)) yield { type: "warning", message: "the skill tool is not enabled (add `skill:` under tools in harness.yml), so the model is not shown the catalog" };
-      if (driftSize(drift) > 0) yield { type: "notice", message: `on disk: ${describeDrift(drift)}; /skills sync takes them (skills.follow is ${await skillPolicy(ctx.convo)})` };
+      if (names.length > 0 && !hasSkillTool(setup))
+        yield {
+          type: "warning",
+          message: "the skill tool is not enabled (add `skill:` under tools in harness.yml), so the model is not shown the catalog",
+        };
+      if (driftSize(drift) > 0)
+        yield {
+          type: "notice",
+          message: `on disk: ${describeDrift(drift)}; /skills sync takes them (skills.follow is ${await skillPolicy(ctx.convo)})`,
+        };
       for (const p of scan.problems) yield { type: "warning", message: p };
     } catch (e) {
       yield failure(e);
@@ -75,7 +91,11 @@ const skill: Command = {
   usage: "/skill <name> [what to do]",
   busy: "blocked",
   async complete(ctx, previous, partial) {
-    return previous.length === 0 ? Object.keys((await ctx.convo.setup()).skills).filter((n) => n.startsWith(partial)).sort() : [];
+    return previous.length === 0
+      ? Object.keys((await ctx.convo.setup()).skills)
+          .filter((n) => n.startsWith(partial))
+          .sort()
+      : [];
   },
   async *run(ctx, args, rest): AsyncGenerator<Output, void> {
     try {
@@ -88,7 +108,11 @@ const skill: Command = {
       const pin = setup.skills[name];
       if (pin === undefined) {
         const onDisk = (await scanProjectSkills(ctx.io, ctx.engine.project)).skills[name] !== undefined;
-        yield { type: "error", message: `there is no skill ${name} pinned to this thread`, hint: onDisk ? "it is on disk: /skills sync pins it" : `pinned: ${Object.keys(setup.skills).sort().join(", ") || "none"}` };
+        yield {
+          type: "error",
+          message: `there is no skill ${name} pinned to this thread`,
+          hint: onDisk ? "it is on disk: /skills sync pins it" : `pinned: ${Object.keys(setup.skills).sort().join(", ") || "none"}`,
+        };
         return;
       }
       const value = await loadSkill(ctx.convo, name, pin);

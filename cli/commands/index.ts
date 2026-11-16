@@ -17,5 +17,22 @@ import { trustCommands } from "./trust.ts";
 import { undoCommands } from "./undo.ts";
 
 export function defaultCommands(): Command[] {
-  return [...chatCommands, ...draftCommands, ...readCommands, ...sessionCommands, ...threadCommands, ...setupCommands, ...skillCommands, ...mcpCommands, ...miscCommands, ...undoCommands, ...metaCommands, ...toolCommands, ...execCommands, ...trustCommands, ...settingsCommands, ...searchCommands];
+  return [
+    ...chatCommands,
+    ...draftCommands,
+    ...readCommands,
+    ...sessionCommands,
+    ...threadCommands,
+    ...setupCommands,
+    ...skillCommands,
+    ...mcpCommands,
+    ...miscCommands,
+    ...undoCommands,
+    ...metaCommands,
+    ...toolCommands,
+    ...execCommands,
+    ...trustCommands,
+    ...settingsCommands,
+    ...searchCommands,
+  ];
 }

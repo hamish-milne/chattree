@@ -22,11 +22,24 @@ describe("/exec", () => {
     try {
       const calls: { stage: readonly string[]; cwd: string }[] = [];
       const codes = [0, 0, 3];
-      const io = testIo(dir, { stdin: "/exec ls | wc -l\n/exec\n/exec false\n", exec: async (stage, cwd) => (calls.push({ stage, cwd }), codes[calls.length - 1] ?? 0) });
+      const io = testIo(dir, {
+        stdin: "/exec ls | wc -l\n/exec\n/exec false\n",
+        exec: async (stage, cwd) => (calls.push({ stage, cwd }), codes[calls.length - 1] ?? 0),
+      });
       io.host = { ...io.host, platform: "posix" as const }; // the Windows shell is the next test
       assert.equal(await main(["chat", "--plain", "-y"], io), 0, io.stderr);
-      assert.deepEqual(calls.map((c) => c.stage), [["sh", "-c", "ls | wc -l"], ["sh", "-c", "exec sh"], ["sh", "-c", "false"]]);
-      assert.ok(calls.every((c) => c.cwd === dir), "in the thread's worktree");
+      assert.deepEqual(
+        calls.map((c) => c.stage),
+        [
+          ["sh", "-c", "ls | wc -l"],
+          ["sh", "-c", "exec sh"],
+          ["sh", "-c", "false"],
+        ],
+      );
+      assert.ok(
+        calls.every((c) => c.cwd === dir),
+        "in the thread's worktree",
+      );
       assert.match(io.stderr, /exit 3/);
       assert.doesNotMatch(io.stderr, /exit 0/);
       const tags = (await (await Conversation.open(host, dir)).readEntries()).flatMap((e) => (e.ok ? [e.value.$tag] : []));
@@ -45,7 +58,13 @@ describe("/exec", () => {
       const settings = join(await tempDir(), "settings.yml");
       await fs.writeFile(settings, `busybox: ${JSON.stringify(bb)}\n`);
       const calls: (readonly string[])[] = [];
-      const io = { ...testIo(dir, { env: { CHATTREE_ENVIRONMENT: "off", CHATTREE_SETTINGS: settings }, stdin: "/exec echo hi\n", exec: async (stage) => (calls.push(stage), 0) }) };
+      const io = {
+        ...testIo(dir, {
+          env: { CHATTREE_ENVIRONMENT: "off", CHATTREE_SETTINGS: settings },
+          stdin: "/exec echo hi\n",
+          exec: async (stage) => (calls.push(stage), 0),
+        }),
+      };
       io.host = { ...io.host, platform: "windows" as const };
       await main(["chat", "--plain", "-y"], io);
       assert.deepEqual(calls, [[bb, "sh", "-c", "echo hi"]]);

@@ -32,7 +32,10 @@ describe("init", () => {
       assert.match(cfg, /openai-compatible/);
       assert.match(cfg, new RegExp(`base_url: ${server.url}/v1`));
       const es = await entries(dir);
-      assert.deepEqual(es.map((e) => e.$tag), ["header", "agent_setup", "agent_setup"]);
+      assert.deepEqual(
+        es.map((e) => e.$tag),
+        ["header", "agent_setup", "agent_setup"],
+      );
       assert.equal(await git(dir, "branch", "--show-current"), "main");
     } finally {
       await server.close();
@@ -44,7 +47,10 @@ describe("init", () => {
     const io = testIo(dir);
     assert.equal(await main(["init", dir, "--provider", "anthropic"], io), 0, io.stderr);
     assert.match(io.stderr, /ANTHROPIC_API_KEY is not set/);
-    assert.doesNotMatch(await readFile(join(dir, "chat.yml"), "utf8") + await readFile(join(dir, "harness.yml"), "utf8"), /placeholder/);
+    assert.doesNotMatch(
+      (await readFile(join(dir, "chat.yml"), "utf8")) + (await readFile(join(dir, "harness.yml"), "utf8")),
+      /placeholder/,
+    );
     const setups = (await entries(dir)).filter((e) => e.$tag === "agent_setup");
     const [model, prices] = setups;
     assert.equal(model?.$tag === "agent_setup" && model.model?.id, "claude-sonnet-5-5");
@@ -145,7 +151,10 @@ describe("say", () => {
       assert.equal(io.stdout, "Hello there.\n");
       assert.match(io.stderr, /\[20 in, 5 out · turn \$0\.0000 · thread \$0\.0000\]/);
       const es = await entries(dir);
-      assert.deepEqual(es.map((e) => e.$tag), ["header", "agent_setup", "agent_setup", "user", "assistant"]);
+      assert.deepEqual(
+        es.map((e) => e.$tag),
+        ["header", "agent_setup", "agent_setup", "user", "assistant"],
+      );
       const sent = JSON.parse(server.seen[0]?.body ?? "") as { messages: { role: string; content: string }[] };
       assert.deepEqual(sent.messages.map((m) => [m.role, m.content.slice(0, 20)]).slice(1), [["user", "hi model"]]);
     } finally {
@@ -160,7 +169,10 @@ describe("say", () => {
       assert.equal(await main(["say", "-"], testIo(dir, { stdin: "first\nmessage\n" })), 0);
       assert.equal(await main(["say", "again"], testIo(dir)), 0);
       const sent = JSON.parse(server.seen[1]?.body ?? "") as { messages: { role: string; content: string }[] };
-      assert.deepEqual(sent.messages.map((m) => m.role), ["system", "user", "assistant", "user"]);
+      assert.deepEqual(
+        sent.messages.map((m) => m.role),
+        ["system", "user", "assistant", "user"],
+      );
       assert.equal(sent.messages[1]?.content, "first\nmessage");
     } finally {
       await server.close();
@@ -175,11 +187,17 @@ describe("say", () => {
       assert.equal(await main(["say", "hello"], io), 1);
       assert.match(io.stderr, /error: the provider failed/);
       assert.match(io.stderr, /\/retry/);
-      assert.deepEqual((await entries(dir)).map((e) => e.$tag), ["header", "agent_setup", "agent_setup", "user"]);
+      assert.deepEqual(
+        (await entries(dir)).map((e) => e.$tag),
+        ["header", "agent_setup", "agent_setup", "user"],
+      );
       const again = testIo(dir);
       assert.equal(await main(["retry"], again), 0, again.stderr);
       assert.equal(again.stdout, "recovered\n");
-      assert.deepEqual((await entries(dir)).map((e) => e.$tag), ["header", "agent_setup", "agent_setup", "user", "assistant"]);
+      assert.deepEqual(
+        (await entries(dir)).map((e) => e.$tag),
+        ["header", "agent_setup", "agent_setup", "user", "assistant"],
+      );
     } finally {
       await server.close();
     }
@@ -195,9 +213,14 @@ describe("say", () => {
       await writeFile(note, "remember the milk\n");
       const io = testIo(dir);
       assert.equal(await main(["say", "look at these", "--attach", png, "--attach", note], io), 0, io.stderr);
-      const sent = JSON.parse(server.seen[0]?.body ?? "") as { messages: { role: string; content: { type: string; text?: string; image_url?: { url: string } }[] }[] };
+      const sent = JSON.parse(server.seen[0]?.body ?? "") as {
+        messages: { role: string; content: { type: string; text?: string; image_url?: { url: string } }[] }[];
+      };
       const user = sent.messages.at(-1)?.content ?? [];
-      assert.deepEqual(user.map((p) => p.type), ["text", "image_url", "text"].sort().length === 3 ? ["text", "image_url", "text"] : []);
+      assert.deepEqual(
+        user.map((p) => p.type),
+        ["text", "image_url", "text"].sort().length === 3 ? ["text", "image_url", "text"] : [],
+      );
       assert.match(user[1]?.image_url?.url ?? "", /^data:image\/png;base64,/);
       assert.match(user[2]?.text ?? "", /\[Attached file: note\.txt\]\nremember the milk/);
       const user0 = (await entries(dir)).find((e) => e.$tag === "user");
@@ -216,7 +239,10 @@ describe("say", () => {
       assert.equal(await main(["say", "x", "--attach", join(dir, "blob.bin")], io), 1);
       assert.match(io.stderr, /looks binary/);
       assert.equal(server.seen.length, 0);
-      assert.deepEqual((await entries(dir)).map((e) => e.$tag), ["header", "agent_setup", "agent_setup"]);
+      assert.deepEqual(
+        (await entries(dir)).map((e) => e.$tag),
+        ["header", "agent_setup", "agent_setup"],
+      );
     } finally {
       await server.close();
     }

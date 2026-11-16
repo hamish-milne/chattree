@@ -30,14 +30,26 @@ const ESC = cp(0x1b);
 
 function samples(): Record<string, Record<string, unknown>> {
   const blob = { $tag: "blob", sha256: HASH_A, bytes: 48122, mime: "text/plain" };
-  const reasoning = { $tag: "reasoning", provider: "anthropic", payload: { $tag: "blob", sha256: HASH_B, bytes: 2210 }, visible: "Let me look at the test." };
+  const reasoning = {
+    $tag: "reasoning",
+    provider: "anthropic",
+    payload: { $tag: "blob", sha256: HASH_B, bytes: 2210 },
+    visible: "Let me look at the test.",
+  };
   return {
     header: { $tag: "header", format: FORMAT.format, major: FORMAT.major, minor: FORMAT.minor },
-    user: { $tag: "user", id: nextId(), content: [{ $tag: "text", text: "Fix the failing test in parser.rs\n\nIt fails with:\n  expected `a`\n" }] },
+    user: {
+      $tag: "user",
+      id: nextId(),
+      content: [{ $tag: "text", text: "Fix the failing test in parser.rs\n\nIt fails with:\n  expected `a`\n" }],
+    },
     "user with attachment": {
       $tag: "user",
       id: nextId(),
-      content: [{ $tag: "text", text: "What is in this image?" }, { $tag: "attachment", name: "shot.png", data: { $tag: "blob", sha256: HASH_A, bytes: 9001, mime: "image/png" } }],
+      content: [
+        { $tag: "text", text: "What is in this image?" },
+        { $tag: "attachment", name: "shot.png", data: { $tag: "blob", sha256: HASH_A, bytes: 9001, mime: "image/png" } },
+      ],
     },
     assistant: {
       $tag: "assistant",
@@ -47,7 +59,12 @@ function samples(): Record<string, Record<string, unknown>> {
       blocks: [
         reasoning,
         { $tag: "text", text: "Running the tests." },
-        { $tag: "tool_call", call_id: "toolu_01A", name: "run_command", args: { command: "cargo test parser", note: `tab\there "q" ${ESC}[31m`, nested: { list: [1, 2.5, null, true], empty: {} } } },
+        {
+          $tag: "tool_call",
+          call_id: "toolu_01A",
+          name: "run_command",
+          args: { command: "cargo test parser", note: `tab\there "q" ${ESC}[31m`, nested: { list: [1, 2.5, null, true], empty: {} } },
+        },
       ],
       stop_reason: "tool_use",
       usage: { input: 1840, output: 96, cache_read: 1712 },
@@ -61,23 +78,67 @@ function samples(): Record<string, Record<string, unknown>> {
       blocks: [{ $tag: "tool_call", call_id: "call_0", name: "edit", args: {}, args_raw: '{"path": "a.rs", "edit": ' }],
       stop_reason: "length",
     },
-    tool_result: { $tag: "tool_result", id: nextId(), call_id: "toolu_01A", is_error: false, content: "test result: ok. 3 passed\n", truncated: true },
-    "tool_result with media": { $tag: "tool_result", id: nextId(), call_id: "toolu_01M", is_error: false, content: "out.png: picture (image/png, 9001 bytes), shown below", media: [{ name: "out.png", data: { $tag: "blob", sha256: HASH_A, bytes: 9001, mime: "image/png" } }] },
+    tool_result: {
+      $tag: "tool_result",
+      id: nextId(),
+      call_id: "toolu_01A",
+      is_error: false,
+      content: "test result: ok. 3 passed\n",
+      truncated: true,
+    },
+    "tool_result with media": {
+      $tag: "tool_result",
+      id: nextId(),
+      call_id: "toolu_01M",
+      is_error: false,
+      content: "out.png: picture (image/png, 9001 bytes), shown below",
+      media: [{ name: "out.png", data: { $tag: "blob", sha256: HASH_A, bytes: 9001, mime: "image/png" } }],
+    },
     "tool_result with a blob": { $tag: "tool_result", id: nextId(), call_id: "toolu_01B", is_error: true, content: blob },
-    compaction: { $tag: "compaction", id: nextId(), replaces: { from: nextId(), to: nextId() }, summary: "The user asked for a parser fix.\nWe found an off-by-one in tokenize().", model: "claude-sonnet-5-5" },
+    compaction: {
+      $tag: "compaction",
+      id: nextId(),
+      replaces: { from: nextId(), to: nextId() },
+      summary: "The user asked for a parser fix.\nWe found an off-by-one in tokenize().",
+      model: "claude-sonnet-5-5",
+    },
     agent_setup: {
       $tag: "agent_setup",
       id: nextId(),
       reason: "user",
       model: { provider: "anthropic", id: "claude-sonnet-5-5", settings: { max_output_tokens: 8000, effort: "medium" } },
-      tools: { set: { write_file: { hash: HASH_A, store: "blob" }, run: { hash: HASH_B, store: "external", ref: "tools/run" } }, remove: ["old_tool"] },
+      tools: {
+        set: { write_file: { hash: HASH_A, store: "blob" }, run: { hash: HASH_B, store: "external", ref: "tools/run" } },
+        remove: ["old_tool"],
+      },
       instructions: { hash: HASH_A, store: "blob" },
       pricing: { table: HASH_B },
       allow: ["model_changed", "cache_break"],
     },
-    "agent_setup (provider)": { $tag: "agent_setup", id: nextId(), reason: "provider", model: { provider: "openai", id: "gpt-5.4", resolved: "gpt-5.4-2026-03-05" }, changes: ["resolved_model_changed"], acknowledges: [nextId()] },
-    "branch_start (subagent)": { $tag: "branch_start", id: nextId(), kind: "subagent", from: { branch: "main", commit: "9fceb02" }, context: "fresh", brief: "Find every caller of tokenize().", call_id: "toolu_09Z" },
-    "branch_start (fork)": { $tag: "branch_start", id: nextId(), kind: "fork", from: { branch: "main", commit: "9fceb02" }, context: "inherit" },
+    "agent_setup (provider)": {
+      $tag: "agent_setup",
+      id: nextId(),
+      reason: "provider",
+      model: { provider: "openai", id: "gpt-5.4", resolved: "gpt-5.4-2026-03-05" },
+      changes: ["resolved_model_changed"],
+      acknowledges: [nextId()],
+    },
+    "branch_start (subagent)": {
+      $tag: "branch_start",
+      id: nextId(),
+      kind: "subagent",
+      from: { branch: "main", commit: "9fceb02" },
+      context: "fresh",
+      brief: "Find every caller of tokenize().",
+      call_id: "toolu_09Z",
+    },
+    "branch_start (fork)": {
+      $tag: "branch_start",
+      id: nextId(),
+      kind: "fork",
+      from: { branch: "main", commit: "9fceb02" },
+      context: "inherit",
+    },
     subagent_result: {
       $tag: "subagent_result",
       id: nextId(),
@@ -97,12 +158,21 @@ function samples(): Record<string, Record<string, unknown>> {
       merge: { policy: "trunk", base: "9fceb02", conflicts: [{ path: "notes.md", kind: "content" }] },
     },
     approval: { $tag: "approval", id: nextId(), call_id: "toolu_01A", allow: false, reason: "not that one" },
-    "approval with a thread grant": { $tag: "approval", id: nextId(), call_id: "toolu_01B", allow: true, grant: { tool: "run", keys: ["grep **"], until: "2026-10-30T12:00:00.000Z" } },
+    "approval with a thread grant": {
+      $tag: "approval",
+      id: nextId(),
+      call_id: "toolu_01B",
+      allow: true,
+      grant: { tool: "run", keys: ["grep **"], until: "2026-10-30T12:00:00.000Z" },
+    },
     interrupted: {
       $tag: "interrupted",
       id: nextId(),
       by: "user",
-      partial: [{ $tag: "text", text: "I will start by" }, { $tag: "tool_call", call_id: "toolu_02", name: "run_command", args: {}, args_raw: '{"command": "ca' }],
+      partial: [
+        { $tag: "text", text: "I will start by" },
+        { $tag: "tool_call", call_id: "toolu_02", name: "run_command", args: {}, args_raw: '{"command": "ca' },
+      ],
     },
   };
 }
@@ -130,7 +200,7 @@ describe("every entry type round-trips through the pipeline and the file format"
       const file = parseFile(bytes);
       assert.equal(file.truncated, false);
       assert.equal(file.entries.length, 1);
-      assert.equal(peekTag(bytes, (scan(bytes).spans[0] as { start: number; end: number })), input["$tag"]);
+      assert.equal(peekTag(bytes, scan(bytes).spans[0] as { start: number; end: number }), input["$tag"]);
       const r = await pipeline.decode(file.entries[0] as Entry);
       assert.ok(r.ok, r.ok ? "" : JSON.stringify(r.issues));
       assert.deepEqual(r.value, input);
@@ -210,12 +280,28 @@ describe("writes are validated", () => {
   type Case = [name: string, input: () => unknown, path: RegExp];
   const cases: Case[] = [
     ["a bad ULID", () => ({ ...ok()["user"], id: "not-a-ulid" }), /^id$/],
-    ["a missing field", () => { const u = { ...ok()["user"] }; delete u["content"]; return u; }, /^content/],
+    [
+      "a missing field",
+      () => {
+        const u = { ...ok()["user"] };
+        delete u["content"];
+        return u;
+      },
+      /^content/,
+    ],
     ["an unknown block type", () => ({ ...ok()["assistant"], blocks: [{ $tag: "video", url: "x" }] }), /^blocks\[0\]/],
     ["an enum value that does not exist", () => ({ ...ok()["branch_start (fork)"], kind: "clone" }), /^kind$/],
     ["an extra field on the entry", () => ({ ...ok()["tool_result"], exit_code: 1 }), /^exit_code$/],
-    ["an extra field inside a block", () => ({ ...ok()["user"], content: [{ $tag: "text", text: "x", bold: true }] }), /^content\[0\]\.bold$/],
-    ["tool arguments that are not an object", () => ({ ...ok()["assistant"], blocks: [{ $tag: "tool_call", call_id: "c", name: "n", args: "ls" }] }), /^blocks\[0\]/],
+    [
+      "an extra field inside a block",
+      () => ({ ...ok()["user"], content: [{ $tag: "text", text: "x", bold: true }] }),
+      /^content\[0\]\.bold$/,
+    ],
+    [
+      "tool arguments that are not an object",
+      () => ({ ...ok()["assistant"], blocks: [{ $tag: "tool_call", call_id: "c", name: "n", args: "ls" }] }),
+      /^blocks\[0\]/,
+    ],
     ["a blob size that is negative", () => ({ ...ok()["tool_result"], content: { $tag: "blob", sha256: HASH_A, bytes: -1 } }), /^content/],
     ["a blob hash that is not hex", () => ({ ...ok()["tool_result"], content: { $tag: "blob", sha256: "xyz", bytes: 1 } }), /^content/],
     ["the wrong format name in the header", () => ({ ...ok()["header"], format: "other" }), /^format$/],
@@ -227,20 +313,26 @@ describe("writes are validated", () => {
     test(`rejects ${name}`, async () => {
       await assert.rejects(pipeline.encode(input()), (e) => {
         assert.ok(e instanceof SchemaError, String(e));
-        assert.ok(e.issues.some((i) => path.test(i.path)), `no issue matched ${path}: ${JSON.stringify(e.issues)}`);
+        assert.ok(
+          e.issues.some((i) => path.test(i.path)),
+          `no issue matched ${path}: ${JSON.stringify(e.issues)}`,
+        );
         return true;
       });
     });
   }
 
   test("rejects an unknown entry type", async () => {
-    await assert.rejects(pipeline.encode({ $tag: "telemetry", id: nextId() }), (e) => e instanceof SchemaError && e.issues[0]?.path === "$tag");
+    await assert.rejects(
+      pipeline.encode({ $tag: "telemetry", id: nextId() }),
+      (e) => e instanceof SchemaError && e.issues[0]?.path === "$tag",
+    );
   });
 });
 
 describe("reading is forgiving and never throws", () => {
   test("an entry type this build does not know is reported and can be written back unchanged", async () => {
-    const text = "- !telemetry\n  id: \"01K8ZQ3M0A5G2W7Y9C4T1R6B8D\"\n  fps: 59.9\n  samples: !series\n  - 1\n  - 2\n\n";
+    const text = '- !telemetry\n  id: "01K8ZQ3M0A5G2W7Y9C4T1R6B8D"\n  fps: 59.9\n  samples: !series\n  - 1\n  - 2\n\n';
     const r = await pipeline.decode(parseEntry(text));
     assert.ok(!r.ok && r.reason === "unknown-tag" && r.tag === "telemetry");
     assert.equal(emitEntry(r.raw), text);
@@ -255,14 +347,16 @@ describe("reading is forgiving and never throws", () => {
   });
 
   test("fields added by a newer minor version are ignored, not fatal", async () => {
-    const text = '- !user\n  id: "01K8ZQ3M0A5G2W7Y9C4T1R6B8D"\n  locale: en-GB\n  content:\n  - !text\n    text: hi\n    emphasis: !style\n      bold: true\n\n';
+    const text =
+      '- !user\n  id: "01K8ZQ3M0A5G2W7Y9C4T1R6B8D"\n  locale: en-GB\n  content:\n  - !text\n    text: hi\n    emphasis: !style\n      bold: true\n\n';
     const r = await pipeline.decode(parseEntry(text));
     assert.ok(r.ok);
     assert.deepEqual(r.value, { $tag: "user", id: "01K8ZQ3M0A5G2W7Y9C4T1R6B8D", content: [{ $tag: "text", text: "hi" }] });
   });
 
   test("an unknown block type inside a known entry makes the entry invalid, not the file unreadable", async () => {
-    const text = '- !assistant\n  id: "01K8ZQ3N7E4H0X2P5V9J3S1K6F"\n  provider: p\n  model: m\n  blocks:\n  - !hologram\n    depth: 3\n  stop_reason: end_turn\n\n';
+    const text =
+      '- !assistant\n  id: "01K8ZQ3N7E4H0X2P5V9J3S1K6F"\n  provider: p\n  model: m\n  blocks:\n  - !hologram\n    depth: 3\n  stop_reason: end_turn\n\n';
     const r = await pipeline.decode(parseEntry(text));
     assert.ok(!r.ok && r.reason === "invalid");
   });
@@ -282,7 +376,9 @@ describe("transforms in the app pipeline", () => {
       id: nextId(),
       provider: "p",
       model: "m",
-      blocks: [{ $tag: "tool_call", call_id: "c2", name: "run", args: { command: `curl -H "Authorization: Bearer abc.def-123" https://x` } }],
+      blocks: [
+        { $tag: "tool_call", call_id: "c2", name: "run", args: { command: `curl -H "Authorization: Bearer abc.def-123" https://x` } },
+      ],
       stop_reason: "tool_use",
     });
     for (const e of [e1, e2]) {
@@ -323,7 +419,18 @@ describe("transforms in the app pipeline", () => {
 describe("a whole file", () => {
   const conversation = () => {
     const s = samples();
-    return [s["header"], s["user"], s["assistant"], s["tool_result"], s["agent_setup"], s["compaction"], s["branch_start (subagent)"], s["subagent_result"], s["fork_merge"], s["interrupted"]] as Record<string, unknown>[];
+    return [
+      s["header"],
+      s["user"],
+      s["assistant"],
+      s["tool_result"],
+      s["agent_setup"],
+      s["compaction"],
+      s["branch_start (subagent)"],
+      s["subagent_result"],
+      s["fork_merge"],
+      s["interrupted"],
+    ] as Record<string, unknown>[];
   };
 
   test("appended with appendEntry, framed, tagged and decoded", async () => {
@@ -332,7 +439,10 @@ describe("a whole file", () => {
     for (const input of inputs) file = appendEntry(file, await pipeline.encode(input));
     const { spans, truncated } = scan(file);
     assert.equal(truncated, false);
-    assert.deepEqual(spans.map((s) => peekTag(file, s)), inputs.map((i) => i["$tag"]));
+    assert.deepEqual(
+      spans.map((s) => peekTag(file, s)),
+      inputs.map((i) => i["$tag"]),
+    );
     const { entries } = parseFile(file);
     for (const [i, entry] of entries.entries()) {
       const r = await pipeline.decode(entry);
@@ -372,7 +482,10 @@ describe("hostile text through the real schemas", () => {
         id: nextId(),
         provider: "p",
         model: "m",
-        blocks: [{ $tag: "text", text: randomString(rng) }, { $tag: "tool_call", call_id: "c", name: "n", args }],
+        blocks: [
+          { $tag: "text", text: randomString(rng) },
+          { $tag: "tool_call", call_id: "c", name: "n", args },
+        ],
         stop_reason: "end_turn",
       };
       const entry = await pipeline.encode(input);
@@ -394,6 +507,6 @@ describe("hostile text through the real schemas", () => {
     }
     const { entries } = parseFile(file);
     assert.equal(entries.length, inputs.length);
-    for (const [i, e] of entries.entries()) assert.deepEqual((await pipeline.decode(e) as { value: unknown }).value, inputs[i]);
+    for (const [i, e] of entries.entries()) assert.deepEqual(((await pipeline.decode(e)) as { value: unknown }).value, inputs[i]);
   });
 });

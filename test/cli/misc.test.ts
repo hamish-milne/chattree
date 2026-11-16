@@ -22,7 +22,8 @@ async function session(dir: string, lines: string[], opts: { io?: Partial<Io> } 
   const code = await main(["chat", "--plain", "-y"], io);
   return { code, out: io.stdout, err: io.stderr, all: `${io.stdout}${io.stderr}` };
 }
-const requestMessages = (server: FakeServer, n: number) => (JSON.parse(server.seen[n]?.body ?? "") as { messages: { role: string; content: string }[] }).messages;
+const requestMessages = (server: FakeServer, n: number) =>
+  (JSON.parse(server.seen[n]?.body ?? "") as { messages: { role: string; content: string }[] }).messages;
 
 describe("/compact", () => {
   test("a given summary replaces the range in what the model sees, and nothing is deleted", async () => {
@@ -35,7 +36,9 @@ describe("/compact", () => {
       const all = (await c.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
       assert.ok(all.some((e) => e.$tag === "compaction"));
       assert.equal(all.filter((e) => e.$tag === "user").length, 3, "the transcript still has every message");
-      const seen = requestMessages(server, 2).map((m) => m.content).join("\n");
+      const seen = requestMessages(server, 2)
+        .map((m) => m.content)
+        .join("\n");
       assert.match(seen, /Earlier we agreed on plan B\./);
       assert.doesNotMatch(seen, /\bq1\b/);
       assert.match(seen, /\bq2\b/);
@@ -127,7 +130,11 @@ describe("editing the draft", () => {
         return true;
       };
       const r = await session(dir, ["/draft set first paragraph", "/edit", "/draft show", "/draft edit", "/say"], { io: { edit } });
-      assert.equal(opened.includes("second paragraph") ? "second round" : opened, "second round", "the second edit opened what the first saved");
+      assert.equal(
+        opened.includes("second paragraph") ? "second round" : opened,
+        "second round",
+        "the second edit opened what the first saved",
+      );
       assert.match(r.out, /first paragraph\nsecond paragraph/);
       const sent = requestMessages(server, 0).at(-1)?.content;
       assert.equal(sent, "first paragraph\nsecond paragraph\nsecond paragraph");

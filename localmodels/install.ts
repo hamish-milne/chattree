@@ -85,7 +85,8 @@ export interface Installed {
 }
 
 const run = promisify(execFile);
-const installDir = (data: string, tag: string, backend: string, cuda: string | undefined): string => join(data, "llama.cpp", `${tag}-${backend}${backend === "cuda" && cuda !== undefined ? `-${cuda}` : ""}`);
+const installDir = (data: string, tag: string, backend: string, cuda: string | undefined): string =>
+  join(data, "llama.cpp", `${tag}-${backend}${backend === "cuda" && cuda !== undefined ? `-${cuda}` : ""}`);
 const exe = (platform: Platform): string => (platform === "windows" ? "llama-server.exe" : "llama-server");
 
 const nodeUnpack = async (archive: string, into: string): Promise<void> => {
@@ -93,7 +94,10 @@ const nodeUnpack = async (archive: string, into: string): Promise<void> => {
     await run("tar", ["-xf", archive, "-C", into]);
   } catch (e) {
     const err = e as { stderr?: string; message: string };
-    throw new InstallError(`tar could not unpack ${archive}: ${(err.stderr ?? err.message).trim()}`, "chattree needs a tar that reads this archive format (Windows 10 and later, macOS and Linux have one)");
+    throw new InstallError(
+      `tar could not unpack ${archive}: ${(err.stderr ?? err.message).trim()}`,
+      "chattree needs a tar that reads this archive format (Windows 10 and later, macOS and Linux have one)",
+    );
   }
 };
 
@@ -127,9 +131,16 @@ async function getRelease(tag: string, d: InstallDeps, signal: AbortSignal | und
   const base = d.apiBase ?? "https://api.github.com";
   let json: unknown;
   try {
-    json = await fetchJson(`${base}/repos/ggml-org/llama.cpp/releases/tags/${encodeURIComponent(tag)}`, { fetch: d.fetch, signal, headers: { "x-github-api-version": "2022-11-28" } });
+    json = await fetchJson(`${base}/repos/ggml-org/llama.cpp/releases/tags/${encodeURIComponent(tag)}`, {
+      fetch: d.fetch,
+      signal,
+      headers: { "x-github-api-version": "2022-11-28" },
+    });
   } catch (e) {
-    throw new InstallError(`could not read the llama.cpp release ${tag}: ${e instanceof Error ? e.message : String(e)}`, "check the tag in local_models.llama_cpp.tag, or set llama_cpp.path to a llama-server you have");
+    throw new InstallError(
+      `could not read the llama.cpp release ${tag}: ${e instanceof Error ? e.message : String(e)}`,
+      "check the tag in local_models.llama_cpp.tag, or set llama_cpp.path to a llama-server you have",
+    );
   }
   const r = json as { body?: unknown; assets?: unknown };
   const assets = Array.isArray(r.assets) ? (r.assets as Record<string, unknown>[]) : [];
@@ -157,10 +168,18 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
   const c = o.config;
   const deps = o.deps ?? {};
   if (c.path !== undefined) {
-    if ((await stat(c.path).catch(() => undefined))?.isFile() !== true) throw new InstallError(`llama_cpp.path ${c.path} is not a file`, "point it at a llama-server binary, or remove it to have chattree fetch one");
+    if ((await stat(c.path).catch(() => undefined))?.isFile() !== true)
+      throw new InstallError(
+        `llama_cpp.path ${c.path} is not a file`,
+        "point it at a llama-server binary, or remove it to have chattree fetch one",
+      );
     return { binary: c.path, tag: "custom", dir: join(c.path, ".."), backend: "custom", backendNote: undefined };
   }
-  if (c.tag === undefined) throw new InstallError("local_models.llama_cpp.tag is not set, so there is no llama.cpp to run", "set it to a release such as b12110 or v0.9.0 (chattree never picks the latest on its own), or set llama_cpp.path");
+  if (c.tag === undefined)
+    throw new InstallError(
+      "local_models.llama_cpp.tag is not set, so there is no llama.cpp to run",
+      "set it to a release such as b12110 or v0.9.0 (chattree never picks the latest on its own), or set llama_cpp.path",
+    );
   let gpu: GpuFinding | undefined;
   if (c.backend === "auto" && o.platform !== "macos") gpu = await (o.findGpu ?? findGpu)();
   const backend = resolveBackend(c.backend, o.platform, gpu?.backend);
@@ -197,7 +216,10 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
   for (const f of [program, runtime]) {
     if (f === undefined) continue;
     const locked = o.lock.file(`llama/${f.name}`);
-    if (locked !== undefined && f.sha256 !== undefined && locked.sha256 !== f.sha256) throw new LockError(`${f.name} has a different hash than when it was first fetched (${locked.sha256} then, ${f.sha256} now); it was not installed`);
+    if (locked !== undefined && f.sha256 !== undefined && locked.sha256 !== f.sha256)
+      throw new LockError(
+        `${f.name} has a different hash than when it was first fetched (${locked.sha256} then, ${f.sha256} now); it was not installed`,
+      );
   }
   const plan: InstallPlan = { tag, backend, program: planned(program), runtime: runtime === undefined ? undefined : planned(runtime), dir };
   if (o.confirm !== undefined && !(await o.confirm(plan))) throw new InstallDeclined(`llama.cpp ${tag} was not installed`);
@@ -244,7 +266,10 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
     const problem = await (deps.verify ?? nodeVerify)(binary);
     if (problem !== undefined) {
       await rm(dir, { recursive: true, force: true });
-      throw new InstallError(`the llama-server from ${program.name} does not start: ${problem}`, "try another backend (local_models.llama_cpp.backend) that matches this machine's drivers");
+      throw new InstallError(
+        `the llama-server from ${program.name} does not start: ${problem}`,
+        "try another backend (local_models.llama_cpp.backend) that matches this machine's drivers",
+      );
     }
     await o.lock.save();
     for (const f of fetched) await rm(f, { force: true });
@@ -260,7 +285,11 @@ export async function latestTag(deps: InstallDeps = {}, signal?: AbortSignal): P
   const base = deps.apiBase ?? "https://api.github.com";
   let json: unknown;
   try {
-    json = await fetchJson(`${base}/repos/ggml-org/llama.cpp/releases/latest`, { fetch: deps.fetch, signal, headers: { "x-github-api-version": "2022-11-28" } });
+    json = await fetchJson(`${base}/repos/ggml-org/llama.cpp/releases/latest`, {
+      fetch: deps.fetch,
+      signal,
+      headers: { "x-github-api-version": "2022-11-28" },
+    });
   } catch (e) {
     throw new InstallError(`could not find the newest llama.cpp release: ${e instanceof Error ? e.message : String(e)}`);
   }

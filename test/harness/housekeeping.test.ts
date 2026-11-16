@@ -12,14 +12,19 @@ import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const exists = (p: string): Promise<boolean> => stat(p).then(() => true, () => false);
+const exists = (p: string): Promise<boolean> =>
+  stat(p).then(
+    () => true,
+    () => false,
+  );
 const bytes = (n: number, seed: number): Uint8Array => new Uint8Array(n).map((_, i) => (i * 31 + seed) % 251);
 
 async function fresh(opts: Parameters<typeof Conversation.create>[2] = {}, h: Host = host) {
   const dir = join(await tempDir(), "conv");
   return { dir, convo: await Conversation.create(h, dir, opts) };
 }
-const treeFiles = async (c: Conversation, rev = "HEAD", under = ""): Promise<string[]> => (await c.git.text(["ls-tree", "-r", "--name-only", rev, ...(under === "" ? [] : ["--", under])])).split("\n").filter(Boolean);
+const treeFiles = async (c: Conversation, rev = "HEAD", under = ""): Promise<string[]> =>
+  (await c.git.text(["ls-tree", "-r", "--name-only", rev, ...(under === "" ? [] : ["--", under])])).split("\n").filter(Boolean);
 
 describe("gcBlobs", () => {
   test("removes unreferenced blobs, tracked or not, and keeps every referenced one", async () => {
@@ -39,7 +44,10 @@ describe("gcBlobs", () => {
 
     const dry = await convo.gcBlobs({ dryRun: true });
     assert.deepEqual([dry.untracked.length, dry.tracked.length, dry.commit], [1, 1, undefined]);
-    assert.deepEqual(dry.tracked.map((o) => o.bytes), [5000]);
+    assert.deepEqual(
+      dry.tracked.map((o) => o.bytes),
+      [5000],
+    );
     assert.equal((await treeFiles(convo, "HEAD", "blobs")).length, 2, "a dry run changes nothing");
 
     const head = await convo.git.head();
@@ -119,7 +127,10 @@ describe("worktrees", () => {
     await convo.finishSubagent(c.conversation!, { summary: "c", callId: "c" });
     await writeFile(join(c.conversation!.dir, "leftover.txt"), "x\n");
     const r = await convo.pruneWorktrees();
-    assert.deepEqual(r.removed.map((x) => x.branch), ["sub/a"]);
+    assert.deepEqual(
+      r.removed.map((x) => x.branch),
+      ["sub/a"],
+    );
     assert.deepEqual(r.kept.map((x) => x.branch).sort(), ["sub/b", "sub/c"]);
     assert.match(r.kept.find((x) => x.branch === "sub/b")!.reason, /not merged/);
     assert.match(r.kept.find((x) => x.branch === "sub/c")!.reason, /uncommitted/);

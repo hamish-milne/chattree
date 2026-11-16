@@ -21,7 +21,10 @@ const Q = '<|"|>';
 type Schema = Record<string, unknown>;
 const isMap = (v: unknown): v is Schema => typeof v === "object" && v !== null && !Array.isArray(v);
 /** Jinja's `dictsort`: by key, ignoring case. */
-const sorted = (o: Schema): [string, unknown][] => Object.entries(o).sort(([a], [b]) => (a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : a < b ? -1 : a > b ? 1 : 0));
+const sorted = (o: Schema): [string, unknown][] =>
+  Object.entries(o).sort(([a], [b]) =>
+    a.toLowerCase() < b.toLowerCase() ? -1 : a.toLowerCase() > b.toLowerCase() ? 1 : a < b ? -1 : a > b ? 1 : 0,
+  );
 const upper = (v: unknown): string => String(v).toUpperCase();
 
 /** A value in the format's notation. `escapeKeys` quotes the keys of objects. */
@@ -30,7 +33,10 @@ export function gemmaValue(v: unknown, escapeKeys: boolean): string {
   if (typeof v === "string") return `${Q}${v}${Q}`;
   if (typeof v === "boolean") return v ? "true" : "false";
   if (Array.isArray(v)) return `[${v.map((x) => gemmaValue(x, escapeKeys)).join(",")}]`;
-  if (isMap(v)) return `{${sorted(v).map(([k, x]) => `${escapeKeys ? `${Q}${k}${Q}` : k}:${gemmaValue(x, escapeKeys)}`).join(",")}}`;
+  if (isMap(v))
+    return `{${sorted(v)
+      .map(([k, x]) => `${escapeKeys ? `${Q}${k}${Q}` : k}:${gemmaValue(x, escapeKeys)}`)
+      .join(",")}}`;
   return String(v);
 }
 
@@ -52,7 +58,11 @@ function describe(n: SchemaNode): string {
   const parts: string[] = [];
   if (n.description !== undefined && n.description !== "") parts.push(`description:${Q}${n.description}${Q}`);
   if (n.enum !== undefined && n.enum.length > 0) parts.push(`enum:${gemmaValue(n.enum, true)}`);
-  if (n.items !== undefined && (n.items.types.length > 0 || n.items.properties !== undefined || n.items.description !== undefined || n.items.enum !== undefined)) parts.push(`items:{${describe(n.items)}}`);
+  if (
+    n.items !== undefined &&
+    (n.items.types.length > 0 || n.items.properties !== undefined || n.items.description !== undefined || n.items.enum !== undefined)
+  )
+    parts.push(`items:{${describe(n.items)}}`);
   if (isNullable(n)) parts.push("nullable:true");
   if (type === "OBJECT") {
     if (n.properties !== undefined) parts.push(`properties:{${properties(n.properties)}}`);
@@ -88,7 +98,10 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
   const keep = input.options["keep_reasoning"] !== false;
   const thinking = input.options["thinking"] !== false;
   const { context } = input;
-  const system = [context.system, context.instructions ?? ""].filter((x) => x !== "").join("\n\n").trim();
+  const system = [context.system, context.instructions ?? ""]
+    .filter((x) => x !== "")
+    .join("\n\n")
+    .trim();
   let out = "";
   if (thinking || context.tools.length > 0 || system !== "") {
     out += `<|turn>system\n${thinking ? "<|think|>\n" : ""}${system}${context.tools.map((t) => `<|tool>${declaration(t)}<tool|>`).join("")}<turn|>\n`;
@@ -108,14 +121,30 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
       open = true;
       const blocks = t.blocks as Block[];
       const own = t.provider === input.provider && t.model.split("@")[0] === input.model.split("@")[0];
-      const reasoning = keep && own && i > lastUser ? blocks.flatMap((b) => (b.type === "reasoning" && b.visible !== undefined ? [b.visible] : [])).join("\n").trim() : "";
+      const reasoning =
+        keep && own && i > lastUser
+          ? blocks
+              .flatMap((b) => (b.type === "reasoning" && b.visible !== undefined ? [b.visible] : []))
+              .join("\n")
+              .trim()
+          : "";
       if (reasoning !== "") out += `<|channel>thought\n${reasoning}\n<channel|>`;
-      const text = blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("").trim();
+      const text = blocks
+        .flatMap((b) => (b.type === "text" ? [b.text] : []))
+        .join("")
+        .trim();
       out += text;
       const calls = blocks.filter((b): b is Extract<Block, { type: "tool_call" }> => b.type === "tool_call");
       for (const c of calls) {
         const raw = c.args_raw?.trim();
-        const args = raw !== undefined ? (raw.startsWith("{") && raw.endsWith("}") ? raw.slice(1, -1) : raw) : sorted(c.args).map(([k, v]) => `${k}:${gemmaValue(v, false)}`).join(",");
+        const args =
+          raw !== undefined
+            ? raw.startsWith("{") && raw.endsWith("}")
+              ? raw.slice(1, -1)
+              : raw
+            : sorted(c.args)
+                .map(([k, v]) => `${k}:${gemmaValue(v, false)}`)
+                .join(",");
         out += `<|tool_call>call:${c.name}{${args}}<tool_call|>`;
       }
       const next = turns[i + 1];

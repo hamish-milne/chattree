@@ -20,7 +20,29 @@ import { PathRefused, resolveInWorkspace } from "./workspace.ts";
  */
 
 /** Programs that run other programs or write files whatever their arguments: never grantable with a wildcard. */
-export const RUNNERS = new Set(["xargs", "env", "sh", "bash", "dash", "ash", "zsh", "busybox", "tee", "nohup", "nice", "time", "timeout", "watch", "exec", "sudo", "doas", "su", "eval", "command", "script"]);
+export const RUNNERS = new Set([
+  "xargs",
+  "env",
+  "sh",
+  "bash",
+  "dash",
+  "ash",
+  "zsh",
+  "busybox",
+  "tee",
+  "nohup",
+  "nice",
+  "time",
+  "timeout",
+  "watch",
+  "exec",
+  "sudo",
+  "doas",
+  "su",
+  "eval",
+  "command",
+  "script",
+]);
 
 /** Arguments that make an otherwise read-only program write or execute, by program (`*` for every program). */
 const WRITING_ARGS: Record<string, RegExp[]> = {
@@ -50,7 +72,8 @@ interface KeyPattern {
 }
 
 const hasWildcard = (w: string): boolean => /[*?[]/.test(w);
-const quote = (w: string): string => (/^[A-Za-z0-9_./:=@%+,-]+$/.test(w) || (/[*?]/.test(w) && !/[\s'"\\]/.test(w)) ? w : `'${w.replaceAll("'", "'\\''")}'`);
+const quote = (w: string): string =>
+  /^[A-Za-z0-9_./:=@%+,-]+$/.test(w) || (/[*?]/.test(w) && !/[\s'"\\]/.test(w)) ? w : `'${w.replaceAll("'", "'\\''")}'`;
 const slash = (s: string): string => s.replaceAll("\\", "/");
 
 /** Parse a key, or say why it is not one. */
@@ -76,7 +99,8 @@ export function parseKey(key: string): KeyPattern | string {
     out.stdout = { target: parsed.stdout.target.text, append: parsed.stdout.append };
   }
   if (words.some(hasWildcard) || out.stdin !== undefined || out.stdout !== undefined) {
-    if (RUNNERS.has(program)) return `${program} runs other programs, so it cannot be granted with a pattern; allow it once, or write the exact command`;
+    if (RUNNERS.has(program))
+      return `${program} runs other programs, so it cannot be granted with a pattern; allow it once, or write the exact command`;
   }
   return out;
 }
@@ -100,14 +124,17 @@ export function globRegex(pat: string): RegExp {
       if (pat[i + 1] === "*") {
         re += ".*";
         i++;
-        if (pat[i + 1] === "/") re = re.slice(0, -2) + "(?:.*/)?", i++; // `a/**/b` also matches `a/b`
+        if (pat[i + 1] === "/") ((re = re.slice(0, -2) + "(?:.*/)?"), i++); // `a/**/b` also matches `a/b`
       } else re += "[^/]*";
     } else if (c === "?") re += "[^/]";
     else if (c === "[") {
       const end = pat.indexOf("]", i + 2);
       if (end < 0) re += "\\[";
       else {
-        const body = pat.slice(i + 1, end).replace(/^!/, "^").replaceAll("\\", "\\\\");
+        const body = pat
+          .slice(i + 1, end)
+          .replace(/^!/, "^")
+          .replaceAll("\\", "\\\\");
         re += `[${body}]`;
         i = end;
       }
@@ -126,14 +153,17 @@ function normalise(ctx: ApprovalContext, pattern: string, candidate: string): st
   return rel === "" ? "." : `./${rel}`;
 }
 
-const wordMatches = (ctx: ApprovalContext, pattern: string, candidate: string): boolean => globRegex(pattern).test(normalise(ctx, pattern, candidate));
+const wordMatches = (ctx: ApprovalContext, pattern: string, candidate: string): boolean =>
+  globRegex(pattern).test(normalise(ctx, pattern, candidate));
 
 /** Does the argument list match the key's words (`*` one argument, a last `**` the rest)? */
 function argvMatches(ctx: ApprovalContext, key: readonly string[], groups: readonly (readonly string[])[]): boolean {
   const last = key[key.length - 1] === "**";
   const fixed = last ? key.slice(0, -1) : key;
   if (last ? groups.length < fixed.length : groups.length !== fixed.length) return false;
-  return fixed.every((p, i) => (i === 0 ? p === groups[0]?.[0] : p === "*" || (groups[i] as readonly string[]).every((c) => wordMatches(ctx, p, c))));
+  return fixed.every((p, i) =>
+    i === 0 ? p === groups[0]?.[0] : p === "*" || (groups[i] as readonly string[]).every((c) => wordMatches(ctx, p, c)),
+  );
 }
 
 function writesOrRuns(argv: readonly string[]): boolean {
@@ -176,7 +206,8 @@ async function plan(command: string, ctx: RunKeyContext): Promise<Plan | undefin
     }
     const out: Plan = { stages };
     if (parsed.stdin !== undefined) out.stdin = parsed.stdin.text;
-    if (parsed.stdout !== undefined && parsed.stdout.target !== "discard") out.stdout = { target: parsed.stdout.target.text, append: parsed.stdout.append };
+    if (parsed.stdout !== undefined && parsed.stdout.target !== "discard")
+      out.stdout = { target: parsed.stdout.target.text, append: parsed.stdout.append };
     return out;
   } catch {
     return undefined;
@@ -203,7 +234,12 @@ async function inside(ctx: ApprovalContext, p: Plan): Promise<boolean> {
   return true;
 }
 
-const redirectCovered = (ctx: ApprovalContext, key: Redirect | string | undefined, call: Redirect | string, kind: "in" | "out"): boolean => {
+const redirectCovered = (
+  ctx: ApprovalContext,
+  key: Redirect | string | undefined,
+  call: Redirect | string,
+  kind: "in" | "out",
+): boolean => {
   if (key === undefined) return false;
   const kt = typeof key === "string" ? key : key.target;
   const ct = typeof call === "string" ? call : call.target;
@@ -246,7 +282,11 @@ export async function runAllowKeys(command: string, ctx: RunKeyContext): Promise
     const wantIn = i === 0 ? p.stdin : undefined;
     const wantOut = i === p.stages.length - 1 ? p.stdout : undefined;
     const program = stage.argv[0] as string;
-    const safe = ctx.safe.map((s) => s.trim().split(/\s+/)).find((prefix) => prefix.length <= stage.argv.length && prefix.every((w, k) => w === stage.argv[k]) && !RUNNERS.has(prefix[0] as string));
+    const safe = ctx.safe
+      .map((s) => s.trim().split(/\s+/))
+      .find(
+        (prefix) => prefix.length <= stage.argv.length && prefix.every((w, k) => w === stage.argv[k]) && !RUNNERS.has(prefix[0] as string),
+      );
     let parts: string[];
     if (safe !== undefined && !writesOrRuns(stage.argv)) {
       parts = [...safe.map(quote), "**"];

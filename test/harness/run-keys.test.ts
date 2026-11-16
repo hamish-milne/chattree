@@ -18,7 +18,17 @@ async function ws() {
   const outside = await tempDir();
   await writeFile(join(outside, "secret"), "s");
   await symlink(outside, join(dir, "link"));
-  const ctx: RunKeyContext = { host, workspace: dir, safe: SAFE, expand: (n) => (n === "HOME" ? "/home/u" : (() => { throw new Error(`$${n} not allowed`); })()) };
+  const ctx: RunKeyContext = {
+    host,
+    workspace: dir,
+    safe: SAFE,
+    expand: (n) =>
+      n === "HOME"
+        ? "/home/u"
+        : (() => {
+            throw new Error(`$${n} not allowed`);
+          })(),
+  };
   return { dir, ctx };
 }
 
@@ -26,7 +36,8 @@ const covers = async (keys: string[], command: string) => runCovers(keys, comman
 
 describe("keys: what a key says", () => {
   test("a key is one command with patterns; the program is written out; ** only last; no pipelines or variables", () => {
-    for (const ok of ["grep **", "git status **", "node ./tools/*.ts", "grep ** > ./**", "sort < ./** > ./out/*", "ls *"]) assert.equal(validateRunKey(ok), undefined, ok);
+    for (const ok of ["grep **", "git status **", "node ./tools/*.ts", "grep ** > ./**", "sort < ./** > ./out/*", "ls *"])
+      assert.equal(validateRunKey(ok), undefined, ok);
     assert.match(validateRunKey("cat a | grep b") ?? "", /one command/);
     assert.match(validateRunKey("* foo") ?? "", /wildcard/);
     assert.match(validateRunKey("grep ** foo") ?? "", /last word/);
@@ -56,7 +67,11 @@ describe("keys: covering a call", () => {
     assert.equal(await covers(["node ./tools/*.ts"], "node tools/x.ts extra"), undefined);
     assert.deepEqual(await covers(["cat ./**"], "cat src/a.ts"), ["cat ./**"]);
     assert.deepEqual(await covers(["cat ./**"], "cat ./a.txt"), ["cat ./**"]);
-    assert.deepEqual(await covers(["cat ./src/*"], "cat src/*.ts"), ["cat ./src/*"], "a candidate glob is covered when the files it names are");
+    assert.deepEqual(
+      await covers(["cat ./src/*"], "cat src/*.ts"),
+      ["cat ./src/*"],
+      "a candidate glob is covered when the files it names are",
+    );
     assert.equal(await covers(["cat ./src/*"], "cat */*.ts"), undefined, "...and not when it names more");
     assert.equal(await covers(["cat ./**"], "cat missing-*.xyz"), undefined, "a glob that matches nothing does not run");
   });
@@ -91,7 +106,15 @@ describe("keys: covering a call", () => {
 
   test("nothing outside the workspace is covered, however the key is written", async () => {
     const { ctx, dir } = await ws();
-    for (const cmd of ["cat /etc/hostname", "cat ../x", "cat ./../x", "cat link/secret", "cat link", "grep x --file=/etc/passwd", `cat ${dir}/../x`]) {
+    for (const cmd of [
+      "cat /etc/hostname",
+      "cat ../x",
+      "cat ./../x",
+      "cat link/secret",
+      "cat link",
+      "grep x --file=/etc/passwd",
+      `cat ${dir}/../x`,
+    ]) {
       assert.equal(await runCovers(["cat **", "grep **", "cat *"], cmd, ctx), undefined, cmd);
       assert.equal(await runAllowKeys(cmd, ctx), null, `${cmd}: offered once only`);
     }
@@ -107,7 +130,11 @@ describe("keys: covering a call", () => {
     assert.equal(await covers(["find **"], "find . -name x -delete"), undefined);
     assert.equal(await covers(["find **"], "find . -exec rm {} +"), undefined);
     assert.equal(await covers(["git diff **"], "git diff --output=x"), undefined);
-    assert.deepEqual(await covers(["sed -i s/a/b/ a.txt"], "sed -i s/a/b/ a.txt"), ["sed -i s/a/b/ a.txt"], "an exact key allows exactly that");
+    assert.deepEqual(
+      await covers(["sed -i s/a/b/ a.txt"], "sed -i s/a/b/ a.txt"),
+      ["sed -i s/a/b/ a.txt"],
+      "an exact key allows exactly that",
+    );
     assert.equal(await covers(["sed -i s/a/b/ a.txt"], "sed -i s/a/c/ a.txt"), undefined);
   });
 
@@ -130,7 +157,11 @@ describe("keys: what a grant would add", () => {
     assert.deepEqual(await runAllowKeys("git push origin main", ctx), ["git push origin main"]);
     assert.deepEqual(await runAllowKeys("node tools/x.ts --flag", ctx), ["node tools/x.ts --flag"]);
     assert.deepEqual(await runAllowKeys("echo 'two words'", ctx), ["echo 'two words'"]);
-    assert.deepEqual(await runAllowKeys("sed -i s/a/b/ a.txt", ctx), ["sed -i s/a/b/ a.txt"], "a listed program with a writing argument falls back to exact");
+    assert.deepEqual(
+      await runAllowKeys("sed -i s/a/b/ a.txt", ctx),
+      ["sed -i s/a/b/ a.txt"],
+      "a listed program with a writing argument falls back to exact",
+    );
   });
   test("a pipeline offers a key per stage, and redirects ride on the right stage", async () => {
     const { ctx } = await ws();
@@ -147,7 +178,16 @@ describe("keys: what a grant would add", () => {
   });
   test("what is offered covers the call it was offered for", async () => {
     const { ctx } = await ws();
-    for (const cmd of ["grep -n TODO src/a.ts", "git status -s", "git push origin main", "cat a.txt | sort > o.txt", "sort < a.txt >> o.txt", "echo 'two words'", "node tools/x.ts --flag", "cat src/*.ts | grep x"]) {
+    for (const cmd of [
+      "grep -n TODO src/a.ts",
+      "git status -s",
+      "git push origin main",
+      "cat a.txt | sort > o.txt",
+      "sort < a.txt >> o.txt",
+      "echo 'two words'",
+      "node tools/x.ts --flag",
+      "cat src/*.ts | grep x",
+    ]) {
       const keys = await runAllowKeys(cmd, ctx);
       assert.ok(keys !== null, cmd);
       assert.ok((await runCovers(keys, cmd, ctx)) !== undefined, `${cmd} with ${JSON.stringify(keys)}`);

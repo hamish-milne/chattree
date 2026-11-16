@@ -37,7 +37,10 @@ describe("downloading a file", () => {
     const { server, dest } = await setup();
     try {
       server.on("/f", { body: content });
-      await assert.rejects(downloadFile({ url: `${server.base}/f`, dest, sha256: "0".repeat(64) }), (e: unknown) => e instanceof DownloadError && e.kind === "hash");
+      await assert.rejects(
+        downloadFile({ url: `${server.base}/f`, dest, sha256: "0".repeat(64) }),
+        (e: unknown) => e instanceof DownloadError && e.kind === "hash",
+      );
       assert.equal(await stat(dest).catch(() => undefined), undefined);
       assert.deepEqual(await readdir(join(dest, "..")), []);
     } finally {
@@ -49,7 +52,10 @@ describe("downloading a file", () => {
     const { server, dest } = await setup();
     try {
       server.on("/f", { body: content });
-      await assert.rejects(downloadFile({ url: `${server.base}/f`, dest, size: 7 }), (e: unknown) => e instanceof DownloadError && e.kind === "size");
+      await assert.rejects(
+        downloadFile({ url: `${server.base}/f`, dest, size: 7 }),
+        (e: unknown) => e instanceof DownloadError && e.kind === "size",
+      );
     } finally {
       await server.close();
     }
@@ -74,9 +80,12 @@ describe("downloading a file", () => {
     const { server, dest } = await setup();
     try {
       server.on("/f", { body: content, cutAfter: 12345 });
-      await assert.rejects(downloadFile({ url: `${server.base}/f`, dest, sha256: sha }), (e: unknown) => e instanceof DownloadError && e.kind === "network" && /continues from there/.test(e.message));
+      await assert.rejects(
+        downloadFile({ url: `${server.base}/f`, dest, sha256: sha }),
+        (e: unknown) => e instanceof DownloadError && e.kind === "network" && /continues from there/.test(e.message),
+      );
       assert.equal(await stat(dest).catch(() => undefined), undefined);
-      assert.ok(((await stat(`${dest}.part`)).size) > 0);
+      assert.ok((await stat(`${dest}.part`)).size > 0);
       server.on("/f", { body: content });
       const r = await downloadFile({ url: `${server.base}/f`, dest, sha256: sha });
       assert.equal(r.sha256, sha);
@@ -165,8 +174,14 @@ describe("downloading a file", () => {
     const { server, dest } = await setup();
     try {
       server.on("/gated", { status: 401 });
-      await assert.rejects(downloadFile({ url: `${server.base}/gated`, dest }), (e: unknown) => e instanceof FetchError && e.status === 401 && /hf_token_env/.test(e.message));
-      await assert.rejects(downloadFile({ url: `${server.base}/missing`, dest }), (e: unknown) => e instanceof FetchError && /not found/.test(e.message));
+      await assert.rejects(
+        downloadFile({ url: `${server.base}/gated`, dest }),
+        (e: unknown) => e instanceof FetchError && e.status === 401 && /hf_token_env/.test(e.message),
+      );
+      await assert.rejects(
+        downloadFile({ url: `${server.base}/missing`, dest }),
+        (e: unknown) => e instanceof FetchError && /not found/.test(e.message),
+      );
     } finally {
       await server.close();
     }

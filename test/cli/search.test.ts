@@ -12,7 +12,10 @@ describe("/search", () => {
     const dir = join(await tempDir(), "p");
     try {
       assert.equal(await main(initArgs(server, dir), testIo(dir)), 0);
-      const io = testIo(dir, { stdin: "tell me about flamingo\n/search flamingo\n/search flamingo --visible\n/search flamingo --visible --limit 1\n/search fl.m --regex --visible\n/search x --scope everywhere\n/search\n/show main:ZZZZZZ\n" });
+      const io = testIo(dir, {
+        stdin:
+          "tell me about flamingo\n/search flamingo\n/search flamingo --visible\n/search flamingo --visible --limit 1\n/search fl.m --regex --visible\n/search x --scope everywhere\n/search\n/show main:ZZZZZZ\n",
+      });
       await main(["chat", "--plain"], io);
       const out = `${io.stdout}${io.stderr}`;
       assert.match(out, /no matches in 1 thread \(what the model already sees is left out/);

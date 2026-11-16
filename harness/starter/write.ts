@@ -45,7 +45,12 @@ export function writeTool(): Tool {
         }
         const bytes = enc.encode(content);
         await host.fs.writeAtomic(abs, bytes, { keepMode: true });
-        return { content: before === undefined ? `created ${name} (${bytes.length} bytes, version ${await versionOf(bytes)})` : `replaced ${name} (${bytes.length} bytes, was ${before.size}, version ${await versionOf(bytes)}${note})` };
+        return {
+          content:
+            before === undefined
+              ? `created ${name} (${bytes.length} bytes, version ${await versionOf(bytes)})`
+              : `replaced ${name} (${bytes.length} bytes, was ${before.size}, version ${await versionOf(bytes)}${note})`,
+        };
       } catch (e) {
         if (!(e instanceof Error)) throw e;
         return { content: `failed: ${f.path}: ${e.message}`, is_error: true };

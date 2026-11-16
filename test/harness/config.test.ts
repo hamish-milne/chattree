@@ -41,7 +41,11 @@ describe("reading", () => {
     const r = await ok(BASE);
     assert.equal(r.value.providers["local"]?.$tag, "openai-compatible");
     assert.equal(r.value.providers["local"]?.["base_url"], "http://localhost:8080/v1");
-    const written = await ok("providers:\n  local:\n    $tag: openai-compatible\n    base_url: http://localhost:8080/v1\nlimits: {max_request_usd: 1.5, warn_at: 0.8}\nproviders2: ignored\n".replace("providers2: ignored\n", "").replace("providers:\n  local", "providers:\n  main:\n    $tag: anthropic\n    api_key_env: ANTHROPIC_API_KEY\n  local"));
+    const written = await ok(
+      "providers:\n  local:\n    $tag: openai-compatible\n    base_url: http://localhost:8080/v1\nlimits: {max_request_usd: 1.5, warn_at: 0.8}\nproviders2: ignored\n"
+        .replace("providers2: ignored\n", "")
+        .replace("providers:\n  local", "providers:\n  main:\n    $tag: anthropic\n    api_key_env: ANTHROPIC_API_KEY\n  local"),
+    );
     assert.equal(written.hash, r.hash);
   });
 
@@ -53,9 +57,15 @@ describe("reading", () => {
 
   test("validation issues carry paths", async () => {
     const issues = await bad(BASE.replace("max_request_usd: 1.5", "max_request_usd: -1"));
-    assert.ok(issues.some((i) => i.path === "limits.max_request_usd"), JSON.stringify(issues));
+    assert.ok(
+      issues.some((i) => i.path === "limits.max_request_usd"),
+      JSON.stringify(issues),
+    );
     const untagged = await bad("providers: {a: {api_key_env: X}}\n");
-    assert.ok(untagged.some((i) => i.path.startsWith("providers.a")), JSON.stringify(untagged));
+    assert.ok(
+      untagged.some((i) => i.path.startsWith("providers.a")),
+      JSON.stringify(untagged),
+    );
   });
 
   test("unknown fields are rejected by default and allowed when not strict", async () => {

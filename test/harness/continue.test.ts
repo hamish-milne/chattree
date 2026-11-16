@@ -46,8 +46,14 @@ describe("continueInterrupted", () => {
 
   test("takes the host's own wording, ignores setup entries after the interruption, and refuses twice or after anything else", async () => {
     const { convo } = await interrupted();
-    await convo.setupChange({ model: { provider: "main", id: "m2" } }, { allow: ["model_changed", "cache_break", "cost_increase", "capability_loss", "reasoning_dropped", "context_overflow"] });
-    assert.equal((await convo.readEntries()).at(-1)?.ok === true && ((await convo.readEntries()).at(-1) as { value: { $tag: string } }).value.$tag, "agent_setup");
+    await convo.setupChange(
+      { model: { provider: "main", id: "m2" } },
+      { allow: ["model_changed", "cache_break", "cost_increase", "capability_loss", "reasoning_dropped", "context_overflow"] },
+    );
+    assert.equal(
+      (await convo.readEntries()).at(-1)?.ok === true && ((await convo.readEntries()).at(-1) as { value: { $tag: string } }).value.$tag,
+      "agent_setup",
+    );
     await convo.continueInterrupted({ instruction: "keep going" });
     const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
     assert.equal(JSON.stringify(entries.at(-1)).includes("keep going"), true);

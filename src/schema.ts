@@ -65,10 +65,11 @@ export function objectToValue(x: unknown, path = "", depth = 0): Value {
   if (x === null || typeof x === "boolean" || typeof x === "number" || typeof x === "string") return x;
   if (x instanceof Uint8Array) return new BlobData(x);
   if (x instanceof BlobRef || x instanceof BlobData || x instanceof Tagged) return x;
-  if (Array.isArray(x)) return x.map((e, i) => {
-    if (e === undefined) throw new SchemaError([issue(joinPath(path, i), "undefined is not representable")]);
-    return objectToValue(e, joinPath(path, i), depth + 1);
-  });
+  if (Array.isArray(x))
+    return x.map((e, i) => {
+      if (e === undefined) throw new SchemaError([issue(joinPath(path, i), "undefined is not representable")]);
+      return objectToValue(e, joinPath(path, i), depth + 1);
+    });
   if (!isPlainObject(x)) throw new SchemaError([issue(path, `cannot represent ${typeof x} value`)]);
 
   const fields = new Map<string, Value>();
@@ -94,7 +95,8 @@ export function objectToValue(x: unknown, path = "", depth = 0): Value {
       return new BlobRef(sha256, bytes, mime);
     }
     if (Object.hasOwn(x, VALUE_KEY)) {
-      if (fields.size > 0 || x[VALUE_KEY] === undefined) throw new SchemaError([issue(path, `${VALUE_KEY} cannot be combined with other fields`)]);
+      if (fields.size > 0 || x[VALUE_KEY] === undefined)
+        throw new SchemaError([issue(path, `${VALUE_KEY} cannot be combined with other fields`)]);
       return new Tagged(tag, objectToValue(x[VALUE_KEY], joinPath(path, VALUE_KEY), depth + 1));
     }
     return new Tagged(tag, fields);
@@ -203,12 +205,17 @@ export class Pipeline<T = unknown> {
     }
     if (this.#strict) {
       const dropped = findDropped(input, r.value);
-      if (dropped.length > 0) throw new SchemaError(dropped.map((p) => issue(p, "unknown field (not in the schema)")), `invalid ${tag} entry`);
+      if (dropped.length > 0)
+        throw new SchemaError(
+          dropped.map((p) => issue(p, "unknown field (not in the schema)")),
+          `invalid ${tag} entry`,
+        );
     }
 
     let v = objectToValue(r.value);
     for (const t of this.#transforms) v = await t(v);
-    if (!(v instanceof Tagged) || !(v.value instanceof Map)) throw new SchemaError([issue("", "a transform changed the entry into something other than a tagged map")]);
+    if (!(v instanceof Tagged) || !(v.value instanceof Map))
+      throw new SchemaError([issue("", "a transform changed the entry into something other than a tagged map")]);
     if (this.#verify) {
       const back = await this.decode(v as Entry);
       if (!back.ok) throw new SchemaError(back.issues, `${tag} entry no longer valid after transforms`);
@@ -218,7 +225,13 @@ export class Pipeline<T = unknown> {
 
   /** Validate an entry read from a file. Never throws. */
   async decode(entry: Entry): Promise<DecodeResult<T>> {
-    const fail = (reason: "untagged" | "unknown-tag" | "invalid", tag: string | undefined, issues: Issue[]): DecodeResult<T> => ({ ok: false, reason, tag, issues, raw: entry });
+    const fail = (reason: "untagged" | "unknown-tag" | "invalid", tag: string | undefined, issues: Issue[]): DecodeResult<T> => ({
+      ok: false,
+      reason,
+      tag,
+      issues,
+      raw: entry,
+    });
     if (entry instanceof Map) return fail("untagged", undefined, [issue("", "entry has no tag")]);
     const type = this.#types.get(entry.tag);
     if (type === undefined) return fail("unknown-tag", entry.tag, [issue("", `unknown entry type ${JSON.stringify(entry.tag)}`)]);

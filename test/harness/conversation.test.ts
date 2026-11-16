@@ -82,17 +82,35 @@ describe("append", () => {
 
     const log = (await convo.git.log("HEAD")).reverse();
     assert.equal(log.length, 5);
-    assert.deepEqual(log.slice(1).map((l) => l.hash), [a, b, c, d].map((r) => r.commit));
-    assert.deepEqual(log.slice(1).map((l) => l.trailers["Chattree-Entry"]?.[0]), [a.id, b.id, c.id, d.id]);
-    assert.deepEqual(log.slice(1).map((l) => l.trailers["Chattree-Kind"]?.[0]), ["user", "assistant", "tool_result", "assistant"]);
-    assert.deepEqual(log.slice(1).map((l) => l.subject), ["user: Fix the failing test", "assistant: tool_use, 1 tool call", "tool_result: c1", "assistant: end_turn"]);
-    assert.deepEqual(log.map((l) => l.authorName), ["Harness", "Ada", "claude-sonnet-5-5", "Harness", "claude-sonnet-5-5"]);
+    assert.deepEqual(
+      log.slice(1).map((l) => l.hash),
+      [a, b, c, d].map((r) => r.commit),
+    );
+    assert.deepEqual(
+      log.slice(1).map((l) => l.trailers["Chattree-Entry"]?.[0]),
+      [a.id, b.id, c.id, d.id],
+    );
+    assert.deepEqual(
+      log.slice(1).map((l) => l.trailers["Chattree-Kind"]?.[0]),
+      ["user", "assistant", "tool_result", "assistant"],
+    );
+    assert.deepEqual(
+      log.slice(1).map((l) => l.subject),
+      ["user: Fix the failing test", "assistant: tool_use, 1 tool call", "tool_result: c1", "assistant: end_turn"],
+    );
+    assert.deepEqual(
+      log.map((l) => l.authorName),
+      ["Harness", "Ada", "claude-sonnet-5-5", "Harness", "claude-sonnet-5-5"],
+    );
     assert.equal(log[2]?.authorEmail, "anthropic@models.chattree.invalid");
     assert.ok(log.every((l) => l.committerName === "Harness"));
     await assertHistoryInvariants(convo);
 
     const entries = await convo.readEntries();
-    assert.deepEqual(entries.map((e) => (e.ok ? e.tag : "invalid")), ["header", "user", "assistant", "tool_result", "assistant"]);
+    assert.deepEqual(
+      entries.map((e) => (e.ok ? e.tag : "invalid")),
+      ["header", "user", "assistant", "tool_result", "assistant"],
+    );
   });
 
   test("an id supplied by the caller is kept", async () => {
@@ -122,7 +140,12 @@ describe("append", () => {
     await mkdir(join(dir, "src"));
     await writeFile(join(dir, "src", "a.ts"), "export {}\n");
     const r = await convo.append(user("first"));
-    assert.deepEqual((await convo.git.diff(`${r.commit}~1`, r.commit)).map((d) => d.path).sort(), [".gitignore", CHAT_FILE, "notes.md", "src/a.ts"]);
+    assert.deepEqual((await convo.git.diff(`${r.commit}~1`, r.commit)).map((d) => d.path).sort(), [
+      ".gitignore",
+      CHAT_FILE,
+      "notes.md",
+      "src/a.ts",
+    ]);
     assert.equal(await convo.git.isClean(), true);
     await writeFile(join(dir, "notes.md"), "# notes\nmore\n");
     const r2 = await convo.append(assistantEntry("edited"));
@@ -150,12 +173,14 @@ describe("append", () => {
     const { convo } = await fresh({ pipeline: { threshold: 200 } });
     const thinking = "hmm ".repeat(300);
     const content = "const x = 1;\n".repeat(100);
-    await convo.append(assistantEntry("", {
-      blocks: [
-        { $tag: "reasoning", provider: "anthropic", visible: thinking },
-        { $tag: "tool_call", call_id: "c1", name: "write", args: { path: "a.js", nested: [{ content }] }, args_raw: thinking },
-      ],
-    }));
+    await convo.append(
+      assistantEntry("", {
+        blocks: [
+          { $tag: "reasoning", provider: "anthropic", visible: thinking },
+          { $tag: "tool_call", call_id: "c1", name: "write", args: { path: "a.js", nested: [{ content }] }, args_raw: thinking },
+        ],
+      }),
+    );
     const last = (await convo.readEntries()).at(-1);
     assert.ok(last?.ok && last.value.$tag === "assistant");
     const [r, c] = last.value.blocks;
@@ -181,8 +206,14 @@ describe("append", () => {
     assert.equal(new Set(results.map((r) => r.commit)).size, 15);
     const entries = await convo.readEntries();
     const texts = entries.slice(1).map((e) => (e.ok && e.value.$tag === "user" ? (e.value.content[0] as { text: string }).text : "?"));
-    assert.deepEqual(texts, Array.from({ length: 15 }, (_, i) => `message ${i}`));
-    assert.deepEqual(results.map((r) => r.offset), results.map((r) => r.offset).sort((a, b) => a - b));
+    assert.deepEqual(
+      texts,
+      Array.from({ length: 15 }, (_, i) => `message ${i}`),
+    );
+    assert.deepEqual(
+      results.map((r) => r.offset),
+      results.map((r) => r.offset).sort((a, b) => a - b),
+    );
     await assertHistoryInvariants(convo);
   });
 
@@ -191,7 +222,9 @@ describe("append", () => {
     const other = await Conversation.open(host, dir);
     await other.append(user("from the other handle"));
     await convo.append(user("from the behind handle"));
-    const texts = (await convo.readEntries()).slice(-2).map((e) => (e.ok && e.value.$tag === "user" ? (e.value.content[0] as { text: string }).text : "?"));
+    const texts = (await convo.readEntries())
+      .slice(-2)
+      .map((e) => (e.ok && e.value.$tag === "user" ? (e.value.content[0] as { text: string }).text : "?"));
     assert.deepEqual(texts, ["from the other handle", "from the behind handle"]);
     await assertHistoryInvariants(convo);
   });
@@ -252,7 +285,7 @@ describe("locking", () => {
     now += 100_000;
     const second = await acquireLock(host.fs, path, { owner: "b", now: () => now, timeoutMs: 0, staleAfterMs: 1000 });
     assert.equal(await first.release(), false);
-    assert.equal(await host.fs.stat(path) !== undefined, true, "the new holder's lock is intact");
+    assert.equal((await host.fs.stat(path)) !== undefined, true, "the new holder's lock is intact");
     assert.equal(await second.release(), true);
   });
 
@@ -304,7 +337,7 @@ describe("open and recovery", () => {
     const { dir, convo } = await fresh();
     await convo.append(user("kept"));
     const good = await convo.readTranscript();
-    await appendFile(join(dir, CHAT_FILE), "- !assistant\n  id: \"01K8ZQ3N7E4H0X2P5V9J3S1K6F\"\n  prov");
+    await appendFile(join(dir, CHAT_FILE), '- !assistant\n  id: "01K8ZQ3N7E4H0X2P5V9J3S1K6F"\n  prov');
     const reopened = await Conversation.open(host, dir);
     assert.ok(reopened.recovery.truncatedBytes > 0);
     assert.deepEqual(reopened.recovery.recovered, []);
@@ -317,7 +350,9 @@ describe("open and recovery", () => {
     const { dir, convo } = await fresh();
     await convo.append(user("kept"));
     const good = await convo.readTranscript();
-    const partial = new TextEncoder().encode('- !user\n  id: "01K8ZQ3N7E4H0X2P5V9J3S1K6F"\n  content:\n  - !text\n    text: "caf' + String.fromCodePoint(0xe9));
+    const partial = new TextEncoder().encode(
+      '- !user\n  id: "01K8ZQ3N7E4H0X2P5V9J3S1K6F"\n  content:\n  - !text\n    text: "caf' + String.fromCodePoint(0xe9),
+    );
     await appendFile(join(dir, CHAT_FILE), partial.subarray(0, partial.length - 1));
     const reopened = await Conversation.open(host, dir);
     assert.deepEqual(await reopened.readTranscript(), good);
@@ -334,13 +369,22 @@ describe("open and recovery", () => {
 
     const reopened = await Conversation.open(host, dir);
     assert.equal(reopened.recovery.truncatedBytes, 0);
-    assert.deepEqual(reopened.recovery.recovered.map((r) => r.tag), ["user", "assistant"]);
+    assert.deepEqual(
+      reopened.recovery.recovered.map((r) => r.tag),
+      ["user", "assistant"],
+    );
     const log = await reopened.git.log("HEAD");
     assert.equal(log.length, 4);
     assert.deepEqual(log[0]?.trailers["Chattree-Recovered"], ["true"]);
     assert.deepEqual(log[1]?.trailers["Chattree-Recovered"], ["true"]);
     assert.equal(log[2]?.hash, a.commit);
-    assert.deepEqual(log.slice(0, 2).reverse().map((l) => l.trailers["Chattree-Entry"]?.[0]), reopened.recovery.recovered.map((r) => r.id));
+    assert.deepEqual(
+      log
+        .slice(0, 2)
+        .reverse()
+        .map((l) => l.trailers["Chattree-Entry"]?.[0]),
+      reopened.recovery.recovered.map((r) => r.id),
+    );
     await assertHistoryInvariants(reopened);
     assert.equal(await reopened.git.isClean(), true);
   });
@@ -425,7 +469,11 @@ describe(slow("crash at every step"), slowOptions, () => {
       const before = (await victim.readEntries()).length;
 
       h.arm(k);
-      await assert.rejects(act(victim), (e) => e instanceof Error && /injected fault/.test(e.message), `${name}: operation ${k} of ${total} should have failed`);
+      await assert.rejects(
+        act(victim),
+        (e) => e instanceof Error && /injected fault/.test(e.message),
+        `${name}: operation ${k} of ${total} should have failed`,
+      );
       const trail = h.log.join(" | ");
 
       // Restart: the dead process's lock file is old by now.
@@ -444,7 +492,11 @@ describe(slow("crash at every step"), slowOptions, () => {
   }
 
   test("appending a user entry", async () => {
-    await sweep("user entry", async (c) => void (await c.append(user("before"))), (c) => c.append(user("the interrupted one")));
+    await sweep(
+      "user entry",
+      async (c) => void (await c.append(user("before"))),
+      (c) => c.append(user("the interrupted one")),
+    );
   });
 
   test("appending a tool result that creates a blob and a workspace file", async () => {

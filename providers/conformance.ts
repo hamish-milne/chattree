@@ -44,7 +44,8 @@ export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {
   // Exactly one terminal state.
   if (run.completed === undefined && run.error === undefined) out.push("the stream neither returned nor threw");
   if (run.completed !== undefined && run.error !== undefined) out.push("the stream both returned and threw");
-  if (run.error !== undefined && !(run.error instanceof ProviderError)) out.push(`the stream threw something that is not a ProviderError: ${String(run.error)}`);
+  if (run.error !== undefined && !(run.error instanceof ProviderError))
+    out.push(`the stream threw something that is not a ProviderError: ${String(run.error)}`);
 
   // `started` is first when present, and only once.
   const started = ev.map((e, i) => (e.type === "started" ? i : -1)).filter((i) => i >= 0);
@@ -55,7 +56,8 @@ export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {
   let last: { input_tokens: number; output_tokens: number } | undefined;
   for (const e of ev) {
     if (e.type !== "usage") continue;
-    if (last !== undefined && (e.usage.input_tokens < last.input_tokens || e.usage.output_tokens < last.output_tokens)) out.push("usage decreased");
+    if (last !== undefined && (e.usage.input_tokens < last.input_tokens || e.usage.output_tokens < last.output_tokens))
+      out.push("usage decreased");
     last = e.usage;
   }
 
@@ -75,11 +77,13 @@ export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {
   }
   for (const [i, b] of done) {
     if (b.type === "text" && text.has(i) && text.get(i) !== b.text) out.push(`block ${i}: text deltas do not add up to the block`);
-    if (b.type === "reasoning" && reasoning.has(i) && b.visible !== undefined && reasoning.get(i) !== b.visible) out.push(`block ${i}: reasoning deltas do not add up to the block`);
+    if (b.type === "reasoning" && reasoning.has(i) && b.visible !== undefined && reasoning.get(i) !== b.visible)
+      out.push(`block ${i}: reasoning deltas do not add up to the block`);
     if (b.type === "tool_call" && args.has(i)) {
       const raw = args.get(i) as string;
       try {
-        if (JSON.stringify(JSON.parse(raw)) !== JSON.stringify(b.args)) out.push(`block ${i}: argument deltas do not parse to the block's arguments`);
+        if (JSON.stringify(JSON.parse(raw)) !== JSON.stringify(b.args))
+          out.push(`block ${i}: argument deltas do not parse to the block's arguments`);
       } catch {
         if (b.args_raw !== raw) out.push(`block ${i}: arguments were not valid JSON but args_raw is not the original text`);
       }
@@ -87,10 +91,16 @@ export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {
   }
   const ordered = [...done.entries()].sort((a, b) => a[0] - b[0]).map(([, b]) => b);
   if (run.completed !== undefined) {
-    if (JSON.stringify(run.completed.blocks) !== JSON.stringify(ordered)) out.push("the returned blocks are not the blocks completed in the stream, in order");
+    if (JSON.stringify(run.completed.blocks) !== JSON.stringify(ordered))
+      out.push("the returned blocks are not the blocks completed in the stream, in order");
     if (run.completed.stop_reason === "") out.push("stop_reason is empty");
-    if (!Number.isFinite(run.completed.usage.input_tokens) || !Number.isFinite(run.completed.usage.output_tokens)) out.push("the returned usage has no token counts");
-    if (last !== undefined && (run.completed.usage.input_tokens < last.input_tokens || run.completed.usage.output_tokens < last.output_tokens)) out.push("the returned usage is lower than the last usage event");
+    if (!Number.isFinite(run.completed.usage.input_tokens) || !Number.isFinite(run.completed.usage.output_tokens))
+      out.push("the returned usage has no token counts");
+    if (
+      last !== undefined &&
+      (run.completed.usage.input_tokens < last.input_tokens || run.completed.usage.output_tokens < last.output_tokens)
+    )
+      out.push("the returned usage is lower than the last usage event");
   }
   if (run.error instanceof ProviderError) {
     const partial = JSON.stringify(run.error.partial);
@@ -98,7 +108,9 @@ export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {
   }
 
   // Secrets never leave the adapter.
-  const everything = JSON.stringify([ev, run.completed]) + (run.error instanceof Error ? `${run.error.message}${JSON.stringify((run.error as ProviderError).partial ?? [])}` : "");
+  const everything =
+    JSON.stringify([ev, run.completed]) +
+    (run.error instanceof Error ? `${run.error.message}${JSON.stringify((run.error as ProviderError).partial ?? [])}` : "");
   for (const s of opts.secrets ?? []) if (s.length > 0 && everything.includes(s)) out.push("a secret appears in the stream's output");
   return out;
 }

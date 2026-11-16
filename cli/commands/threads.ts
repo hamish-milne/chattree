@@ -21,7 +21,11 @@ async function* moveTo(ctx: Ctx, convo: Conversation, thread: string, why: strin
   ctx.engine.rebind({ convo, thread, ...(ctx.engine.degraded === undefined ? {} : { degraded: ctx.engine.degraded }) });
   await old.close().catch(() => undefined);
   yield { type: "notice", message: why };
-  if (ctx.engine.followRun(thread)) yield { type: "notice", message: `a run here is working on ${thread}; what it does is shown above the prompt (/runs stop ${thread} stops it)` };
+  if (ctx.engine.followRun(thread))
+    yield {
+      type: "notice",
+      message: `a run here is working on ${thread}; what it does is shown above the prompt (/runs stop ${thread} stops it)`,
+    };
   const recent = await recentEntries(ctx.engine);
   if (recent.length > 0) yield { type: "text", text: recent.join("\n") };
 }
@@ -30,7 +34,7 @@ async function* moveTo(ctx: Ctx, convo: Conversation, thread: string, why: strin
 export async function nextForkName(convo: Conversation, skip = 1): Promise<string> {
   const used = new Set((await convo.listBranches()).map((b) => b.name));
   let n = 0;
-  for (let found = 0; found < skip; ) {
+  for (let found = 0; found < skip;) {
     n++;
     if (!used.has(`fork/${n}`)) found++;
   }
@@ -41,7 +45,13 @@ export async function nextForkName(convo: Conversation, skip = 1): Promise<strin
  * A fork of `convo` with its worktree where the project keeps them. Unnamed forks are fork/1, fork/2 ...: short enough to type; a second
  * process taking the number first is retried with the next.
  */
-export async function createFork(io: Io, project: Project, convo: Conversation, name?: string, at?: string): Promise<{ branch: string; conversation: Conversation }> {
+export async function createFork(
+  io: Io,
+  project: Project,
+  convo: Conversation,
+  name?: string,
+  at?: string,
+): Promise<{ branch: string; conversation: Conversation }> {
   let branch = name ?? (await nextForkName(convo));
   let r: Awaited<ReturnType<Conversation["fork"]>> | undefined;
   for (let attempt = 0; r === undefined; attempt++) {
@@ -64,9 +74,20 @@ const thread: Command = {
   usage: "/thread  |  /thread <name>  |  /thread new <name> [--from <entry>]  |  /thread archive [name]  |  /thread unarchive [name]",
   busy: "blocked",
   async complete(ctx, previous, partial) {
-    if (previous.length === 0) return ["new", "archive", "unarchive", ...(await ctx.convo.listBranches()).filter((b) => !b.archived).map((b) => b.name)].filter((n) => n.startsWith(partial));
-    if (previous[0] === "archive") return (await ctx.convo.listBranches()).filter((b) => !b.archived).map((b) => b.name).filter((n) => n.startsWith(partial));
-    if (previous[0] === "unarchive") return (await ctx.convo.listBranches()).filter((b) => b.archived).map((b) => b.name).filter((n) => n.startsWith(partial));
+    if (previous.length === 0)
+      return ["new", "archive", "unarchive", ...(await ctx.convo.listBranches()).filter((b) => !b.archived).map((b) => b.name)].filter(
+        (n) => n.startsWith(partial),
+      );
+    if (previous[0] === "archive")
+      return (await ctx.convo.listBranches())
+        .filter((b) => !b.archived)
+        .map((b) => b.name)
+        .filter((n) => n.startsWith(partial));
+    if (previous[0] === "unarchive")
+      return (await ctx.convo.listBranches())
+        .filter((b) => b.archived)
+        .map((b) => b.name)
+        .filter((n) => n.startsWith(partial));
     return [];
   },
   async *run(ctx, args) {
@@ -74,14 +95,23 @@ const thread: Command = {
     const sub = args[0];
     try {
       if (sub === undefined) {
-        const count = engine.sessions === undefined ? undefined : (await engine.sessions.list()).filter((s) => s.thread === engine.thread).length;
-        yield { type: "text", text: `thread: ${engine.thread}\nworktree: ${ctx.convo.dir}${count === undefined ? "" : `\nsessions on it: ${count}`}` };
+        const count =
+          engine.sessions === undefined ? undefined : (await engine.sessions.list()).filter((s) => s.thread === engine.thread).length;
+        yield {
+          type: "text",
+          text: `thread: ${engine.thread}\nworktree: ${ctx.convo.dir}${count === undefined ? "" : `\nsessions on it: ${count}`}`,
+        };
         return;
       }
       if (sub === "archive" || sub === "unarchive") {
         const name = args[1] ?? engine.thread;
         const changed = sub === "archive" ? await ctx.convo.archive(name) : await ctx.convo.unarchive(name);
-        yield { type: "notice", message: changed ? `${name} is ${sub === "archive" ? "archived: /threads hides it unless asked (/threads archived)" : "no longer archived"}` : `${name} was already ${sub === "archive" ? "archived" : "not archived"}` };
+        yield {
+          type: "notice",
+          message: changed
+            ? `${name} is ${sub === "archive" ? "archived: /threads hides it unless asked (/threads archived)" : "no longer archived"}`
+            : `${name} was already ${sub === "archive" ? "archived" : "not archived"}`,
+        };
         return;
       }
       if (sub === "new") {
@@ -105,7 +135,12 @@ const thread: Command = {
           if (r.conversation === undefined) throw new ConversationError("the new thread has no worktree");
           convo = r.conversation;
         }
-        yield* moveTo(ctx, convo, name, `started thread ${name}${parsed.values.from === undefined ? " (an empty conversation with this thread's model and instructions)" : ` from entry ${parsed.values.from}`}`);
+        yield* moveTo(
+          ctx,
+          convo,
+          name,
+          `started thread ${name}${parsed.values.from === undefined ? " (an empty conversation with this thread's model and instructions)" : ` from entry ${parsed.values.from}`}`,
+        );
         return;
       }
       if (args.length > 1) {
@@ -147,13 +182,21 @@ const fork: Command = {
         }
         [at, name] = [e.id, args[1]];
       } else if (args.length === 1) {
-        const e = /^\d+$/.test(args[0] as string) || /^[0-9A-Za-z]{8,26}$/.test(args[0] as string) ? resolveEntry(entries, args[0] as string) : undefined;
+        const e =
+          /^\d+$/.test(args[0] as string) || /^[0-9A-Za-z]{8,26}$/.test(args[0] as string)
+            ? resolveEntry(entries, args[0] as string)
+            : undefined;
         if (e !== undefined) at = e.id;
         else name = args[0];
       }
       const from = engine.thread;
       const r = await createFork(ctx.io, engine.project, ctx.convo, name, at);
-      yield* moveTo(ctx, r.conversation, r.branch, `forked ${r.branch} from ${from}${at === undefined ? "" : ` at an earlier entry`}; go back with /thread ${from}, and bring it home with /merge ${r.branch}`);
+      yield* moveTo(
+        ctx,
+        r.conversation,
+        r.branch,
+        `forked ${r.branch} from ${from}${at === undefined ? "" : ` at an earlier entry`}; go back with /thread ${from}, and bring it home with /merge ${r.branch}`,
+      );
     } catch (e) {
       yield failure(e);
     }
@@ -179,10 +222,16 @@ const SUMMARY_PROMPT = (lines: string[], parent: string): string =>
 const merge: Command = {
   name: "merge",
   summary: "bring this fork back into the thread it came from (or a named fork into this thread), with a summary of what it settled",
-  usage: "/merge [summary text]   merge this thread into its parent and move there\n/merge <thread> [summary text]   merge that fork into this thread\n(without a summary the model writes one for you to confirm)",
+  usage:
+    "/merge [summary text]   merge this thread into its parent and move there\n/merge <thread> [summary text]   merge that fork into this thread\n(without a summary the model writes one for you to confirm)",
   busy: "blocked",
   async complete(ctx, previous, partial) {
-    return previous.length > 0 ? [] : (await ctx.convo.listBranches()).filter((b) => b.name !== ctx.engine.thread).map((b) => b.name).filter((n) => n.startsWith(partial));
+    return previous.length > 0
+      ? []
+      : (await ctx.convo.listBranches())
+          .filter((b) => b.name !== ctx.engine.thread)
+          .map((b) => b.name)
+          .filter((n) => n.startsWith(partial));
   },
   async *run(ctx, args, rest) {
     const { engine } = ctx;
@@ -198,7 +247,11 @@ const merge: Command = {
       if (!explicit) {
         const start = (await entriesOf(ctx.convo)).filter((e) => e.$tag === "branch_start").at(-1);
         if (start === undefined || start.$tag !== "branch_start" || start.kind !== "fork") {
-          yield { type: "error", message: `${args[0] !== undefined && !branches.has(args[0]) ? `there is no thread named ${args[0]}, and ` : ""}${engine.thread} is not a fork, so it has no thread to merge into`, hint: "/merge <thread> [summary text] brings a fork into this thread" };
+          yield {
+            type: "error",
+            message: `${args[0] !== undefined && !branches.has(args[0]) ? `there is no thread named ${args[0]}, and ` : ""}${engine.thread} is not a fork, so it has no thread to merge into`,
+            hint: "/merge <thread> [summary text] brings a fork into this thread",
+          };
           return;
         }
         childName = engine.thread;
@@ -216,7 +269,11 @@ const merge: Command = {
         if (summary === "") {
           const lines = await forkTranscript(ctx, parent, childName);
           if (lines.length === 0) {
-            yield { type: "error", message: `${childName} has nothing new of its own to summarise`, hint: "give the summary yourself: /merge [<thread>] <text>" };
+            yield {
+              type: "error",
+              message: `${childName} has nothing new of its own to summarise`,
+              hint: "give the summary yourself: /merge [<thread>] <text>",
+            };
             return;
           }
           const r = await askModel(ctx.convo, SUMMARY_PROMPT(lines, parentName));
@@ -230,7 +287,10 @@ const merge: Command = {
         }
         const out = await parent.mergeFork(explicit ? childName : ctx.convo, { summary });
         const rep = out.report;
-        yield { type: "notice", message: `merged ${childName} into ${parentName}: ${rep.changed.length} changed, ${rep.added.length} added, ${rep.discarded.length} dropped (${parentName}'s version won), ${rep.conflicts.length} conflict${rep.conflicts.length === 1 ? "" : "s"}` };
+        yield {
+          type: "notice",
+          message: `merged ${childName} into ${parentName}: ${rep.changed.length} changed, ${rep.added.length} added, ${rep.discarded.length} dropped (${parentName}'s version won), ${rep.conflicts.length} conflict${rep.conflicts.length === 1 ? "" : "s"}`,
+        };
         for (const c of rep.conflicts) yield { type: "warning", message: `conflict: ${JSON.stringify(c)}` };
         if (parent !== ctx.convo) {
           moved = true;

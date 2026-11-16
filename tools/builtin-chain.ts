@@ -58,7 +58,13 @@ interface Sample {
   raws: string[];
 }
 
-function args(argv: readonly string[]): { model: string; repeat: number; out: string | undefined; yes: boolean; busybox: string | undefined } {
+function args(argv: readonly string[]): {
+  model: string;
+  repeat: number;
+  out: string | undefined;
+  yes: boolean;
+  busybox: string | undefined;
+} {
   const v = (f: string): string | undefined => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
   const model = v("--model");
   if (model === undefined) throw new Error("--model is required: a gpt-oss name from local_models in the settings file");
@@ -72,13 +78,34 @@ async function main(): Promise<void> {
   await ensureLocalModels(io, { yes: o.yes });
   const busybox = await requireBusybox(o.busybox);
   setBusybox(busybox);
-  const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, recording] }).create({ $tag: "local-models" }, { get: () => undefined });
+  const adapter = localModelsDefinition(localRuntime(io), { dialects: [harmony, recording] }).create(
+    { $tag: "local-models" },
+    { get: () => undefined },
+  );
   const sampling = samplingSettings((await lookupSampling(io, o.model)).values) as Record<string, unknown>;
   const samples: Sample[] = [];
   for (let n = 1; n <= o.repeat; n++) {
     raws.length = 0;
-    const model = { provider: "live", id: o.model, settings: { max_output_tokens: 4096, ...sampling, dialect: "harmony-chain", dialect_options: { builtin_tools: { python: true, bash: true } } } } as NonNullable<AgentSetup["model"]>;
-    const r = await runAgentTask({ adapter, model, files: FILES, prompt: PROMPT, busybox, timeoutMs: 300_000, extraTools: [pythonTool, bashTool], without: ["run", "script"] });
+    const model = {
+      provider: "live",
+      id: o.model,
+      settings: {
+        max_output_tokens: 4096,
+        ...sampling,
+        dialect: "harmony-chain",
+        dialect_options: { builtin_tools: { python: true, bash: true } },
+      },
+    } as NonNullable<AgentSetup["model"]>;
+    const r = await runAgentTask({
+      adapter,
+      model,
+      files: FILES,
+      prompt: PROMPT,
+      busybox,
+      timeoutMs: 300_000,
+      extraTools: [pythonTool, bashTool],
+      without: ["run", "script"],
+    });
     const answer = (await r.read("answer.txt")) ?? "";
     const right = /lines=7\b/.test(answer) && /total=109\b/.test(answer) && /chars=(9|10)\b/.test(answer);
     const tool = r.steps.filter((s) => s.name === "python" || s.name === "bash");
@@ -88,14 +115,30 @@ async function main(): Promise<void> {
       if (s.result?.includes("was NOT run") === true) return "refused";
       return m !== undefined && m.channel === "analysis" && m.recipient === s.name && m.body === "bare" ? "exact" : "healed";
     });
-    samples.push({ n, right, requests: r.requests, steps: r.steps.map((s) => ({ name: s.name, error: s.is_error === true })), kinds, raws: [...raws] });
-    console.error(`#${n}: ${right ? "right" : "wrong"}, ${r.requests} requests, calls: ${tool.map((s, i) => `${s.name}:${kinds[i]}`).join(" ") || "(none)"}`);
+    samples.push({
+      n,
+      right,
+      requests: r.requests,
+      steps: r.steps.map((s) => ({ name: s.name, error: s.is_error === true })),
+      kinds,
+      raws: [...raws],
+    });
+    console.error(
+      `#${n}: ${right ? "right" : "wrong"}, ${r.requests} requests, calls: ${tool.map((s, i) => `${s.name}:${kinds[i]}`).join(" ") || "(none)"}`,
+    );
   }
-  const lines = [`Answers right: ${samples.filter((s) => s.right).length}/${samples.length}. Samples using each tool at least twice: python ${samples.filter((s) => s.steps.filter((x) => x.name === "python").length >= 2).length}, bash ${samples.filter((s) => s.steps.filter((x) => x.name === "bash").length >= 2).length}.`, "", "| nth built-in call | exact | healed | refused |", "|---|---|---|---|"];
+  const lines = [
+    `Answers right: ${samples.filter((s) => s.right).length}/${samples.length}. Samples using each tool at least twice: python ${samples.filter((s) => s.steps.filter((x) => x.name === "python").length >= 2).length}, bash ${samples.filter((s) => s.steps.filter((x) => x.name === "bash").length >= 2).length}.`,
+    "",
+    "| nth built-in call | exact | healed | refused |",
+    "|---|---|---|---|",
+  ];
   const longest = Math.max(0, ...samples.map((s) => s.kinds.length));
   for (let i = 0; i < longest; i++) {
     const at = samples.flatMap((s) => (s.kinds[i] === undefined ? [] : [s.kinds[i]]));
-    lines.push(`| ${i + 1} | ${at.filter((k) => k === "exact").length} | ${at.filter((k) => k === "healed").length} | ${at.filter((k) => k === "refused").length} |`);
+    lines.push(
+      `| ${i + 1} | ${at.filter((k) => k === "exact").length} | ${at.filter((k) => k === "healed").length} | ${at.filter((k) => k === "refused").length} |`,
+    );
   }
   const dir = o.out ?? join("bench-runs", `builtin-chain-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
   await mkdir(dir, { recursive: true });

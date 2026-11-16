@@ -85,14 +85,18 @@ export class DialectRegistry {
   }
   get(id: string): Dialect {
     const d = this.#by.get(id);
-    if (d === undefined) throw new ProviderError({ kind: "invalid_request", message: `unknown dialect "${id}"; known: ${this.ids().join(", ") || "none"}` });
+    if (d === undefined)
+      throw new ProviderError({ kind: "invalid_request", message: `unknown dialect "${id}"; known: ${this.ids().join(", ") || "none"}` });
     return d;
   }
 }
 
 // ---- assembling blocks ------------------------------------------------------------------------------------------
 
-type Open = { kind: "text"; index: number; text: string } | { kind: "reasoning"; index: number; text: string } | { kind: "call"; index: number; id: string; name: string; args: string };
+type Open =
+  | { kind: "text"; index: number; text: string }
+  | { kind: "reasoning"; index: number; text: string }
+  | { kind: "call"; index: number; id: string; name: string; args: string };
 
 /** Turns a parser's emissions into the stream events and blocks every adapter produces. */
 export class Assembler {
@@ -151,8 +155,17 @@ export class Assembler {
     let block: Block;
     if (o.kind === "text") block = { type: "text", text: o.text };
     else if (o.kind === "reasoning") block = { type: "reasoning", provider: this.#provider, visible: o.text };
-    else if (end?.error !== undefined) block = { type: "tool_call", call_id: o.id, name: o.name, args: {}, args_raw: end.raw ?? o.args, ext: { ...end.ext, call_error: end.error } };
-    else if (end?.args !== undefined) block = { type: "tool_call", call_id: o.id, name: o.name, args: end.args, ...(end.ext === undefined ? {} : { ext: end.ext }) };
+    else if (end?.error !== undefined)
+      block = {
+        type: "tool_call",
+        call_id: o.id,
+        name: o.name,
+        args: {},
+        args_raw: end.raw ?? o.args,
+        ext: { ...end.ext, call_error: end.error },
+      };
+    else if (end?.args !== undefined)
+      block = { type: "tool_call", call_id: o.id, name: o.name, args: end.args, ...(end.ext === undefined ? {} : { ext: end.ext }) };
     else {
       const raw = end?.raw ?? o.args;
       try {
@@ -233,7 +246,12 @@ async function markerTokens(base: string, model: string, markers: readonly strin
     await Promise.all(
       markers.map(async (m) => {
         try {
-          const res = await doFetch(`${base.replace(/\/$/, "")}/tokenize`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model, content: m, add_special: false, parse_special: true }), signal: AbortSignal.timeout(60_000) });
+          const res = await doFetch(`${base.replace(/\/$/, "")}/tokenize`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ model, content: m, add_special: false, parse_special: true }),
+            signal: AbortSignal.timeout(60_000),
+          });
           if (!res.ok) {
             failed = true;
             return;
@@ -268,10 +286,16 @@ export async function serverProps(base: string, model: string, doFetch: typeof f
   if (known !== undefined) return known;
   const found = (async () => {
     try {
-      const res = await doFetch(`${base.replace(/\/$/, "")}/props?model=${encodeURIComponent(model)}`, { signal: AbortSignal.timeout(60_000) });
+      const res = await doFetch(`${base.replace(/\/$/, "")}/props?model=${encodeURIComponent(model)}`, {
+        signal: AbortSignal.timeout(60_000),
+      });
       if (!res.ok) throw new Error(String(res.status));
       const d = (await res.json()) as { modalities?: { vision?: unknown; audio?: unknown }; media_marker?: unknown };
-      return { vision: typeof d.modalities?.vision === "boolean" ? d.modalities.vision : undefined, audio: typeof d.modalities?.audio === "boolean" ? d.modalities.audio : undefined, marker: typeof d.media_marker === "string" && d.media_marker !== "" ? d.media_marker : DEFAULT_MARKER };
+      return {
+        vision: typeof d.modalities?.vision === "boolean" ? d.modalities.vision : undefined,
+        audio: typeof d.modalities?.audio === "boolean" ? d.modalities.audio : undefined,
+        marker: typeof d.media_marker === "string" && d.media_marker !== "" ? d.media_marker : DEFAULT_MARKER,
+      };
     } catch {
       propsCache.delete(key); // the model may still be loading: ask again next time
       return { vision: undefined, audio: undefined, marker: DEFAULT_MARKER };
@@ -286,7 +310,15 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
   const markerIds = new WeakMap<StreamRequest, Map<number, string>>();
   const renderFor = (req: StreamRequest, s: DialectSettings, marker?: string): Rendered => {
     const served = servedModelId(req.setup.model!);
-    return opts.dialects.get(s.dialect).render({ context: req.context, options: s.dialect_options ?? {}, effort: s.reasoning_effort, date: opts.today(), provider: req.setup.model!.provider, model: served, marker });
+    return opts.dialects.get(s.dialect).render({
+      context: req.context,
+      options: s.dialect_options ?? {},
+      effort: s.reasoning_effort,
+      date: opts.today(),
+      provider: req.setup.model!.provider,
+      model: served,
+      marker,
+    });
   };
   return {
     async request(req: StreamRequest): Promise<HttpRequestSpec> {
@@ -294,11 +326,25 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       if (req.setup.model === undefined) throw new ProviderError({ kind: "invalid_request", message: "the agent has no model" });
       const served = servedModelId(req.setup.model);
       let marker: string | undefined;
-      const attached = req.context.turns.flatMap((t) => (t.role === "user" ? t.parts.flatMap((p) => (p.type === "attachment" ? [p.kind] : [])) : t.role === "tool_results" ? t.results.flatMap((r) => (r.media ?? []).map((m) => m.kind)) : []));
+      const attached = req.context.turns.flatMap((t) =>
+        t.role === "user"
+          ? t.parts.flatMap((p) => (p.type === "attachment" ? [p.kind] : []))
+          : t.role === "tool_results"
+            ? t.results.flatMap((r) => (r.media ?? []).map((m) => m.kind))
+            : [],
+      );
       if (attached.length > 0) {
         const props = await serverProps(opts.baseUrl, opts.modelName(served), opts.fetch ?? fetch);
-        if (props.audio === false && attached.includes("audio")) throw new ProviderError({ kind: "invalid_request", message: `${opts.modelName(served)} cannot take sound: its multimodal projector has no audio encoder (Gemma 4 E2B and E4B, Qwen Omni, Voxtral and Ultravox have one)` });
-        if (props.vision === false && attached.some((k) => k !== "audio")) throw new ProviderError({ kind: "invalid_request", message: `${opts.modelName(served)} cannot take pictures: it has no multimodal projector (set mmproj, for instance \`mmproj: auto\`, in its local_models entry)` });
+        if (props.audio === false && attached.includes("audio"))
+          throw new ProviderError({
+            kind: "invalid_request",
+            message: `${opts.modelName(served)} cannot take sound: its multimodal projector has no audio encoder (Gemma 4 E2B and E4B, Qwen Omni, Voxtral and Ultravox have one)`,
+          });
+        if (props.vision === false && attached.some((k) => k !== "audio"))
+          throw new ProviderError({
+            kind: "invalid_request",
+            message: `${opts.modelName(served)} cannot take pictures: it has no multimodal projector (set mmproj, for instance \`mmproj: auto\`, in its local_models entry)`,
+          });
         marker = props.marker;
       }
       const r = renderFor(req, s, marker);
@@ -306,24 +352,52 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       const markers = opts.dialects.get(s.dialect).markers ?? [];
       if (markers.length > 0) markerIds.set(req, await markerTokens(opts.baseUrl, opts.modelName(served), markers, opts.fetch ?? fetch));
       const media = r.media ?? [];
-      const sent = req.context.turns.reduce((n, t) => n + (t.role === "user" ? t.parts.filter((p) => p.type === "attachment").length : 0), 0);
-      if (media.length !== sent) throw new ProviderError({ kind: "invalid_request", message: `dialect "${s.dialect}" does not write pictures into its prompt (${sent} sent, ${media.length} written)` });
-      if (media.length > 0 && r.prompt.split(marker as string).length - 1 !== media.length) throw new ProviderError({ kind: "invalid_request", message: "the text of a message contains the server's picture marker, which would be taken for a picture" });
-      const prompt: Json | string = media.length === 0 ? r.prompt : { prompt_string: r.prompt, multimodal_data: media.map((m) => Buffer.from(m.bytes).toString("base64")) };
-      const body: Json = { model: opts.modelName(served), prompt, stream: true, cache_prompt: true, special: true, return_tokens: true, n_predict: s.max_output_tokens };
+      const sent = req.context.turns.reduce(
+        (n, t) => n + (t.role === "user" ? t.parts.filter((p) => p.type === "attachment").length : 0),
+        0,
+      );
+      if (media.length !== sent)
+        throw new ProviderError({
+          kind: "invalid_request",
+          message: `dialect "${s.dialect}" does not write pictures into its prompt (${sent} sent, ${media.length} written)`,
+        });
+      if (media.length > 0 && r.prompt.split(marker as string).length - 1 !== media.length)
+        throw new ProviderError({
+          kind: "invalid_request",
+          message: "the text of a message contains the server's picture marker, which would be taken for a picture",
+        });
+      const prompt: Json | string =
+        media.length === 0
+          ? r.prompt
+          : { prompt_string: r.prompt, multimodal_data: media.map((m) => Buffer.from(m.bytes).toString("base64")) };
+      const body: Json = {
+        model: opts.modelName(served),
+        prompt,
+        stream: true,
+        cache_prompt: true,
+        special: true,
+        return_tokens: true,
+        n_predict: s.max_output_tokens,
+      };
       const stop = [...(s.stop ?? []), ...r.stop];
       if (stop.length > 0) body["stop"] = stop;
       for (const k of ["temperature", "top_p", "seed"] as const) if (s[k] !== undefined) body[k] = s[k];
       // `extra` may switch the server's prompt cache off (`cache_prompt: false`) or add any sampler key; it cannot replace what the dialect owns.
       for (const [k, v] of Object.entries(s.extra ?? {})) if (!OWNED.has(k)) body[k] = v;
-      return { url: `${opts.baseUrl.replace(/\/$/, "")}/completion`, headers: { "content-type": "application/json", accept: "text/event-stream" }, body };
+      return {
+        url: `${opts.baseUrl.replace(/\/$/, "")}/completion`,
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        body,
+      };
     },
     start(req) {
       const s = settings(req);
       const served = servedModelId(req.setup.model!);
       return {
         markers: markerIds.get(req) ?? new Map(),
-        parser: opts.dialects.get(s.dialect).parser(s.dialect_options ?? {}, req.context.tools, (rendered.get(req) ?? renderFor(req, s)).prompt),
+        parser: opts.dialects
+          .get(s.dialect)
+          .parser(s.dialect_options ?? {}, req.context.tools, (rendered.get(req) ?? renderFor(req, s)).prompt),
         assembler: new Assembler(req.setup.model!.provider, opts.newId),
         started: false,
         requested: opts.modelName(served),
@@ -370,7 +444,12 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
         s.completion = num(d["tokens_predicted"]) ?? 0;
         events.push(...s.assembler.feed(s.parser.end(s.stopType === "limit" ? "length" : "stop")), ...s.assembler.end());
         const cachedRead = Math.min(s.cached ?? 0, s.prompt);
-        s.usage = { input_tokens: s.prompt - cachedRead, output_tokens: s.completion, ...(s.cached === undefined ? {} : { cache_read_tokens: cachedRead }), raw: pick(d) };
+        s.usage = {
+          input_tokens: s.prompt - cachedRead,
+          output_tokens: s.completion,
+          ...(s.cached === undefined ? {} : { cache_read_tokens: cachedRead }),
+          raw: pick(d),
+        };
         events.push({ type: "usage", usage: { ...s.usage } });
       }
       return events;
@@ -398,7 +477,8 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
 
 const pick = (d: Json): Record<string, unknown> => {
   const out: Record<string, unknown> = {};
-  for (const k of ["tokens_evaluated", "tokens_predicted", "tokens_cached", "stop_type", "truncated", "timings"]) if (d[k] !== undefined) out[k] = d[k];
+  for (const k of ["tokens_evaluated", "tokens_predicted", "tokens_cached", "stop_type", "truncated", "timings"])
+    if (d[k] !== undefined) out[k] = d[k];
   return out;
 };
 
@@ -406,6 +486,11 @@ function errorOf(d: unknown): { kind: "server" | "invalid_request" | "overloaded
   const e = ((d as Json | null)?.["error"] ?? d) as Json | string;
   if (typeof e === "string") return { kind: "server", retryable: false, message: e };
   const type = typeof e["type"] === "string" ? e["type"] : "error";
-  const kind = type === "exceed_context_size_error" || type === "invalid_request_error" ? "invalid_request" : type === "unavailable_error" ? "overloaded" : "server";
+  const kind =
+    type === "exceed_context_size_error" || type === "invalid_request_error"
+      ? "invalid_request"
+      : type === "unavailable_error"
+        ? "overloaded"
+        : "server";
   return { kind, retryable: kind === "overloaded", message: `${type}: ${String(e["message"] ?? "")}` };
 }

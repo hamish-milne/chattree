@@ -19,13 +19,30 @@ const say = (blocks: Blocks | string, over: Partial<Extract<ChatEntry, { $tag: "
   ...over,
 });
 const call = (call_id: string, name = "run"): Blocks[number] => ({ $tag: "tool_call", call_id, name, args: { x: 1 } });
-const result = (call_id: string, content = "ok", is_error = false): ChatEntry => ({ $tag: "tool_result", id: id(), call_id, is_error, content });
-const think = (provider = "anthropic"): Blocks[number] => ({ $tag: "reasoning", provider, payload: { signature: "SIG==" }, visible: "hmm" });
+const result = (call_id: string, content = "ok", is_error = false): ChatEntry => ({
+  $tag: "tool_result",
+  id: id(),
+  call_id,
+  is_error,
+  content,
+});
+const think = (provider = "anthropic"): Blocks[number] => ({
+  $tag: "reasoning",
+  provider,
+  payload: { signature: "SIG==" },
+  visible: "hmm",
+});
 const target = { provider: "anthropic", model: "sonnet" };
-const build = (entries: ChatEntry[], over: Partial<Parameters<typeof buildContext>[1]> = {}) => buildContext(entries, { system: "sys", target, ...over });
+const build = (entries: ChatEntry[], over: Partial<Parameters<typeof buildContext>[1]> = {}) =>
+  buildContext(entries, { system: "sys", target, ...over });
 const roles = (c: ModelContext): string[] => c.turns.map((t) => t.role);
 const header: ChatEntry = { $tag: "header", format: "chatlog", major: 1, minor: 2 };
-const setup: ChatEntry = { $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: { provider: "anthropic", id: "sonnet" } };
+const setup: ChatEntry = {
+  $tag: "agent_setup",
+  id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  reason: "user",
+  model: { provider: "anthropic", id: "sonnet" },
+};
 const ok = (c: ModelContext): ModelContext => {
   assert.deepEqual(contextProblems(c), []);
   return c;
@@ -33,20 +50,38 @@ const ok = (c: ModelContext): ModelContext => {
 
 describe("rendering", () => {
   test("a normal exchange; the header and setup entries are not shown", async () => {
-    const c = ok(await build([header, setup, user("hi"), say([call("c1")], { stop_reason: "tool_use" }), result("c1", "done"), say("all done")], { instructions: "be brief", tools: [{ name: "run", description: "d", input_schema: {} }] }));
+    const c = ok(
+      await build([header, setup, user("hi"), say([call("c1")], { stop_reason: "tool_use" }), result("c1", "done"), say("all done")], {
+        instructions: "be brief",
+        tools: [{ name: "run", description: "d", input_schema: {} }],
+      }),
+    );
     assert.deepEqual(roles(c), ["user", "assistant", "tool_results", "assistant"]);
     assert.equal(c.system, "sys");
     assert.equal(c.instructions, "be brief");
     assert.equal(c.tools.length, 1);
     const t = c.turns[2];
     assert.ok(t?.role === "tool_results" && t.results[0]?.content === "done" && t.results[0].truncated === false);
-    assert.deepEqual(c.turns[1], { role: "assistant", provider: "anthropic", model: "sonnet", blocks: [{ type: "tool_call", call_id: "c1", name: "run", args: { x: 1 } }] });
+    assert.deepEqual(c.turns[1], {
+      role: "assistant",
+      provider: "anthropic",
+      model: "sonnet",
+      blocks: [{ type: "tool_call", call_id: "c1", name: "run", args: { x: 1 } }],
+    });
   });
 
   test("a fork's marker is invisible; a subagent's brief is its first message", async () => {
     const fork: ChatEntry = { $tag: "branch_start", id: id(), kind: "fork", from: { branch: "main", commit: "abc" }, context: "inherit" };
     assert.deepEqual(roles(ok(await build([user("a"), say("b"), fork, user("c")]))), ["user", "assistant", "user"]);
-    const sub: ChatEntry = { $tag: "branch_start", id: id(), kind: "subagent", from: { branch: "main", commit: "abc" }, context: "fresh", brief: "find the bug", call_id: "c9" };
+    const sub: ChatEntry = {
+      $tag: "branch_start",
+      id: id(),
+      kind: "subagent",
+      from: { branch: "main", commit: "abc" },
+      context: "fresh",
+      brief: "find the bug",
+      call_id: "c9",
+    };
     const c = ok(await build([user("parent stuff"), say("more"), sub, setup, say("working")]));
     assert.deepEqual(c.turns[0], { role: "user", parts: [{ type: "text", text: "find the bug" }] });
     assert.equal(c.turns.length, 2, "nothing from before the marker");
@@ -54,7 +89,12 @@ describe("rendering", () => {
 
   test("a compaction stands for what it replaced, and merges with the user message after it", async () => {
     const [a, b, c1] = [user("old 1"), say("old 2"), user("old 3")];
-    const comp: ChatEntry = { $tag: "compaction", id: id(), replaces: { from: (a as { id: string }).id, to: (c1 as { id: string }).id }, summary: "we did things" };
+    const comp: ChatEntry = {
+      $tag: "compaction",
+      id: id(),
+      replaces: { from: (a as { id: string }).id, to: (c1 as { id: string }).id },
+      summary: "we did things",
+    };
     const ctx = ok(await build([a, b, c1, say("recent"), comp, user("next")]));
     const flat = JSON.stringify(ctx.turns);
     assert.ok(!flat.includes("old 1") && flat.includes("we did things"));
@@ -64,7 +104,15 @@ describe("rendering", () => {
   });
 
   test("interrupted: text is kept, a half-received call is a note, an empty one adds nothing", async () => {
-    const i1: ChatEntry = { $tag: "interrupted", id: id(), by: "user", partial: [{ $tag: "text", text: "Let me" }, { $tag: "tool_call", call_id: "c1", name: "write", args: {}, args_raw: '{"pa' }] };
+    const i1: ChatEntry = {
+      $tag: "interrupted",
+      id: id(),
+      by: "user",
+      partial: [
+        { $tag: "text", text: "Let me" },
+        { $tag: "tool_call", call_id: "c1", name: "write", args: {}, args_raw: '{"pa' },
+      ],
+    };
     const c = ok(await build([user("go"), i1, user("sorry"), { $tag: "interrupted", id: id(), by: "error", partial: [] }]));
     assert.deepEqual(roles(c), ["user", "assistant", "user"]);
     const a = c.turns[1];
@@ -77,11 +125,22 @@ describe("rendering", () => {
     const sr: ChatEntry = { $tag: "subagent_result", id: id(), call_id: "c1", branch: "sub/x", tip: "abc", summary: "found it", files };
     const c = ok(await build([user("go"), say([call("c1", "subagent")], { stop_reason: "tool_use" }), sr]));
     const r = c.turns[2];
-    assert.ok(r?.role === "tool_results" && /found it\n\[Files: added: b.md; changed: a.md; not kept \(conflicted\): c.md\]/.test(r.results[0]?.content ?? ""));
+    assert.ok(
+      r?.role === "tool_results" &&
+        /found it\n\[Files: added: b.md; changed: a.md; not kept \(conflicted\): c.md\]/.test(r.results[0]?.content ?? ""),
+    );
     const orphan = ok(await build([user("go"), say("x"), sr]));
     assert.deepEqual(roles(orphan), ["user", "assistant", "user"], "no matching call: shown as text");
     assert.match(JSON.stringify(orphan.turns[2]), /subagent finished/);
-    const fm: ChatEntry = { $tag: "fork_merge", id: id(), branch: "fork/x", tip: "abc", summary: "decided on B", files: { changed: [], added: [], discarded: [] }, merge: { policy: "trunk", base: "abc", conflicts: [] } };
+    const fm: ChatEntry = {
+      $tag: "fork_merge",
+      id: id(),
+      branch: "fork/x",
+      tip: "abc",
+      summary: "decided on B",
+      files: { changed: [], added: [], discarded: [] },
+      merge: { policy: "trunk", base: "abc", conflicts: [] },
+    };
     assert.match(JSON.stringify(ok(await build([user("a"), say("b"), fm])).turns[2]), /side conversation.*decided on B/);
   });
 });
@@ -93,7 +152,10 @@ describe("reasoning", () => {
     assert.ok(t?.role === "assistant" && t.blocks[0]?.type === "reasoning" && t.blocks[0].payload?.["signature"] === "SIG==");
   });
   test("dropped for another model, another provider, or a block tagged for another provider", async () => {
-    for (const tgt of [{ provider: "anthropic", model: "opus" }, { provider: "openai", model: "sonnet" }]) {
+    for (const tgt of [
+      { provider: "anthropic", model: "opus" },
+      { provider: "openai", model: "sonnet" },
+    ]) {
       const t = (await build(withThinking, { target: tgt })).turns[1];
       assert.ok(t?.role === "assistant" && t.blocks.length === 1 && t.blocks[0]?.type === "text");
     }
@@ -119,7 +181,9 @@ describe("pairing", () => {
     assert.deepEqual(roles(c), ["user", "assistant", "tool_results"]);
   });
   test("a result with no call is dropped; a duplicate result is dropped", async () => {
-    const c = ok(await build([user("go"), result("ghost"), say([call("a")], { stop_reason: "tool_use" }), result("a"), result("a", "again")]));
+    const c = ok(
+      await build([user("go"), result("ghost"), say([call("a")], { stop_reason: "tool_use" }), result("a"), result("a", "again")]),
+    );
     assert.deepEqual(roles(c), ["user", "assistant", "tool_results"]);
     assert.equal((c.turns[2] as { results: unknown[] }).results.length, 1);
   });
@@ -131,10 +195,13 @@ describe("pairing", () => {
 
 describe("queued messages", () => {
   const queued = (text: string): ChatEntry => ({ ...(user(text) as Extract<ChatEntry, { $tag: "user" }>), queued: true });
-  const texts = (c: ModelContext): string[] => c.turns.map((t) => (t.role === "user" ? `user:${t.parts.map((p) => (p.type === "text" ? p.text : "?")).join("")}` : t.role));
+  const texts = (c: ModelContext): string[] =>
+    c.turns.map((t) => (t.role === "user" ? `user:${t.parts.map((p) => (p.type === "text" ? p.text : "?")).join("")}` : t.role));
 
   test("one sent between a call and its result is shown after the result, for either provider shape", async () => {
-    const c = ok(await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), queued("also this"), result("c1", "done"), say("ok")]));
+    const c = ok(
+      await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), queued("also this"), result("c1", "done"), say("ok")]),
+    );
     assert.deepEqual(texts(c), ["user:go", "assistant", "tool_results", "user:also this", "assistant"]);
   });
 
@@ -157,13 +224,24 @@ describe("queued messages", () => {
 
 describe("blobs and hints", () => {
   const ref = { $tag: "blob" as const, sha256: "ab".repeat(32), bytes: 5 };
-  const entries: ChatEntry[] = [user("go"), say([call("a")], { stop_reason: "tool_use" }), { $tag: "tool_result", id: id(), call_id: "a", is_error: false, content: ref, truncated: true }, say([{ $tag: "reasoning", provider: "anthropic", visible: ref }, { $tag: "text", text: ref }])];
+  const entries: ChatEntry[] = [
+    user("go"),
+    say([call("a")], { stop_reason: "tool_use" }),
+    { $tag: "tool_result", id: id(), call_id: "a", is_error: false, content: ref, truncated: true },
+    say([
+      { $tag: "reasoning", provider: "anthropic", visible: ref },
+      { $tag: "text", text: ref },
+    ]),
+  ];
   test("large texts are read in; without a reader it is an error", async () => {
     const c = ok(await build(entries, { readText: async (r) => `blob:${r.sha256.slice(0, 2)}` }));
     const r = c.turns[2];
     assert.ok(r?.role === "tool_results" && r.results[0]?.content === "blob:ab" && r.results[0].truncated === true);
     const a = c.turns[3];
-    assert.ok(a?.role === "assistant" && a.blocks.map((b) => (b.type === "text" ? b.text : b.type === "reasoning" ? b.visible : "")).join() === "blob:ab,blob:ab");
+    assert.ok(
+      a?.role === "assistant" &&
+        a.blocks.map((b) => (b.type === "text" ? b.text : b.type === "reasoning" ? b.visible : "")).join() === "blob:ab,blob:ab",
+    );
     await assert.rejects(build(entries), /readText/);
   });
   test("cache hints: the end of the previous exchange and the last turn", async () => {
@@ -177,16 +255,51 @@ describe("blobs and hints", () => {
 describe("golden", () => {
   test("a rich conversation renders as recorded (CHATTREE_UPDATE_GOLDEN=1 rewrites the file)", async () => {
     n = 0;
-    const [u1, a1] = [user("Fix the tokenizer."), say([think(), { $tag: "text", text: "Looking." }, call("t1", "read"), call("t2", "read")], { stop_reason: "tool_use" })];
-    const comp: ChatEntry = { $tag: "compaction", id: id(), replaces: { from: (u1 as { id: string }).id, to: (a1 as { id: string }).id }, summary: "User wants the tokenizer fixed; two files were read." };
+    const [u1, a1] = [
+      user("Fix the tokenizer."),
+      say([think(), { $tag: "text", text: "Looking." }, call("t1", "read"), call("t2", "read")], { stop_reason: "tool_use" }),
+    ];
+    const comp: ChatEntry = {
+      $tag: "compaction",
+      id: id(),
+      replaces: { from: (u1 as { id: string }).id, to: (a1 as { id: string }).id },
+      summary: "User wants the tokenizer fixed; two files were read.",
+    };
     const entries: ChatEntry[] = [
-      header, setup, u1, a1, result("t1", "file one"), result("t2", "boom", true), say("Found it."), comp, user("Now add tests."),
+      header,
+      setup,
+      u1,
+      a1,
+      result("t1", "file one"),
+      result("t2", "boom", true),
+      say("Found it."),
+      comp,
+      user("Now add tests."),
       say([call("t3", "subagent")], { stop_reason: "tool_use" }),
-      { $tag: "subagent_result", id: id(), call_id: "t3", branch: "sub/1", tip: "abc", summary: "Tests written.", files: { changed: [], added: ["t.test.ts"], discarded: [] } },
-      { $tag: "interrupted", id: id(), by: "user", partial: [{ $tag: "text", text: "Great, I will" }, { $tag: "tool_call", call_id: "t4", name: "write", args: {} }] },
+      {
+        $tag: "subagent_result",
+        id: id(),
+        call_id: "t3",
+        branch: "sub/1",
+        tip: "abc",
+        summary: "Tests written.",
+        files: { changed: [], added: ["t.test.ts"], discarded: [] },
+      },
+      {
+        $tag: "interrupted",
+        id: id(),
+        by: "user",
+        partial: [
+          { $tag: "text", text: "Great, I will" },
+          { $tag: "tool_call", call_id: "t4", name: "write", args: {} },
+        ],
+      },
       user("Never mind, stop."),
     ];
-    const ctx = await build(entries, { instructions: "Be brief.", tools: [{ name: "read", description: "Read a file", input_schema: { type: "object" } }] });
+    const ctx = await build(entries, {
+      instructions: "Be brief.",
+      tools: [{ name: "read", description: "Read a file", input_schema: { type: "object" } }],
+    });
     assert.deepEqual(contextProblems(ctx), []);
     const path = fileURLToPath(new URL("./golden/context-rich.json", import.meta.url));
     const text = JSON.stringify(ctx, null, 2) + "\n";
@@ -219,9 +332,17 @@ describe("contextProblems", () => {
 
 describe("media in a tool result", () => {
   const HASH = "a1".repeat(32);
-  const shown = (mime: string, bytes: number, name = "out.png"): ChatEntry => ({ $tag: "tool_result", id: id(), call_id: "c1", is_error: false, content: "ok", media: [{ name, data: { $tag: "blob", sha256: HASH, bytes, mime } }] });
+  const shown = (mime: string, bytes: number, name = "out.png"): ChatEntry => ({
+    $tag: "tool_result",
+    id: id(),
+    call_id: "c1",
+    is_error: false,
+    content: "ok",
+    media: [{ name, data: { $tag: "blob", sha256: HASH, bytes, mime } }],
+  });
   const readBytes = async () => Uint8Array.from([1, 2, 3]);
-  const first = (c: ModelContext) => (c.turns.find((t) => t.role === "tool_results") as Extract<ModelContext["turns"][number], { role: "tool_results" }>).results[0]!;
+  const first = (c: ModelContext) =>
+    (c.turns.find((t) => t.role === "tool_results") as Extract<ModelContext["turns"][number], { role: "tool_results" }>).results[0]!;
 
   test("the picture is read from its blob and shown with the result", async () => {
     const c = ok(await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("image/png", 3)], { readBytes }));
@@ -237,14 +358,22 @@ describe("media in a tool result", () => {
   });
 
   test("a type no model is given is a note", async () => {
-    const c = await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("application/zip", 3, "a.zip")], { readBytes });
+    const c = await build([user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("application/zip", 3, "a.zip")], {
+      readBytes,
+    });
     assert.equal(first(c).media, undefined);
     assert.match(first(c).content, /a\.zip: a file of type application\/zip/);
   });
 
   test("a trim that leaves tool results out leaves the media out first and says so", async () => {
     const entries: ChatEntry[] = [user("go"), say([call("c1")], { stop_reason: "tool_use" }), shown("image/png", 3)];
-    const t: ChatEntry = { $tag: "trim", id: id(), upto: (entries.at(-1) as { id: string }).id, rule: { tool_results: 1_000_000 }, by: "user" };
+    const t: ChatEntry = {
+      $tag: "trim",
+      id: id(),
+      upto: (entries.at(-1) as { id: string }).id,
+      rule: { tool_results: 1_000_000 },
+      by: "user",
+    };
     const c = await build([...entries, t, user("next")], { readBytes });
     assert.equal(first(c).media, undefined);
     assert.match(first(c).content, /out\.png was shown here and is left out/);

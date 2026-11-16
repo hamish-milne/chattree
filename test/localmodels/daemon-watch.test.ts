@@ -14,7 +14,16 @@ import { tempDir } from "../support/tmp.ts";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "support", "fake-llama-server.mjs");
 
-async function setup(o: { serverExtra?: string; idleMinuteMs?: number; models?: string; debounceMs?: number; code?: { root: string; dirs: string[] }; logs?: string[] } = {}) {
+async function setup(
+  o: {
+    serverExtra?: string;
+    idleMinuteMs?: number;
+    models?: string;
+    debounceMs?: number;
+    code?: { root: string; dirs: string[] };
+    logs?: string[];
+  } = {},
+) {
   const server = await HttpFixture.start();
   const dir = await tempDir();
   const data = join(dir, "data");
@@ -22,7 +31,8 @@ async function setup(o: { serverExtra?: string; idleMinuteMs?: number; models?: 
   const binary = join(dir, "fake-llama-server");
   await writeFile(binary, "");
   const file = join(dir, "settings.yml");
-  const yaml = (models: string): string => `local_models:\n  llama_cpp: { path: ${JSON.stringify(binary)} }\n  server: { health_timeout: 10${o.serverExtra ?? ""} }\n  models:\n${models}`;
+  const yaml = (models: string): string =>
+    `local_models:\n  llama_cpp: { path: ${JSON.stringify(binary)} }\n  server: { health_timeout: 10${o.serverExtra ?? ""} }\n  models:\n${models}`;
   const alpha = `    alpha: { url: "${server.base}/alpha.gguf" }\n`;
   const beta = `    beta: { url: "${server.base}/beta.gguf" }\n`;
   const save = async (text: string): Promise<void> => {
@@ -168,7 +178,11 @@ describe("the daemon's own code", () => {
       await writeFile(join(root, "src", "a.ts"), "export const a = 2; // longer\n");
       await Promise.race([t.daemon.done, new Promise((_, no) => setTimeout(() => no(new Error("did not stop")), 5000))]);
       assert.ok(logs.some((m) => /code changed/.test(m)));
-      assert.equal(await stat(join(t.data, "run", "daemon.json")).catch(() => undefined), undefined, "the state file is gone, so the next session starts a new daemon");
+      assert.equal(
+        await stat(join(t.data, "run", "daemon.json")).catch(() => undefined),
+        undefined,
+        "the state file is gone, so the next session starts a new daemon",
+      );
     } finally {
       await t.close();
     }

@@ -53,7 +53,11 @@ export function parseAssetName(name: string): ParsedAsset | undefined {
 const OS_NAME: Record<Platform, string> = { windows: "win", linux: "ubuntu", macos: "macos" };
 
 /** `auto` is Metal on a Mac, else the GPU backend the host found (localmodels/gpu.ts), else the CPU. */
-export function resolveBackend(requested: Backend, platform: Platform, gpu?: Exclude<Backend, "auto" | "cpu"> | undefined): Exclude<Backend, "auto"> {
+export function resolveBackend(
+  requested: Backend,
+  platform: Platform,
+  gpu?: Exclude<Backend, "auto" | "cpu"> | undefined,
+): Exclude<Backend, "auto"> {
   if (requested !== "auto") return requested;
   return platform === "macos" ? "metal" : (gpu ?? "cpu");
 }
@@ -98,18 +102,29 @@ export function selectAsset(assets: readonly ReleaseAsset[], opts: SelectOptions
   const matching = parsed.filter(({ p }) => p.os === os && p.arch === opts.arch && p.backend === backend);
   const programs = matching.filter(({ p }) => p.kind === "llama");
   if (programs.length === 0) {
-    const offered = [...new Set(parsed.filter(({ p }) => p.kind === "llama" && p.os === os && p.arch === opts.arch).map(({ p }) => p.backend))].sort();
-    return { ok: false, error: `this release has no ${backend} build for ${opts.platform} ${opts.arch}${offered.length > 0 ? ` (it has: ${offered.join(", ")})` : ""}` };
+    const offered = [
+      ...new Set(parsed.filter(({ p }) => p.kind === "llama" && p.os === os && p.arch === opts.arch).map(({ p }) => p.backend)),
+    ].sort();
+    return {
+      ok: false,
+      error: `this release has no ${backend} build for ${opts.platform} ${opts.arch}${offered.length > 0 ? ` (it has: ${offered.join(", ")})` : ""}`,
+    };
   }
   let chosen = programs;
   if (backend === "cuda") {
     const versions = [...new Set(programs.map(({ p }) => p.cuda ?? "0"))].sort(compareVersions);
     const want = opts.cuda === undefined ? versions.at(-1) : versions.find((v) => v === opts.cuda || v.startsWith(`${opts.cuda}.`));
-    if (want === undefined) return { ok: false, error: `this release has no CUDA ${opts.cuda} build for ${opts.platform} ${opts.arch} (it has: ${versions.join(", ")})` };
+    if (want === undefined)
+      return {
+        ok: false,
+        error: `this release has no CUDA ${opts.cuda} build for ${opts.platform} ${opts.arch} (it has: ${versions.join(", ")})`,
+      };
     chosen = programs.filter(({ p }) => (p.cuda ?? "0") === want);
   }
   const program = chosen[0] as (typeof chosen)[number];
-  const runtime = matching.find(({ p }) => p.kind === "cudart" && p.cuda === program.p.cuda && (p.tag === undefined || p.tag === program.p.tag));
+  const runtime = matching.find(
+    ({ p }) => p.kind === "cudart" && p.cuda === program.p.cuda && (p.tag === undefined || p.tag === program.p.tag),
+  );
   return { ok: true, selection: { program: program.asset, ...(runtime === undefined ? {} : { runtime: runtime.asset }) } };
 }
 
@@ -128,12 +143,18 @@ export function tagStep(tag: string): { kind: "build"; tag: string } | { kind: "
 /** The build a version tag's release points at, from the release's description. */
 export function resolveVersionTag(version: string, releaseBody: string): { ok: true; tag: string } | { ok: false; error: string } {
   const tag = nightlyTagIn(releaseBody);
-  return tag === undefined ? { ok: false, error: `the release ${version} does not link to a build; set llama_cpp.tag to a build such as b12110` } : { ok: true, tag };
+  return tag === undefined
+    ? { ok: false, error: `the release ${version} does not link to a build; set llama_cpp.tag to a build such as b12110` }
+    : { ok: true, tag };
 }
 
-export const releaseApiUrl = (tag: string): string => `https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/${encodeURIComponent(tag)}`;
+export const releaseApiUrl = (tag: string): string =>
+  `https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/${encodeURIComponent(tag)}`;
 
 /** The platform and architecture of this process, in the release's terms. */
 export function thisMachine(): { platform: Platform; arch: Arch } {
-  return { platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux", arch: process.arch === "arm64" ? "arm64" : "x64" };
+  return {
+    platform: process.platform === "win32" ? "windows" : process.platform === "darwin" ? "macos" : "linux",
+    arch: process.arch === "arm64" ? "arm64" : "x64",
+  };
 }

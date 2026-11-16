@@ -17,7 +17,8 @@ const entriesOf = async (ctx: Ctx): Promise<ChatEntry[]> => (await ctx.convo.rea
 const compact: Command = {
   name: "compact",
   summary: "replace a range of earlier entries, in what the model sees, with a summary (nothing is deleted)",
-  usage: "/compact <from> <to> [summary text]   (entries are numbers counting back from the last, or the start of an id; without a summary the model writes one for you to confirm)\n/compact trim [keep]   (leave old tool output, long tool arguments and reasoning out of what the model sees, keeping the last [keep] entries whole; no model is asked)",
+  usage:
+    "/compact <from> <to> [summary text]   (entries are numbers counting back from the last, or the start of an id; without a summary the model writes one for you to confirm)\n/compact trim [keep]   (leave old tool output, long tool arguments and reasoning out of what the model sees, keeping the last [keep] entries whole; no model is asked)",
   busy: "blocked",
   async *run(ctx, args, rest) {
     if (args[0] === "trim") {
@@ -35,14 +36,21 @@ const compact: Command = {
           return;
         }
         await ctx.convo.trim({ upto: plan.upto, rule, by: "user" });
-        yield { type: "notice", message: `trimmed: about ${(plan.bytes / 1024).toFixed(1)} KB of old tool output, arguments and reasoning is left out of what the model sees (the last ${keep} entries are whole; the transcript keeps everything). The next request reads the context again at the full input price.` };
+        yield {
+          type: "notice",
+          message: `trimmed: about ${(plan.bytes / 1024).toFixed(1)} KB of old tool output, arguments and reasoning is left out of what the model sees (the last ${keep} entries are whole; the transcript keeps everything). The next request reads the context again at the full input price.`,
+        };
       } catch (e) {
         yield failure(e);
       }
       return;
     }
     if (args.length < 2) {
-      yield { type: "error", message: "give the first and last entry to replace", hint: "/compact <from> <to> [summary text]; see /history and /show for entries" };
+      yield {
+        type: "error",
+        message: "give the first and last entry to replace",
+        hint: "/compact <from> <to> [summary text]; see /history and /show for entries",
+      };
       return;
     }
     try {
@@ -60,12 +68,27 @@ const compact: Command = {
         const a = entries.indexOf(from);
         const b = entries.indexOf(to);
         if (a > b) {
-          yield { type: "error", message: "the range runs backwards: give the earlier entry first", hint: "numbers count back from the last entry, so the earlier entry has the larger number" };
+          yield {
+            type: "error",
+            message: "the range runs backwards: give the earlier entry first",
+            hint: "numbers count back from the last entry, so the earlier entry has the larger number",
+          };
           return;
         }
-        const lines = await formatTranscript(ctx.convo, entries.slice(a, b + 1).filter((e) => e.$tag !== "agent_setup"), { thinking: "off", tools: "brief", max: 4000 });
-        const r = await askModel(ctx.convo, `Summarise this part of a conversation so that it can replace it in the model's context. Keep decisions, facts, names, numbers and open questions; drop pleasantries. Plain text.\n\n${lines.join("\n")}`, { limits: true });
-        yield { type: "notice", message: `summary of ${b - a + 1} entries by ${r.model} (${r.usage.input} in, ${r.usage.output} out; counted in the ledger if you accept it):` };
+        const lines = await formatTranscript(
+          ctx.convo,
+          entries.slice(a, b + 1).filter((e) => e.$tag !== "agent_setup"),
+          { thinking: "off", tools: "brief", max: 4000 },
+        );
+        const r = await askModel(
+          ctx.convo,
+          `Summarise this part of a conversation so that it can replace it in the model's context. Keep decisions, facts, names, numbers and open questions; drop pleasantries. Plain text.\n\n${lines.join("\n")}`,
+          { limits: true },
+        );
+        yield {
+          type: "notice",
+          message: `summary of ${b - a + 1} entries by ${r.model} (${r.usage.input} in, ${r.usage.output} out; counted in the ledger if you accept it):`,
+        };
         yield { type: "text", text: r.text };
         if (!(await ctx.confirm("Replace them with this summary?"))) {
           yield { type: "notice", message: "not compacted" };
@@ -75,8 +98,17 @@ const compact: Command = {
         model = r.model;
         usage = r.record;
       }
-      await ctx.convo.compact({ from: from.id, to: to.id, summary, ...(model === undefined ? {} : { model }), ...(usage === undefined ? {} : { usage }) });
-      yield { type: "notice", message: "compacted: the model now sees the summary in place of that range; the entries stay in the transcript" };
+      await ctx.convo.compact({
+        from: from.id,
+        to: to.id,
+        summary,
+        ...(model === undefined ? {} : { model }),
+        ...(usage === undefined ? {} : { usage }),
+      });
+      yield {
+        type: "notice",
+        message: "compacted: the model now sees the summary in place of that range; the entries stay in the transcript",
+      };
     } catch (e) {
       yield failure(e);
     }
@@ -95,7 +127,11 @@ const exportCmd: Command = {
         yield { type: "error", message: "give one file", hint: "/export [file] [--thinking] [--force]" };
         return;
       }
-      const md = await exportMarkdown(ctx.convo, await entriesOf(ctx), { thread: ctx.engine.thread, thinking: p.values.thinking === true, now: new Date(ctx.io.now()) });
+      const md = await exportMarkdown(ctx.convo, await entriesOf(ctx), {
+        thread: ctx.engine.thread,
+        thinking: p.values.thinking === true,
+        now: new Date(ctx.io.now()),
+      });
       const file = p.positionals[0];
       if (file === undefined) {
         yield { type: "text", text: md };
@@ -128,7 +164,15 @@ const log: Command = {
     try {
       const g = await readCommitGraph(ctx.convo);
       const shown = g.commits.slice(-n).reverse();
-      yield { type: "text", text: shown.map((c) => `${c.hash.slice(0, 8)}  ${c.branch}  ${c.kind}${c.recovered ? " (recovered)" : ""}  ${c.summary}${c.parents.length > 1 ? "  (merge)" : ""}`).join("\n") };
+      yield {
+        type: "text",
+        text: shown
+          .map(
+            (c) =>
+              `${c.hash.slice(0, 8)}  ${c.branch}  ${c.kind}${c.recovered ? " (recovered)" : ""}  ${c.summary}${c.parents.length > 1 ? "  (merge)" : ""}`,
+          )
+          .join("\n"),
+      };
     } catch (e) {
       yield failure(e);
     }

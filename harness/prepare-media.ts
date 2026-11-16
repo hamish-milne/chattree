@@ -70,7 +70,9 @@ export async function prepareMedia(context: ModelContext, o: PrepareMediaOptions
     const what = NOUN[p.kind];
     const name = p.name ?? p.sha256.slice(0, 12);
     warnings.push({ kind: "media_not_sent", message: `${what} ${name} was not sent: ${reason}` });
-    return { note: `[The ${what} "${name}" was attached but is not shown to you: ${reason}. Tell the user it was not seen, and what they can do about it.]` };
+    return {
+      note: `[The ${what} "${name}" was attached but is not shown to you: ${reason}. Tell the user it was not seen, and what they can do about it.]`,
+    };
   };
 
   for (const p of parts) {
@@ -99,7 +101,10 @@ export async function prepareMedia(context: ModelContext, o: PrepareMediaOptions
           out = { note: e instanceof Error ? e.message : String(e) };
         }
       }
-      if (!("note" in out) && plan.to.maxBytes !== undefined && out.length > plan.to.maxBytes) out = { note: `converted to ${plan.to.mime} it is ${out.length} bytes, over the ${plan.to.maxBytes} this model takes; make a smaller copy (lower resolution or a shorter clip)` };
+      if (!("note" in out) && plan.to.maxBytes !== undefined && out.length > plan.to.maxBytes)
+        out = {
+          note: `converted to ${plan.to.mime} it is ${out.length} bytes, over the ${plan.to.maxBytes} this model takes; make a smaller copy (lower resolution or a shorter clip)`,
+        };
       memo.set(key, out);
     }
     if ("note" in out) results.set(p, fail(p, out.note));
@@ -113,25 +118,35 @@ export async function prepareMedia(context: ModelContext, o: PrepareMediaOptions
   const turns: Turn[] = context.turns.map((t): Turn => {
     if (t.role === "user") {
       if (!t.parts.some((p) => results.has(p as AttachmentPart))) return t;
-      return { ...t, parts: t.parts.map((p): UserPart => {
-        const r = p.type === "attachment" ? results.get(p) : undefined;
-        return r === undefined ? p : "note" in r ? { type: "text", text: r.note } : r;
-      }) };
+      return {
+        ...t,
+        parts: t.parts.map((p): UserPart => {
+          const r = p.type === "attachment" ? results.get(p) : undefined;
+          return r === undefined ? p : "note" in r ? { type: "text", text: r.note } : r;
+        }),
+      };
     }
     if (t.role !== "tool_results") return t;
-    return { ...t, results: t.results.map((res) => {
-      if (!(res.media ?? []).some((m) => results.has(m))) return res;
-      const notes: string[] = [];
-      const media: AttachmentPart[] = [];
-      for (const m of res.media ?? []) {
-        const r = results.get(m);
-        if (r === undefined) media.push(m);
-        else if ("note" in r) notes.push(r.note);
-        else media.push(r);
-      }
-      const { media: _drop, ...rest } = res;
-      return { ...rest, content: notes.length === 0 ? res.content : `${res.content}\n${notes.join("\n")}`, ...(media.length === 0 ? {} : { media }) };
-    }) };
+    return {
+      ...t,
+      results: t.results.map((res) => {
+        if (!(res.media ?? []).some((m) => results.has(m))) return res;
+        const notes: string[] = [];
+        const media: AttachmentPart[] = [];
+        for (const m of res.media ?? []) {
+          const r = results.get(m);
+          if (r === undefined) media.push(m);
+          else if ("note" in r) notes.push(r.note);
+          else media.push(r);
+        }
+        const { media: _drop, ...rest } = res;
+        return {
+          ...rest,
+          content: notes.length === 0 ? res.content : `${res.content}\n${notes.join("\n")}`,
+          ...(media.length === 0 ? {} : { media }),
+        };
+      }),
+    };
   });
   return { context: { ...context, turns }, converted, warnings };
 }

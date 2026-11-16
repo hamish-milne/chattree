@@ -78,7 +78,14 @@ function toFile(s: Session): SessionFile {
     history: s.state.history.slice(-HISTORY_LIMIT),
     thinking: s.state.thinking,
     tools: s.state.tools,
-    attachments: s.state.attachments.map((a) => ({ path: a.path, name: a.name, mime: a.mime, ...(a.charset === undefined ? {} : { charset: a.charset }), size: a.size, mtimeMs: a.mtimeMs })),
+    attachments: s.state.attachments.map((a) => ({
+      path: a.path,
+      name: a.name,
+      mime: a.mime,
+      ...(a.charset === undefined ? {} : { charset: a.charset }),
+      size: a.size,
+      mtimeMs: a.mtimeMs,
+    })),
   };
 }
 
@@ -89,7 +96,14 @@ function toState(f: SessionFile): SessionState {
     history: f.history,
     thinking: f.thinking,
     tools: f.tools,
-    attachments: f.attachments.map((a): StagedAttachment => ({ path: a.path, name: a.name, mime: a.mime, ...(a.charset === undefined ? {} : { charset: a.charset }), size: a.size, mtimeMs: a.mtimeMs })),
+    attachments: f.attachments.map((a): StagedAttachment => ({
+      path: a.path,
+      name: a.name,
+      mime: a.mime,
+      ...(a.charset === undefined ? {} : { charset: a.charset }),
+      size: a.size,
+      mtimeMs: a.mtimeMs,
+    })),
   };
 }
 
@@ -120,9 +134,20 @@ export class Session {
     this.updated = file.updated;
     this.thread = file.thread;
     this.state = toState(file);
-    this.#opts = { debounceMs: opts.debounceMs ?? 1000, heartbeatMs: opts.heartbeatMs ?? 10_000, staleAfterMs: opts.staleAfterMs ?? 30_000 };
+    this.#opts = {
+      debounceMs: opts.debounceMs ?? 1000,
+      heartbeatMs: opts.heartbeatMs ?? 10_000,
+      staleAfterMs: opts.staleAfterMs ?? 30_000,
+    };
     if (this.#opts.heartbeatMs > 0) {
-      this.#beat = setInterval(() => void lock.refresh().then((ok) => void (ok || (this.lockLost = true))).catch(() => undefined), this.#opts.heartbeatMs);
+      this.#beat = setInterval(
+        () =>
+          void lock
+            .refresh()
+            .then((ok) => void (ok || (this.lockLost = true)))
+            .catch(() => undefined),
+        this.#opts.heartbeatMs,
+      );
       this.#beat.unref();
     }
   }
@@ -271,7 +296,15 @@ export class SessionStore {
       const locked = await this.#lockedNow(id);
       try {
         const f = await this.#read(id);
-        out.push({ id, thread: f.thread, created: f.created, updated: f.updated, locked, draft: f.draft.trim() !== "", attachments: f.attachments.length });
+        out.push({
+          id,
+          thread: f.thread,
+          created: f.created,
+          updated: f.updated,
+          locked,
+          draft: f.draft.trim() !== "",
+          attachments: f.attachments.length,
+        });
       } catch (e) {
         out.push({ id, locked, error: e instanceof Error ? e.message : String(e) });
       }
@@ -281,7 +314,12 @@ export class SessionStore {
 
   async #lock(id: string): Promise<Lock | undefined> {
     try {
-      return await acquireLock(this.#host.fs, this.#lockFile(id), { owner: `chattree-cli pid ${process.pid} session ${id}`, timeoutMs: 0, staleAfterMs: this.#opts.staleAfterMs ?? 30_000, now: this.#now });
+      return await acquireLock(this.#host.fs, this.#lockFile(id), {
+        owner: `chattree-cli pid ${process.pid} session ${id}`,
+        timeoutMs: 0,
+        staleAfterMs: this.#opts.staleAfterMs ?? 30_000,
+        now: this.#now,
+      });
     } catch (e) {
       if (e instanceof LockHeldError) return undefined;
       throw e;
@@ -293,7 +331,25 @@ export class SessionStore {
     const lock = await this.#lock(id);
     if (lock === undefined) throw new CliError(`session ${id} is already locked`);
     const at = new Date(this.#now()).toISOString();
-    const session = new Session(this, lock, { $tag: "session", format: 1, id, thread, created: at, updated: at, draft: "", drafts: [], history: [], thinking: this.#display?.thinking ?? "off", tools: this.#display?.tools ?? "brief", attachments: [] }, this.#opts);
+    const session = new Session(
+      this,
+      lock,
+      {
+        $tag: "session",
+        format: 1,
+        id,
+        thread,
+        created: at,
+        updated: at,
+        draft: "",
+        drafts: [],
+        history: [],
+        thinking: this.#display?.thinking ?? "off",
+        tools: this.#display?.tools ?? "brief",
+        attachments: [],
+      },
+      this.#opts,
+    );
     return session;
   }
 
@@ -306,12 +362,16 @@ export class SessionStore {
       if (matches.length > 1) throw new CliError(`${req.id} matches ${matches.length} sessions`, "give more of the id");
       const id = matches[0] as string;
       const lock = await this.#lock(id);
-      if (lock === undefined) throw new CliError(`session ${id} is in use by another process`, "close it there, or start another with --new-session");
+      if (lock === undefined)
+        throw new CliError(`session ${id} is in use by another process`, "close it there, or start another with --new-session");
       try {
         return { session: new Session(this, lock, await this.#read(id), this.#opts), resumed: true, skipped };
       } catch (e) {
         await lock.release();
-        throw new CliError(`session ${id} cannot be read: ${e instanceof Error ? e.message : String(e)}`, `delete ${this.#file(id)} to discard it`);
+        throw new CliError(
+          `session ${id} cannot be read: ${e instanceof Error ? e.message : String(e)}`,
+          `delete ${this.#file(id)} to discard it`,
+        );
       }
     }
     if (req.fresh !== true) {
@@ -323,7 +383,8 @@ export class SessionStore {
           file = await this.#read(id);
         } catch (e) {
           await lock.release();
-          if ((await this.#host.fs.stat(this.#file(id))) !== undefined) skipped.push(`session ${id} was not used: ${e instanceof Error ? e.message : String(e)}`);
+          if ((await this.#host.fs.stat(this.#file(id))) !== undefined)
+            skipped.push(`session ${id} was not used: ${e instanceof Error ? e.message : String(e)}`);
           continue;
         }
         if (file.thread !== req.thread) {

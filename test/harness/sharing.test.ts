@@ -16,7 +16,8 @@ import { tempDir } from "../support/tmp.ts";
 const host = nodeHost();
 const say = (t: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text: t }] });
 const entries = async (c: Conversation): Promise<ChatEntry[]> => (await c.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-const textOf = (e: ChatEntry | undefined): string => (e?.$tag === "user" && typeof e.content[0] === "object" && e.content[0].$tag === "text" ? String(e.content[0].text) : "");
+const textOf = (e: ChatEntry | undefined): string =>
+  e?.$tag === "user" && typeof e.content[0] === "object" && e.content[0].$tag === "text" ? String(e.content[0].text) : "";
 
 let hanging = false;
 const registry = new AdapterRegistry().register(
@@ -31,9 +32,18 @@ const registry = new AdapterRegistry().register(
       async *stream(req) {
         const e: StreamEvent = { type: "text.delta", index: 0, text: "partial" };
         yield e;
-        if (hanging) await new Promise<void>((_, reject) => req.signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }));
+        if (hanging)
+          await new Promise<void>((_, reject) =>
+            req.signal.addEventListener("abort", () => reject(new ProviderError({ kind: "aborted", message: "aborted" })), { once: true }),
+          );
         yield { type: "block.done", index: 0, block: { type: "text", text: "done" } };
-        return { blocks: [{ type: "text", text: "done" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 }, observed: {}, ext: {} } satisfies Completed;
+        return {
+          blocks: [{ type: "text", text: "done" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1 },
+          observed: {},
+          ext: {},
+        } satisfies Completed;
       },
     }),
   }),
@@ -71,7 +81,10 @@ describe("two handles on one thread", () => {
     const { a, b } = await pair();
     await a.append(say("x"));
     await a.append(say("y"));
-    assert.deepEqual((await b.sync()).map((f) => textOf(f.value)), ["x", "y"]);
+    assert.deepEqual(
+      (await b.sync()).map((f) => textOf(f.value)),
+      ["x", "y"],
+    );
     assert.deepEqual(await b.sync(), []);
   });
 

@@ -42,7 +42,9 @@ export class Lock {
         if (v.version !== 1 || typeof v.files !== "object" || v.files === null) throw new Error("unknown format");
         data = { version: 1, files: v.files, quants: v.quants ?? {} };
       } catch (e) {
-        throw new LockError(`${path} is not a lock file chattree wrote (${e instanceof Error ? e.message : String(e)}); move it away to start again`);
+        throw new LockError(
+          `${path} is not a lock file chattree wrote (${e instanceof Error ? e.message : String(e)}); move it away to start again`,
+        );
       }
     }
     return new Lock(path, data);

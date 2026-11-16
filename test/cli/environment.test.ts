@@ -22,7 +22,8 @@ const session = async (dir: string, lines: string[], env: Record<string, string>
   const code = await main(["chat", "--plain", "-y"], io);
   return { code, all: `${io.stdout}${io.stderr}` };
 };
-const messages = (server: FakeServer, n: number) => (JSON.parse(server.seen[n]?.body ?? "") as { messages: { role: string; content: string }[] }).messages;
+const messages = (server: FakeServer, n: number) =>
+  (JSON.parse(server.seen[n]?.body ?? "") as { messages: { role: string; content: string }[] }).messages;
 
 describe("the environment note in a chat", () => {
   test("the system prompt describes chattree, and the first request carries the note once, recorded in the transcript", async () => {

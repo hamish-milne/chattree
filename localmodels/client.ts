@@ -32,9 +32,14 @@ export class DaemonClient {
       });
     } catch (e) {
       if (signal?.aborted === true) throw e;
-      throw new DaemonError(`the model host does not answer (${e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e)})`);
+      throw new DaemonError(
+        `the model host does not answer (${e instanceof Error ? (e.cause instanceof Error ? e.cause.message : e.message) : String(e)})`,
+      );
     }
-    if (!res.ok) throw new DaemonError(`the model host answered ${res.status}: ${((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.statusText}`);
+    if (!res.ok)
+      throw new DaemonError(
+        `the model host answered ${res.status}: ${((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.statusText}`,
+      );
     return (await res.json()) as T;
   }
 
@@ -75,7 +80,10 @@ export class DaemonClient {
 
   /** Follow the event stream until it ends (the daemon stopped) or `signal` aborts. The first event is the current status. */
   async events(onEvent: (e: ClientEvent) => void, signal?: AbortSignal): Promise<void> {
-    const res = await this.#fetch(`http://127.0.0.1:${this.info.port}/events`, { headers: { authorization: `Bearer ${this.info.token}` }, ...(signal === undefined ? {} : { signal }) });
+    const res = await this.#fetch(`http://127.0.0.1:${this.info.port}/events`, {
+      headers: { authorization: `Bearer ${this.info.token}` },
+      ...(signal === undefined ? {} : { signal }),
+    });
     if (!res.ok || res.body === null) throw new DaemonError(`the model host answered ${res.status} to the event stream`);
     const decoder = new TextDecoder();
     let buffer = "";
@@ -86,7 +94,11 @@ export class DaemonClient {
         while ((at = buffer.indexOf("\n\n")) >= 0) {
           const block = buffer.slice(0, at);
           buffer = buffer.slice(at + 2);
-          const data = block.split("\n").filter((l) => l.startsWith("data: ")).map((l) => l.slice(6)).join("\n");
+          const data = block
+            .split("\n")
+            .filter((l) => l.startsWith("data: "))
+            .map((l) => l.slice(6))
+            .join("\n");
           if (data !== "") onEvent(JSON.parse(data) as ClientEvent);
         }
       }

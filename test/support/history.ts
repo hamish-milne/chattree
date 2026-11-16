@@ -28,7 +28,10 @@ export async function assertHistoryInvariants(convo: Conversation): Promise<void
 export async function assertContextBuilds(convo: Conversation, rev?: string): Promise<void> {
   const entries = (rev === undefined ? await convo.readEntries() : await convo.readEntriesAt(rev)).flatMap((e) => (e.ok ? [e.value] : []));
   const dec = new TextDecoder();
-  for (const target of [{ provider: "anthropic", model: "m" }, { provider: "openai", model: "other" }]) {
+  for (const target of [
+    { provider: "anthropic", model: "m" },
+    { provider: "openai", model: "other" },
+  ]) {
     const ctx = await buildContext(entries, {
       system: "s",
       target,

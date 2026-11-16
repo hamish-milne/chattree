@@ -30,13 +30,22 @@ export const SOURCE_FORMATS: Readonly<Record<string, { mime: string; ext: string
 };
 
 /** `bytes` (a file of type `inExt`) written as `as` by `ffmpeg`. */
-export async function reencode(ffmpeg: string, bytes: Uint8Array, inExt: string, as: string): Promise<{ bytes: Uint8Array; mime: string; ext: string }> {
+export async function reencode(
+  ffmpeg: string,
+  bytes: Uint8Array,
+  inExt: string,
+  as: string,
+): Promise<{ bytes: Uint8Array; mime: string; ext: string }> {
   const f = SOURCE_FORMATS[as];
   if (f === undefined) throw new Error(`--as: ${as} is not one of ${Object.keys(SOURCE_FORMATS).join(", ")}`);
   const dir = await mkdtemp(join(tmpdir(), "chattree-probe-"));
   try {
     await writeFile(join(dir, `in.${inExt}`), bytes);
-    const r = spawnSync(ffmpeg, ["-hide_banner", "-loglevel", "error", "-y", "-i", `in.${inExt}`, "-map_metadata", "-1", ...f.args, `out.${f.ext}`], { cwd: dir });
+    const r = spawnSync(
+      ffmpeg,
+      ["-hide_banner", "-loglevel", "error", "-y", "-i", `in.${inExt}`, "-map_metadata", "-1", ...f.args, `out.${f.ext}`],
+      { cwd: dir },
+    );
     if (r.status !== 0) throw new Error(`ffmpeg could not write ${as}: ${String(r.stderr).trim().split("\n").slice(-2).join("; ")}`);
     return { bytes: new Uint8Array(await readFile(join(dir, `out.${f.ext}`))), mime: f.mime, ext: f.ext };
   } finally {
@@ -52,7 +61,13 @@ export async function probeFfmpeg(io: Io): Promise<string> {
 }
 
 /** The context as a request would send it to this adapter's model: its media spec, converted by ffmpeg. */
-export async function throughSink(adapter: ProviderAdapter, setup: AgentSetup, context: ModelContext, ffmpeg: string, workDir: string): Promise<PreparedMedia> {
+export async function throughSink(
+  adapter: ProviderAdapter,
+  setup: AgentSetup,
+  context: ModelContext,
+  ffmpeg: string,
+  workDir: string,
+): Promise<PreparedMedia> {
   if (adapter.mediaSpec === undefined) throw new Error("this adapter has no media spec");
   const spec = await adapter.mediaSpec(setup);
   const converter = await ffmpegConverter({ host: (await import("../hosts/node.ts")).nodeHost(), ffmpeg, workDir });

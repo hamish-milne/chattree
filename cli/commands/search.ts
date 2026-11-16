@@ -7,18 +7,35 @@ const SCOPES = ["thread", "family", "project"];
 const searchCommand: Command = {
   name: "search",
   summary: "search this conversation's history for words or a pattern (this thread by default)",
-  usage: "/search <words or \"a phrase\"> [--scope thread|family|project] [--regex] [--visible] [--reasoning] [--limit n]\n(--visible includes what the model sees now; /show thread:id opens a hit)",
+  usage:
+    '/search <words or "a phrase"> [--scope thread|family|project] [--regex] [--visible] [--reasoning] [--limit n]\n(--visible includes what the model sees now; /show thread:id opens a hit)',
   busy: "allowed",
   async complete(_ctx, previous, partial) {
     if (previous.at(-1) === "--scope") return SCOPES.filter((s) => s.startsWith(partial));
-    return partial.startsWith("-") ? ["--scope", "--regex", "--visible", "--reasoning", "--limit"].filter((f) => f.startsWith(partial)) : [];
+    return partial.startsWith("-")
+      ? ["--scope", "--regex", "--visible", "--reasoning", "--limit"].filter((f) => f.startsWith(partial))
+      : [];
   },
   async *run(ctx, args) {
     let parsed;
     try {
-      parsed = parseArgs({ args, allowPositionals: true, options: { scope: { type: "string" }, regex: { type: "boolean" }, visible: { type: "boolean" }, reasoning: { type: "boolean" }, limit: { type: "string" } } });
+      parsed = parseArgs({
+        args,
+        allowPositionals: true,
+        options: {
+          scope: { type: "string" },
+          regex: { type: "boolean" },
+          visible: { type: "boolean" },
+          reasoning: { type: "boolean" },
+          limit: { type: "string" },
+        },
+      });
     } catch (e) {
-      yield { type: "error", message: e instanceof Error ? e.message : String(e), hint: "/search <query> [--scope thread|family|project] [--regex] [--visible] [--reasoning] [--limit n]" };
+      yield {
+        type: "error",
+        message: e instanceof Error ? e.message : String(e),
+        hint: "/search <query> [--scope thread|family|project] [--regex] [--visible] [--reasoning] [--limit n]",
+      };
       return;
     }
     const { values, positionals } = parsed;
@@ -47,11 +64,17 @@ const searchCommand: Command = {
         ...(limit === undefined ? {} : { limit }),
       });
       if (r.hits.length === 0) {
-        yield { type: "text", text: `no matches in ${r.threads} thread${r.threads === 1 ? "" : "s"}${values.visible === true ? "" : " (what the model already sees is left out: --visible includes it)"}${r.notes.map((n) => `\n(${n})`).join("")}` };
+        yield {
+          type: "text",
+          text: `no matches in ${r.threads} thread${r.threads === 1 ? "" : "s"}${values.visible === true ? "" : " (what the model already sees is left out: --visible includes it)"}${r.notes.map((n) => `\n(${n})`).join("")}`,
+        };
         return;
       }
       const lines = r.hits.map((h) => `${h.ref}  #${h.n} ${h.kind}${h.relation === "self" ? "" : ` (${h.relation})`}\n    ${h.excerpt}`);
-      yield { type: "text", text: `${r.total} match${r.total === 1 ? "" : "es"} in ${r.threads} thread${r.threads === 1 ? "" : "s"}${r.total > r.hits.length ? `, the closest ${r.hits.length} shown (--limit)` : ""}\n${lines.join("\n")}${r.notes.map((n) => `\n(${n})`).join("")}` };
+      yield {
+        type: "text",
+        text: `${r.total} match${r.total === 1 ? "" : "es"} in ${r.threads} thread${r.threads === 1 ? "" : "s"}${r.total > r.hits.length ? `, the closest ${r.hits.length} shown (--limit)` : ""}\n${lines.join("\n")}${r.notes.map((n) => `\n(${n})`).join("")}`,
+      };
     } catch (e) {
       if (e instanceof SearchError) yield { type: "error", message: e.message };
       else throw e;

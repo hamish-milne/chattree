@@ -48,12 +48,30 @@ export interface AudioResult {
 function args(argv: readonly string[]) {
   const v = (f: string): string | undefined => (argv.includes(f) ? argv[argv.indexOf(f) + 1] : undefined);
   const model = v("--model");
-  if (model === undefined) throw new Error("--model is required: a model from local_models in the settings file, with a projector that can hear");
+  if (model === undefined)
+    throw new Error("--model is required: a model from local_models in the settings file, with a projector that can hear");
   const frame = v("--audio-frame");
-  if (frame !== undefined && !(AUDIO_FRAMES as readonly string[]).includes(frame)) throw new Error(`--audio-frame: ${frame} is not one of ${AUDIO_FRAMES.join(", ")}`);
-  const kinds = v("--kinds")?.split(",").map((k) => k.trim());
-  for (const k of kinds ?? []) if (!(AUDIO_KINDS as readonly string[]).includes(k)) throw new Error(`--kinds: ${k} is not one of ${AUDIO_KINDS.join(", ")}`);
-  return { model, count: Number(v("--count") ?? 5), seed: Number(v("--seed") ?? 1), kinds: kinds as AudioKind[] | undefined, speech: v("--speech"), pad: Number(v("--pad") ?? 0), maxTokens: Number(v("--max-tokens") ?? 1024), dialect: v("--dialect"), audioFrame: v("--audio-frame"), as: v("--as"), out: v("--out"), yes: argv.includes("--yes") };
+  if (frame !== undefined && !(AUDIO_FRAMES as readonly string[]).includes(frame))
+    throw new Error(`--audio-frame: ${frame} is not one of ${AUDIO_FRAMES.join(", ")}`);
+  const kinds = v("--kinds")
+    ?.split(",")
+    .map((k) => k.trim());
+  for (const k of kinds ?? [])
+    if (!(AUDIO_KINDS as readonly string[]).includes(k)) throw new Error(`--kinds: ${k} is not one of ${AUDIO_KINDS.join(", ")}`);
+  return {
+    model,
+    count: Number(v("--count") ?? 5),
+    seed: Number(v("--seed") ?? 1),
+    kinds: kinds as AudioKind[] | undefined,
+    speech: v("--speech"),
+    pad: Number(v("--pad") ?? 0),
+    maxTokens: Number(v("--max-tokens") ?? 1024),
+    dialect: v("--dialect"),
+    audioFrame: v("--audio-frame"),
+    as: v("--as"),
+    out: v("--out"),
+    yes: argv.includes("--yes"),
+  };
 }
 
 /** The table of results: right of total for each kind, and the wrong answers. */
@@ -61,7 +79,10 @@ export function report(results: readonly AudioResult[]): string {
   const lines = ["| kind | right | of |", "|---|---|---|"];
   for (const k of AUDIO_KINDS) {
     const rs = results.filter((r) => r.kind === k);
-    if (rs.length > 0) lines.push(k === "listen" ? `| listen (unscored) | - | ${rs.length} |` : `| ${k} | ${rs.filter((r) => r.right).length} | ${rs.length} |`);
+    if (rs.length > 0)
+      lines.push(
+        k === "listen" ? `| listen (unscored) | - | ${rs.length} |` : `| ${k} | ${rs.filter((r) => r.right).length} | ${rs.length} |`,
+      );
   }
   const scored = results.filter((r) => r.kind !== "listen");
   lines.push(`| all scored | ${scored.filter((r) => r.right).length} | ${scored.length} |`);
@@ -73,7 +94,10 @@ export function report(results: readonly AudioResult[]): string {
   }
   if (wrong.length > 0) {
     lines.push("", "Wrong:", "");
-    for (const r of wrong) lines.push(`- ${r.id}: expected ${r.expected}; ${r.error !== undefined ? `error: ${r.error}` : `answered ${JSON.stringify(r.answer.slice(0, 200))}`}${r.stop === undefined || r.stop === "end_turn" ? "" : ` [${r.stop}]`}${r.tokens === undefined ? "" : ` (${r.tokens.out} tokens out)`}`);
+    for (const r of wrong)
+      lines.push(
+        `- ${r.id}: expected ${r.expected}; ${r.error !== undefined ? `error: ${r.error}` : `answered ${JSON.stringify(r.answer.slice(0, 200))}`}${r.stop === undefined || r.stop === "end_turn" ? "" : ` [${r.stop}]`}${r.tokens === undefined ? "" : ` (${r.tokens.out} tokens out)`}`,
+      );
   }
   return lines.join("\n");
 }
@@ -102,52 +126,131 @@ async function main(): Promise<void> {
   await ensureLocalModels(io, { yes: o.yes });
   const adapter = localModelsAdapter(io);
   const sampling = samplingSettings((await lookupSampling(io, o.model)).values) as Record<string, unknown>;
-  const model = { provider: "live", id: o.model, settings: { max_output_tokens: o.maxTokens, ...sampling, ...(o.dialect === undefined ? {} : { dialect: o.dialect }), ...(o.audioFrame === undefined ? {} : { dialect_options: { audio_frame: o.audioFrame } }) } } as NonNullable<AgentSetup["model"]>;
+  const model = {
+    provider: "live",
+    id: o.model,
+    settings: {
+      max_output_tokens: o.maxTokens,
+      ...sampling,
+      ...(o.dialect === undefined ? {} : { dialect: o.dialect }),
+      ...(o.audioFrame === undefined ? {} : { dialect_options: { audio_frame: o.audioFrame } }),
+    },
+  } as NonNullable<AgentSetup["model"]>;
   const setup: AgentSetup = { ...emptySetup(), model };
   const dir = o.out ?? join("bench-runs", `audio-${new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19)}`);
   await mkdir(dir, { recursive: true });
-  const all = [...scenarios({ kinds: o.kinds, count: o.count, seed: o.seed, pad: o.pad }), ...(o.speech === undefined ? [] : await readSpeech(o.speech))];
+  const all = [
+    ...scenarios({ kinds: o.kinds, count: o.count, seed: o.seed, pad: o.pad }),
+    ...(o.speech === undefined ? [] : await readSpeech(o.speech)),
+  ];
   const results: AudioResult[] = [];
-  if (o.as !== undefined && SOURCE_FORMATS[o.as]?.mime.startsWith("audio/") !== true) throw new Error(`--as: ${o.as} is not a sound format (${Object.entries(SOURCE_FORMATS).filter(([, f]) => f.mime.startsWith("audio/")).map(([k]) => k).join(", ")})`);
+  if (o.as !== undefined && SOURCE_FORMATS[o.as]?.mime.startsWith("audio/") !== true)
+    throw new Error(
+      `--as: ${o.as} is not a sound format (${Object.entries(SOURCE_FORMATS)
+        .filter(([, f]) => f.mime.startsWith("audio/"))
+        .map(([k]) => k)
+        .join(", ")})`,
+    );
   const via = o.as === undefined ? undefined : { as: o.as, ffmpeg: await probeFfmpeg(io), workDir: join(dir, "work") };
   for (const s of all) {
     await writeFile(join(dir, `${s.id}.wav`), s.wav);
     results.push(await ask(adapter, setup, s, via));
     const r = results[results.length - 1] as AudioResult;
-    console.error(`${r.id}: ${r.right ? "right" : "wrong"} (${r.ms} ms) ${r.right ? "" : `expected ${r.expected}, got ${JSON.stringify(r.answer.slice(0, 80))}${r.error === undefined ? "" : ` ${r.error}`}`}`);
+    console.error(
+      `${r.id}: ${r.right ? "right" : "wrong"} (${r.ms} ms) ${r.right ? "" : `expected ${r.expected}, got ${JSON.stringify(r.answer.slice(0, 80))}${r.error === undefined ? "" : ` ${r.error}`}`}`,
+    );
   }
   const text = report(results);
   await writeFile(join(dir, "audio.json"), JSON.stringify(results, null, 2));
-  await writeFile(join(dir, "run.json"), JSON.stringify({ model: o.model, dialect: o.dialect, audioFrame: o.audioFrame, maxTokens: o.maxTokens, seed: o.seed, sampling, pad: o.pad }, null, 2));
+  await writeFile(
+    join(dir, "run.json"),
+    JSON.stringify(
+      { model: o.model, dialect: o.dialect, audioFrame: o.audioFrame, maxTokens: o.maxTokens, seed: o.seed, sampling, pad: o.pad },
+      null,
+      2,
+    ),
+  );
   await writeFile(join(dir, "audio.md"), text);
   console.log(text);
 }
 
-async function ask(adapter: ReturnType<typeof localModelsAdapter>, setup: AgentSetup, s: AudioScenario, via?: { as: string; ffmpeg: string; workDir: string }): Promise<AudioResult> {
+async function ask(
+  adapter: ReturnType<typeof localModelsAdapter>,
+  setup: AgentSetup,
+  s: AudioScenario,
+  via?: { as: string; ffmpeg: string; workDir: string },
+): Promise<AudioResult> {
   const t0 = Date.now();
   const made = via === undefined ? { bytes: s.wav, mime: "audio/wav", ext: "wav" } : await reencode(via.ffmpeg, s.wav, "wav", via.as);
   let context: ModelContext = {
     system: "You are terse. Answer only what is asked.",
     instructions: undefined,
-    turns: [{ role: "user", parts: [{ type: "attachment", kind: "audio", name: `${s.id}.${made.ext}`, mime: made.mime, sha256: createHash("sha256").update(made.bytes).digest("hex"), bytes: made.bytes }, { type: "text", text: s.question }] }],
+    turns: [
+      {
+        role: "user",
+        parts: [
+          {
+            type: "attachment",
+            kind: "audio",
+            name: `${s.id}.${made.ext}`,
+            mime: made.mime,
+            sha256: createHash("sha256").update(made.bytes).digest("hex"),
+            bytes: made.bytes,
+          },
+          { type: "text", text: s.question },
+        ],
+      },
+    ],
     tools: [],
     cacheHints: [],
   };
   let sent: string | undefined;
-  const base = { id: s.id, kind: s.kind, expected: s.expected, get ms() { return Date.now() - t0; } };
+  const base = {
+    id: s.id,
+    kind: s.kind,
+    expected: s.expected,
+    get ms() {
+      return Date.now() - t0;
+    },
+  };
   if (via !== undefined) {
     const prepared = await throughSink(adapter, setup, context, via.ffmpeg, via.workDir);
-    if (prepared.warnings.length > 0) return { ...base, answer: "", right: false, error: prepared.warnings.map((w) => w.message).join("; "), sent: `${made.mime} (not sent)` };
+    if (prepared.warnings.length > 0)
+      return {
+        ...base,
+        answer: "",
+        right: false,
+        error: prepared.warnings.map((w) => w.message).join("; "),
+        sent: `${made.mime} (not sent)`,
+      };
     context = prepared.context;
     sent = `${made.mime} -> ${prepared.converted.map((c) => c.to).join(", ") || "as it was"}`;
   }
   const run = await collectStream(adapter.stream({ context, setup, signal: AbortSignal.timeout(300_000) }));
-  if (run.error !== undefined) return { ...base, ...(sent === undefined ? {} : { sent }), answer: "", right: false, error: run.error instanceof Error ? run.error.message : String(run.error) };
+  if (run.error !== undefined)
+    return {
+      ...base,
+      ...(sent === undefined ? {} : { sent }),
+      answer: "",
+      right: false,
+      error: run.error instanceof Error ? run.error.message : String(run.error),
+    };
   const blocks = run.completed?.blocks ?? [];
   const answer = blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
   const reasoning = blocks.flatMap((b) => (b.type === "reasoning" && typeof b.visible === "string" ? [b.visible] : [])).join("\n");
   const u = run.completed?.usage;
-  return { ...base, ...(sent === undefined ? {} : { sent }), answer, right: s.check(answer), stop: run.completed?.stop_reason, ...(u === undefined ? {} : { tokens: { in: u.input_tokens + (u.cache_read_tokens ?? 0), out: u.output_tokens, reasoning: u.reasoning_tokens } }), ...(reasoning === "" ? {} : { reasoning }), blocks: blocks.map((b) => b.type) };
+  return {
+    ...base,
+    ...(sent === undefined ? {} : { sent }),
+    answer,
+    right: s.check(answer),
+    stop: run.completed?.stop_reason,
+    ...(u === undefined
+      ? {}
+      : { tokens: { in: u.input_tokens + (u.cache_read_tokens ?? 0), out: u.output_tokens, reasoning: u.reasoning_tokens } }),
+    ...(reasoning === "" ? {} : { reasoning }),
+    blocks: blocks.map((b) => b.type),
+  };
 }
 
 if (import.meta.main) {

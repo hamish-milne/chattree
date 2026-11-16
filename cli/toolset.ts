@@ -70,7 +70,11 @@ export interface ToolSetHooks {
  * the pinned release is fetched), `off` (use one that is there, never fetch) or the path of a busybox.exe. Failing to get one is the
  * user's problem, not the model's, so it is a CliError raised before anything is sent.
  */
-export async function resolveBusybox(io: Io, mode: string | undefined, ensure: typeof ensureBusybox = ensureBusybox): Promise<string | undefined> {
+export async function resolveBusybox(
+  io: Io,
+  mode: string | undefined,
+  ensure: typeof ensureBusybox = ensureBusybox,
+): Promise<string | undefined> {
   if (io.host.platform !== "windows") return undefined;
   const how = mode ?? "auto";
   if (how === "off") return findBusybox(io.env);
@@ -96,11 +100,20 @@ export async function busyboxFor(io: Io): Promise<string | undefined> {
  * unset key is an error here, at the moment a conversion is needed, because what the user means (fetch one? use mine? never?) is not known.
  * `auto` uses the one that is there (CHATTREE_FFMPEG, the PATH) and on Windows fetches the pinned build; a path must be a file.
  */
-export async function resolveFfmpeg(io: Io, setting: false | string | undefined, ensure: typeof ensureFfmpeg = ensureFfmpeg): Promise<string | undefined> {
-  if (setting === undefined) throw new CliError("a picture or sound has to be converted for this model, and the ffmpeg setting is not set", "add `ffmpeg: auto` (or a path to ffmpeg, or `false` to never convert) to the settings file: `chattree settings edit`");
+export async function resolveFfmpeg(
+  io: Io,
+  setting: false | string | undefined,
+  ensure: typeof ensureFfmpeg = ensureFfmpeg,
+): Promise<string | undefined> {
+  if (setting === undefined)
+    throw new CliError(
+      "a picture or sound has to be converted for this model, and the ffmpeg setting is not set",
+      "add `ffmpeg: auto` (or a path to ffmpeg, or `false` to never convert) to the settings file: `chattree settings edit`",
+    );
   if (setting === false) return undefined;
   if (setting !== "auto") {
-    if ((await io.host.fs.stat(setting))?.isFile !== true) throw new CliError(`ffmpeg is ${setting}, which is not a file`, "fix the ffmpeg setting (`chattree settings edit`)");
+    if ((await io.host.fs.stat(setting))?.isFile !== true)
+      throw new CliError(`ffmpeg is ${setting}, which is not a file`, "fix the ffmpeg setting (`chattree settings edit`)");
     return setting;
   }
   try {
@@ -115,39 +128,88 @@ export async function resolveFfmpeg(io: Io, setting: false | string | undefined,
 export const ffmpegFor = (io: Io): Promise<string | undefined> => resolveFfmpeg(io, io.settings?.ffmpeg);
 
 /** What starting an MCP server needs from this session. */
-export const mcpDeps = (io: Io, convo: Conversation, projectDir: string | undefined): McpDeps => ({ host: io.host, cwd: convo.dir, env: io.env, ...(projectDir === undefined ? {} : { projectDir }) });
+export const mcpDeps = (io: Io, convo: Conversation, projectDir: string | undefined): McpDeps => ({
+  host: io.host,
+  cwd: convo.dir,
+  env: io.env,
+  ...(projectDir === undefined ? {} : { projectDir }),
+});
 
 export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHooks): Promise<ToolSet> {
   const cfg = await convo.readConfig();
   const config = cfg?.ok === true ? cfg.value : undefined;
   const env = config?.tools.env ?? [];
-  const jobs = new JobRegistry(convo, { owner: localOwner(hooks.session), resume: config?.background.resume === true, onCommitted: hooks.onCommitted, onResume: hooks.onResume, busy: hooks.busy });
+  const jobs = new JobRegistry(convo, {
+    owner: localOwner(hooks.session),
+    resume: config?.background.resume === true,
+    onCommitted: hooks.onCommitted,
+    onResume: hooks.onResume,
+    busy: hooks.busy,
+  });
   const safe = config?.tools["run"]?.safe ?? [];
   // Only tools listed under `tools` in harness.yml are offered; leaving one out turns it off.
   const listed = (name: string): boolean => config?.tools[name] !== undefined;
   const busybox = listed("run") || listed("script") ? await resolveBusybox(io, io.settings?.busybox) : undefined;
   const runs = new ThreadRuns();
-  const leaf = [...leafTools({ busybox, env: { allow: env, values: io.env }, safe, batch: config?.tools["run"]?.batch === true, git: config?.tools["run"]?.git === true, mmRead: listed("mm_read"), batchLocal: config?.tools["run"]?.local ?? [], hostEnv: io.env }), skillTool(), ...threadTools({ convo, siblings: config?.threads.siblings === true }), searchTool({ convo })];
+  const leaf = [
+    ...leafTools({
+      busybox,
+      env: { allow: env, values: io.env },
+      safe,
+      batch: config?.tools["run"]?.batch === true,
+      git: config?.tools["run"]?.git === true,
+      mmRead: listed("mm_read"),
+      batchLocal: config?.tools["run"]?.local ?? [],
+      hostEnv: io.env,
+    }),
+    skillTool(),
+    ...threadTools({ convo, siblings: config?.threads.siblings === true }),
+    searchTool({ convo }),
+  ];
   // A subagent works with the leaf tools the thread has, and cannot start subagents of its own.
   const childRegistry = new ToolRegistry(leaf.filter((t) => listed(t.definition.name)));
   // The models the parent may choose for a subagent. A list that names a provider harness.yml does not have is the user's to fix.
-  const chosen = resolveSubagentModels(config?.subagent.models, new Set(Object.keys(config?.providers ?? {})), (p, id) => convo.modelInfo(p, id));
-  if (chosen.problems.length > 0) throw new CliError(chosen.problems.join("\n"), "fix subagent.models in harness.yml, or remove it to give subagents the parent's model");
+  const chosen = resolveSubagentModels(config?.subagent.models, new Set(Object.keys(config?.providers ?? {})), (p, id) =>
+    convo.modelInfo(p, id),
+  );
+  if (chosen.problems.length > 0)
+    throw new CliError(chosen.problems.join("\n"), "fix subagent.models in harness.yml, or remove it to give subagents the parent's model");
   const adapters = cliRegistry(io);
   const validateSettings = async (provider: string, settings: unknown): Promise<string[]> => {
     const tag = (config?.providers[provider] as { $tag?: string } | undefined)?.$tag;
     const def = tag === undefined ? undefined : adapters.get(tag);
     if (def === undefined) return [`no adapter for provider ${provider}`];
     const r = await def.settings["~standard"].validate(settings);
-    return r.issues === undefined ? [] : r.issues.map((i) => `${(i.path ?? []).map((q) => (typeof q === "object" ? q.key : q)).join(".") || "settings"}: ${i.message}`);
+    return r.issues === undefined
+      ? []
+      : r.issues.map((i) => `${(i.path ?? []).map((q) => (typeof q === "object" ? q.key : q)).join(".") || "settings"}: ${i.message}`);
   };
-  const meta = hooks.pumped !== true ? [] : [subagentTool({ convo, childRegistry, models: chosen.models, validateSettings, merge: config?.subagent.merge ?? "auto" })];
+  const meta =
+    hooks.pumped !== true
+      ? []
+      : [subagentTool({ convo, childRegistry, models: chosen.models, validateSettings, merge: config?.subagent.merge ?? "auto" })];
   const auto = hooks.createFork === undefined || hooks.pumped !== true ? undefined : { childRegistry };
-  const forks = hooks.createFork === undefined ? [] : [forkTool({ convo, createFork: hooks.createFork, ...(auto === undefined ? {} : { auto }), ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }) }), mergeTool({ convo })];
+  const forks =
+    hooks.createFork === undefined
+      ? []
+      : [
+          forkTool({
+            convo,
+            createFork: hooks.createFork,
+            ...(auto === undefined ? {} : { auto }),
+            ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }),
+          }),
+          mergeTool({ convo }),
+        ];
   // MCP servers start only once the thread has accepted their configuration (a harness.yml can arrive with a cloned repository).
   const connect = async (fresh = false): Promise<McpServers> => {
     const now = await convo.readConfig();
-    return McpServers.connect(now?.ok === true ? now.value.mcp : {}, await convo.setup(), mcpDeps(io, convo, hooks.projectDir), hooks.mcpPool === undefined ? undefined : { pool: hooks.mcpPool, fresh });
+    return McpServers.connect(
+      now?.ok === true ? now.value.mcp : {},
+      await convo.setup(),
+      mcpDeps(io, convo, hooks.projectDir),
+      hooks.mcpPool === undefined ? undefined : { pool: hooks.mcpPool, fresh },
+    );
   };
   const mcp = await connect();
   const all = [...leaf, ...jobTools(jobs), ...meta, ...forks];
@@ -188,9 +250,22 @@ export function makeApprover(ask: AskFn, label?: string): (request: Pick<Approva
   return async (request) => {
     const grant = request.keys !== null && request.keys.length > 0;
     const choices: Choice[] = grant
-      ? [{ key: "y", label: "yes, once" }, { key: "5", label: "yes, for 5 minutes" }, { key: "h", label: "yes, for 1 hour" }, { key: "f", label: "yes, forever" }, { key: "n", label: "no" }]
-      : [{ key: "y", label: "yes, once" }, { key: "n", label: "no" }];
-    const answer = await ask(`\nAllow this${label === undefined ? "" : ` (asked by ${label})`}?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${(request.keys as string[]).join("; ")})` : ""}`, "n", choices);
+      ? [
+          { key: "y", label: "yes, once" },
+          { key: "5", label: "yes, for 5 minutes" },
+          { key: "h", label: "yes, for 1 hour" },
+          { key: "f", label: "yes, forever" },
+          { key: "n", label: "no" },
+        ]
+      : [
+          { key: "y", label: "yes, once" },
+          { key: "n", label: "no" },
+        ];
+    const answer = await ask(
+      `\nAllow this${label === undefined ? "" : ` (asked by ${label})`}?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${(request.keys as string[]).join("; ")})` : ""}`,
+      "n",
+      choices,
+    );
     const parsed = parseAnswer(answer, request);
     if (parsed !== "no") return parsed;
     const reason = (await ask("Why not? (sent to the model; Enter to skip)", "")).trim();

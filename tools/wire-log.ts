@@ -17,7 +17,10 @@ export interface WireRecord {
  * once it has been read. The caller still reads the response as normal. Authorization headers are never recorded. `flush` waits for the
  * responses still being read; `restore` puts the real `fetch` back.
  */
-export function tapFetch(match: (url: string) => boolean, on: (r: WireRecord) => void | Promise<void>): { flush: () => Promise<void>; restore: () => void } {
+export function tapFetch(
+  match: (url: string) => boolean,
+  on: (r: WireRecord) => void | Promise<void>,
+): { flush: () => Promise<void>; restore: () => void } {
   const real = globalThis.fetch;
   const pending = new Set<Promise<void>>();
   let seq = 0;

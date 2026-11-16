@@ -32,7 +32,11 @@ export interface HttpMapper<S> {
   /** Build the result. Called once, after `done`. */
   finish(state: S): Completed;
   /** Override how a non-2xx response is classified. Return nothing to use the default. */
-  classify?(res: { status: number; headers: Headers; body: string }): Partial<{ kind: ErrorKind; retryable: boolean; message: string; retryAfterMs: number }> | undefined;
+  classify?(res: {
+    status: number;
+    headers: Headers;
+    body: string;
+  }): Partial<{ kind: ErrorKind; retryable: boolean; message: string; retryAfterMs: number }> | undefined;
 }
 
 export interface RetryPolicy {
@@ -68,14 +72,23 @@ export interface HttpHooks {
  * `null` value removes that header, which can break a provider's terms: docs/providers.md), the session header (`session_header`, with the
  * conversation's id when there is one). Credentials are added after this and always win. Names are compared case-insensitively.
  */
-export function requestHeaders(built: Record<string, string>, opts: { headers?: Record<string, string | null> | undefined; sessionHeader?: string | undefined }, session?: string): Record<string, string> {
+export function requestHeaders(
+  built: Record<string, string>,
+  opts: { headers?: Record<string, string | null> | undefined; sessionHeader?: string | undefined },
+  session?: string,
+): Record<string, string> {
   const out = new Map<string, string>([["user-agent", USER_AGENT]]);
   for (const [k, v] of Object.entries(built)) out.set(k.toLowerCase(), v);
   for (const [k, v] of Object.entries(opts.headers ?? {})) {
     if (v === null) out.delete(k.toLowerCase());
     else out.set(k.toLowerCase(), v);
   }
-  if (opts.sessionHeader !== undefined && session !== undefined && !Object.entries(opts.headers ?? {}).some(([k, v]) => v === null && k.toLowerCase() === opts.sessionHeader?.toLowerCase())) out.set(opts.sessionHeader.toLowerCase(), session);
+  if (
+    opts.sessionHeader !== undefined &&
+    session !== undefined &&
+    !Object.entries(opts.headers ?? {}).some(([k, v]) => v === null && k.toLowerCase() === opts.sessionHeader?.toLowerCase())
+  )
+    out.set(opts.sessionHeader.toLowerCase(), session);
   return Object.fromEntries(out);
 }
 
@@ -170,7 +183,8 @@ const defaultSleep = (ms: number, signal: AbortSignal): Promise<void> =>
     signal.addEventListener("abort", onAbort, { once: true });
   });
 
-const abortedError = (signal: AbortSignal): ProviderError => new ProviderError({ kind: "aborted", message: "the request was aborted", cause: signal.reason });
+const abortedError = (signal: AbortSignal): ProviderError =>
+  new ProviderError({ kind: "aborted", message: "the request was aborted", cause: signal.reason });
 
 /** The default classification of an HTTP status. */
 export function classifyStatus(status: number): { kind: ErrorKind; retryable: boolean } {
@@ -213,7 +227,10 @@ export async function* httpStream<S>(mapper: HttpMapper<S>, req: StreamRequest, 
   const onCallerAbort = (): void => controller.abort(req.signal.reason);
   if (req.signal.aborted) controller.abort(req.signal.reason);
   else req.signal.addEventListener("abort", onCallerAbort, { once: true });
-  const total = setTimeout(() => controller.abort(new ProviderError({ kind: "timeout", message: `the request took longer than ${timeouts.totalMs} ms` })), timeouts.totalMs);
+  const total = setTimeout(
+    () => controller.abort(new ProviderError({ kind: "timeout", message: `the request took longer than ${timeouts.totalMs} ms` })),
+    timeouts.totalMs,
+  );
 
   const secrets = new Set((opts.secrets ?? []).filter((s) => s.length > 0));
   const scrub = (text: string): string => {
@@ -258,7 +275,9 @@ export async function* httpStream<S>(mapper: HttpMapper<S>, req: StreamRequest, 
         try {
           res = await doFetch(spec.url, { method, headers, ...(body === undefined ? {} : { body }), signal });
         } catch (e) {
-          throw signal.aborted ? signalError(signal) : new ProviderError({ kind: "network", message: `request failed: ${errorText(e)}`, retryable: true, cause: e });
+          throw signal.aborted
+            ? signalError(signal)
+            : new ProviderError({ kind: "network", message: `request failed: ${errorText(e)}`, retryable: true, cause: e });
         }
         safely(() => hooks.onResponse?.({ status: res.status, headers: viewHeaders(Object.fromEntries(res.headers)), attempt }));
         if (!res.ok) throw await failure(mapper, res, scrub);
@@ -283,7 +302,8 @@ export async function* httpStream<S>(mapper: HttpMapper<S>, req: StreamRequest, 
           if (mapper.done(state)) break;
         }
         if (signal.aborted) throw signalError(signal);
-        if (!mapper.done(state)) throw new ProviderError({ kind: "protocol", message: "the stream ended before the provider's final event", retryable: !content });
+        if (!mapper.done(state))
+          throw new ProviderError({ kind: "protocol", message: "the stream ended before the provider's final event", retryable: !content });
         for (const h of held) yield h;
         release();
         release = undefined;
@@ -293,7 +313,8 @@ export async function* httpStream<S>(mapper: HttpMapper<S>, req: StreamRequest, 
         release = undefined;
         const err = scrubError(toProviderError(e, signal));
         err.partial = blocks.filter((b): b is Block => b !== undefined);
-        if (content || err.kind === "aborted" || attempt >= retry.maxAttempts || !(err.retryable && retry.shouldRetry(err, attempt))) throw err;
+        if (content || err.kind === "aborted" || attempt >= retry.maxAttempts || !(err.retryable && retry.shouldRetry(err, attempt)))
+          throw err;
         const wait = Math.min(retry.maxMs, err.retryAfterMs ?? retry.jitter(Math.min(retry.maxMs, retry.baseMs * 2 ** (attempt - 1))));
         safely(() => hooks.onRetry?.({ attempt, waitMs: wait, error: err }));
         blocks.length = 0;
@@ -363,11 +384,23 @@ async function failure<S>(mapper: HttpMapper<S>, res: Response, scrub: (s: strin
   const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
   const override = mapper.classify?.({ status: res.status, headers: res.headers, body: text });
   const message = override?.message ?? `HTTP ${res.status}${text === "" ? "" : `: ${scrub(text).slice(0, 2000)}`}`;
-  return new ProviderError({ ...base, ...override, message: scrub(message), status: res.status, ...(retryAfterMs === undefined && override?.retryAfterMs === undefined ? {} : { retryAfterMs: override?.retryAfterMs ?? (retryAfterMs as number) }) });
+  return new ProviderError({
+    ...base,
+    ...override,
+    message: scrub(message),
+    status: res.status,
+    ...(retryAfterMs === undefined && override?.retryAfterMs === undefined
+      ? {}
+      : { retryAfterMs: override?.retryAfterMs ?? (retryAfterMs as number) }),
+  });
 }
 
 /** Pass chunks through; if none arrives within `idleMs`, abort the request with a timeout error. */
-async function* idleGuarded(body: ReadableStream<Uint8Array>, idleMs: number, controller: AbortController): AsyncGenerator<Uint8Array, void, void> {
+async function* idleGuarded(
+  body: ReadableStream<Uint8Array>,
+  idleMs: number,
+  controller: AbortController,
+): AsyncGenerator<Uint8Array, void, void> {
   const reader = body.getReader();
   try {
     for (;;) {
@@ -397,7 +430,6 @@ async function* idleGuarded(body: ReadableStream<Uint8Array>, idleMs: number, co
   }
 }
 
-
 /**
  * One JSON request, no streaming, no retry: for the small calls an adapter makes beside its main one (counting tokens).
  * Credentials come from `opts.auth`, secrets are scrubbed from errors, and failures are classified as for a stream
@@ -425,12 +457,22 @@ export async function jsonRequest(
   try {
     res = await (opts.fetch ?? fetch)(spec.url, { method, headers, ...(body === undefined ? {} : { body }), signal });
   } catch (e) {
-    throw new ProviderError({ kind: extra.signal.aborted ? "aborted" : signal.aborted ? "timeout" : "network", message: scrub(`request failed: ${errorText(e)}`), retryable: !signal.aborted, cause: e });
+    throw new ProviderError({
+      kind: extra.signal.aborted ? "aborted" : signal.aborted ? "timeout" : "network",
+      message: scrub(`request failed: ${errorText(e)}`),
+      retryable: !signal.aborted,
+      cause: e,
+    });
   }
   const text = await res.text();
   if (!res.ok) {
     const c = extra.classify?.({ status: res.status, headers: res.headers, body: text });
-    throw new ProviderError({ ...classifyStatus(res.status), ...c, message: scrub(c?.message ?? `HTTP ${res.status}: ${text.slice(0, 500)}`), status: res.status });
+    throw new ProviderError({
+      ...classifyStatus(res.status),
+      ...c,
+      message: scrub(c?.message ?? `HTTP ${res.status}: ${text.slice(0, 500)}`),
+      status: res.status,
+    });
   }
   try {
     return JSON.parse(text) as unknown;

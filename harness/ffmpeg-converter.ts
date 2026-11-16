@@ -21,10 +21,20 @@ interface Encoding {
 
 const ENCODINGS: Readonly<Record<string, Encoding>> = {
   "image/png": { encoder: "png", args: ["-frames:v", "1", "-c:v", "png", "-f", "image2", "-update", "1"], ext: "png", kind: "image" },
-  "image/jpeg": { encoder: "mjpeg", args: ["-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2", "-f", "image2", "-update", "1"], ext: "jpg", kind: "image" },
+  "image/jpeg": {
+    encoder: "mjpeg",
+    args: ["-frames:v", "1", "-c:v", "mjpeg", "-q:v", "2", "-f", "image2", "-update", "1"],
+    ext: "jpg",
+    kind: "image",
+  },
   "image/gif": { encoder: "gif", args: ["-frames:v", "1", "-c:v", "gif", "-f", "image2", "-update", "1"], ext: "gif", kind: "image" },
   "image/bmp": { encoder: "bmp", args: ["-frames:v", "1", "-c:v", "bmp", "-f", "image2", "-update", "1"], ext: "bmp", kind: "image" },
-  "image/webp": { encoder: "libwebp", args: ["-frames:v", "1", "-c:v", "libwebp", "-lossless", "1", "-f", "webp"], ext: "webp", kind: "image" },
+  "image/webp": {
+    encoder: "libwebp",
+    args: ["-frames:v", "1", "-c:v", "libwebp", "-lossless", "1", "-f", "webp"],
+    ext: "webp",
+    kind: "image",
+  },
   "audio/wav": { encoder: "pcm_s16le", args: ["-vn", "-c:a", "pcm_s16le", "-f", "wav"], ext: "wav", kind: "audio" },
   "audio/flac": { encoder: "flac", args: ["-vn", "-c:a", "flac", "-f", "flac"], ext: "flac", kind: "audio" },
   "audio/mpeg": { encoder: "libmp3lame", args: ["-vn", "-c:a", "libmp3lame", "-q:a", "2", "-f", "mp3"], ext: "mp3", kind: "audio" },
@@ -53,7 +63,15 @@ const DECODERS: Readonly<Record<string, readonly string[]>> = {
   "audio/x-ms-asf": ["wmav2", "wmav1", "wmapro"],
 };
 
-const EXT: Readonly<Record<string, string>> = { "image/jpeg": "jpg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/aiff": "aiff", "audio/x-ms-asf": "wma", "image/tiff": "tiff" };
+const EXT: Readonly<Record<string, string>> = {
+  "image/jpeg": "jpg",
+  "audio/mpeg": "mp3",
+  "audio/mp4": "m4a",
+  "audio/ogg": "ogg",
+  "audio/aiff": "aiff",
+  "audio/x-ms-asf": "wma",
+  "image/tiff": "tiff",
+};
 
 /** The names in the second column of `ffmpeg -decoders` / `-encoders`, plus the `(codec x)` aliases some carry. */
 export function codecNames(listing: string): Set<string> {
@@ -84,7 +102,8 @@ export interface FfmpegConverterOptions {
 
 /** The converter for this ffmpeg. Asks the program what it can do (three quick runs), and fails if it does not run. */
 export async function ffmpegConverter(o: FfmpegConverterOptions): Promise<Converter> {
-  const run = async (args: string[], signal?: AbortSignal) => o.host.exec(o.ffmpeg, args, { cwd: o.workDir, ...(signal === undefined ? {} : { signal }), maxOutput: 16 * 1024 * 1024 });
+  const run = async (args: string[], signal?: AbortSignal) =>
+    o.host.exec(o.ffmpeg, args, { cwd: o.workDir, ...(signal === undefined ? {} : { signal }), maxOutput: 16 * 1024 * 1024 });
   await o.host.fs.mkdir(o.workDir);
   const version = await run(["-hide_banner", "-version"]).catch((e: unknown) => {
     throw new ConversionError(`ffmpeg (${o.ffmpeg}) could not be started: ${e instanceof Error ? e.message : String(e)}`);
@@ -93,7 +112,10 @@ export async function ffmpegConverter(o: FfmpegConverterOptions): Promise<Conver
   const id = `ffmpeg ${/ffmpeg version (\S+)/.exec(dec.decode(version.stdout))?.[1] ?? "unknown"}`;
   const decoders = codecNames(dec.decode((await run(["-hide_banner", "-decoders"])).stdout));
   const encoders = codecNames(dec.decode((await run(["-hide_banner", "-encoders"])).stdout));
-  if (decoders.size === 0 || encoders.size === 0) throw new ConversionError(`could not read the codec lists of ${o.ffmpeg} (\`-decoders\` gave ${decoders.size} names, \`-encoders\` ${encoders.size}); is it a full ffmpeg build?`);
+  if (decoders.size === 0 || encoders.size === 0)
+    throw new ConversionError(
+      `could not read the codec lists of ${o.ffmpeg} (\`-decoders\` gave ${decoders.size} names, \`-encoders\` ${encoders.size}); is it a full ffmpeg build?`,
+    );
   const newId = o.newId ?? (() => `${process.pid}-${Date.now().toString(36)}-${(counter++).toString(36)}`);
 
   const can = (from: Format, to: MediaTarget): boolean => {
@@ -109,7 +131,10 @@ export async function ffmpegConverter(o: FfmpegConverterOptions): Promise<Conver
       const target = formatOf(to.mime);
       const enc = target === undefined ? undefined : ENCODINGS[target.mime];
       if (target === undefined || enc === undefined) throw new ConversionError(`ffmpeg here cannot make ${to.mime}`);
-      if (!can(from, to)) throw new ConversionError(`this ffmpeg (${id}) cannot turn ${from.label} into ${target.label}: it lacks the ${from.kind === "image" ? "picture" : "sound"} ${decoders.size === 0 ? "decoders" : "decoder or encoder"} for it`);
+      if (!can(from, to))
+        throw new ConversionError(
+          `this ffmpeg (${id}) cannot turn ${from.label} into ${target.label}: it lacks the ${from.kind === "image" ? "picture" : "sound"} ${decoders.size === 0 ? "decoders" : "decoder or encoder"} for it`,
+        );
       const stem = newId();
       const inName = `${stem}-in.${EXT[from.mime] ?? from.mime.split("/")[1] ?? "bin"}`;
       const outName = `${stem}-out.${enc.ext}`;
@@ -117,10 +142,33 @@ export async function ffmpegConverter(o: FfmpegConverterOptions): Promise<Conver
       const outPath = o.host.path.join(o.workDir, outName);
       await o.host.fs.writeAtomic(inPath, bytes);
       try {
-        const r = await run(["-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", inName, "-map_metadata", "-1", "-fflags", "+bitexact", "-flags", "+bitexact", ...enc.args, outName], signal);
-        if (r.exitCode !== 0) throw new ConversionError(`ffmpeg could not turn ${from.label} into ${target.label}: ${dec.decode(r.stderr).trim().split("\n").slice(-3).join("; ") || `exit ${r.exitCode}`}`);
+        const r = await run(
+          [
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-nostdin",
+            "-y",
+            "-i",
+            inName,
+            "-map_metadata",
+            "-1",
+            "-fflags",
+            "+bitexact",
+            "-flags",
+            "+bitexact",
+            ...enc.args,
+            outName,
+          ],
+          signal,
+        );
+        if (r.exitCode !== 0)
+          throw new ConversionError(
+            `ffmpeg could not turn ${from.label} into ${target.label}: ${dec.decode(r.stderr).trim().split("\n").slice(-3).join("; ") || `exit ${r.exitCode}`}`,
+          );
         const out = await o.host.fs.read(outPath).catch(() => undefined);
-        if (out === undefined || out.length === 0) throw new ConversionError(`ffmpeg made nothing when turning ${from.label} into ${target.label}`);
+        if (out === undefined || out.length === 0)
+          throw new ConversionError(`ffmpeg made nothing when turning ${from.label} into ${target.label}`);
         return out;
       } finally {
         await o.host.fs.remove(inPath).catch(() => false);

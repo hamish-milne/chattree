@@ -28,7 +28,13 @@ export interface Sample {
 }
 
 export const SAMPLES: readonly Sample[] = [
-  { name: "yanny-laurel", file: "YannyLaurel.ogg", start: 0, seconds: 10, question: "Transcribe the single word being spoken. Answer with just the word." },
+  {
+    name: "yanny-laurel",
+    file: "YannyLaurel.ogg",
+    start: 0,
+    seconds: 10,
+    question: "Transcribe the single word being spoken. Answer with just the word.",
+  },
   { name: "declaration", file: "Declaration_of_Independence_Part_1.ogg", start: 0, seconds: 25, said: "declaration of independence" },
   { name: "south-african", file: "South_African_English.ogg", start: 0, seconds: 20 },
   { name: "spanish-reader", file: "Non-native_English_reading_by_Spanish_native_speaker_003.ogg", start: 0, seconds: 20 },
@@ -55,11 +61,32 @@ export const sourceUrl = (file: string): string => `https://commons.wikimedia.or
  * Where ffmpeg reads `file` from: the copy in `input` when there is one, and Commons otherwise. Wikimedia turns away downloads by
  * scripts, so the files can be saved from their File: pages by hand into the input folder, under the names in `--list`.
  */
-export const sourceOf = (file: string, input: string, has: (path: string) => boolean = existsSync): string => (has(join(input, file)) ? resolve(join(input, file)) : sourceUrl(file));
+export const sourceOf = (file: string, input: string, has: (path: string) => boolean = existsSync): string =>
+  has(join(input, file)) ? resolve(join(input, file)) : sourceUrl(file);
 
 /** ffmpeg's arguments to cut `s` (read from `source`) to a 16 kHz mono WAV. */
 export function ffmpegArgs(s: Sample, out: string, source: string = sourceUrl(s.file)): string[] {
-  return ["-hide_banner", "-loglevel", "error", "-y", ...(source.startsWith("http") ? ["-user_agent", USER_AGENT] : []), "-ss", String(s.start), "-t", String(s.seconds), "-i", source, "-vn", "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", out];
+  return [
+    "-hide_banner",
+    "-loglevel",
+    "error",
+    "-y",
+    ...(source.startsWith("http") ? ["-user_agent", USER_AGENT] : []),
+    "-ss",
+    String(s.start),
+    "-t",
+    String(s.seconds),
+    "-i",
+    source,
+    "-vn",
+    "-ar",
+    "16000",
+    "-ac",
+    "1",
+    "-c:a",
+    "pcm_s16le",
+    out,
+  ];
 }
 
 function run(cmd: string, args: string[]): Promise<number> {
@@ -78,7 +105,8 @@ async function main(): Promise<void> {
     return;
   }
   const only = v("--only")?.split(",");
-  for (const n of only ?? []) if (!SAMPLES.some((s) => s.name === n)) throw new Error(`--only: ${n} is not one of ${SAMPLES.map((s) => s.name).join(", ")}`);
+  for (const n of only ?? [])
+    if (!SAMPLES.some((s) => s.name === n)) throw new Error(`--only: ${n} is not one of ${SAMPLES.map((s) => s.name).join(", ")}`);
   const dir = v("--out") ?? join("bench-runs", "audio-samples");
   const input = v("--input") ?? join(dir, "input");
   await mkdir(dir, { recursive: true });

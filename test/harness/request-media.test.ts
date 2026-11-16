@@ -14,8 +14,51 @@ import { tempDir } from "../support/tmp.ts";
 
 const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
-const BMP = Uint8Array.from([...ascii("BM"), ...le32(600), 0, 0, 0, 0, ...le32(54), ...le32(40), ...le32(2), ...le32(2), 1, 0, 24, 0, ...new Array<number>(560).fill(0)]);
-const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, ...ascii("IHDR"), 0, 0, 0, 1, 0, 0, 0, 1, 8, 2, 0, 0, 0]);
+const BMP = Uint8Array.from([
+  ...ascii("BM"),
+  ...le32(600),
+  0,
+  0,
+  0,
+  0,
+  ...le32(54),
+  ...le32(40),
+  ...le32(2),
+  ...le32(2),
+  1,
+  0,
+  24,
+  0,
+  ...new Array<number>(560).fill(0),
+]);
+const PNG = Uint8Array.from([
+  0x89,
+  0x50,
+  0x4e,
+  0x47,
+  0x0d,
+  0x0a,
+  0x1a,
+  0x0a,
+  0,
+  0,
+  0,
+  13,
+  ...ascii("IHDR"),
+  0,
+  0,
+  0,
+  1,
+  0,
+  0,
+  0,
+  1,
+  8,
+  2,
+  0,
+  0,
+  0,
+]);
 
 const registry = new AdapterRegistry().register(
   defineAdapter({
@@ -36,11 +79,29 @@ const registry = new AdapterRegistry().register(
 );
 
 async function thread(withTools = false): Promise<Conversation> {
-  const convo = await Conversation.create(nodeHost(), join(await tempDir(), "c"), { providers: { registry, secrets: envSource({}) }, config: "providers:\n  f:\n    $tag: fake\n" });
+  const convo = await Conversation.create(nodeHost(), join(await tempDir(), "c"), {
+    providers: { registry, secrets: envSource({}) },
+    config: "providers:\n  f:\n    $tag: fake\n",
+  });
   const tool = (name: string) => ({ name, description: name, input_schema: { type: "object" } as const });
-  const set = withTools ? { mm_read: await pinDefinition("tool", tool("mm_read"), { store: "blob", blobs: convo.store }), read: await pinDefinition("tool", tool("read"), { store: "blob", blobs: convo.store }) } : undefined;
+  const set = withTools
+    ? {
+        mm_read: await pinDefinition("tool", tool("mm_read"), { store: "blob", blobs: convo.store }),
+        read: await pinDefinition("tool", tool("read"), { store: "blob", blobs: convo.store }),
+      }
+    : undefined;
   await convo.setupChange({ model: { provider: "f", id: "m1", settings: {} }, ...(set === undefined ? {} : { tools: { set } }) });
-  await convo.append({ $tag: "user", content: [{ $tag: "text", text: "look" }, { $tag: "attachment", name: "a.bmp", data: { $tag: "blob", sha256: await convo.store.put(BMP), bytes: BMP.length, mime: "image/bmp" } }] });
+  await convo.append({
+    $tag: "user",
+    content: [
+      { $tag: "text", text: "look" },
+      {
+        $tag: "attachment",
+        name: "a.bmp",
+        data: { $tag: "blob", sha256: await convo.store.put(BMP), bytes: BMP.length, mime: "image/bmp" },
+      },
+    ],
+  });
   return convo;
 }
 
@@ -69,7 +130,11 @@ describe("prepareContext converts media for the sink", () => {
   test("a failure goes in as a warning and a note, with cost checks on or off", async () => {
     const convo = await thread();
     for (const cost of [false, undefined] as const) {
-      const p = await prepareContext(convo, { system: "s", ...(cost === false ? { cost } : { allowDrift: ["pricing_changed" as const] }), media: { converter: async () => fake(true), cache: false } });
+      const p = await prepareContext(convo, {
+        system: "s",
+        ...(cost === false ? { cost } : { allowDrift: ["pricing_changed" as const] }),
+        media: { converter: async () => fake(true), cache: false },
+      });
       assert.equal(p.warnings.filter((w) => w.kind === "media_not_sent").length, 1);
       assert.equal(p.converted, undefined);
     }
@@ -81,6 +146,9 @@ describe("prepareContext converts media for the sink", () => {
     assert.deepEqual(sighted.context.tools.map((t) => t.name).sort(), ["mm_read", "read"]);
     await convo.setupChange({ model: { provider: "f", id: "blind", settings: {} } }, { allow: ["model_changed"] });
     const blind = await prepareContext(convo, { system: "s", cost: false });
-    assert.deepEqual(blind.context.tools.map((t) => t.name), ["read"]);
+    assert.deepEqual(
+      blind.context.tools.map((t) => t.name),
+      ["read"],
+    );
   });
 });

@@ -51,13 +51,24 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
       let model = "";
       if (tools !== undefined) {
         try {
-          yield* toolLoop(ctx, tools, { signal: ac.signal, standing: [...engine.standing, ...drift], drift, warnings, setModel: (m) => (model = m), model: () => model });
+          yield* toolLoop(ctx, tools, {
+            signal: ac.signal,
+            standing: [...engine.standing, ...drift],
+            drift,
+            warnings,
+            setModel: (m) => (model = m),
+            model: () => model,
+          });
           return;
         } catch (e) {
           if (e instanceof ChangeNotAllowed && attempt < 2) {
             yield { type: "notice", message: e.changes.map((c) => `${c.kind}: ${c.message}`).join("\n") };
             if (!(await ctx.confirm("Go ahead anyway?"))) {
-              yield { type: "error", message: "not sent", hint: "nothing was sent; /accept accepts a change the provider made, then /retry asks again" };
+              yield {
+                type: "error",
+                message: "not sent",
+                hint: "nothing was sent; /accept accepts a change the provider made, then /retry asks again",
+              };
               return;
             }
             if (e.allowWith.includes("pricing_changed")) {
@@ -69,7 +80,13 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
           }
           if (e instanceof ToolsNotSupported || e instanceof ToolsOutOfSync) {
             const mcp = e instanceof ToolsOutOfSync && [...e.missing, ...e.changed, ...e.extra].some((n) => n.startsWith("mcp__"));
-            yield { type: "error", message: e.message, hint: mcp ? "an MCP server's tools are not what this thread accepted: /mcp shows why, /mcp accept pins them" : "the model cannot be given these tools; /model another model, or set tool_convention for it in harness.yml" };
+            yield {
+              type: "error",
+              message: e.message,
+              hint: mcp
+                ? "an MCP server's tools are not what this thread accepted: /mcp shows why, /mcp accept pins them"
+                : "the model cannot be given these tools; /model another model, or set tool_convention for it in harness.yml",
+            };
             return;
           }
           yield failure(e);
@@ -105,12 +122,27 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
             yield {
               type: "request_end",
               status: r.status,
-              ...(usage === undefined ? {} : { usage: { input: usage.input_tokens, output: usage.output_tokens, cached: usage.cache_read_tokens ?? 0 } }),
-              ...(ledger === undefined ? {} : { turnUsd: ledger.turn.usd, threadUsd: ledger.conversation.usd, unpriced: ledger.conversation.unpriced > 0 }),
+              ...(usage === undefined
+                ? {}
+                : { usage: { input: usage.input_tokens, output: usage.output_tokens, cached: usage.cache_read_tokens ?? 0 } }),
+              ...(ledger === undefined
+                ? {}
+                : { turnUsd: ledger.turn.usd, threadUsd: ledger.conversation.usd, unpriced: ledger.conversation.unpriced > 0 }),
               ...(r.status === "completed" ? { stopReason: r.completed.stop_reason } : {}),
             };
-            if (r.status === "completed" && r.completed.stop_reason === "tool_use") yield { type: "notice", message: "the model asked to call a tool, but this version of the CLI has no tool loop yet; the call is in the transcript" };
-            if (r.status === "interrupted") yield { type: "notice", message: r.by === "user" ? "stopped; what arrived is saved (/continue asks the model to carry on)" : "the reply was cut short; what arrived is saved (/continue asks the model to carry on)" };
+            if (r.status === "completed" && r.completed.stop_reason === "tool_use")
+              yield {
+                type: "notice",
+                message: "the model asked to call a tool, but this version of the CLI has no tool loop yet; the call is in the transcript",
+              };
+            if (r.status === "interrupted")
+              yield {
+                type: "notice",
+                message:
+                  r.by === "user"
+                    ? "stopped; what arrived is saved (/continue asks the model to carry on)"
+                    : "the reply was cut short; what arrived is saved (/continue asks the model to carry on)",
+              };
             return;
           }
           const o = mapEvent(n.value);
@@ -120,7 +152,11 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
         if (e instanceof ChangeNotAllowed && attempt < 2) {
           yield { type: "notice", message: e.changes.map((c) => `${c.kind}: ${c.message}`).join("\n") };
           if (!(await ctx.confirm("Go ahead anyway?"))) {
-            yield { type: "error", message: "not sent", hint: "nothing was sent; /accept accepts a change the provider made, then /retry asks again" };
+            yield {
+              type: "error",
+              message: "not sent",
+              hint: "nothing was sent; /accept accepts a change the provider made, then /retry asks again",
+            };
             return;
           }
           if (e.allowWith.includes("pricing_changed")) {
@@ -139,7 +175,10 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
     engine.abort = undefined;
     engine.turnEnded();
     // A job that ended while the turn was finishing was held back (the thread was busy); nothing else would deliver it until the next turn.
-    void engine.toolset()?.then((set) => set.jobs.flushIfIdle()).catch(() => undefined);
+    void engine
+      .toolset()
+      ?.then((set) => set.jobs.flushIfIdle())
+      .catch(() => undefined);
   }
 }
 
@@ -147,7 +186,14 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
 async function* toolLoop(
   ctx: Ctx,
   tools: Awaited<NonNullable<ReturnType<Ctx["engine"]["toolset"]>>>,
-  o: { signal: AbortSignal; standing: ChangeKind[]; drift: ChangeKind[]; warnings: string[]; setModel: (m: string) => void; model: () => string },
+  o: {
+    signal: AbortSignal;
+    standing: ChangeKind[];
+    drift: ChangeKind[];
+    warnings: string[];
+    setModel: (m: string) => void;
+    model: () => string;
+  },
 ): AsyncGenerator<Output, void> {
   const { engine, convo } = ctx;
   await syncTools(convo, tools.registry);
@@ -176,11 +222,14 @@ async function* toolLoop(
     for (const w of o.warnings.splice(0)) yield { type: "warning", message: w };
     if (n.done) {
       const r = n.value;
-      if (r.status === "completed" || r.status === "finished" || r.status === "needs_approval" || r.status === "blocked") engine.cleanTurn = true;
+      if (r.status === "completed" || r.status === "finished" || r.status === "needs_approval" || r.status === "blocked")
+        engine.cleanTurn = true;
       if (r.status === "stopped") yield { type: "notice", message: "stopped; the calls that had not run were answered as not run" };
-      else if (r.status === "deadline") yield { type: "notice", message: "the turn's time limit passed; the calls that had not run were answered as not run" };
+      else if (r.status === "deadline")
+        yield { type: "notice", message: "the turn's time limit passed; the calls that had not run were answered as not run" };
       else if (r.status === "needs_approval") yield { type: "notice", message: "waiting for your answer" };
-      else if (r.status === "blocked") yield { type: "notice", message: `waiting for ${r.blocked?.on ?? "another thread"}; this thread carries on when it is done` };
+      else if (r.status === "blocked")
+        yield { type: "notice", message: `waiting for ${r.blocked?.on ?? "another thread"}; this thread carries on when it is done` };
       return;
     }
     const e = n.value;
@@ -210,12 +259,23 @@ async function mapLoopEvent(convo: Ctx["convo"], e: LoopEvent, started: () => vo
         {
           type: "request_end",
           status: r.status,
-          ...(usage === undefined ? {} : { usage: { input: usage.input_tokens, output: usage.output_tokens, cached: usage.cache_read_tokens ?? 0 } }),
-          ...(ledger === undefined ? {} : { turnUsd: ledger.turn.usd, threadUsd: ledger.conversation.usd, unpriced: ledger.conversation.unpriced > 0 }),
+          ...(usage === undefined
+            ? {}
+            : { usage: { input: usage.input_tokens, output: usage.output_tokens, cached: usage.cache_read_tokens ?? 0 } }),
+          ...(ledger === undefined
+            ? {}
+            : { turnUsd: ledger.turn.usd, threadUsd: ledger.conversation.usd, unpriced: ledger.conversation.unpriced > 0 }),
           ...(r.status === "completed" ? { stopReason: r.completed.stop_reason } : {}),
         },
       ];
-      if (r.status === "interrupted") out.push({ type: "notice", message: r.by === "user" ? "stopped; what arrived is saved (/continue asks the model to carry on)" : "the reply was cut short; what arrived is saved (/continue asks the model to carry on)" });
+      if (r.status === "interrupted")
+        out.push({
+          type: "notice",
+          message:
+            r.by === "user"
+              ? "stopped; what arrived is saved (/continue asks the model to carry on)"
+              : "the reply was cut short; what arrived is saved (/continue asks the model to carry on)",
+        });
       return out;
     }
     case "tool.start":
@@ -223,11 +283,14 @@ async function mapLoopEvent(convo: Ctx["convo"], e: LoopEvent, started: () => vo
     case "tool.approval": {
       const out: Output[] = [];
       if (e.granted !== undefined) out.push({ type: "notice", message: `allowed until ${e.granted.until}: ${e.granted.keys.join("; ")}` });
-      if (e.grantError !== undefined) out.push({ type: "warning", message: `the call was allowed once, but the grant was not saved: ${e.grantError}` });
+      if (e.grantError !== undefined)
+        out.push({ type: "warning", message: `the call was allowed once, but the grant was not saved: ${e.grantError}` });
       return out;
     }
     case "tool.result":
-      return [{ type: "tool_result", callId: e.callId, name: e.name, is_error: e.is_error, content: e.content, ms: e.ms, truncated: e.truncated }];
+      return [
+        { type: "tool_result", callId: e.callId, name: e.name, is_error: e.is_error, content: e.content, ms: e.ms, truncated: e.truncated },
+      ];
     case "job.event":
       return [{ type: "job_event", job: e.job, status: e.status, summary: e.summary }];
   }
@@ -244,11 +307,26 @@ export function failure(e: unknown): Output {
   if (e instanceof ConfigNotTrusted) return { type: "error", message: e.message, hint: "/trust shows what is in it and approves it" };
   if (e instanceof ChangeNotAllowed) return { type: "error", message: e.message };
   if (e instanceof ContextFull) return { type: "error", message: e.message };
-  if (e instanceof CompactionInsufficient) return { type: "error", message: e.message, hint: "the thread is kept as it is; send again to go on without another summary for a few entries, or change compaction in harness.yml" };
+  if (e instanceof CompactionInsufficient)
+    return {
+      type: "error",
+      message: e.message,
+      hint: "the thread is kept as it is; send again to go on without another summary for a few entries, or change compaction in harness.yml",
+    };
   if (e instanceof LimitExceeded) return { type: "error", message: e.message };
-  if (e instanceof ThreadBusy) return { type: "error", message: e.message, hint: "wait for it to finish, or stop it there; a lease left by a process that died is taken over by itself" };
+  if (e instanceof ThreadBusy)
+    return {
+      type: "error",
+      message: e.message,
+      hint: "wait for it to finish, or stop it there; a lease left by a process that died is taken over by itself",
+    };
   if (e instanceof JournalBusy) return { type: "error", message: e.message, hint: "/abort stops the request that is running" };
-  if (e instanceof ProviderError) return { type: "error", message: `the provider failed (${e.kind}${e.status === undefined ? "" : ` ${e.status}`}): ${e.message}`, hint: "nothing was added to the transcript for this attempt; /retry asks again" };
+  if (e instanceof ProviderError)
+    return {
+      type: "error",
+      message: `the provider failed (${e.kind}${e.status === undefined ? "" : ` ${e.status}`}): ${e.message}`,
+      hint: "nothing was added to the transcript for this attempt; /retry asks again",
+    };
   if (e instanceof CliError) return { type: "error", message: e.message, ...(e.hint === undefined ? {} : { hint: e.hint }) };
   return { type: "error", message: e instanceof Error ? e.message : String(e) };
 }

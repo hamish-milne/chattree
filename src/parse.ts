@@ -173,11 +173,16 @@ function parseInline(text: string, cur: Cursor, contentIndent: number, ln: numbe
   }
   if (c === 0x7c) return parseBlock(text, cur, contentIndent, ln);
   switch (text) {
-    case "[]": return [];
-    case "{}": return new Map();
-    case "null": return null;
-    case "true": return true;
-    case "false": return false;
+    case "[]":
+      return [];
+    case "{}":
+      return new Map();
+    case "null":
+      return null;
+    case "true":
+      return true;
+    case "false":
+      return false;
   }
   if (c === 0x21) {
     const m = BLOB_RE.exec(text);
@@ -218,7 +223,8 @@ function parseBlock(header: string, cur: Cursor, contentIndent: number, ln: numb
 /** The body of a tagged entry: fields on the lines below the dash line, two columns in. */
 function parseEntryBody(cur: Cursor, lines: string[]): Map<string, Value> {
   const l1 = lines[1];
-  if (l1 === undefined || !l1.startsWith("  ") || l1.charCodeAt(2) === 0x20) throw new ParseError("expected the entry's fields below its tag", 2);
+  if (l1 === undefined || !l1.startsWith("  ") || l1.charCodeAt(2) === 0x20)
+    throw new ParseError("expected the entry's fields below its tag", 2);
   cur.pos = 2;
   return parseMap(cur, 2, l1.slice(2), 1);
 }

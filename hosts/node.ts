@@ -16,7 +16,11 @@ const isCode = (e: unknown, code: string): boolean => typeof e === "object" && e
  * so the tries go on for as long as graceful-fs's (about five seconds) before giving up. Where the failure is not transient, or is not
  * Windows, it is raised at once.
  */
-export async function renameReplacing(from: string, to: string, io: { rename?: (a: string, b: string) => Promise<void>; windows?: boolean; sleep?: (ms: number) => Promise<void> } = {}): Promise<void> {
+export async function renameReplacing(
+  from: string,
+  to: string,
+  io: { rename?: (a: string, b: string) => Promise<void>; windows?: boolean; sleep?: (ms: number) => Promise<void> } = {},
+): Promise<void> {
   const rename = io.rename ?? ((a, b) => fsp.rename(a, b));
   const windows = io.windows ?? process.platform === "win32";
   const sleep = io.sleep ?? ((ms) => new Promise<void>((r) => setTimeout(r, ms)));
@@ -50,7 +54,10 @@ function concat(chunks: Uint8Array[], total: number): Uint8Array {
  */
 export function findRealGit(
   pathVar: string | undefined,
-  deps: { isFile(p: string): boolean; works(p: string): boolean } = { isFile: (p) => statSync(p, { throwIfNoEntry: false })?.isFile() === true, works: (p) => spawnSync(p, ["version"], { windowsHide: true }).status === 0 },
+  deps: { isFile(p: string): boolean; works(p: string): boolean } = {
+    isFile: (p) => statSync(p, { throwIfNoEntry: false })?.isFile() === true,
+    works: (p) => spawnSync(p, ["version"], { windowsHide: true }).status === 0,
+  },
 ): string | undefined {
   const w = nodePath.win32;
   for (const dir of (pathVar ?? "").split(";")) {
@@ -177,7 +184,8 @@ function killTree(child: ReturnType<typeof spawn>): void {
   const pid = child.pid;
   if (pid === undefined) return;
   try {
-    if (process.platform === "win32") spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => undefined);
+    if (process.platform === "win32")
+      spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore", windowsHide: true }).on("error", () => undefined);
     else process.kill(-pid, "SIGKILL");
   } catch {
     try {
@@ -193,7 +201,8 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
     const limit = spec.maxOutput ?? DEFAULT_RUN_OUTPUT;
     const env: Record<string, string | undefined> = { ...process.env, ...(spec.env ?? {}) };
     const pattern = spec.unsetEnvPattern === undefined ? undefined : new RegExp(spec.unsetEnvPattern, "i");
-    for (const name of Object.keys(env)) if ((spec.unsetEnv ?? []).includes(name) || (pattern?.test(name) === true && !(name in (spec.env ?? {})))) delete env[name];
+    for (const name of Object.keys(env))
+      if ((spec.unsetEnv ?? []).includes(name) || (pattern?.test(name) === true && !(name in (spec.env ?? {})))) delete env[name];
 
     const output: Uint8Array[] = [];
     const stdoutChunks: Uint8Array[] = [];
@@ -251,11 +260,14 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
       killAll();
       stopped();
     };
-    const timer = spec.timeoutMs === undefined ? undefined : setTimeout(() => {
-      timedOut = true;
-      killAll();
-      stopped();
-    }, spec.timeoutMs);
+    const timer =
+      spec.timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true;
+            killAll();
+            stopped();
+          }, spec.timeoutMs);
     if (spec.signal?.aborted === true) {
       onAbort();
     }
@@ -264,7 +276,15 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
     spec.stages.forEach((stage, i) => {
       const [program, ...args] = stage as readonly [string, ...string[]];
       const last = i === spec.stages.length - 1;
-      const child = spawn(program, args, { cwd: spec.cwd, env: env as NodeJS.ProcessEnv, stdio: ["pipe", "pipe", "pipe"], shell: false, detached: process.platform !== "win32", windowsHide: true, windowsVerbatimArguments: spec.verbatim?.[i] === true });
+      const child = spawn(program, args, {
+        cwd: spec.cwd,
+        env: env as NodeJS.ProcessEnv,
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: false,
+        detached: process.platform !== "win32",
+        windowsHide: true,
+        windowsVerbatimArguments: spec.verbatim?.[i] === true,
+      });
       children.push(child);
       let done = false;
       const end = (code: number): void => {
@@ -297,10 +317,16 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
       }
       if (i === 0) child.stdin.end(spec.stdin);
       child.on("error", (e: NodeJS.ErrnoException) => {
-        outBytes = keep(output, outBytes, new TextEncoder().encode(e.code === "ENOENT" ? `${program}: command not found\n` : `${program}: ${e.message}\n`));
+        outBytes = keep(
+          output,
+          outBytes,
+          new TextEncoder().encode(e.code === "ENOENT" ? `${program}: command not found\n` : `${program}: ${e.message}\n`),
+        );
         end(127);
       });
-      child.on("close", (code, signal) => end(code ?? (signal === null ? 1 : 128 + ((signal === "SIGKILL" && 9) || (signal === "SIGTERM" && 15) || 1))));
+      child.on("close", (code, signal) =>
+        end(code ?? (signal === null ? 1 : 128 + ((signal === "SIGKILL" && 9) || (signal === "SIGTERM" && 15) || 1))),
+      );
     });
   });
 }
@@ -327,7 +353,9 @@ async function syncDir(dir: string): Promise<void> {
 const nodeFs: Fs = {
   watch(path, onChange, opts) {
     try {
-      const w = fsWatch(path, { persistent: false, recursive: opts?.recursive === true }, (_event, name) => onChange(name === null ? undefined : String(name)));
+      const w = fsWatch(path, { persistent: false, recursive: opts?.recursive === true }, (_event, name) =>
+        onChange(name === null ? undefined : String(name)),
+      );
       w.on("error", () => undefined); // the directory went away, or the platform cannot watch it: the caller's polling covers it
       return () => w.close();
     } catch {
@@ -365,7 +393,13 @@ const nodeFs: Fs = {
     const dir = nodePath.dirname(path);
     await fsp.mkdir(dir, { recursive: true });
     const tmp = `${path}.tmp-${randomBytes(6).toString("hex")}`;
-    const mode = opts?.keepMode === true ? await fsp.stat(path).then((s) => s.mode & 0o7777, () => undefined) : undefined;
+    const mode =
+      opts?.keepMode === true
+        ? await fsp.stat(path).then(
+            (s) => s.mode & 0o7777,
+            () => undefined,
+          )
+        : undefined;
     const h = await fsp.open(tmp, "wx");
     try {
       if (mode !== undefined) await h.chmod(mode);
@@ -471,8 +505,22 @@ const nodeFs: Fs = {
 
 /** A host for the machine this process runs on. Programs run without a shell; the environment is `process.env` plus `opts.env`. */
 export function nodeHost(): Host {
-  const path: PathOps = { join: (...s) => nodePath.join(...s), dirname: (p) => nodePath.dirname(p), resolve: (...s) => nodePath.resolve(...s), relative: (a, b) => nodePath.relative(a, b), isAbsolute: (p) => nodePath.isAbsolute(p) };
-  return { exec, spawn: spawnProcess, run: runCommand, fs: nodeFs, path, nullDevice: process.platform === "win32" ? "NUL" : "/dev/null", platform: process.platform === "win32" ? "windows" : "posix" };
+  const path: PathOps = {
+    join: (...s) => nodePath.join(...s),
+    dirname: (p) => nodePath.dirname(p),
+    resolve: (...s) => nodePath.resolve(...s),
+    relative: (a, b) => nodePath.relative(a, b),
+    isAbsolute: (p) => nodePath.isAbsolute(p),
+  };
+  return {
+    exec,
+    spawn: spawnProcess,
+    run: runCommand,
+    fs: nodeFs,
+    path,
+    nullDevice: process.platform === "win32" ? "NUL" : "/dev/null",
+    platform: process.platform === "win32" ? "windows" : "posix",
+  };
 }
 
 /** Where `tools/fetch-busybox.ts` puts busybox.exe: vendor/busybox/ at the root of this package. */
@@ -482,7 +530,10 @@ export const BUSYBOX_DIR = nodePath.join(nodePath.dirname(fileURLToPath(import.m
  * The busybox.exe that stands in for cat, ls, grep and the rest of the everyday utilities on Windows: the path in
  * `CHATTREE_BUSYBOX`, else the one `tools/fetch-busybox.ts` installed. Undefined elsewhere, and when there is none.
  */
-export async function findBusybox(env: Readonly<Record<string, string | undefined>> = process.env, dir: string = BUSYBOX_DIR): Promise<string | undefined> {
+export async function findBusybox(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+  dir: string = BUSYBOX_DIR,
+): Promise<string | undefined> {
   if (process.platform !== "win32") return undefined;
   for (const candidate of [env["CHATTREE_BUSYBOX"], nodePath.join(dir, "busybox.exe")]) {
     if (candidate !== undefined && candidate !== "" && (await nodeFs.stat(candidate))?.isFile === true) return candidate;

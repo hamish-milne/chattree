@@ -14,7 +14,21 @@ import { tempDir } from "../support/tmp.ts";
 function windowsHost() {
   const base = nodeHost();
   const specs: RunSpec[] = [];
-  const host = { ...base, platform: "windows" as const, run: (spec: RunSpec) => (specs.push(spec), Promise.resolve({ exitCode: 0, stageCodes: [0], output: new TextEncoder().encode("ran"), dropped: 0, timedOut: false, aborted: false })) };
+  const host = {
+    ...base,
+    platform: "windows" as const,
+    run: (spec: RunSpec) => (
+      specs.push(spec),
+      Promise.resolve({
+        exitCode: 0,
+        stageCodes: [0],
+        output: new TextEncoder().encode("ran"),
+        dropped: 0,
+        timedOut: false,
+        aborted: false,
+      })
+    ),
+  };
   return { host, specs };
 }
 
@@ -33,7 +47,10 @@ async function setup(files: string[]) {
 
 const call = async (host: Host, workspace: string, opts: Parameters<typeof runTool>[0], command: string) => {
   const tool = runTool(opts);
-  return (await tool.execute({ command }, { signal: new AbortController().signal, callId: "c", workspace, host })) as { content: string; is_error?: boolean };
+  return (await tool.execute({ command }, { signal: new AbortController().signal, callId: "c", workspace, host })) as {
+    content: string;
+    is_error?: boolean;
+  };
 };
 
 describe("batch programs on Windows", () => {
@@ -49,9 +66,20 @@ describe("batch programs on Windows", () => {
   test("with the flag it is started through cmd.exe with a verbatim command line", async () => {
     const { workspace, bin } = await setup(["bin/pnpm.cmd"]);
     const { host, specs } = windowsHost();
-    const r = await call(host, workspace, { batch: true, hostEnv: { PATH: bin, ComSpec: "C:\\Windows\\System32\\cmd.exe" } }, "pnpm run 'two words' -r");
+    const r = await call(
+      host,
+      workspace,
+      { batch: true, hostEnv: { PATH: bin, ComSpec: "C:\\Windows\\System32\\cmd.exe" } },
+      "pnpm run 'two words' -r",
+    );
     assert.equal(r.is_error, false, r.content);
-    assert.deepEqual(specs[0]!.stages[0], ["C:\\Windows\\System32\\cmd.exe", "/d", "/s", "/c", `""${join(bin, "pnpm.cmd")}" run "two words" -r"`]);
+    assert.deepEqual(specs[0]!.stages[0], [
+      "C:\\Windows\\System32\\cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      `""${join(bin, "pnpm.cmd")}" run "two words" -r"`,
+    ]);
     assert.deepEqual(specs[0]!.verbatim, [true]);
   });
 
@@ -67,12 +95,22 @@ describe("batch programs on Windows", () => {
   });
 
   test("lookup is plain: PATH in order (relative entries from the workspace), .exe before .cmd, nothing from the bare current directory", async () => {
-    const { workspace, bin, bin2 } = await setup(["bin/tool.exe", "bin2/tool.cmd", "bin2/other.exe", "bin2/other.cmd", "ws/git.cmd", "ws/node_modules/.bin/vite.cmd"]);
+    const { workspace, bin, bin2 } = await setup([
+      "bin/tool.exe",
+      "bin2/tool.cmd",
+      "bin2/other.exe",
+      "bin2/other.cmd",
+      "ws/git.cmd",
+      "ws/node_modules/.bin/vite.cmd",
+    ]);
     const { host } = windowsHost();
     assert.deepEqual(await findProgram(host, workspace, "tool", { PATH: `${bin};${bin2}` }), { path: join(bin, "tool.exe") });
     assert.deepEqual(await findProgram(host, workspace, "other", { PATH: bin2 }), { path: join(bin2, "other.exe") });
     assert.equal(await findProgram(host, workspace, "git", { PATH: bin }), undefined, "the workspace is not searched unless PATH says so");
-    assert.deepEqual(await findProgram(host, workspace, "vite", { PATH: `node_modules/.bin;${bin}` }), { path: join(workspace, "node_modules/.bin/vite.cmd"), local: "./node_modules/.bin/vite.cmd" });
+    assert.deepEqual(await findProgram(host, workspace, "vite", { PATH: `node_modules/.bin;${bin}` }), {
+      path: join(workspace, "node_modules/.bin/vite.cmd"),
+      local: "./node_modules/.bin/vite.cmd",
+    });
   });
 
   test("a batch file inside the workspace needs a tools.run.local glob, whatever found it", async () => {
@@ -81,7 +119,10 @@ describe("batch programs on Windows", () => {
     const env = { PATH: `node_modules/.bin;${bin}`, ComSpec: "cmd.exe" };
     const refused = await call(host, workspace, { batch: true, hostEnv: env }, "vite --version");
     assert.equal(refused.is_error, true);
-    assert.match(refused.content, /vite resolves to \.\/node_modules\/\.bin\/vite\.cmd, a batch file inside the workspace, and tools\.run\.local/);
+    assert.match(
+      refused.content,
+      /vite resolves to \.\/node_modules\/\.bin\/vite\.cmd, a batch file inside the workspace, and tools\.run\.local/,
+    );
     const wrong = await call(host, workspace, { batch: true, batchLocal: ["./scripts/*.cmd"], hostEnv: env }, "vite --version");
     assert.equal(wrong.is_error, true);
     const ok = await call(host, workspace, { batch: true, batchLocal: ["./node_modules/.bin/*.cmd"], hostEnv: env }, "vite --version");
@@ -115,7 +156,13 @@ describe("batch programs on Windows", () => {
   });
 
   test("the helpers: stage text and argument checks", () => {
-    assert.deepEqual(batchStage("cmd.exe", "C:\\p\\a b\\x.cmd", ["1", "two words", ""]), ["cmd.exe", "/d", "/s", "/c", '""C:\\p\\a b\\x.cmd" 1 "two words" """']);
+    assert.deepEqual(batchStage("cmd.exe", "C:\\p\\a b\\x.cmd", ["1", "two words", ""]), [
+      "cmd.exe",
+      "/d",
+      "/s",
+      "/c",
+      '""C:\\p\\a b\\x.cmd" 1 "two words" """',
+    ]);
     assert.equal(batchProblem("C:\\x.cmd", ["fine", "also fine"]), undefined);
     assert.match(batchProblem("C:\\x.cmd", ["a\nb"]) ?? "", /interpret/);
     assert.match(batchProblem("C:\\R&D\\x.cmd", []) ?? "", /path/);
@@ -123,7 +170,9 @@ describe("batch programs on Windows", () => {
   });
 
   test("harness.yml accepts tools.run.batch and tools.run.local", async () => {
-    assert.ok((await parseConfig("providers: {}\ntools:\n  run:\n    batch: true\n    local: ['./node_modules/.bin/*.cmd']\n", harnessConfig)).ok);
+    assert.ok(
+      (await parseConfig("providers: {}\ntools:\n  run:\n    batch: true\n    local: ['./node_modules/.bin/*.cmd']\n", harnessConfig)).ok,
+    );
     assert.equal(localAllowed("./a/b.cmd", ["./a/*.cmd"]), true);
     assert.equal(localAllowed("./a/x/b.cmd", ["./a/*.cmd"]), false);
     assert.ok(!(await parseConfig("providers: {}\ntools:\n  run:\n    batch: yes please\n", harnessConfig)).ok);

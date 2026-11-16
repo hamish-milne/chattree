@@ -98,7 +98,8 @@ export class ControlServer {
   async #handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     // A web page must not be able to drive the daemon: no cross-origin requests, and only the loopback names for the host (DNS rebinding).
     const host = req.headers["host"] ?? "";
-    if (req.headers["origin"] !== undefined || ![`127.0.0.1:${this.#port}`, `localhost:${this.#port}`].includes(host)) return json(res, 403, { error: "forbidden" });
+    if (req.headers["origin"] !== undefined || ![`127.0.0.1:${this.#port}`, `localhost:${this.#port}`].includes(host))
+      return json(res, 403, { error: "forbidden" });
     if (!this.#authorised(req)) return json(res, 401, { error: "the token is missing or wrong" });
     const url = new URL(req.url ?? "/", "http://x");
     const route = `${req.method} ${url.pathname}`;
@@ -130,7 +131,8 @@ export class ControlServer {
       }
       case "POST /pull": {
         const body = await readBody(req);
-        const models = Array.isArray(body["models"]) && body["models"].every((m) => typeof m === "string") ? (body["models"] as string[]) : [];
+        const models =
+          Array.isArray(body["models"]) && body["models"].every((m) => typeof m === "string") ? (body["models"] as string[]) : [];
         t.pull(models, body["force"] === true);
         return json(res, 202, t.status());
       }

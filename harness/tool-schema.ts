@@ -54,17 +54,23 @@ export function checkSchema(schema: unknown): string[] {
       for (const [name, sub] of Object.entries(isObject(props) ? props : {})) walk(sub, at(path, name), false);
       const required = s["required"];
       if (required !== undefined) {
-        if (!Array.isArray(required) || required.some((r) => typeof r !== "string")) problems.push(`${where}: required must be a list of names`);
-        else for (const r of required as string[]) if (!isObject(props) || !(r in props)) problems.push(`${where}: required names ${r}, which is not a property`);
+        if (!Array.isArray(required) || required.some((r) => typeof r !== "string"))
+          problems.push(`${where}: required must be a list of names`);
+        else
+          for (const r of required as string[])
+            if (!isObject(props) || !(r in props)) problems.push(`${where}: required names ${r}, which is not a property`);
       }
     } else if (type === "array") {
       if (s["items"] === undefined) problems.push(`${where}: arrays need \`items\``);
       else walk(s["items"], `${path}[]`, false);
-      for (const k of ["minItems", "maxItems"]) if (s[k] !== undefined && !(Number.isInteger(s[k]) && (s[k] as number) >= 0)) problems.push(`${where}: ${k} must be a whole number`);
+      for (const k of ["minItems", "maxItems"])
+        if (s[k] !== undefined && !(Number.isInteger(s[k]) && (s[k] as number) >= 0))
+          problems.push(`${where}: ${k} must be a whole number`);
     } else {
       const en = s["enum"];
       if (en !== undefined && (!Array.isArray(en) || en.length === 0)) problems.push(`${where}: enum must be a non-empty list`);
-      for (const k of ["minimum", "maximum"]) if (s[k] !== undefined && typeof s[k] !== "number") problems.push(`${where}: ${k} must be a number`);
+      for (const k of ["minimum", "maximum"])
+        if (s[k] !== undefined && typeof s[k] !== "number") problems.push(`${where}: ${k} must be a number`);
     }
   };
   walk(schema, "", true);
@@ -82,10 +88,10 @@ function engine(schema: Schema): Ajv | Ajv2020 {
   const uri = typeof schema["$schema"] === "string" ? schema["$schema"] : "";
   const options = { allErrors: true, verbose: true, strict: false, logger: false, validateSchema: false } as const;
   if (/2019-09|2020-12/.test(uri)) {
-    if (draft2020 === undefined) addFormats(draft2020 = new Ajv2020(options));
+    if (draft2020 === undefined) addFormats((draft2020 = new Ajv2020(options)));
     return draft2020;
   }
-  if (draft07 === undefined) addFormats(draft07 = new Ajv(options));
+  if (draft07 === undefined) addFormats((draft07 = new Ajv(options)));
   return draft07;
 }
 
@@ -145,7 +151,17 @@ function sentence(e: ErrorObject): string {
       const kinds = Array.isArray(t) ? t : [t];
       if (kinds.length > 1) return `${where} must be ${kinds.join(" or ")}`;
       if (kinds[0] === "integer" && typeof e.data !== "number") return `${where} must be a number`;
-      return { object: `${where} must be an object`, array: `${where} must be a list`, string: `${where} must be text`, boolean: `${where} must be true or false`, number: `${where} must be a number`, integer: `${where} must be a whole number`, null: `${where} must be null` }[String(kinds[0])] ?? `${where} has the wrong type`;
+      return (
+        {
+          object: `${where} must be an object`,
+          array: `${where} must be a list`,
+          string: `${where} must be text`,
+          boolean: `${where} must be true or false`,
+          number: `${where} must be a number`,
+          integer: `${where} must be a whole number`,
+          null: `${where} must be null`,
+        }[String(kinds[0])] ?? `${where} has the wrong type`
+      );
     }
     case "enum":
       return `${where} must be one of ${list(p["allowedValues"])}`;
@@ -211,7 +227,10 @@ export function flatProblems(schema: unknown): string[] {
     if (type === "object") out.push(`${k} is an object`);
     else if (type === "array") {
       const items = p["items"];
-      if (!isObject(items) || !SCALAR.has(items["type"] as string)) out.push(`${k} is a list of ${isObject(items) && typeof items["type"] === "string" ? `${items["type"]}s` : "things that are not plain values"}`);
+      if (!isObject(items) || !SCALAR.has(items["type"] as string))
+        out.push(
+          `${k} is a list of ${isObject(items) && typeof items["type"] === "string" ? `${items["type"]}s` : "things that are not plain values"}`,
+        );
     }
   }
   return out;
@@ -227,7 +246,13 @@ const NUMBER_RE = /^\s*-?\d+(\.\d+)?\s*$/;
  * more than one thing is left alone for `validateArgs` to report. Returns a new value; the input is not changed.
  */
 export function coerceArgs(schema: unknown, value: unknown): unknown {
-  return coerce(schema, value, isObject(schema) ? { ...(isObject(schema["definitions"]) ? schema["definitions"] : {}), ...(isObject(schema["$defs"]) ? schema["$defs"] : {}) } : {});
+  return coerce(
+    schema,
+    value,
+    isObject(schema)
+      ? { ...(isObject(schema["definitions"]) ? schema["definitions"] : {}), ...(isObject(schema["$defs"]) ? schema["$defs"] : {}) }
+      : {},
+  );
 }
 
 /**
@@ -292,7 +317,12 @@ function coerce(raw: unknown, value: unknown, defs: Schema): unknown {
     } else if (!Array.isArray(v)) {
       const items = schema["items"];
       // A single object or scalar where a list of them belongs.
-      if (isObject(items) && ((items["type"] === "object" && isObject(v)) || (SCALAR.has(items["type"] as string) && (typeof v === "number" || typeof v === "boolean")))) return [coerce(items, v, defs)];
+      if (
+        isObject(items) &&
+        ((items["type"] === "object" && isObject(v)) ||
+          (SCALAR.has(items["type"] as string) && (typeof v === "number" || typeof v === "boolean")))
+      )
+        return [coerce(items, v, defs)];
       return v;
     }
     return (v as unknown[]).map((x) => coerce(schema["items"], x, defs));

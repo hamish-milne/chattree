@@ -87,7 +87,9 @@ export class AdapterRegistry {
 // ---- what every HTTP provider config shares -------------------------------------------------------------------------
 
 /** The name of an environment variable. A key pasted here by mistake is refused, never stored. */
-export const envName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "must be the NAME of an environment variable (letters, digits and _), not the key itself");
+export const envName = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "must be the NAME of an environment variable (letters, digits and _), not the key itself");
 
 /** What `providers.<name>.models.<id>` may say about a model. */
 const modelInfoConfig = z
@@ -99,17 +101,24 @@ const modelInfoConfig = z
     description: z.string().min(1).optional(),
     cost_tier: z.enum(COST_TIERS).optional(),
     /** Level name (`low`, `high`, `off`, ...) to the settings that produce it, written as the provider's own `settings`. */
-    reasoning: z.record(z.string().regex(/^[a-z][a-z0-9_-]*$/, "lowercase letters, digits, _ and - only"), z.record(z.string(), z.unknown())).optional(),
+    reasoning: z
+      .record(z.string().regex(/^[a-z][a-z0-9_-]*$/, "lowercase letters, digits, _ and - only"), z.record(z.string(), z.unknown()))
+      .optional(),
     default_reasoning: z.string().optional(),
   })
-  .refine((m) => m.default_reasoning === undefined || (m.reasoning !== undefined && m.default_reasoning in m.reasoning), "default_reasoning must be one of the reasoning levels");
+  .refine(
+    (m) => m.default_reasoning === undefined || (m.reasoning !== undefined && m.default_reasoning in m.reasoning),
+    "default_reasoning must be one of the reasoning levels",
+  );
 
 const headerName = z.string().regex(/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/, "not a valid header name");
 
 export const commonProviderFields = {
   /** At most this many requests at once for the provider. */
   max_concurrent: z.number().int().positive().optional(),
-  timeouts: z.strictObject({ idle_ms: z.number().int().positive().optional(), total_ms: z.number().int().positive().optional() }).optional(),
+  timeouts: z
+    .strictObject({ idle_ms: z.number().int().positive().optional(), total_ms: z.number().int().positive().optional() })
+    .optional(),
   /** Attempts per request, retries included (only before any content has arrived). */
   max_attempts: z.number().int().positive().optional(),
   /** Extra request headers. A `null` removes one; for our default `User-Agent` (`chattree/<version>`) the runtime's own is then sent: some providers' terms require a true client identity, so that is the user's call. */
@@ -135,7 +144,14 @@ export interface CommonProviderConfig {
 export function httpOptionsFor(c: CommonProviderConfig): HttpOptions {
   return {
     ...(c.max_concurrent === undefined ? {} : { limiter: new Limiter(c.max_concurrent) }),
-    ...(c.timeouts === undefined ? {} : { timeouts: { ...(c.timeouts.idle_ms === undefined ? {} : { idleMs: c.timeouts.idle_ms }), ...(c.timeouts.total_ms === undefined ? {} : { totalMs: c.timeouts.total_ms }) } }),
+    ...(c.timeouts === undefined
+      ? {}
+      : {
+          timeouts: {
+            ...(c.timeouts.idle_ms === undefined ? {} : { idleMs: c.timeouts.idle_ms }),
+            ...(c.timeouts.total_ms === undefined ? {} : { totalMs: c.timeouts.total_ms }),
+          },
+        }),
     ...(c.max_attempts === undefined ? {} : { retry: { maxAttempts: c.max_attempts } }),
     ...(c.headers === undefined ? {} : { headers: c.headers }),
     ...(c.session_header === undefined ? {} : { sessionHeader: c.session_header }),
@@ -153,16 +169,23 @@ export const modelsFor = (bundled: Record<string, ModelInfo> | undefined, c: Com
 
 // ---- validating and building ---------------------------------------------------------------------------------------
 
-const where = (name: string, path: ReadonlyArray<PropertyKey | { key: PropertyKey }> | undefined): string => ["providers", name, ...(path ?? []).map((p) => String(typeof p === "object" ? p.key : p))].join(".");
+const where = (name: string, path: ReadonlyArray<PropertyKey | { key: PropertyKey }> | undefined): string =>
+  ["providers", name, ...(path ?? []).map((p) => String(typeof p === "object" ? p.key : p))].join(".");
 
 /** Validate every provider against its adapter's schema. The values are the parsed `providers` of the config. */
-export async function validateProviders(providers: Record<string, { $tag: string }>, registry: AdapterRegistry): Promise<{ issues: Issue[]; configs: Map<string, { def: AdapterDefinition; config: { $tag: string } }> }> {
+export async function validateProviders(
+  providers: Record<string, { $tag: string }>,
+  registry: AdapterRegistry,
+): Promise<{ issues: Issue[]; configs: Map<string, { def: AdapterDefinition; config: { $tag: string } }> }> {
   const issues: Issue[] = [];
   const configs = new Map<string, { def: AdapterDefinition; config: { $tag: string } }>();
   for (const [name, p] of Object.entries(providers)) {
     const def = registry.get(p.$tag);
     if (def === undefined) {
-      issues.push({ path: `providers.${name}.$tag`, message: `no adapter for ${JSON.stringify(p.$tag)} (known: ${registry.tags().join(", ") || "none"})` });
+      issues.push({
+        path: `providers.${name}.$tag`,
+        message: `no adapter for ${JSON.stringify(p.$tag)} (known: ${registry.tags().join(", ") || "none"})`,
+      });
       continue;
     }
     const r = await def.config["~standard"].validate(p);
@@ -194,14 +217,22 @@ export interface BuiltProviders {
  * Build the adapters. Everything wrong is reported at once: unknown tags, invalid keys, and every environment
  * variable that is not set (naming the provider that needs it).
  */
-export async function buildProviders(providers: Record<string, { $tag: string }>, registry: AdapterRegistry, secrets: { get(name: string): Promise<string | undefined> }): Promise<BuiltProviders> {
+export async function buildProviders(
+  providers: Record<string, { $tag: string }>,
+  registry: AdapterRegistry,
+  secrets: { get(name: string): Promise<string | undefined> },
+): Promise<BuiltProviders> {
   const { issues, configs } = await validateProviders(providers, registry);
   const values = new Map<string, string>();
   for (const [name, { def, config }] of configs) {
     for (const env of def.secrets(config as never)) {
       if (values.has(env)) continue;
       const v = await secrets.get(env);
-      if (v === undefined || v === "") issues.push({ path: `providers.${name}`, message: `the environment variable ${env} is not set (and is not in the repository's secrets file)` });
+      if (v === undefined || v === "")
+        issues.push({
+          path: `providers.${name}`,
+          message: `the environment variable ${env} is not set (and is not in the repository's secrets file)`,
+        });
       else values.set(env, v);
     }
   }

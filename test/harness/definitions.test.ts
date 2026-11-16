@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import type { BlobStore } from "../../src/index.ts";
 import { sha256Hex } from "../../src/index.ts";
-import { DefinitionError, assertDefinitions, checkDefinitions, encodeDefinition, hashDefinition, loadDefinitions, pinDefinition, type DefinitionKind, type DefinitionSource, type ToolDefinition } from "../../harness/definitions.ts";
+import {
+  DefinitionError,
+  assertDefinitions,
+  checkDefinitions,
+  encodeDefinition,
+  hashDefinition,
+  loadDefinitions,
+  pinDefinition,
+  type DefinitionKind,
+  type DefinitionSource,
+  type ToolDefinition,
+} from "../../harness/definitions.ts";
 import { ChangeNotAllowed, foldSetup, type PinnedDefinition } from "../../harness/setup.ts";
 
 const memory = (): BlobStore & { map: Map<string, Uint8Array> } => {
@@ -19,7 +30,12 @@ const memory = (): BlobStore & { map: Map<string, Uint8Array> } => {
     },
   };
 };
-const tool = (name: string, extra: Record<string, unknown> = {}): ToolDefinition => ({ name, description: `${name} tool`, input_schema: { type: "object", properties: { a: { type: "string" } } }, ...extra });
+const tool = (name: string, extra: Record<string, unknown> = {}): ToolDefinition => ({
+  name,
+  description: `${name} tool`,
+  input_schema: { type: "object", properties: { a: { type: "string" } } },
+  ...extra,
+});
 const source = (defs: { kind: DefinitionKind; name: string; value: unknown }[]): DefinitionSource => ({
   async list() {
     return Promise.all(defs.map(async (d) => ({ kind: d.kind, name: d.name, hash: await hashDefinition(d.kind, d.value) })));
@@ -31,8 +47,22 @@ const source = (defs: { kind: DefinitionKind; name: string; value: unknown }[]):
     return (await sha256Hex(bytes)) === hash ? bytes : undefined;
   },
 });
-const setupWith = (v: { tools?: Record<string, PinnedDefinition>; instructions?: PinnedDefinition; skills?: Record<string, PinnedDefinition> }) =>
-  foldSetup([{ $tag: "agent_setup", id: "01ARZ3NDEKTSV4RRFFQ69G5FAV", reason: "user", model: { provider: "p", id: "m" }, ...(v.tools ? { tools: { set: v.tools } } : {}), ...(v.instructions ? { instructions: v.instructions } : {}), ...(v.skills ? { skills: { set: v.skills } } : {}) }]);
+const setupWith = (v: {
+  tools?: Record<string, PinnedDefinition>;
+  instructions?: PinnedDefinition;
+  skills?: Record<string, PinnedDefinition>;
+}) =>
+  foldSetup([
+    {
+      $tag: "agent_setup",
+      id: "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+      reason: "user",
+      model: { provider: "p", id: "m" },
+      ...(v.tools ? { tools: { set: v.tools } } : {}),
+      ...(v.instructions ? { instructions: v.instructions } : {}),
+      ...(v.skills ? { skills: { set: v.skills } } : {}),
+    },
+  ]);
 
 describe("hashing", () => {
   test("key order does not matter; any value does; instructions are their own text", async () => {
@@ -65,7 +95,11 @@ describe("drift", () => {
   test("changed and missing are found in both storage modes; kinds map to the section", async () => {
     const blobs = memory();
     const s = setupWith({
-      tools: { a: await pinDefinition("tool", tool("a"), { store: "blob", blobs }), b: await pinDefinition("tool", tool("b"), { store: "external", ref: "b" }), gone: await pinDefinition("tool", tool("gone"), { store: "blob", blobs }) },
+      tools: {
+        a: await pinDefinition("tool", tool("a"), { store: "blob", blobs }),
+        b: await pinDefinition("tool", tool("b"), { store: "external", ref: "b" }),
+        gone: await pinDefinition("tool", tool("gone"), { store: "blob", blobs }),
+      },
       instructions: await pinDefinition("instructions", "v1", { store: "blob", blobs }),
       skills: { pdf: await pinDefinition("skill", { name: "pdf" }, { store: "external", ref: "skills/pdf" }) },
     });
@@ -102,13 +136,23 @@ describe("drift", () => {
 describe("loading", () => {
   test("blob and external definitions are fetched, verified, and tools come back sorted by name", async () => {
     const blobs = memory();
-    const defs = [{ kind: "tool" as const, name: "z", value: tool("z") }, { kind: "tool" as const, name: "m", value: tool("m") }, { kind: "instructions" as const, name: "instructions", value: "hello" }];
+    const defs = [
+      { kind: "tool" as const, name: "z", value: tool("z") },
+      { kind: "tool" as const, name: "m", value: tool("m") },
+      { kind: "instructions" as const, name: "instructions", value: "hello" },
+    ];
     const s = setupWith({
-      tools: { z: await pinDefinition("tool", tool("z"), { store: "external", ref: "z" }), m: await pinDefinition("tool", tool("m"), { store: "blob", blobs }) },
+      tools: {
+        z: await pinDefinition("tool", tool("z"), { store: "external", ref: "z" }),
+        m: await pinDefinition("tool", tool("m"), { store: "blob", blobs }),
+      },
       instructions: await pinDefinition("instructions", "hello", { store: "blob", blobs }),
     });
     const l = await loadDefinitions(s, { blobs, source: source(defs) });
-    assert.deepEqual(l.tools.map((t) => t.name), ["m", "z"]);
+    assert.deepEqual(
+      l.tools.map((t) => t.name),
+      ["m", "z"],
+    );
     assert.equal(l.instructions, "hello");
   });
 

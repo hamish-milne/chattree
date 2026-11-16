@@ -172,13 +172,16 @@ export class Git {
         throw new GitError(`cannot run ${program}: ${e instanceof Error ? e.message : String(e)}`);
       }
       version = r.exitCode === 0 ? parseGitVersion(dec.decode(r.stdout)) : undefined;
-      if (version === undefined) throw new GitError(`cannot determine the git version (exit ${r.exitCode}): ${dec.decode(r.stderr).trim()}`);
+      if (version === undefined)
+        throw new GitError(`cannot determine the git version (exit ${r.exitCode}): ${dec.decode(r.stderr).trim()}`);
       if (known === undefined) knownVersions.set(host, (known = new Map()));
       known.set(program, version);
     }
     const min = opts.minVersion ?? MIN_GIT_VERSION;
     if (compareVersions(version, min) < 0) {
-      throw new GitError(`git ${formatVersion(version)} is too old: ${formatVersion(min)} or newer is required (see docs/git-integration.md, D7)`);
+      throw new GitError(
+        `git ${formatVersion(version)} is too old: ${formatVersion(min)} or newer is required (see docs/git-integration.md, D7)`,
+      );
     }
     return new Git(host, opts, version);
   }
@@ -201,15 +204,24 @@ export class Git {
 
   #base(): string[] {
     const args = [
-      "-c", "core.autocrlf=false",
-      "-c", "core.safecrlf=false",
-      "-c", "core.quotepath=false",
-      "-c", "core.fsmonitor=false",
-      "-c", "commit.gpgsign=false",
-      "-c", "tag.gpgsign=false",
-      "-c", "gc.auto=0",
-      "-c", "maintenance.auto=false",
-      "-c", "advice.detachedHead=false",
+      "-c",
+      "core.autocrlf=false",
+      "-c",
+      "core.safecrlf=false",
+      "-c",
+      "core.quotepath=false",
+      "-c",
+      "core.fsmonitor=false",
+      "-c",
+      "commit.gpgsign=false",
+      "-c",
+      "tag.gpgsign=false",
+      "-c",
+      "gc.auto=0",
+      "-c",
+      "maintenance.auto=false",
+      "-c",
+      "advice.detachedHead=false",
     ];
     if (this.#opts.hooks !== true) args.push("-c", `core.hooksPath=${this.host.nullDevice}`);
     return args;
@@ -235,7 +247,11 @@ export class Git {
     const r = await this.host.exec(this.#opts.program ?? "git", [...this.#base(), ...args], execOpts);
     if (r.exitCode !== 0 && !(opts.ok ?? []).includes(r.exitCode)) {
       const stderr = dec.decode(r.stderr).trim();
-      throw new GitError(`git ${args.slice(0, 2).join(" ")} failed (exit ${r.exitCode})${stderr === "" ? "" : `: ${stderr}`}`, { args, exitCode: r.exitCode, stderr });
+      throw new GitError(`git ${args.slice(0, 2).join(" ")} failed (exit ${r.exitCode})${stderr === "" ? "" : `: ${stderr}`}`, {
+        args,
+        exitCode: r.exitCode,
+        stderr,
+      });
     }
     return r;
   }
@@ -295,11 +311,13 @@ export class Git {
   /** Where the repository lives does not change under a handle, so both directories are asked for once, in one command (a failure is not remembered). */
   #dirs(): Promise<{ git: string; common: string }> {
     if (this.#known === undefined) {
-      const p = this.text(["rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir"], { readOnly: true }).then((out) => {
-        const [git, common] = out.split("\n");
-        if (git === undefined || common === undefined) throw new GitError(`unexpected output from git rev-parse: ${JSON.stringify(out)}`);
-        return { git: this.hostPath(git), common: this.hostPath(common) };
-      });
+      const p = this.text(["rev-parse", "--path-format=absolute", "--absolute-git-dir", "--git-common-dir"], { readOnly: true }).then(
+        (out) => {
+          const [git, common] = out.split("\n");
+          if (git === undefined || common === undefined) throw new GitError(`unexpected output from git rev-parse: ${JSON.stringify(out)}`);
+          return { git: this.hostPath(git), common: this.hostPath(common) };
+        },
+      );
       this.#known = p;
       p.catch(() => (this.#known = undefined));
     }
@@ -403,7 +421,8 @@ export class Git {
     if (opts.trailers !== undefined && opts.trailers.length > 0) {
       for (const [k, v] of opts.trailers) {
         if (!TRAILER_KEY.test(k)) throw new GitError(`invalid trailer key ${JSON.stringify(k)}`);
-        if (!NO_CONTROL.test(v) || v.trim() === "") throw new GitError(`invalid trailer value for ${k}: must be one line, no control characters`);
+        if (!NO_CONTROL.test(v) || v.trim() === "")
+          throw new GitError(`invalid trailer value for ${k}: must be one line, no control characters`);
       }
       message += `\n\n${opts.trailers.map(([k, v]) => `${k}: ${v.trim()}`).join("\n")}`;
     }
@@ -445,9 +464,16 @@ export class Git {
    * any worktree, the real index or any branch. The commit is unreachable until something points at it.
    * This is how a branch is started from an earlier commit with its first entry already in place.
    */
-  async commitOnto(parent: string, files: ReadonlyArray<{ path: string; data: Uint8Array; mode?: string }>, opts: CommitOptions): Promise<string> {
+  async commitOnto(
+    parent: string,
+    files: ReadonlyArray<{ path: string; data: Uint8Array; mode?: string }>,
+    opts: CommitOptions,
+  ): Promise<string> {
     assertSafeArg("revision", parent);
-    const tree = await this.rewriteTree(await this.treeOf(parent), files.map((f) => ({ path: f.path, data: f.data, ...(f.mode === undefined ? {} : { mode: f.mode }) })));
+    const tree = await this.rewriteTree(
+      await this.treeOf(parent),
+      files.map((f) => ({ path: f.path, data: f.data, ...(f.mode === undefined ? {} : { mode: f.mode }) })),
+    );
     return this.commitTree(tree, [parent], opts);
   }
 
@@ -554,7 +580,10 @@ export class Git {
   async listFiles(paths: readonly string[], which: "tracked" | "untracked"): Promise<string[]> {
     const args = which === "tracked" ? ["ls-files", "-z", "--cached", "--"] : ["ls-files", "-z", "--others", "--exclude-standard", "--"];
     const r = await this.run([...args, ...paths], { readOnly: true });
-    return dec.decode(r.stdout).split("\u0000").filter((p) => p !== "");
+    return dec
+      .decode(r.stdout)
+      .split("\u0000")
+      .filter((p) => p !== "");
   }
 
   /** Make the index match HEAD, leaving the working tree alone. Used after commits were written without the index. */
@@ -592,7 +621,8 @@ export class Git {
       data(enc.encode(Git.#message(c)));
       if (i === 0 && parent !== undefined) text(`from ${parent}\n`);
       for (const f of c.files) {
-        if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(f.path) || f.path.includes("//") || f.path.includes("..")) throw new GitError(`unsupported path for import: ${JSON.stringify(f.path)}`);
+        if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(f.path) || f.path.includes("//") || f.path.includes(".."))
+          throw new GitError(`unsupported path for import: ${JSON.stringify(f.path)}`);
         text(`M 100644 inline ${f.path}\n`);
         data(f.data);
       }
@@ -607,8 +637,12 @@ export class Git {
       input.set(p, at);
       at += p.length;
     }
-    const out = dec.decode((await this.run(["fast-import", "--quiet", "--done"], { stdin: input })).stdout).split("\n").filter((l) => l !== "");
-    if (out.length !== commits.length || !out.every((h) => /^[0-9a-f]{40,64}$/.test(h))) throw new GitError(`git fast-import returned unexpected output: ${out.join(" ").slice(0, 200)}`);
+    const out = dec
+      .decode((await this.run(["fast-import", "--quiet", "--done"], { stdin: input })).stdout)
+      .split("\n")
+      .filter((l) => l !== "");
+    if (out.length !== commits.length || !out.every((h) => /^[0-9a-f]{40,64}$/.test(h)))
+      throw new GitError(`git fast-import returned unexpected output: ${out.join(" ").slice(0, 200)}`);
     return out;
   }
 
@@ -671,7 +705,10 @@ export class Git {
         removeUnder(e.path);
         if ("data" in e) now.set(e.path, `${e.mode ?? "100644"} ${await this.hashObject(e.data)}`);
         else if ("from" in e) {
-          const there = dec.decode((await this.run(["ls-tree", "-r", "-z", e.from, "--", e.path], { env: literal })).stdout).split("\u0000").filter((x) => x !== "");
+          const there = dec
+            .decode((await this.run(["ls-tree", "-r", "-z", e.from, "--", e.path], { env: literal })).stdout)
+            .split("\u0000")
+            .filter((x) => x !== "");
           for (const rec of there) {
             const tab = rec.indexOf("\t");
             const [mode, , sha] = rec.slice(0, tab).split(" ");
@@ -683,7 +720,8 @@ export class Git {
       const lines: string[] = [];
       for (const p of initial.keys()) if (!now.has(p)) lines.push(`0 ${zero}\t${p}`); // removals first: a file may become a directory
       for (const [p, v] of now) if (initial.get(p) !== v) lines.push(`${v}\t${p}`);
-      if (lines.length > 0) await this.run(["update-index", "-z", "--index-info"], { env, stdin: enc.encode(lines.map((l) => `${l}\u0000`).join("")) });
+      if (lines.length > 0)
+        await this.run(["update-index", "-z", "--index-info"], { env, stdin: enc.encode(lines.map((l) => `${l}\u0000`).join("")) });
       return this.text(["write-tree"], { env });
     });
   }
@@ -821,7 +859,15 @@ export class Git {
         if (cur !== undefined) out.push(cur);
         cur = undefined;
       } else if (field.startsWith("worktree ")) {
-        cur = { path: this.hostPath(field.slice(9)), head: undefined, branch: undefined, bare: false, detached: false, locked: false, prunable: false };
+        cur = {
+          path: this.hostPath(field.slice(9)),
+          head: undefined,
+          branch: undefined,
+          bare: false,
+          detached: false,
+          locked: false,
+          prunable: false,
+        };
       } else if (cur !== undefined) {
         if (field.startsWith("HEAD ")) cur.head = field.slice(5);
         else if (field.startsWith("branch ")) cur.branch = field.slice(7);
@@ -874,6 +920,11 @@ function fallbackReader(git: Git): ObjectReader {
  * names: a temp file, and a reason that a file went away.
  */
 export function isVanishedTempFile(e: unknown): boolean {
-  const stderr = e instanceof GitError && typeof (e as { stderr?: unknown }).stderr === "string" ? (e as { stderr: string }).stderr : e instanceof Error ? e.message : "";
+  const stderr =
+    e instanceof GitError && typeof (e as { stderr?: unknown }).stderr === "string"
+      ? (e as { stderr: string }).stderr
+      : e instanceof Error
+        ? e.message
+        : "";
   return /\.tmp-[0-9a-f]{12}\b/.test(stderr) && /No such file or directory|Permission denied/.test(stderr);
 }

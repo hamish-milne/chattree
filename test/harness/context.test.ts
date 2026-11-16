@@ -13,7 +13,8 @@ const compact = (from: ChatEntry, to: ChatEntry, summary: string): ChatEntry => 
   replaces: { from: (from as { id: string }).id, to: (to as { id: string }).id },
   summary,
 });
-const label = (e: ChatEntry): string => (e.$tag === "user" ? (e.content[0] as { text: string }).text : e.$tag === "compaction" ? `[${e.summary}]` : e.$tag);
+const label = (e: ChatEntry): string =>
+  e.$tag === "user" ? (e.content[0] as { text: string }).text : e.$tag === "compaction" ? `[${e.summary}]` : e.$tag;
 
 describe("contextEntries", () => {
   test("passes a plain transcript through", () => {
@@ -63,7 +64,15 @@ describe("contextEntries", () => {
   });
 
   test("a fresh-context marker hides everything before it", () => {
-    const marker: ChatEntry = { $tag: "branch_start", id: id(), kind: "subagent", from: { branch: "main", commit: "abc" }, context: "fresh", brief: "do the thing", call_id: "c" };
+    const marker: ChatEntry = {
+      $tag: "branch_start",
+      id: id(),
+      kind: "subagent",
+      from: { branch: "main", commit: "abc" },
+      context: "fresh",
+      brief: "do the thing",
+      call_id: "c",
+    };
     const e = [header, u("parent talk"), marker, u("child work")];
     assert.deepEqual(contextEntries(e).map(label), ["branch_start", "child work"]);
   });
@@ -76,7 +85,15 @@ describe("contextEntries", () => {
 
   test("compactions in a subagent cannot reach into the parent's part of the transcript", () => {
     const old = u("old");
-    const marker: ChatEntry = { $tag: "branch_start", id: id(), kind: "subagent", from: { branch: "main", commit: "abc" }, context: "fresh", brief: "b", call_id: "c" };
+    const marker: ChatEntry = {
+      $tag: "branch_start",
+      id: id(),
+      kind: "subagent",
+      from: { branch: "main", commit: "abc" },
+      context: "fresh",
+      brief: "b",
+      call_id: "c",
+    };
     const [x, y] = [u("x"), u("y")];
     const e = [header, old, marker, x, y, compact(x, y, "xy"), compact(old, x, "reaches before the marker")];
     // the second compaction reaches into the parent's entries, so it is ignored; the first applies
@@ -85,7 +102,12 @@ describe("contextEntries", () => {
 
   test("a compaction that cannot be applied is ignored", () => {
     const [a, b] = [u("a"), u("b")];
-    const missing: ChatEntry = { $tag: "compaction", id: id(), replaces: { from: "01K8ZQ3M0A5G2W7Y9C4T1R6B00", to: "01K8ZQ3M0A5G2W7Y9C4T1R6BZZ" }, summary: "?" };
+    const missing: ChatEntry = {
+      $tag: "compaction",
+      id: id(),
+      replaces: { from: "01K8ZQ3M0A5G2W7Y9C4T1R6B00", to: "01K8ZQ3M0A5G2W7Y9C4T1R6BZZ" },
+      summary: "?",
+    };
     const backwards = compact(b, a, "backwards");
     const early = [header, a, compact(a, b, "reaches ahead"), b];
     assert.deepEqual(contextEntries([header, a, b, missing]).map(label), ["header", "a", "b"]);
@@ -94,9 +116,28 @@ describe("contextEntries", () => {
   });
 
   test("the other entry kinds pass through", () => {
-    const sub: ChatEntry = { $tag: "subagent_result", id: id(), call_id: "c", branch: "sub/x", tip: "t", summary: "s", files: { changed: [], added: [], discarded: [] } };
-    const fm: ChatEntry = { $tag: "fork_merge", id: id(), branch: "f", tip: "t", summary: "s", files: { changed: [], added: [], discarded: [] }, merge: { policy: "trunk", base: "b", conflicts: [] } };
+    const sub: ChatEntry = {
+      $tag: "subagent_result",
+      id: id(),
+      call_id: "c",
+      branch: "sub/x",
+      tip: "t",
+      summary: "s",
+      files: { changed: [], added: [], discarded: [] },
+    };
+    const fm: ChatEntry = {
+      $tag: "fork_merge",
+      id: id(),
+      branch: "f",
+      tip: "t",
+      summary: "s",
+      files: { changed: [], added: [], discarded: [] },
+      merge: { policy: "trunk", base: "b", conflicts: [] },
+    };
     const int: ChatEntry = { $tag: "interrupted", id: id(), by: "user", partial: [] };
-    assert.deepEqual(contextEntries([header, sub, fm, int]).map((e) => e.$tag), ["header", "subagent_result", "fork_merge", "interrupted"]);
+    assert.deepEqual(
+      contextEntries([header, sub, fm, int]).map((e) => e.$tag),
+      ["header", "subagent_result", "fork_merge", "interrupted"],
+    );
   });
 });

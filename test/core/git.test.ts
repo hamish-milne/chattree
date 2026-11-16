@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { Git, GitError, MIN_GIT_VERSION, compareVersions, formatVersion, parseGitVersion, type ExecOptions, type ExecResult, type Host } from "../../src/index.ts";
+import {
+  Git,
+  GitError,
+  MIN_GIT_VERSION,
+  compareVersions,
+  formatVersion,
+  parseGitVersion,
+  type ExecOptions,
+  type ExecResult,
+  type Host,
+} from "../../src/index.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { identity, newRepo, tempDir } from "../support/tmp.ts";
 
@@ -47,7 +57,12 @@ describe("open", () => {
     await assert.rejects(Git.open(fake("hello"), { cwd: "/" }), GitError);
   });
   test("reports a git that cannot be started", async () => {
-    const host: Host = { ...nodeHost(), exec: async () => { throw new Error("spawn git ENOENT"); } };
+    const host: Host = {
+      ...nodeHost(),
+      exec: async () => {
+        throw new Error("spawn git ENOENT");
+      },
+    };
     await assert.rejects(Git.open(host, { cwd: "/" }), /cannot run git: spawn git ENOENT/);
   });
   test("works with the real git", async () => {
@@ -69,7 +84,8 @@ describe("how commands are run", () => {
     assert.ok(status !== undefined && config !== undefined);
     for (const c of [status, config]) {
       assert.equal(c.program, "git");
-      for (const kv of ["core.autocrlf=false", "commit.gpgsign=false", "gc.auto=0", `core.hooksPath=${host.nullDevice}`]) assert.ok(c.args.includes(kv), kv);
+      for (const kv of ["core.autocrlf=false", "commit.gpgsign=false", "gc.auto=0", `core.hooksPath=${host.nullDevice}`])
+        assert.ok(c.args.includes(kv), kv);
       assert.equal(c.opts.env?.["GIT_TERMINAL_PROMPT"], "0");
       assert.equal(c.opts.env?.["LC_ALL"], "C");
     }
@@ -103,7 +119,10 @@ describe("how commands are run", () => {
 
   test("failures carry the arguments, exit code and stderr", async () => {
     const git = await newRepo();
-    await assert.rejects(git.run(["checkout", "no-such-branch"]), (e) => e instanceof GitError && e.exitCode !== 0 && e.args[0] === "checkout" && /no-such-branch/.test(e.stderr));
+    await assert.rejects(
+      git.run(["checkout", "no-such-branch"]),
+      (e) => e instanceof GitError && e.exitCode !== 0 && e.args[0] === "checkout" && /no-such-branch/.test(e.stderr),
+    );
   });
 
   test("option-like arguments are rejected before they reach git", async () => {
@@ -137,7 +156,11 @@ describe("repository basics", () => {
     await git.add(["a"]);
     const hash = await git.commit({
       message: "assistant: tool_use\n\nSecond paragraph.",
-      trailers: [["Chattree-Entry", "01K8ZQ3M0A5G2W7Y9C4T1R6B8D"], ["Chattree-Offset", "1234"], ["Chattree-Entry", "other"]],
+      trailers: [
+        ["Chattree-Entry", "01K8ZQ3M0A5G2W7Y9C4T1R6B8D"],
+        ["Chattree-Offset", "1234"],
+        ["Chattree-Entry", "other"],
+      ],
       author: { name: "claude-sonnet-5-5", email: "model@example.com" },
       committer: identity,
       date: DATE,
@@ -187,10 +210,22 @@ describe("repository basics", () => {
     const h1 = await commitFile(git, "a", "1\n");
     const h2 = await commitFile(git, "b", "2\n");
     const h3 = await commitFile(git, "c", "3\n");
-    assert.deepEqual((await git.log("HEAD")).map((c) => c.hash), [h3, h2, h1]);
-    assert.deepEqual((await git.log("HEAD", { maxCount: 2 })).map((c) => c.hash), [h3, h2]);
-    assert.deepEqual((await git.log("HEAD", { firstParent: true })).map((c) => c.hash), [h3, h2, h1]);
-    assert.deepEqual((await git.log("HEAD", { paths: ["b"] })).map((c) => c.hash), [h2]);
+    assert.deepEqual(
+      (await git.log("HEAD")).map((c) => c.hash),
+      [h3, h2, h1],
+    );
+    assert.deepEqual(
+      (await git.log("HEAD", { maxCount: 2 })).map((c) => c.hash),
+      [h3, h2],
+    );
+    assert.deepEqual(
+      (await git.log("HEAD", { firstParent: true })).map((c) => c.hash),
+      [h3, h2, h1],
+    );
+    assert.deepEqual(
+      (await git.log("HEAD", { paths: ["b"] })).map((c) => c.hash),
+      [h2],
+    );
     assert.deepEqual((await git.log(h2))[0]?.parents, [h1]);
   });
 
@@ -234,19 +269,22 @@ describe("files and status", () => {
     await commitFile(git, "gone", "1\n");
     await writeFile(join(git.cwd, "tracked"), "changed\n");
     await writeFile(join(git.cwd, "new file with spaces"), "x");
-    const quoted = process.platform === "win32" ? "café 'q'.txt" : "café \"q\".txt"; // Windows has no " in file names
+    const quoted = process.platform === "win32" ? "café 'q'.txt" : 'café "q".txt'; // Windows has no " in file names
     await writeFile(join(git.cwd, quoted), "x");
     await mkdir(join(git.cwd, "dir"));
     await writeFile(join(git.cwd, "dir", "inner"), "x");
     await git.run(["rm", "--quiet", "gone"]);
     const status = (await git.status()).sort((a, b) => a.path.localeCompare(b.path));
-    assert.deepEqual(status, [
-      { code: "??", path: quoted },
-      { code: "??", path: "dir/inner" },
-      { code: "D.", path: "gone" },
-      { code: "??", path: "new file with spaces" },
-      { code: ".M", path: "tracked" },
-    ].sort((a, b) => a.path.localeCompare(b.path)));
+    assert.deepEqual(
+      status,
+      [
+        { code: "??", path: quoted },
+        { code: "??", path: "dir/inner" },
+        { code: "D.", path: "gone" },
+        { code: "??", path: "new file with spaces" },
+        { code: ".M", path: "tracked" },
+      ].sort((a, b) => a.path.localeCompare(b.path)),
+    );
     assert.equal(await git.isClean(), false);
   });
 
@@ -276,7 +314,11 @@ describe("files and status", () => {
     await git.add(["edit", "added file"]);
     const tip = await git.commit({ message: "change" });
     const d = (await git.diff(base, tip)).sort((a, b) => a.path.localeCompare(b.path));
-    assert.deepEqual(d, [{ status: "A", path: "added file" }, { status: "D", path: "drop" }, { status: "M", path: "edit" }]);
+    assert.deepEqual(d, [
+      { status: "A", path: "added file" },
+      { status: "D", path: "drop" },
+      { status: "M", path: "edit" },
+    ]);
     assert.deepEqual(await git.diff(base, tip, [":(exclude)edit", ":(exclude)drop"]), [{ status: "A", path: "added file" }]);
     assert.deepEqual(await git.diff(base, base), []);
   });
@@ -377,7 +419,9 @@ describe("merging in memory", () => {
     assert.equal(r.clean, false);
     // the file/directory conflict moves the file aside under a name that includes the other side's label
     assert.deepEqual(r.conflictedPaths.map((p) => p.replace(/^d~.+$/, "d~side")).sort(), ["d~side", "f", "g", "h"]);
-    const kinds = Object.fromEntries(r.messages.filter((m) => m.type.startsWith("CONFLICT")).flatMap((m) => m.paths.map((p) => [p, m.type])));
+    const kinds = Object.fromEntries(
+      r.messages.filter((m) => m.type.startsWith("CONFLICT")).flatMap((m) => m.paths.map((p) => [p, m.type])),
+    );
     assert.equal(kinds["f"], "CONFLICT (contents)");
     assert.equal(kinds["g"], "CONFLICT (modify/delete)");
     assert.equal(kinds["h"], "CONFLICT (modify/delete)");
@@ -388,7 +432,10 @@ describe("merging in memory", () => {
   test("taking the trunk's version of each conflicted path gives a tree where the trunk wins and the rest merges", async () => {
     const { git, main, child } = await diverged();
     const r = await git.mergeTree(main, child);
-    const tree = await git.rewriteTree(r.tree, r.conflictedPaths.map((path) => ({ path, from: main })));
+    const tree = await git.rewriteTree(
+      r.tree,
+      r.conflictedPaths.map((path) => ({ path, from: main })),
+    );
     const merged = await git.commitTree(tree, [main, child], { message: "trunk wins" });
     const at = async (p: string): Promise<string | undefined> => {
       const b = await git.readFileAt(merged, p);
@@ -441,7 +488,10 @@ describe("tree edits", () => {
     await writeAll(git, { p: "file\n" });
     await git.addAll();
     const c1 = await git.commit({ message: "file" });
-    const t = await git.rewriteTree(await git.treeOf(c1), [{ path: "p", remove: true }, { path: "p/inner", data: enc.encode("i\n") }]);
+    const t = await git.rewriteTree(await git.treeOf(c1), [
+      { path: "p", remove: true },
+      { path: "p/inner", data: enc.encode("i\n") },
+    ]);
     const c2 = await git.commitTree(t, [c1], { message: "dir" });
     assert.equal(dec.decode(await git.readFileAt(c2, "p/inner")), "i\n");
     const back = await git.rewriteTree(await git.treeOf(c2), [{ path: "p", from: c1 }]);
@@ -499,10 +549,19 @@ describe("batched object reads", () => {
     await commitFile(git, "b", "x".repeat(10_000));
     const specs = [`${c1}:a`, `${c2}:a`, `${c1}:b`, "HEAD:b", `${c1}:a`];
     const info = await git.objectInfo(specs);
-    assert.deepEqual(info.map((i) => i?.size), [4, 8, undefined, 10_000, 4]);
-    assert.deepEqual(info.map((i) => i?.type), ["blob", "blob", undefined, "blob", "blob"]);
+    assert.deepEqual(
+      info.map((i) => i?.size),
+      [4, 8, undefined, 10_000, 4],
+    );
+    assert.deepEqual(
+      info.map((i) => i?.type),
+      ["blob", "blob", undefined, "blob", "blob"],
+    );
     const data = await git.readObjects(specs);
-    assert.deepEqual(data.map((d) => (d === undefined ? undefined : dec.decode(d).slice(0, 8))), ["one\n", "one\ntwo\n", undefined, "xxxxxxxx", "one\n"]);
+    assert.deepEqual(
+      data.map((d) => (d === undefined ? undefined : dec.decode(d).slice(0, 8))),
+      ["one\n", "one\ntwo\n", undefined, "xxxxxxxx", "one\n"],
+    );
     assert.equal(data[3]?.length, 10_000);
     assert.deepEqual(await git.objectInfo([]), []);
     await assert.rejects(git.objectInfo(["-x"]), GitError);
@@ -538,13 +597,25 @@ describe("branches", () => {
     await git.createBranch("fork/one", h);
     await git.createBranch("fork/two", "HEAD");
     await git.createBranch("sub/x", "HEAD");
-    assert.deepEqual((await git.branches()).map((b) => b.ref).sort(), ["refs/heads/fork/one", "refs/heads/fork/two", "refs/heads/main", "refs/heads/sub/x"]);
+    assert.deepEqual((await git.branches()).map((b) => b.ref).sort(), [
+      "refs/heads/fork/one",
+      "refs/heads/fork/two",
+      "refs/heads/main",
+      "refs/heads/sub/x",
+    ]);
     assert.deepEqual((await git.branches("fork/")).map((b) => b.ref).sort(), ["refs/heads/fork/one", "refs/heads/fork/two"]);
     assert.ok((await git.branches("fork/")).every((b) => b.hash === h));
     await git.deleteBranch("fork/one");
-    assert.deepEqual((await git.branches("fork/")).map((b) => b.ref), ["refs/heads/fork/two"]);
+    assert.deepEqual(
+      (await git.branches("fork/")).map((b) => b.ref),
+      ["refs/heads/fork/two"],
+    );
     await assert.rejects(git.createBranch("fork/two", h), GitError, "existing branch");
-    assert.deepEqual((await git.branches("fork/t")).map((b) => b.ref), ["refs/heads/fork/two"], "a prefix may end inside a path component");
+    assert.deepEqual(
+      (await git.branches("fork/t")).map((b) => b.ref),
+      ["refs/heads/fork/two"],
+      "a prefix may end inside a path component",
+    );
     assert.deepEqual(await git.branches("fork/*"), [], "glob characters are literal");
   });
 
@@ -589,7 +660,13 @@ describe("worktrees", () => {
     assert.notEqual(await wt.gitDir(), await git.gitDir());
 
     const list = await git.worktrees();
-    assert.deepEqual(list.map((w) => [w.path, w.branch]).sort(), [[git.cwd, "refs/heads/main"], [wtPath, "refs/heads/sub/one"]].sort());
+    assert.deepEqual(
+      list.map((w) => [w.path, w.branch]).sort(),
+      [
+        [git.cwd, "refs/heads/main"],
+        [wtPath, "refs/heads/sub/one"],
+      ].sort(),
+    );
     assert.ok(list.every((w) => !w.bare && !w.detached && !w.locked && !w.prunable));
     assert.equal(list.find((w) => w.path === wtPath)?.head, await wt.head());
   });
@@ -665,9 +742,16 @@ describe("staging while another handle writes files", () => {
     assert.equal(isVanishedTempFile(err("fatal: unable to stat 'blobs/4a/10046c.tmp-838af81d7ec1': No such file or directory")), true);
     assert.equal(isVanishedTempFile(err("fatal: unable to stat 'chat.yml': No such file or directory")), false);
     // Windows words it differently
-    assert.equal(isVanishedTempFile(err('error: open("blobs/ab/f24.tmp-d4ac90ea26ec"): No such file or directory\nerror: unable to index file \'blobs/ab/f24.tmp-d4ac90ea26ec\'\nfatal: adding files failed')), true);
-    assert.equal(isVanishedTempFile(err("error: open(\"blobs/ab/f1.tmp-d4ac90ea26ec\"): Permission denied")), true);
-    assert.equal(isVanishedTempFile(err("error: open(\"chat.yml\"): Permission denied")), false, "not a temp file");
+    assert.equal(
+      isVanishedTempFile(
+        err(
+          "error: open(\"blobs/ab/f24.tmp-d4ac90ea26ec\"): No such file or directory\nerror: unable to index file 'blobs/ab/f24.tmp-d4ac90ea26ec'\nfatal: adding files failed",
+        ),
+      ),
+      true,
+    );
+    assert.equal(isVanishedTempFile(err('error: open("blobs/ab/f1.tmp-d4ac90ea26ec"): Permission denied')), true);
+    assert.equal(isVanishedTempFile(err('error: open("chat.yml"): Permission denied')), false, "not a temp file");
     assert.equal(isVanishedTempFile(new Error("boom")), false);
   });
 });

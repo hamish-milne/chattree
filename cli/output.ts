@@ -25,7 +25,15 @@ export type Output =
   | { type: "tool_result"; callId: string; name: string; is_error: boolean; content: string; ms: number; truncated: boolean }
   /** A background job's event was committed. */
   | { type: "job_event"; job: string; status: string; summary: string }
-  | { type: "request_end"; status: "completed" | "interrupted" | "cancelled"; usage?: { input: number; output: number; cached: number }; turnUsd?: number; threadUsd?: number; unpriced?: boolean; stopReason?: string };
+  | {
+      type: "request_end";
+      status: "completed" | "interrupted" | "cancelled";
+      usage?: { input: number; output: number; cached: number };
+      turnUsd?: number;
+      threadUsd?: number;
+      unpriced?: boolean;
+      stopReason?: string;
+    };
 
 export type Thinking = "off" | "brief" | "on";
 /** How much of the tool calls and results is shown: none, a line each with a short preview, or everything. */
@@ -66,11 +74,20 @@ export function wrapText(s: string, width: number | undefined): string {
     .join("\n");
 }
 
-const clip = (s: string, n: number | undefined): string => (n === undefined || s.length <= n ? s : `${s.slice(0, n)}… (${s.length - n} more characters)`);
-const indent = (s: string, by = "  "): string => s.split("\n").map((l) => (l === "" ? l : by + l)).join("\n");
+const clip = (s: string, n: number | undefined): string =>
+  n === undefined || s.length <= n ? s : `${s.slice(0, n)}… (${s.length - n} more characters)`;
+const indent = (s: string, by = "  "): string =>
+  s
+    .split("\n")
+    .map((l) => (l === "" ? l : by + l))
+    .join("\n");
 
 /** One transcript entry as plain text. `max` clips long texts (the full entry is `/show`). */
-export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thinking?: Thinking; tools?: ToolView; max?: number; calls?: CallMap; style?: Style; width?: number | undefined } = {}): Promise<string | undefined> {
+export async function formatEntry(
+  convo: Conversation,
+  e: ChatEntry,
+  opts: { thinking?: Thinking; tools?: ToolView; max?: number; calls?: CallMap; style?: Style; width?: number | undefined } = {},
+): Promise<string | undefined> {
   const thinking = opts.thinking ?? "off";
   const tools = opts.tools ?? "brief";
   const style = opts.style ?? plainStyle;
@@ -100,7 +117,8 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
           const args = (await inlineBlobs(b.args, t)) as Record<string, unknown>;
           opts.calls?.set(b.call_id, { name: b.name, args });
           if (tools === "brief") parts.push(style.dim(`→ ${summarizeCall(b.name, args)}`));
-          else if (tools === "full") parts.push(style.dim(`→ ${summarizeCall(b.name, args)}\n${indent(JSON.stringify(args, null, 2), "    ")}`));
+          else if (tools === "full")
+            parts.push(style.dim(`→ ${summarizeCall(b.name, args)}\n${indent(JSON.stringify(args, null, 2), "    ")}`));
         }
       }
       return parts.length === 0 ? undefined : `${style.bold(`${e.model}:`)}\n${block(parts.join("\n"))}`;
@@ -108,9 +126,17 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
     case "tool_result": {
       if (tools === "off") return undefined;
       const content = await textOf(convo, e.content);
-      const r = resultLines({ is_error: e.is_error, content, truncated: e.truncated === true, ...(opts.width === undefined ? {} : { width: opts.width - 4 }) });
+      const r = resultLines({
+        is_error: e.is_error,
+        content,
+        truncated: e.truncated === true,
+        ...(opts.width === undefined ? {} : { width: opts.width - 4 }),
+      });
       const paint = e.is_error ? style.red : style.dim;
-      if (tools === "full") return paint(`  ← ${r.head}\n${indent(wrapText(clip(content, opts.max), opts.width === undefined ? undefined : opts.width - 4), "    ")}`);
+      if (tools === "full")
+        return paint(
+          `  ← ${r.head}\n${indent(wrapText(clip(content, opts.max), opts.width === undefined ? undefined : opts.width - 4), "    ")}`,
+        );
       return paint(`  ← ${r.head}${r.preview.map((l) => `\n    ${l}`).join("")}${r.more ? "\n    …" : ""}`);
     }
     case "interrupted": {
@@ -119,7 +145,12 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
       return `[reply interrupted ${e.by === "user" ? "by you" : `by an error${e.error === undefined ? "" : `: ${e.error}`}`}]${parts.length > 0 ? `\n${indent(parts.join("\n"))}` : ""}`;
     }
     case "agent_setup": {
-      const what = [e.model === undefined ? "" : `model ${e.model.provider}/${e.model.id}`, e.instructions === undefined ? "" : "instructions", e.pricing === undefined ? "" : "prices pinned", e.renderer === undefined ? "" : `renderer ${e.renderer}`].filter((x) => x !== "");
+      const what = [
+        e.model === undefined ? "" : `model ${e.model.provider}/${e.model.id}`,
+        e.instructions === undefined ? "" : "instructions",
+        e.pricing === undefined ? "" : "prices pinned",
+        e.renderer === undefined ? "" : `renderer ${e.renderer}`,
+      ].filter((x) => x !== "");
       return `[setup changed (${e.reason}): ${what.join(", ") || "tools or definitions"}]`;
     }
     case "compaction":
@@ -138,7 +169,11 @@ export async function formatEntry(convo: Conversation, e: ChatEntry, opts: { thi
 }
 
 /** A run of entries as text, one block per shown entry, with tool results knowing which call they answer. */
-export async function formatTranscript(convo: Conversation, entries: readonly ChatEntry[], opts: { thinking?: Thinking; tools?: ToolView; max?: number; style?: Style; width?: number | undefined } = {}): Promise<string[]> {
+export async function formatTranscript(
+  convo: Conversation,
+  entries: readonly ChatEntry[],
+  opts: { thinking?: Thinking; tools?: ToolView; max?: number; style?: Style; width?: number | undefined } = {},
+): Promise<string[]> {
   const calls: CallMap = new Map();
   const out: string[] = [];
   for (const e of entries) {
@@ -165,7 +200,13 @@ export interface Style {
   yellow(s: string): string;
 }
 export const plainStyle: Style = { dim: (s) => s, bold: (s) => s, cyan: (s) => s, red: (s) => s, yellow: (s) => s };
-export const ansiStyle: Style = { dim: (s) => `\x1b[2m${s}\x1b[22m`, bold: (s) => `\x1b[1m${s}\x1b[22m`, cyan: (s) => `\x1b[36m${s}\x1b[39m`, red: (s) => `\x1b[31m${s}\x1b[39m`, yellow: (s) => `\x1b[33m${s}\x1b[39m` };
+export const ansiStyle: Style = {
+  dim: (s) => `\x1b[2m${s}\x1b[22m`,
+  bold: (s) => `\x1b[1m${s}\x1b[22m`,
+  cyan: (s) => `\x1b[36m${s}\x1b[39m`,
+  red: (s) => `\x1b[31m${s}\x1b[39m`,
+  yellow: (s) => `\x1b[33m${s}\x1b[39m`,
+};
 
 export class PlainRenderer {
   readonly #sink: PlainSink;
@@ -179,7 +220,13 @@ export class PlainRenderer {
   #open: "text" | "reasoning" | undefined;
   #atLineStart = true;
 
-  constructor(sink: PlainSink, convo: () => Conversation, thinking: Thinking = "off", style: Style = plainStyle, tools: ToolView = "brief") {
+  constructor(
+    sink: PlainSink,
+    convo: () => Conversation,
+    thinking: Thinking = "off",
+    style: Style = plainStyle,
+    tools: ToolView = "brief",
+  ) {
     this.tools = tools;
     this.#style = style;
     this.#sink = sink;
@@ -207,7 +254,14 @@ export class PlainRenderer {
         return;
       case "entry": {
         this.#flush();
-        const text = await formatEntry(this.#convo(), o.value, { thinking: this.thinking, tools: this.tools, max: 600, calls: this.#calls, style: this.#style, width: this.width?.() });
+        const text = await formatEntry(this.#convo(), o.value, {
+          thinking: this.thinking,
+          tools: this.tools,
+          max: 600,
+          calls: this.#calls,
+          style: this.#style,
+          width: this.width?.(),
+        });
         if (text !== undefined) this.#sink.out(`${text}\n`);
         return;
       }
@@ -229,10 +283,19 @@ export class PlainRenderer {
         const r = resultLines(w === undefined ? o : { ...o, width: w - 4 });
         const paint = o.is_error ? this.#style.red : this.#style.dim;
         if (this.tools === "full") {
-          this.#sink.err(`${paint(`  ← ${r.head}`)}\n${this.#style.dim(o.content.split("\n").map((l) => `    ${l}`).join("\n"))}\n`);
+          this.#sink.err(
+            `${paint(`  ← ${r.head}`)}\n${this.#style.dim(
+              o.content
+                .split("\n")
+                .map((l) => `    ${l}`)
+                .join("\n"),
+            )}\n`,
+          );
           return;
         }
-        this.#sink.err(`${paint(`  ← ${r.head}`)}\n${r.preview.map((l) => `${this.#style.dim(`    ${l}`)}\n`).join("")}${r.more ? `${this.#style.dim("    … /expand shows all of it")}\n` : ""}`);
+        this.#sink.err(
+          `${paint(`  ← ${r.head}`)}\n${r.preview.map((l) => `${this.#style.dim(`    ${l}`)}\n`).join("")}${r.more ? `${this.#style.dim("    … /expand shows all of it")}\n` : ""}`,
+        );
         return;
       }
       case "job_event":
@@ -258,7 +321,8 @@ export class PlainRenderer {
         this.#atLineStart = true;
         const bits: string[] = [];
         if (o.status !== "completed") bits.push(o.status);
-        if (o.usage !== undefined) bits.push(`${o.usage.input} in${o.usage.cached > 0 ? ` (${o.usage.cached} cached)` : ""}, ${o.usage.output} out`);
+        if (o.usage !== undefined)
+          bits.push(`${o.usage.input} in${o.usage.cached > 0 ? ` (${o.usage.cached} cached)` : ""}, ${o.usage.output} out`);
         if (o.turnUsd !== undefined) bits.push(`turn $${o.turnUsd.toFixed(4)}`);
         if (o.threadUsd !== undefined) bits.push(`thread $${o.threadUsd.toFixed(4)}${o.unpriced === true ? "+" : ""}`);
         if (bits.length > 0) this.#sink.err(`${this.#style.dim(`[${bits.join(" · ")}]`)}\n`);

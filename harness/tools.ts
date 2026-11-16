@@ -126,7 +126,11 @@ export interface Tool {
    * this and answers undefined for anything it cannot be sure of; a stored key never widens beyond what `allowKeys` could
    * have offered. Default: no key covers.
    */
-  covers?(keys: readonly string[], args: Record<string, unknown>, ctx: ApprovalContext): string[] | undefined | Promise<string[] | undefined>;
+  covers?(
+    keys: readonly string[],
+    args: Record<string, unknown>,
+    ctx: ApprovalContext,
+  ): string[] | undefined | Promise<string[] | undefined>;
   /** Why a key (one the user typed or edited) is not usable for this tool, or undefined if it is. */
   validateKey?(key: string): string | undefined;
   execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutput | StartedJob>;
@@ -150,7 +154,8 @@ export class ToolRegistry {
   /** Register a tool. Its name must be valid for every provider and its schema must be a JSON Schema for an object that the validator can use. */
   add(tool: Tool): this {
     const { name, description, input_schema } = tool.definition;
-    if (!NAME_RE.test(name)) throw new ToolError(`tool name ${JSON.stringify(name)} must be letters, digits, _ and -, starting with a letter, at most 64 long`);
+    if (!NAME_RE.test(name))
+      throw new ToolError(`tool name ${JSON.stringify(name)} must be letters, digits, _ and -, starting with a letter, at most 64 long`);
     if (this.#tools.has(name)) throw new ToolError(`tool ${name} is registered twice`);
     if (description.trim() === "") throw new ToolError(`tool ${name} needs a description`);
     const problems = schemaProblems(input_schema);
@@ -185,13 +190,21 @@ export class ToolRegistry {
   }
 
   /** Check a call the model made. Returns the tool, or the message to send back as an error result. */
-  check(call: { name: string; args: unknown; args_raw?: string | undefined; ext?: unknown }): { tool: Tool; args: Record<string, unknown> } | { error: string } {
+  check(call: {
+    name: string;
+    args: unknown;
+    args_raw?: string | undefined;
+    ext?: unknown;
+  }): { tool: Tool; args: Record<string, unknown> } | { error: string } {
     const tool = this.#tools.get(call.name);
     if (tool === undefined) return { error: `there is no tool called ${call.name}; the tools are: ${this.names().join(", ")}` };
     // A dialect that could not read the call without guessing says what to tell the model (`Emit` `error`, providers/dialect.ts).
     const said = typeof call.ext === "object" && call.ext !== null ? (call.ext as Record<string, unknown>)["call_error"] : undefined;
     if (typeof said === "string") return { error: said };
-    if (call.args_raw !== undefined) return { error: `the arguments for ${call.name} were not valid JSON: ${call.args_raw.length > 200 ? `${call.args_raw.slice(0, 200)}...` : call.args_raw}` };
+    if (call.args_raw !== undefined)
+      return {
+        error: `the arguments for ${call.name} were not valid JSON: ${call.args_raw.length > 200 ? `${call.args_raw.slice(0, 200)}...` : call.args_raw}`,
+      };
     const args = coerceArgs(tool.definition.input_schema, tool.normalize === undefined ? call.args : tool.normalize(call.args));
     const problems = validateArgs(tool.definition.input_schema, args);
     if (problems.length > 0) return { error: `${call.name}: ${problems.join("; ")}` };

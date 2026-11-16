@@ -3,7 +3,14 @@ import { describe, test } from "node:test";
 import { detectMime } from "../../cli/mime.ts";
 import { Registry, parseCommand, tokenize, type Command } from "../../cli/registry.ts";
 
-const cmd = (name: string, extra: Partial<Command> = {}): Command => ({ name, summary: "", usage: "", busy: "allowed", async *run() {}, ...extra });
+const cmd = (name: string, extra: Partial<Command> = {}): Command => ({
+  name,
+  summary: "",
+  usage: "",
+  busy: "allowed",
+  async *run() {},
+  ...extra,
+});
 
 describe("registry", () => {
   test("duplicate names and aliases are refused", () => {
@@ -27,7 +34,11 @@ describe("command lines", () => {
     assert.deepEqual(tokenize(`a "b c" d\\ e 'f g'`), ["a", "b c", "d e", "f g"]);
   });
   test("with escapes off (Windows) a backslash is part of the path", () => {
-    assert.deepEqual(tokenize(`/attach C:\\Users\\me\\a.txt "D:\\my docs\\b.txt"`, { escapes: false }), ["/attach", "C:\\Users\\me\\a.txt", "D:\\my docs\\b.txt"]);
+    assert.deepEqual(tokenize(`/attach C:\\Users\\me\\a.txt "D:\\my docs\\b.txt"`, { escapes: false }), [
+      "/attach",
+      "C:\\Users\\me\\a.txt",
+      "D:\\my docs\\b.txt",
+    ]);
   });
 });
 

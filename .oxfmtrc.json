@@ -1,5 +1,5 @@
 {
   "$schema": "./node_modules/oxfmt/configuration_schema.json",
-  "printWidth": 320,
+  "printWidth": 140,
   "ignorePatterns": ["**/*.md", "**/*.json", "**/*.yml", "**/*.yaml", "pnpm-lock.yaml", "templates/**", "node_modules/**"]
 }

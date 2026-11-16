@@ -30,7 +30,8 @@ async function fresh(opts: Parameters<typeof Conversation.create>[2] = {}, h: Ho
 /** header, then u1 a1 u2 a2 */
 async function talk(convo: Conversation): Promise<string[]> {
   const ids: string[] = [];
-  for (const e of [user("first question"), reply("first answer"), user("second question"), reply("second answer")]) ids.push((await convo.append(e)).id);
+  for (const e of [user("first question"), reply("first answer"), user("second question"), reply("second answer")])
+    ids.push((await convo.append(e)).id);
   return ids;
 }
 
@@ -38,7 +39,8 @@ const texts = (entries: Awaited<ReturnType<Conversation["readEntries"]>>): strin
   entries.map((e) => {
     assert.ok(e.ok, JSON.stringify(e.ok ? "" : e.issues));
     const v = e.value;
-    if (v.$tag === "user" || v.$tag === "assistant") return (v.$tag === "user" ? v.content : v.blocks).map((b) => ("text" in b ? String(b.text) : b.$tag)).join("|");
+    if (v.$tag === "user" || v.$tag === "assistant")
+      return (v.$tag === "user" ? v.content : v.blocks).map((b) => ("text" in b ? String(b.text) : b.$tag)).join("|");
     return `<${v.$tag}>`;
   });
 
@@ -47,10 +49,19 @@ describe("entry index", () => {
     const { convo } = await fresh();
     const ids = await talk(convo);
     const index = await convo.index();
-    assert.deepEqual(index.map((r) => r.tag), ["header", "user", "assistant", "user", "assistant"]);
-    assert.deepEqual(index.map((r) => r.id), [undefined, ...ids]);
+    assert.deepEqual(
+      index.map((r) => r.tag),
+      ["header", "user", "assistant", "user", "assistant"],
+    );
+    assert.deepEqual(
+      index.map((r) => r.id),
+      [undefined, ...ids],
+    );
     const log = (await convo.git.log("HEAD")).reverse();
-    assert.deepEqual(index.map((r) => r.commit), log.map((l) => l.hash));
+    assert.deepEqual(
+      index.map((r) => r.commit),
+      log.map((l) => l.hash),
+    );
     assert.equal(index.at(-1)?.offset, convo.size);
     assert.ok(index.every((r, i) => i === 0 || r.offset > (index[i - 1] as EntryRef).offset));
   });
@@ -143,7 +154,13 @@ describe("fork", () => {
     assert.deepEqual(texts(entries), ["<header>", "first question", "first answer", "<branch_start>"]);
     const marker = entries.at(-1);
     assert.ok(marker?.ok && marker.value.$tag === "branch_start");
-    assert.deepEqual(marker.value, { $tag: "branch_start", id: start.id, kind: "fork", from: { branch: "main", commit: forkAt.commit }, context: "inherit" });
+    assert.deepEqual(marker.value, {
+      $tag: "branch_start",
+      id: start.id,
+      kind: "fork",
+      from: { branch: "main", commit: forkAt.commit },
+      context: "inherit",
+    });
     assert.match(start.id, ULID_RE);
 
     // the start commit sits directly on the fork point and carries the usual trailers
@@ -171,8 +188,22 @@ describe("fork", () => {
     await conversation.append(reply("a different answer"));
     await convo.append(user("main goes on"));
 
-    assert.deepEqual(texts(await convo.readEntries()), ["<header>", "first question", "first answer", "second question", "second answer", "main goes on"]);
-    assert.deepEqual(texts(await conversation.readEntries()), ["<header>", "first question", "first answer", "<branch_start>", "a different second question", "a different answer"]);
+    assert.deepEqual(texts(await convo.readEntries()), [
+      "<header>",
+      "first question",
+      "first answer",
+      "second question",
+      "second answer",
+      "main goes on",
+    ]);
+    assert.deepEqual(texts(await conversation.readEntries()), [
+      "<header>",
+      "first question",
+      "first answer",
+      "<branch_start>",
+      "a different second question",
+      "a different answer",
+    ]);
     await assertHistoryInvariants(conversation);
     await assertHistoryInvariants(convo);
     // the shared prefix is the same commits
@@ -188,7 +219,10 @@ describe("fork", () => {
     assert.ok(child !== undefined);
     const r = await child.append(user("child question"));
     const index = await child.index();
-    assert.deepEqual(index.map((x) => x.tag), ["header", "user", "assistant", "branch_start", "user"]);
+    assert.deepEqual(
+      index.map((x) => x.tag),
+      ["header", "user", "assistant", "branch_start", "user"],
+    );
     assert.equal(index.at(-1)?.id, r.id);
 
     const { conversation: grandchild } = await child.fork(ids[0] as string, { name: "deep/er" });
@@ -251,7 +285,14 @@ describe("fork", () => {
     const a = await convo.fork(ids[0] as string, { name: "a" });
     await convo.fork(ids[1] as string, { name: "b", checkout: false });
     const list = (await convo.listBranches()).sort((x, y) => x.name.localeCompare(y.name));
-    assert.deepEqual(list.map((b) => [b.name, b.worktree]), [["a", a.conversation?.dir], ["b", undefined], ["main", dir]]);
+    assert.deepEqual(
+      list.map((b) => [b.name, b.worktree]),
+      [
+        ["a", a.conversation?.dir],
+        ["b", undefined],
+        ["main", dir],
+      ],
+    );
     assert.equal(list[2]?.tip, (await convo.index()).at(-1)?.commit);
   });
 
@@ -410,7 +451,9 @@ describe("mergeFork", () => {
     const { conversation: fork, branch } = await convo.fork(ids[0] as string);
     await (fork as Conversation).append(user("only in the fork"));
     await convo.mergeFork(branch, { summary: "nothing much" });
-    const texts = (await convo.readEntries()).map((e) => (e.ok && e.value.$tag === "user" ? (e.value.content[0] as { text: string }).text : e.ok ? e.tag : "?"));
+    const texts = (await convo.readEntries()).map((e) =>
+      e.ok && e.value.$tag === "user" ? (e.value.content[0] as { text: string }).text : e.ok ? e.tag : "?",
+    );
     assert.ok(!texts.includes("only in the fork"));
     assert.equal(texts.at(-1), "fork_merge");
   });
@@ -442,7 +485,11 @@ describe(slow("crash during a fork"), slowOptions, () => {
       assert.ok(branches.length === 1 || branches.length === 2, `@${k}/${total}: ${branches.join(",")} (${trail})`);
       if (branches.includes("x")) {
         const forked = await restarted.openBranch("x");
-        assert.deepEqual(texts(await forked.readEntries()), ["<header>", "first question", "first answer", "<branch_start>"], `@${k}/${total} (${trail})`);
+        assert.deepEqual(
+          texts(await forked.readEntries()),
+          ["<header>", "first question", "first answer", "<branch_start>"],
+          `@${k}/${total} (${trail})`,
+        );
         await assertHistoryInvariants(forked);
         await forked.append(user("usable"));
       } else {

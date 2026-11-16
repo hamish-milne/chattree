@@ -10,7 +10,10 @@ describe("wrapping to the terminal width", () => {
   test("long lines break at spaces and keep their indentation; short lines, fences and long words are left alone", () => {
     assert.equal(wrapText("one two three four five six", 20), "one two three four\nfive six");
     assert.equal(wrapText("  indented words that are long", 20), "  indented words\n  that are long");
-    assert.equal(wrapText("```\nsome code that is far too long for the width\n```", 20), "```\nsome code that is far too long for the width\n```");
+    assert.equal(
+      wrapText("```\nsome code that is far too long for the width\n```", 20),
+      "```\nsome code that is far too long for the width\n```",
+    );
     assert.equal(wrapText("short\nlines stay", 20), "short\nlines stay");
     assert.equal(wrapText("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa b", 20), "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nb");
     assert.equal(wrapText("a very long line indeed here", undefined), "a very long line indeed here");
@@ -18,17 +21,34 @@ describe("wrapping to the terminal width", () => {
   });
 
   test("an entry wraps inside its indent, and colour is added only when asked for", async () => {
-    const user: ChatEntry = { $tag: "user", id: ULID, content: [{ $tag: "text", text: "the quick brown fox jumps over the lazy dog again and again" }] };
+    const user: ChatEntry = {
+      $tag: "user",
+      id: ULID,
+      content: [{ $tag: "text", text: "the quick brown fox jumps over the lazy dog again and again" }],
+    };
     const plain = (await formatEntry(convo, user, { width: 30 })) ?? "";
     assert.equal(plain, "you:\n  the quick brown fox jumps\n  over the lazy dog again and\n  again");
     assert.doesNotMatch(plain, /\x1b/);
     const coloured = (await formatEntry(convo, user, { width: 30, style: ansiStyle })) ?? "";
     assert.match(coloured, /^\x1b\[1m\x1b\[36myou:/);
-    assert.ok(coloured.split("\n").slice(1).every((l) => l.length <= 30), "no line is wider than the terminal");
+    assert.ok(
+      coloured
+        .split("\n")
+        .slice(1)
+        .every((l) => l.length <= 30),
+      "no line is wider than the terminal",
+    );
   });
 
   test("tool lines are dim, and an error result is red, in the history as in the live display", async () => {
-    const call: ChatEntry = { $tag: "assistant", id: ULID, provider: "p", model: "m", stop_reason: "tool_use", blocks: [{ $tag: "tool_call", call_id: "c1", name: "read", args: { path: "a.txt" } }] };
+    const call: ChatEntry = {
+      $tag: "assistant",
+      id: ULID,
+      provider: "p",
+      model: "m",
+      stop_reason: "tool_use",
+      blocks: [{ $tag: "tool_call", call_id: "c1", name: "read", args: { path: "a.txt" } }],
+    };
     const res: ChatEntry = { $tag: "tool_result", id: ULID, call_id: "c1", is_error: true, content: "no such file" };
     const c = (await formatEntry(convo, call, { style: ansiStyle })) ?? "";
     assert.match(c, /\x1b\[2m→ read a\.txt\x1b\[22m/);

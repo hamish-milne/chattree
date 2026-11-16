@@ -14,7 +14,8 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 
 export function assertObjectName(spec: string): void {
-  if (spec.includes("\n") || spec.includes("\u0000") || spec.startsWith("-") || spec === "") throw new GitError(`invalid object name: ${JSON.stringify(spec)}`);
+  if (spec.includes("\n") || spec.includes("\u0000") || spec.startsWith("-") || spec === "")
+    throw new GitError(`invalid object name: ${JSON.stringify(spec)}`);
 }
 
 /** Pulls lines and exact byte counts out of a stream of chunks. */

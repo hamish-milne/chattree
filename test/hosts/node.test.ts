@@ -34,7 +34,10 @@ describe("exec", () => {
 
   test("env is added to the base environment and overrides it", async () => {
     const cwd = await tempDir();
-    const r = await host.exec(node, ["-e", "process.stdout.write(`${process.env.CT_A}|${typeof process.env.PATH}`)"], { cwd, env: { CT_A: "x" } });
+    const r = await host.exec(node, ["-e", "process.stdout.write(`${process.env.CT_A}|${typeof process.env.PATH}`)"], {
+      cwd,
+      env: { CT_A: "x" },
+    });
     assert.equal(dec.decode(r.stdout), "x|string");
   });
 

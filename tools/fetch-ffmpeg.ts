@@ -20,7 +20,8 @@ async function main(): Promise<void> {
   if (zip === undefined) throw new Error("--from needs a zip file");
   const got = sha256Of(await readFile(zip));
   console.log(`zip sha256 ${got}`);
-  if (got !== FFMPEG_RELEASE.sha256 && !argv.includes("--any")) throw new Error(`that is not the pinned build (expected ${FFMPEG_RELEASE.sha256}); pass --any to install it anyway`);
+  if (got !== FFMPEG_RELEASE.sha256 && !argv.includes("--any"))
+    throw new Error(`that is not the pinned build (expected ${FFMPEG_RELEASE.sha256}); pass --any to install it anyway`);
   console.log(`ffmpeg.exe installed at ${await installFfmpegFromZip(zip, FFMPEG_DIR)}`);
 }
 

@@ -22,7 +22,13 @@ describe("validating arguments against the schema as written", () => {
   const obj = (properties: Record<string, unknown>, required: string[] = []) => ({ type: "object", properties, required });
 
   test("pattern, format, length and const are enforced, in plain words", () => {
-    const s = obj({ id: { type: "string", pattern: "^[a-z]+$" }, url: { type: "string", format: "uri" }, mail: { type: "string", format: "email" }, code: { type: "string", minLength: 3, maxLength: 4 }, kind: { const: "x" } });
+    const s = obj({
+      id: { type: "string", pattern: "^[a-z]+$" },
+      url: { type: "string", format: "uri" },
+      mail: { type: "string", format: "email" },
+      code: { type: "string", minLength: 3, maxLength: 4 },
+      kind: { const: "x" },
+    });
     assert.equal(v(s, { id: "abc", url: "https://a.test/x", mail: "a@b.test", code: "abc", kind: "x" }), "");
     assert.match(v(s, { id: "ABC" }), /id must match the pattern \^\[a-z\]\+\$/);
     assert.match(v(s, { url: "not a url" }), /url must be a valid uri/);
@@ -33,7 +39,10 @@ describe("validating arguments against the schema as written", () => {
   });
 
   test("a choice between shapes is one line, not a line per branch; references and nullable types are followed", () => {
-    const s = { ...obj({ a: { anyOf: [{ type: "string" }, { type: "integer" }] }, m: { $ref: "#/$defs/mode" }, n: { type: ["string", "null"] } }), $defs: { mode: { type: "string", enum: ["fast", "slow"] } } };
+    const s = {
+      ...obj({ a: { anyOf: [{ type: "string" }, { type: "integer" }] }, m: { $ref: "#/$defs/mode" }, n: { type: ["string", "null"] } }),
+      $defs: { mode: { type: "string", enum: ["fast", "slow"] } },
+    };
     assert.equal(v(s, { a: 3, m: "fast", n: null }), "");
     assert.equal(v(s, { a: "x", m: "slow", n: "y" }), "");
     assert.equal(v(s, { a: true }), "a does not match any of the shapes it may have");
@@ -41,7 +50,10 @@ describe("validating arguments against the schema as written", () => {
   });
 
   test("an integer given text is not a number; a number given 1.5 is not whole; paths read as before", () => {
-    const s = obj({ n: { type: "integer", minimum: 1 }, list: { type: "array", items: obj({ p: { type: "string" } }, ["p"]), minItems: 1 } }, ["list"]);
+    const s = obj(
+      { n: { type: "integer", minimum: 1 }, list: { type: "array", items: obj({ p: { type: "string" } }, ["p"]), minItems: 1 } },
+      ["list"],
+    );
     assert.match(v(s, { list: [{ p: "a" }], n: "soon" }), /n must be a number/);
     assert.match(v(s, { list: [{ p: "a" }], n: 1.5 }), /n must be a whole number/);
     assert.match(v(s, { list: [{}] }), /list\[0\]\.p is required/);
@@ -49,10 +61,16 @@ describe("validating arguments against the schema as written", () => {
   });
 
   test("draft 2020-12 and draft-07 schemas both work, and a reference outside the schema is a reason to refuse the tool", () => {
-    const d7 = { $schema: "http://json-schema.org/draft-07/schema#", ...obj({ t: { type: "array", items: [{ type: "string" }, { type: "integer" }] } }) };
+    const d7 = {
+      $schema: "http://json-schema.org/draft-07/schema#",
+      ...obj({ t: { type: "array", items: [{ type: "string" }, { type: "integer" }] } }),
+    };
     assert.deepEqual(schemaProblems(d7), []);
     assert.equal(v(d7, { t: ["a", 1] }), "");
-    const d2020 = { $schema: "https://json-schema.org/draft/2020-12/schema", ...obj({ t: { type: "array", prefixItems: [{ type: "string" }, { type: "integer" }] } }) };
+    const d2020 = {
+      $schema: "https://json-schema.org/draft/2020-12/schema",
+      ...obj({ t: { type: "array", prefixItems: [{ type: "string" }, { type: "integer" }] } }),
+    };
     assert.deepEqual(schemaProblems(d2020), []);
     assert.match(v(d2020, { t: [1, 1] }), /t\[0\] must be text/);
     assert.match(schemaProblems(obj({ x: { $ref: "https://elsewhere.test/x.json" } })).join(), /cannot be used/);
@@ -60,14 +78,24 @@ describe("validating arguments against the schema as written", () => {
   });
 
   test("repairs follow references and nullable types", () => {
-    const s = { ...obj({ list: { $ref: "#/$defs/names" }, n: { type: ["integer", "null"] } }), $defs: { names: { type: "array", items: { type: "string" } } } };
+    const s = {
+      ...obj({ list: { $ref: "#/$defs/names" }, n: { type: ["integer", "null"] } }),
+      $defs: { names: { type: "array", items: { type: "string" } } },
+    };
     assert.deepEqual(coerceArgs(s, { list: "a", n: "5" }), { list: ["a"], n: 5 });
     assert.deepEqual(coerceArgs(s, { list: ["a"], n: null }), { list: ["a"] });
   });
 });
 
 describe("what a model is shown of a schema", () => {
-  const rich = { type: "object", properties: { url: { type: "string", format: "uri", description: "where" }, either: { anyOf: [{ type: "string" }, { type: "integer" }] } }, required: ["url"] };
+  const rich = {
+    type: "object",
+    properties: {
+      url: { type: "string", format: "uri", description: "where" },
+      either: { anyOf: [{ type: "string" }, { type: "integer" }] },
+    },
+    required: ["url"],
+  };
 
   test("full passes it on as written, minus the document's own name; portable narrows it", () => {
     const full = projectSchema({ $schema: "http://json-schema.org/draft-07/schema#", $id: "x", ...rich }, "full");
@@ -75,7 +103,10 @@ describe("what a model is shown of a schema", () => {
     assert.deepEqual(full.ok && full.schema, rich);
     const portable = projectSchema(rich, "portable");
     assert.ok(portable.ok);
-    assert.deepEqual(portable.ok && (portable.schema["properties"] as Record<string, unknown>)["url"], { type: "string", description: 'where (format: "uri")' });
+    assert.deepEqual(portable.ok && (portable.schema["properties"] as Record<string, unknown>)["url"], {
+      type: "string",
+      description: 'where (format: "uri")',
+    });
     assert.ok(!projectSchema({ type: "object", properties: { o: { type: "object" } }, required: ["o"] }, "portable").ok);
     assert.ok(projectSchema({ type: "object", properties: { o: { type: "object" } }, required: ["o"] }, "full").ok);
   });
@@ -83,7 +114,11 @@ describe("what a model is shown of a schema", () => {
   test("the harness's own tools are the same either way", () => {
     const defs = [...leafTools(), skillTool()].map((t) => t.definition);
     for (const d of defs) {
-      assert.deepEqual(projectSchema(d.input_schema, "portable").ok && (projectSchema(d.input_schema, "portable") as { schema: unknown }).schema, d.input_schema, d.name);
+      assert.deepEqual(
+        projectSchema(d.input_schema, "portable").ok && (projectSchema(d.input_schema, "portable") as { schema: unknown }).schema,
+        d.input_schema,
+        d.name,
+      );
     }
     const out = projectDefinitions(defs, "portable");
     assert.deepEqual(out.refused, []);
@@ -95,7 +130,13 @@ describe("a request carries each model's own view", () => {
   let level: ToolSchemaLevel | undefined;
   let info: ToolSchemaLevel | undefined;
   let seen: StreamRequest["context"]["tools"] = [];
-  const reply: Completed = { blocks: [{ type: "text", text: "ok" }], stop_reason: "end_turn", usage: { input_tokens: 1, output_tokens: 1 }, observed: { model: "m1" }, ext: {} };
+  const reply: Completed = {
+    blocks: [{ type: "text", text: "ok" }],
+    stop_reason: "end_turn",
+    usage: { input_tokens: 1, output_tokens: 1 },
+    observed: { model: "m1" },
+    ext: {},
+  };
   const adapters = new AdapterRegistry().register(
     defineAdapter({
       $tag: "fake",
@@ -115,11 +156,22 @@ describe("a request carries each model's own view", () => {
     }),
   );
   const rich: Tool = {
-    definition: { name: "rich", description: "a tool with a pattern and a choice", input_schema: { type: "object", properties: { id: { type: "string", pattern: "^[a-z]+$" }, either: { anyOf: [{ type: "string" }, { type: "integer" }] } }, required: ["id"] } },
+    definition: {
+      name: "rich",
+      description: "a tool with a pattern and a choice",
+      input_schema: {
+        type: "object",
+        properties: { id: { type: "string", pattern: "^[a-z]+$" }, either: { anyOf: [{ type: "string" }, { type: "integer" }] } },
+        required: ["id"],
+      },
+    },
     execute: () => Promise.resolve({ content: "ran" }),
   };
   async function run(registry: ToolRegistry) {
-    const convo = await Conversation.create(host, join(await tempDir(), "c"), { providers: { registry: adapters, secrets: envSource({}) }, config: "providers:\n  f:\n    $tag: fake\n" });
+    const convo = await Conversation.create(host, join(await tempDir(), "c"), {
+      providers: { registry: adapters, secrets: envSource({}) },
+      config: "providers:\n  f:\n    $tag: fake\n",
+    });
     await convo.setupChange({ model: { provider: "f", id: "m1", settings: {} } });
     await syncTools(convo, registry);
     await convo.append({ $tag: "user", content: [{ $tag: "text", text: "go" }] });
@@ -149,10 +201,20 @@ describe("a request carries each model's own view", () => {
   });
 
   test("a portable-only model is refused a tool it cannot be shown, with the reason; a full one takes it", async () => {
-    const hard: Tool = { definition: { name: "hard", description: "needs a free-form object", input_schema: { type: "object", properties: { o: { type: "object" } }, required: ["o"] } }, execute: () => Promise.resolve({ content: "x" }) };
+    const hard: Tool = {
+      definition: {
+        name: "hard",
+        description: "needs a free-form object",
+        input_schema: { type: "object", properties: { o: { type: "object" } }, required: ["o"] },
+      },
+      execute: () => Promise.resolve({ content: "x" }),
+    };
     const registry = new ToolRegistry([hard]);
     level = undefined;
-    await assert.rejects(run(registry), (e: unknown) => e instanceof ToolsNotSupported && /portable subset[\s\S]*hard \(o is a free-form object/.test(e.message));
+    await assert.rejects(
+      run(registry),
+      (e: unknown) => e instanceof ToolsNotSupported && /portable subset[\s\S]*hard \(o is a free-form object/.test(e.message),
+    );
     level = "full";
     await run(registry);
   });

@@ -98,13 +98,32 @@ describe("importCommits", () => {
     const parent = await git.head();
     const branch = (await git.currentBranch()) as string;
     const hashes = await git.importCommits(`refs/heads/${branch}`, parent, [
-      { message: "one", trailers: [["T-Key", "1"]], author: who, committer: who, date: "2026-01-02T03:04:05Z", files: [{ path: "chat.yml", data: enc.encode("v1\n") }] },
-      { message: "two", author: who, committer: who, date: "2026-01-02T03:04:06Z", files: [{ path: "chat.yml", data: enc.encode("v2\n") }, { path: "blobs/ab/cd", data: new Uint8Array([0, 1, 2, 255]) }] },
+      {
+        message: "one",
+        trailers: [["T-Key", "1"]],
+        author: who,
+        committer: who,
+        date: "2026-01-02T03:04:05Z",
+        files: [{ path: "chat.yml", data: enc.encode("v1\n") }],
+      },
+      {
+        message: "two",
+        author: who,
+        committer: who,
+        date: "2026-01-02T03:04:06Z",
+        files: [
+          { path: "chat.yml", data: enc.encode("v2\n") },
+          { path: "blobs/ab/cd", data: new Uint8Array([0, 1, 2, 255]) },
+        ],
+      },
     ]);
     assert.equal(hashes.length, 2);
     assert.equal(await git.head(), hashes[1]);
     const log = await git.log("HEAD", { firstParent: true });
-    assert.deepEqual(log.slice(0, 3).map((c) => c.hash), [hashes[1], hashes[0], parent]);
+    assert.deepEqual(
+      log.slice(0, 3).map((c) => c.hash),
+      [hashes[1], hashes[0], parent],
+    );
     assert.equal(log[1]?.trailers["T-Key"]?.[0], "1");
     assert.equal(dec.decode(await git.readFileAt(hashes[0] as string, "chat.yml")), "v1\n");
     assert.equal(dec.decode(await git.readFileAt(hashes[1] as string, "chat.yml")), "v2\n");
@@ -120,13 +139,25 @@ describe("importCommits", () => {
 
   test("can start a branch with no parent, and leaves the ref alone on bad input", async () => {
     const { git } = await repoWithHistory();
-    const [h] = await git.importCommits("refs/heads/orphan", undefined, [{ message: "root", author: who, committer: who, files: [{ path: "x", data: enc.encode("x") }] }]);
+    const [h] = await git.importCommits("refs/heads/orphan", undefined, [
+      { message: "root", author: who, committer: who, files: [{ path: "x", data: enc.encode("x") }] },
+    ]);
     assert.equal(await git.revParse("refs/heads/orphan"), h);
     assert.equal((await git.log("refs/heads/orphan")).length, 1);
     const before = await git.head();
     const branch = (await git.currentBranch()) as string;
-    await assert.rejects(git.importCommits(`refs/heads/${branch}`, before, [{ message: "bad", author: who, committer: who, files: [{ path: "../escape", data: new Uint8Array() }] }]), /unsupported path/);
-    await assert.rejects(git.importCommits(`refs/heads/${branch}`, before, [{ message: "bad", author: { name: "a<b", email: "x@y" }, committer: who, files: [] }]), /identity/);
+    await assert.rejects(
+      git.importCommits(`refs/heads/${branch}`, before, [
+        { message: "bad", author: who, committer: who, files: [{ path: "../escape", data: new Uint8Array() }] },
+      ]),
+      /unsupported path/,
+    );
+    await assert.rejects(
+      git.importCommits(`refs/heads/${branch}`, before, [
+        { message: "bad", author: { name: "a<b", email: "x@y" }, committer: who, files: [] },
+      ]),
+      /identity/,
+    );
     await assert.rejects(git.importCommits("--evil", before, [{ message: "m", author: who, committer: who, files: [] }]));
     assert.equal(await git.head(), before);
   });
@@ -135,7 +166,9 @@ describe("importCommits", () => {
     const { git } = await repoWithHistory();
     assert.deepEqual(await git.importCommits("refs/heads/z", undefined, []), []);
     const big = new Uint8Array(3_000_000).fill(97);
-    const [h] = await git.importCommits("refs/heads/big", await git.head(), [{ message: "big", author: who, committer: who, files: [{ path: "big.bin", data: big }] }]);
+    const [h] = await git.importCommits("refs/heads/big", await git.head(), [
+      { message: "big", author: who, committer: who, files: [{ path: "big.bin", data: big }] },
+    ]);
     assert.equal((await git.objectInfo([`${h}:big.bin`]))[0]?.size, 3_000_000);
   });
 });

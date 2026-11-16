@@ -56,12 +56,16 @@ export function repoSecretSource(host: Host, dir: string, env: Record<string, st
   let files: Promise<SecretSource> | undefined;
   const load = async (): Promise<SecretSource> => {
     const git = await Git.open(host, { cwd: dir });
-    const read = async (path: string): Promise<Map<string, string>> => ((await host.fs.stat(path)) === undefined ? new Map() : parseDotenv(new TextDecoder().decode(await host.fs.read(path))));
+    const read = async (path: string): Promise<Map<string, string>> =>
+      (await host.fs.stat(path)) === undefined ? new Map() : parseDotenv(new TextDecoder().decode(await host.fs.read(path)));
     const local = host.path.join(dir, ".chattree", "env");
     let worktree = new Map<string, string>();
     if ((await host.fs.stat(local)) !== undefined) {
       const ignored = (await git.run(["check-ignore", "-q", "--", ".chattree/env"], { ok: [1], readOnly: true })).exitCode === 0;
-      if (!ignored) throw new SecretFileError(`${local} exists but git does not ignore it, so \`git add\` could commit your keys. Add "/.chattree/" to .gitignore, or move the keys to .git/chattree/env`);
+      if (!ignored)
+        throw new SecretFileError(
+          `${local} exists but git does not ignore it, so \`git add\` could commit your keys. Add "/.chattree/" to .gitignore, or move the keys to .git/chattree/env`,
+        );
       worktree = await read(local);
     }
     const shared = await read(host.path.join(await git.commonDir(), "chattree", "env"));

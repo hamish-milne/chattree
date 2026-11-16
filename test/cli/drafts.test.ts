@@ -34,15 +34,20 @@ const editorWriting = (...texts: string[]) => {
   };
 };
 const userTexts = async (dir: string): Promise<string[]> =>
-  (await (await Conversation.open(host, dir)).readEntries()).flatMap((e) => (e.ok && e.value.$tag === "user" ? [e.value.content.map((p) => (p.$tag === "text" ? p.text : `[${p.name ?? "file"}]`)).join("")] : []));
-const sentTo = (server: FakeServer, n: number): string => (JSON.parse(server.seen[n]?.body ?? "") as { messages: { content: string }[] }).messages.at(-1)?.content ?? "";
+  (await (await Conversation.open(host, dir)).readEntries()).flatMap((e) =>
+    e.ok && e.value.$tag === "user" ? [e.value.content.map((p) => (p.$tag === "text" ? p.text : `[${p.name ?? "file"}]`)).join("")] : [],
+  );
+const sentTo = (server: FakeServer, n: number): string =>
+  (JSON.parse(server.seen[n]?.body ?? "") as { messages: { content: string }[] }).messages.at(-1)?.content ?? "";
 
 describe("named drafts", () => {
   test("/draft opens the editor on a new numbered draft, /draft <name> on a named one; /drafts lists; /send sends and removes", async () => {
     const { server, dir } = await started([answer("one"), answer("two")]);
     try {
       const ed = editorWriting("first idea\nwith two lines\n", "second idea\n", "named one\n");
-      const r = await session(dir, ["/draft", "/draft", "/draft plan", "/drafts", "/send plan", "/send 2", "/drafts"], { io: { edit: ed.edit } });
+      const r = await session(dir, ["/draft", "/draft", "/draft plan", "/drafts", "/send plan", "/send 2", "/drafts"], {
+        io: { edit: ed.edit },
+      });
       assert.equal(r.code, 0, r.err);
       assert.deepEqual(ed.opened, ["", "", ""], "each new draft opened empty");
       assert.match(r.out, /^1 {2}25 characters {2}first idea with two lines$/m);
@@ -75,8 +80,12 @@ describe("named drafts", () => {
     const { server, dir } = await started([answer("a"), answer("b"), answer("c")]);
     try {
       const ed = editorWriting("from the editor\n", "another\n", "third\n");
-      const r = await session(dir, ["/draft set still typing", "/draft x", "/send", "/say literal text", "/draft show", "/draft y", "/draft z", "/send"], { io: { edit: ed.edit } });
-      assert.deepEqual((await userTexts(dir)), ["from the editor", "literal text"]);
+      const r = await session(
+        dir,
+        ["/draft set still typing", "/draft x", "/send", "/say literal text", "/draft show", "/draft y", "/draft z", "/send"],
+        { io: { edit: ed.edit } },
+      );
+      assert.deepEqual(await userTexts(dir), ["from the editor", "literal text"]);
       assert.match(r.out, /^still typing$/m, "the prompt draft survived both sends");
       assert.match(r.err, /say which draft/);
     } finally {
@@ -137,7 +146,11 @@ describe("/undo", () => {
       assert.match(again.out, /^second question$/m, "the draft was saved with the session");
       assert.deepEqual(await userTexts(dir), ["first question", "better second question"]);
       const sent = JSON.parse(server.seen[2]?.body ?? "") as { messages: { role: string }[] };
-      assert.deepEqual(sent.messages.map((m) => m.role), ["system", "user", "assistant", "user"], "the undone exchange is not sent");
+      assert.deepEqual(
+        sent.messages.map((m) => m.role),
+        ["system", "user", "assistant", "user"],
+        "the undone exchange is not sent",
+      );
     } finally {
       await server.close();
     }

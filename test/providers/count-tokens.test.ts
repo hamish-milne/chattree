@@ -8,12 +8,22 @@ type Call = { url: string; headers: Record<string, string>; body: Record<string,
 
 function fakeFetch(status: number, reply: unknown, calls: Call[]): typeof fetch {
   return (async (url: string, init: RequestInit) => {
-    calls.push({ url: String(url), headers: init.headers as Record<string, string>, body: JSON.parse(String(init.body)) as Record<string, unknown> });
+    calls.push({
+      url: String(url),
+      headers: init.headers as Record<string, string>,
+      body: JSON.parse(String(init.body)) as Record<string, unknown>,
+    });
     return new Response(typeof reply === "string" ? reply : JSON.stringify(reply), { status });
   }) as unknown as typeof fetch;
 }
 
-const context = { system: "sys", instructions: undefined, turns: [{ role: "user", parts: [{ type: "text", text: "hello" }] }], tools: [], cacheHints: [] } as never;
+const context = {
+  system: "sys",
+  instructions: undefined,
+  turns: [{ role: "user", parts: [{ type: "text", text: "hello" }] }],
+  tools: [],
+  cacheHints: [],
+} as never;
 const signal = new AbortController().signal;
 
 describe("countTokens", () => {
@@ -33,9 +43,15 @@ describe("countTokens", () => {
   test("failures are classified and never leak the key", async () => {
     const a = anthropicAdapter({ apiKey: "sk-ant-SECRET", http: { fetch: fakeFetch(401, "bad key sk-ant-SECRET", []) } } as never);
     const setup = { model: { provider: "a", id: "claude-x", settings: { max_output_tokens: 9 } } } as never;
-    await assert.rejects((a.countTokens as NonNullable<typeof a.countTokens>)({ context, setup, signal }), (e) => e instanceof ProviderError && !/SECRET/.test(e.message) && e.kind !== "network");
+    await assert.rejects(
+      (a.countTokens as NonNullable<typeof a.countTokens>)({ context, setup, signal }),
+      (e) => e instanceof ProviderError && !/SECRET/.test(e.message) && e.kind !== "network",
+    );
     const b = anthropicAdapter({ apiKey: "k", http: { fetch: fakeFetch(200, { nope: 1 }, []) } } as never);
-    await assert.rejects((b.countTokens as NonNullable<typeof b.countTokens>)({ context, setup, signal }), (e) => e instanceof ProviderError && e.kind === "protocol");
+    await assert.rejects(
+      (b.countTokens as NonNullable<typeof b.countTokens>)({ context, setup, signal }),
+      (e) => e instanceof ProviderError && e.kind === "protocol",
+    );
   });
 
   test("openai responses: posts input, instructions and tools to /responses/input_tokens", async () => {

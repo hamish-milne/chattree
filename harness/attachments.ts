@@ -9,7 +9,16 @@ import { formatOf } from "./formats.ts";
 export type AttachmentKind = "text" | "image" | "pdf" | "audio";
 
 /** Audio types, and the format name that APIs which take audio ask for (`input_audio.format`). llama.cpp reads these three. */
-const AUDIO_FORMATS: Readonly<Record<string, "wav" | "mp3" | "flac">> = { "audio/wav": "wav", "audio/x-wav": "wav", "audio/wave": "wav", "audio/vnd.wave": "wav", "audio/mpeg": "mp3", "audio/mp3": "mp3", "audio/flac": "flac", "audio/x-flac": "flac" };
+const AUDIO_FORMATS: Readonly<Record<string, "wav" | "mp3" | "flac">> = {
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/wave": "wav",
+  "audio/vnd.wave": "wav",
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/flac": "flac",
+  "audio/x-flac": "flac",
+};
 
 /** The format name of an audio type, or undefined if it is not one a model is given. */
 export function audioFormat(mime: string): "wav" | "mp3" | "flac" | undefined {
@@ -31,7 +40,20 @@ export function attachmentKind(mime: string): AttachmentKind | undefined {
   const f = formatOf(m);
   if (f !== undefined && f.kind !== "video") return f.kind;
   if (AUDIO_FORMATS[m] !== undefined) return "audio";
-  if (m.startsWith("text/") || ["application/json", "application/xml", "application/yaml", "application/x-yaml", "application/toml", "application/javascript", "application/sql"].includes(m) || /\+(json|xml|yaml)$/.test(m)) return "text";
+  if (
+    m.startsWith("text/") ||
+    [
+      "application/json",
+      "application/xml",
+      "application/yaml",
+      "application/x-yaml",
+      "application/toml",
+      "application/javascript",
+      "application/sql",
+    ].includes(m) ||
+    /\+(json|xml|yaml)$/.test(m)
+  )
+    return "text";
   return undefined;
 }
 
@@ -64,11 +86,14 @@ export function decodeText(bytes: Uint8Array, charset?: string): string {
     throw new TextAttachmentError(`the charset ${JSON.stringify(label)} is not one this runtime can read`);
   }
   const wide = /^utf-16/.test(decoder.encoding);
-  if (!wide && bytes.includes(0)) throw new TextAttachmentError("the file contains NUL bytes, so it is not text; attach it with its real media type or not at all");
+  if (!wide && bytes.includes(0))
+    throw new TextAttachmentError("the file contains NUL bytes, so it is not text; attach it with its real media type or not at all");
   try {
     return decoder.decode(bytes);
   } catch {
-    throw new TextAttachmentError(`the file is not valid ${decoder.encoding}${charset === undefined ? "; if it is in another encoding, pass its charset (for example charset: \"windows-1252\")" : ""}`);
+    throw new TextAttachmentError(
+      `the file is not valid ${decoder.encoding}${charset === undefined ? '; if it is in another encoding, pass its charset (for example charset: "windows-1252")' : ""}`,
+    );
   }
 }
 

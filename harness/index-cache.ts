@@ -68,7 +68,13 @@ export function parseCachedIndex(text: string): CachedIndex | undefined {
     for (const row of raw.refs as unknown[]) {
       if (!Array.isArray(row) || row.length !== 4) return undefined;
       const [id, tag, commit, offset] = row as [unknown, unknown, unknown, unknown];
-      if ((id !== null && typeof id !== "string") || typeof tag !== "string" || typeof commit !== "string" || !/^[0-9a-f]{40,64}$/.test(commit)) return undefined;
+      if (
+        (id !== null && typeof id !== "string") ||
+        typeof tag !== "string" ||
+        typeof commit !== "string" ||
+        !/^[0-9a-f]{40,64}$/.test(commit)
+      )
+        return undefined;
       if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset <= prev) return undefined;
       prev = offset;
       refs.push({ id: id === null ? undefined : id, tag, commit, offset });

@@ -64,7 +64,9 @@ export interface PumpSummary {
   held: number;
 }
 
-export type AnswerResult = { status: "recorded"; granted?: { keys: string[]; until: string }; grantError?: string } | { status: "already_decided" | "gone" };
+export type AnswerResult =
+  | { status: "recorded"; granted?: { keys: string[]; until: string }; grantError?: string }
+  | { status: "already_decided" | "gone" };
 
 export class Pump {
   readonly runs = new ThreadRuns();
@@ -120,7 +122,12 @@ export class Pump {
 
   async #ancestors(branch: string): Promise<string[]> {
     const out: string[] = [];
-    for (let at: string | undefined = await this.#parentOf(branch); at !== undefined && !out.includes(at) && out.length < 20; at = await this.#parentOf(at)) out.push(at);
+    for (
+      let at: string | undefined = await this.#parentOf(branch);
+      at !== undefined && !out.includes(at) && out.length < 20;
+      at = await this.#parentOf(at)
+    )
+      out.push(at);
     return out;
   }
 
@@ -201,7 +208,9 @@ export class Pump {
     if (tip.kind === "needs_approval") {
       ancestors = await this.#ancestors(branch);
       const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-      const holder = entries.findLast((e) => e.$tag === "assistant" && e.blocks.some((b) => b.$tag === "tool_call" && b.call_id === tip.question.callId));
+      const holder = entries.findLast(
+        (e) => e.$tag === "assistant" && e.blocks.some((b) => b.$tag === "tool_call" && b.call_id === tip.question.callId),
+      );
       if (holder !== undefined && "id" in holder && typeof holder.id === "string") since = ulidTime(holder.id);
     }
     this.#setQuestion(branch, tip.kind === "needs_approval" ? tip.question : undefined, branch, since, ancestors);
@@ -237,11 +246,14 @@ export class Pump {
       case "needs_approval":
         return undefined;
       case "run": {
-        const decided = tip.calls.some((c) => c.status === "covered" || c.status === "approved" || c.status === "declined" || c.status === "invalid");
+        const decided = tip.calls.some(
+          (c) => c.status === "covered" || c.status === "approved" || c.status === "declined" || c.status === "invalid",
+        );
         return decided ? { ...(at === undefined ? {} : { at }) } : undefined;
       }
       case "ready":
-        if (tip.cause === "human" || (tip.cause === "event" && (await this.#hooks.resume?.(convo)) === true)) return { ...(at === undefined ? {} : { at }) };
+        if (tip.cause === "human" || (tip.cause === "event" && (await this.#hooks.resume?.(convo)) === true))
+          return { ...(at === undefined ? {} : { at }) };
         return undefined;
       case "awaiting_user": {
         const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
@@ -254,7 +266,9 @@ export class Pump {
   /** The id of the last entry that says something about the thread's state (not set-up or approvals): what a screen compares to tell new from old. */
   async #lastEntryId(convo: Conversation): Promise<string | undefined> {
     const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-    const last = entries.findLast((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection");
+    const last = entries.findLast(
+      (e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection",
+    );
     return last !== undefined && "id" in last && typeof last.id === "string" ? last.id : undefined;
   }
 
@@ -263,7 +277,15 @@ export class Pump {
       this.#questions.delete(branch);
       return;
     }
-    this.#questions.set(branch, { branch, callId: need.callId, name: need.name, args: need.args, keys: need.keys ?? null, ancestors, ...(since === undefined ? {} : { since }) });
+    this.#questions.set(branch, {
+      branch,
+      callId: need.callId,
+      name: need.name,
+      args: need.args,
+      keys: need.keys ?? null,
+      ancestors,
+      ...(since === undefined ? {} : { since }),
+    });
   }
 
   #start(branch: string, convo: Conversation, options: RunOptions): void {
@@ -280,8 +302,10 @@ export class Pump {
     if (end === undefined || this.#closed) return;
     this.#hooks.onEnd?.(branch, end);
     const status = end.result?.status;
-    if (end.error !== undefined) this.#held.set(branch, `the loop failed: ${end.error instanceof Error ? end.error.message : String(end.error)}`);
-    else if (status === "stopped" || status === "deadline" || status === "interrupted" || status === "cancelled") this.#held.set(branch, `the loop ended: ${status}`);
+    if (end.error !== undefined)
+      this.#held.set(branch, `the loop failed: ${end.error instanceof Error ? end.error.message : String(end.error)}`);
+    else if (status === "stopped" || status === "deadline" || status === "interrupted" || status === "cancelled")
+      this.#held.set(branch, `the loop ended: ${status}`);
     // A thread that finished or is waiting changes what others need (a parent waits for this one), so everything is looked at again.
     void this.tick().catch(() => undefined);
   }
@@ -349,7 +373,10 @@ export class Pump {
           }, 75);
           pending.unref?.();
         };
-        const stops = [fs.watch(convo.host.path.join(common, "refs"), () => changed(), { recursive: true }), fs.watch(common, (name) => (name === undefined || name === "packed-refs") && changed())];
+        const stops = [
+          fs.watch(convo.host.path.join(common, "refs"), () => changed(), { recursive: true }),
+          fs.watch(common, (name) => (name === undefined || name === "packed-refs") && changed()),
+        ];
         if (!this.#watching) {
           for (const stop of stops) stop();
           return;
@@ -404,7 +431,10 @@ export class Pump {
           if (bad !== undefined) throw new Error(bad);
           if (decision.grant.scope === "thread") held = { tool: need.name, keys, until };
           else if (options.grants === undefined) throw new Error("this thread has no place to keep a grant");
-          else await options.grants.grant(need.name, keys, until, { commit: decision.grant.commit ?? !Number.isFinite(decision.grant.seconds) });
+          else
+            await options.grants.grant(need.name, keys, until, {
+              commit: decision.grant.commit ?? !Number.isFinite(decision.grant.seconds),
+            });
           granted = { keys, until };
         } catch (e) {
           grantError = e instanceof Error ? e.message : String(e);

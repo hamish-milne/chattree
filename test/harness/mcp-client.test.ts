@@ -8,7 +8,8 @@ import { startHttp } from "../support/mcp-server.ts";
 const host = nodeHost();
 const SERVER = fileURLToPath(new URL("../support/mcp-server.ts", import.meta.url));
 const opts = { clientName: "chattree-test", clientVersion: "0" };
-const stdio = (env: Record<string, string> = {}) => stdioTransport(host, { command: process.execPath, args: ["--no-warnings", SERVER], env, cwd: process.cwd() });
+const stdio = (env: Record<string, string> = {}) =>
+  stdioTransport(host, { command: process.execPath, args: ["--no-warnings", SERVER], env, cwd: process.cwd() });
 
 describe("over stdio", () => {
   test("handshake, paged tool list, calls, errors and a result the tool says is an error", async () => {
@@ -17,10 +18,17 @@ describe("over stdio", () => {
       assert.deepEqual(c.serverInfo, { name: "fake", version: "1.2.3" });
       assert.equal(c.instructions, "be careful");
       const tools = await c.listTools();
-      assert.deepEqual(tools.map((t) => t.name), ["echo", "fail", "slow", "picture", "change"], "every page, in order");
+      assert.deepEqual(
+        tools.map((t) => t.name),
+        ["echo", "fail", "slow", "picture", "change"],
+        "every page, in order",
+      );
       assert.deepEqual((await c.callTool("echo", { text: "hi" })).content, [{ type: "text", text: "echo: hi" }]);
       assert.equal((await c.callTool("fail", {})).isError, true);
-      await assert.rejects(c.callTool("nope", {}), (e) => e instanceof McpError && e.code === -32602 && /unknown tool nope/.test(e.message));
+      await assert.rejects(
+        c.callTool("nope", {}),
+        (e) => e instanceof McpError && e.code === -32602 && /unknown tool nope/.test(e.message),
+      );
     } finally {
       await c.close();
     }
@@ -56,8 +64,22 @@ describe("over stdio", () => {
   });
 
   test("a program that does not exist, or dies, is a clear error", async () => {
-    await assert.rejects(McpClient.connect(stdioTransport(host, { command: "definitely-not-a-program-xyz", args: [], env: {}, cwd: process.cwd() }), opts), /could not start|exited/);
-    await assert.rejects(McpClient.connect(stdioTransport(host, { command: process.execPath, args: ["-e", "process.stderr.write('boom\\n'); process.exit(3)"], env: {}, cwd: process.cwd() }), { ...opts, timeoutMs: 5000 }), /exited with code 3: boom/);
+    await assert.rejects(
+      McpClient.connect(stdioTransport(host, { command: "definitely-not-a-program-xyz", args: [], env: {}, cwd: process.cwd() }), opts),
+      /could not start|exited/,
+    );
+    await assert.rejects(
+      McpClient.connect(
+        stdioTransport(host, {
+          command: process.execPath,
+          args: ["-e", "process.stderr.write('boom\\n'); process.exit(3)"],
+          env: {},
+          cwd: process.cwd(),
+        }),
+        { ...opts, timeoutMs: 5000 },
+      ),
+      /exited with code 3: boom/,
+    );
   });
 });
 
@@ -71,7 +93,9 @@ describe("over HTTP", () => {
         assert.deepEqual((await c.callTool("echo", { text: "yo" })).content, [{ type: "text", text: "echo: yo" }]);
         await c.close();
         const later = srv.headers.filter((h) => h["mcp-session-id"] !== undefined);
-        assert.ok(later.length >= 3 && later.every((h) => h["mcp-protocol-version"] === "2025-06-18" || h["mcp-protocol-version"] === undefined));
+        assert.ok(
+          later.length >= 3 && later.every((h) => h["mcp-protocol-version"] === "2025-06-18" || h["mcp-protocol-version"] === undefined),
+        );
         assert.ok(srv.headers.every((h) => h["x-extra"] === "1"));
         assert.equal(srv.headers.at(-1) !== undefined, true);
       } finally {
@@ -83,7 +107,10 @@ describe("over HTTP", () => {
   test("a refused request says so, with the status", async () => {
     const srv = await startHttp({ auth: "Bearer right" });
     try {
-      await assert.rejects(McpClient.connect(httpTransport({ url: srv.url, headers: { authorization: "Bearer wrong" } }), opts), /HTTP 401/);
+      await assert.rejects(
+        McpClient.connect(httpTransport({ url: srv.url, headers: { authorization: "Bearer wrong" } }), opts),
+        /HTTP 401/,
+      );
       await assert.rejects(McpClient.connect(httpTransport({ url: "http://127.0.0.1:9/mcp", headers: {} }), opts), /could not reach/);
     } finally {
       await srv.close();

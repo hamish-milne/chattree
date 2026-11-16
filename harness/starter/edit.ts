@@ -65,13 +65,21 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
     const where = `change ${index + 1}`;
     const isInt = (x: unknown): x is number => typeof x === "number" && Number.isInteger(x);
     if (c.after !== undefined) {
-      if (c.start !== undefined || c.end !== undefined) throw new EditFailed(`${where}: give either \`start\` and \`end\` (replace lines) or \`after\` (insert), not both`);
-      if (!isInt(c.after) || c.after < 0 || c.after > n) throw new EditFailed(`${where}: \`after\` ${String(c.after)} is not between 0 and ${n} (the file has ${n} line${n === 1 ? "" : "s"}; 0 inserts at the top, ${n} appends)`);
+      if (c.start !== undefined || c.end !== undefined)
+        throw new EditFailed(`${where}: give either \`start\` and \`end\` (replace lines) or \`after\` (insert), not both`);
+      if (!isInt(c.after) || c.after < 0 || c.after > n)
+        throw new EditFailed(
+          `${where}: \`after\` ${String(c.after)} is not between 0 and ${n} (the file has ${n} line${n === 1 ? "" : "s"}; 0 inserts at the top, ${n} appends)`,
+        );
       if (c.content === "") throw new EditFailed(`${where}: an insert needs \`content\``);
       return { index, key: c.after, end: c.after, kind: 0, c };
     }
-    if (!isInt(c.start) || !isInt(c.end)) throw new EditFailed(`${where}: give \`start\` and \`end\` line numbers (to replace or delete lines), or \`after\` (to insert)`);
-    if (c.start < 1 || c.end < c.start || c.end > n) throw new EditFailed(`${where}: lines ${c.start}-${c.end} are not within the file's ${n} line${n === 1 ? "" : "s"} (start must be at least 1 and end at least start)${n === 0 ? "; the file is empty, so use \`after\`: 0 to add text" : ""}`);
+    if (!isInt(c.start) || !isInt(c.end))
+      throw new EditFailed(`${where}: give \`start\` and \`end\` line numbers (to replace or delete lines), or \`after\` (to insert)`);
+    if (c.start < 1 || c.end < c.start || c.end > n)
+      throw new EditFailed(
+        `${where}: lines ${c.start}-${c.end} are not within the file's ${n} line${n === 1 ? "" : "s"} (start must be at least 1 and end at least start)${n === 0 ? "; the file is empty, so use \`after\`: 0 to add text" : ""}`,
+      );
     return { index, key: c.start - 1, end: c.end, kind: 1, c };
   });
   ops.sort((a, b) => a.key - b.key || a.kind - b.kind || a.index - b.index);
@@ -80,7 +88,10 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
   const done: { head: string; removed: string[]; removedFrom: number; added: string[]; first: number; delta: number }[] = [];
   let i = 0;
   for (const op of ops) {
-    if (op.key < i) throw new EditFailed(`change ${op.index + 1} overlaps another change (lines are numbered as they were read, and each line may be changed once per call)`);
+    if (op.key < i)
+      throw new EditFailed(
+        `change ${op.index + 1} overlaps another change (lines are numbered as they were read, and each line may be changed once per call)`,
+      );
     out.push(...lines.slice(i, op.key));
     const added = contentLines(op.c.content);
     const first = out.length + 1;
@@ -102,7 +113,8 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
     const afterAt = d.first + d.added.length;
     const after = afterAt <= out.length ? [`  ${afterAt}\t${clip(out[afterAt - 1]?.text ?? "")}`] : [];
     // Models forget that line numbers move after an edit: say so when lines follow the change.
-    const moved = d.delta !== 0 && afterAt <= out.length ? `; the lines after it moved ${d.delta > 0 ? "down" : "up"} by ${Math.abs(d.delta)}` : "";
+    const moved =
+      d.delta !== 0 && afterAt <= out.length ? `; the lines after it moved ${d.delta > 0 ? "down" : "up"} by ${Math.abs(d.delta)}` : "";
     return [d.head + moved, ...numbered(d.removed, d.removedFrom, "-"), ...before, ...numbered(d.added, d.first, "+"), ...after].join("\n");
   });
   const text = out.map((l, k) => l.text + (k === out.length - 1 && !finalNewline ? "" : l.eol === "" ? eol : l.eol)).join("");
@@ -120,7 +132,12 @@ export function echoesLineNumbers(content: string, first: number): boolean {
   return lines.every((l, i) => l.startsWith(`${first + i}\t`));
 }
 
-const CHANGE_ALIASES = { start: ["start_line", "line_start", "from", "from_line"], end: ["end_line", "line_end", "to", "to_line"], after: ["after_line", "insert_after"], content: ["contents", "text", "new_text", "replace_with", "replacement", "new_content"] } as const;
+const CHANGE_ALIASES = {
+  start: ["start_line", "line_start", "from", "from_line"],
+  end: ["end_line", "line_end", "to", "to_line"],
+  after: ["after_line", "insert_after"],
+  content: ["contents", "text", "new_text", "replace_with", "replacement", "new_content"],
+} as const;
 
 /** The flat arguments of edit: one file, one change (docs/tools.md, 4.1). The nested shapes with one item are repaired (args.ts). */
 export function normalizeEdit(args: unknown): unknown {
@@ -133,18 +150,32 @@ export function editTool(): Tool {
     definition: {
       name: "edit",
       description:
-        "Change part of an existing file by line number. First read the file: read numbers every line and gives the file's `version` (8 hex digits). Then give `path`, `version` and one change: either `start` and `end` (inclusive line numbers) with `content` replacing those lines (leave `content` empty to delete them), or `after` with `content` inserting new lines after that line (`after` 0 is the top of the file; the last line number appends). `content` is plain text without line numbers. `start` and `end` replace the lines they name, blank lines included, so to add lines without removing any, use `after`. Lines outside start..end stay as they are, so do not repeat them in `content`. The result shows the change with the line either side of it, the file's new line numbers and its new version; for another change to the same file use that new version and those numbers (an edit moves the lines after it, and the result says by how much; working from the bottom of the file upwards keeps the earlier numbers valid). Example: `{\"path\": \"a.txt\", \"version\": \"1f08cd1f\", \"start\": 2, \"end\": 3, \"content\": \"new line two\"}`. To create a file or rewrite one entirely, use write.",
+        'Change part of an existing file by line number. First read the file: read numbers every line and gives the file\'s `version` (8 hex digits). Then give `path`, `version` and one change: either `start` and `end` (inclusive line numbers) with `content` replacing those lines (leave `content` empty to delete them), or `after` with `content` inserting new lines after that line (`after` 0 is the top of the file; the last line number appends). `content` is plain text without line numbers. `start` and `end` replace the lines they name, blank lines included, so to add lines without removing any, use `after`. Lines outside start..end stay as they are, so do not repeat them in `content`. The result shows the change with the line either side of it, the file\'s new line numbers and its new version; for another change to the same file use that new version and those numbers (an edit moves the lines after it, and the result says by how much; working from the bottom of the file upwards keeps the earlier numbers valid). Example: `{"path": "a.txt", "version": "1f08cd1f", "start": 2, "end": 3, "content": "new line two"}`. To create a file or rewrite one entirely, use write.',
       input_schema: {
         type: "object",
         additionalProperties: false,
         required: ["path", "version"],
         properties: {
           path: { type: "string", description: "Path of the file, relative to the workspace root." },
-          version: { type: "string", description: "The file's version: the 8 hex digits after `version` in the header that read (or an earlier edit or write) gave." },
+          version: {
+            type: "string",
+            description: "The file's version: the 8 hex digits after `version` in the header that read (or an earlier edit or write) gave.",
+          },
           start: { type: "integer", minimum: 1, description: "First line to replace or delete. Use with `end`." },
-          end: { type: "integer", minimum: 1, description: "Last line to replace or delete (inclusive). Defaults to `start`, so leave it out to change one line." },
-          after: { type: "integer", minimum: 0, description: "Insert after this line number instead of replacing (0 is the top). Use instead of `start` and `end`." },
-          content: { type: "string", description: "The new text for those lines, or the text to insert. Empty (or left out) when deleting lines." },
+          end: {
+            type: "integer",
+            minimum: 1,
+            description: "Last line to replace or delete (inclusive). Defaults to `start`, so leave it out to change one line.",
+          },
+          after: {
+            type: "integer",
+            minimum: 0,
+            description: "Insert after this line number instead of replacing (0 is the top). Use instead of `start` and `end`.",
+          },
+          content: {
+            type: "string",
+            description: "The new text for those lines, or the text to insert. Empty (or left out) when deleting lines.",
+          },
         },
       },
     },
@@ -168,8 +199,12 @@ export function editTool(): Tool {
         const now = await versionOf(bytes);
         // Models copy the header loosely ("version 1f08cd1f", "v 1f08cd1f"): what counts is the 8 hex digits.
         const given = /[0-9a-f]{8}/i.exec(f.version)?.[0]?.toLowerCase();
-        if (given === undefined) throw new EditFailed(`\`version\` must be the 8 hex digits that read shows after "version" (the file is at ${now} now)`);
-        if (given !== now) throw new EditFailed(`${name} has changed since you read it (you gave ${given}, it is at ${now} now); read it again and use its numbers`);
+        if (given === undefined)
+          throw new EditFailed(`\`version\` must be the 8 hex digits that read shows after "version" (the file is at ${now} now)`);
+        if (given !== now)
+          throw new EditFailed(
+            `${name} has changed since you read it (you gave ${given}, it is at ${now} now); read it again and use its numbers`,
+          );
         const change: Change = { content: f.content ?? "" };
         if (f.start !== undefined) change.start = f.start;
         // A single line is the common case and models leave `end` out: it means the same line.
@@ -177,11 +212,19 @@ export function editTool(): Tool {
         else if (f.start !== undefined && f.after === undefined) change.end = f.start;
         if (f.after !== undefined) change.after = f.after;
         const first = change.after !== undefined ? change.after + 1 : change.start;
-        if (first !== undefined && echoesLineNumbers(change.content, first)) throw new EditFailed("`content` starts every line with its line number and a tab, as read shows them; give the text of the lines only, without the numbers");
+        if (first !== undefined && echoesLineNumbers(change.content, first))
+          throw new EditFailed(
+            "`content` starts every line with its line number and a tab, as read shows them; give the text of the lines only, without the numbers",
+          );
         const out = applyChanges(original, [change]);
         const written = enc.encode(out.text);
         await host.fs.writeAtomic(abs, written, { keepMode: true });
-        return { content: [`edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, version ${await versionOf(written)})`, ...out.report].join("\n") };
+        return {
+          content: [
+            `edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, version ${await versionOf(written)})`,
+            ...out.report,
+          ].join("\n"),
+        };
       } catch (err) {
         if (!(err instanceof EditFailed) && !(err instanceof Error && err.name === "PathRefused")) throw err;
         return { content: `failed: ${f.path}: ${err.message}; nothing in it was changed`, is_error: true };

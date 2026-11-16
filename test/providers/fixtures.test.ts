@@ -9,13 +9,29 @@ import { HELLO, toyAdapter } from "../support/toy-adapter.ts";
 import { Rng } from "../support/gen.ts";
 
 const KEY = "sk-live-VERYSECRET";
-const req = () => ({ context: { system: "", instructions: undefined, turns: [], tools: [], cacheHints: [] }, setup: emptySetup(), signal: new AbortController().signal });
+const req = () => ({
+  context: { system: "", instructions: undefined, turns: [], tools: [], cacheHints: [] },
+  setup: emptySetup(),
+  signal: new AbortController().signal,
+});
 
 describe("recording", () => {
   test("a recorded exchange has no secrets and no account headers, and replays to the same result", async () => {
-    const server = await FakeServer.start([{ headers: { "x-request-id": "req_123", "set-cookie": "a=b", "x-custom": `echo ${KEY}` }, acts: HELLO.map((s) => s.replace("toy-1-2026", `toy-${KEY}`)) }]);
+    const server = await FakeServer.start([
+      {
+        headers: { "x-request-id": "req_123", "set-cookie": "a=b", "x-custom": `echo ${KEY}` },
+        acts: HELLO.map((s) => s.replace("toy-1-2026", `toy-${KEY}`)),
+      },
+    ]);
     try {
-      const fixture = await record({ url: `${server.url}/v1/stream`, headers: { "x-api-key": "${TEST_KEY}", "content-type": "application/json" }, body: { hello: "${TEST_KEY}" } }, { TEST_KEY: KEY });
+      const fixture = await record(
+        {
+          url: `${server.url}/v1/stream`,
+          headers: { "x-api-key": "${TEST_KEY}", "content-type": "application/json" },
+          body: { hello: "${TEST_KEY}" },
+        },
+        { TEST_KEY: KEY },
+      );
       const text = JSON.stringify(fixture);
       assert.ok(!text.includes(KEY), "secret scrubbed everywhere");
       assert.deepEqual(Object.keys(fixture.request?.headers ?? {}), ["content-type"]);
@@ -47,15 +63,23 @@ describe("recording", () => {
   });
 
   test("an error status is recorded and replayed like any response", async () => {
-    const fixture: Fixture = { version: 1, response: { status: 401, headers: { "content-type": "application/json" }, body: '{"error":"bad key"}' } };
-    const run = await collectStream(toyAdapter("http://none.invalid", { fetch: replayFetch(fixture), retry: { maxAttempts: 1 } }).stream(req()));
+    const fixture: Fixture = {
+      version: 1,
+      response: { status: 401, headers: { "content-type": "application/json" }, body: '{"error":"bad key"}' },
+    };
+    const run = await collectStream(
+      toyAdapter("http://none.invalid", { fetch: replayFetch(fixture), retry: { maxAttempts: 1 } }).stream(req()),
+    );
     assert.deepEqual(conformanceProblems(run), []);
     assert.match(String((run.error as Error).message), /401.*bad key/);
   });
 
   test("recordingFetch passes the response through untouched while recording", async () => {
     const got: Fixture[] = [];
-    const f = recordingFetch(async () => new Response("hello", { status: 202, headers: { "x-a": "1" } }), (x) => void got.push(x));
+    const f = recordingFetch(
+      async () => new Response("hello", { status: 202, headers: { "x-a": "1" } }),
+      (x) => void got.push(x),
+    );
     const res = await f("http://x.invalid/", { method: "POST", body: "b" });
     assert.equal(await res.text(), "hello");
     for (let i = 0; i < 50 && got.length === 0; i++) await new Promise((r) => setTimeout(r, 5));
@@ -73,7 +97,10 @@ describe("helpers", () => {
   test("scrubText and splitBytes", () => {
     assert.equal(scrubText("a SECRET b SECRET", ["SECRET", ""]), "a [redacted] b [redacted]");
     const bytes = new TextEncoder().encode("abcdefghij");
-    assert.deepEqual(splitBytes(bytes, [3, 0, 4]).map((c) => new TextDecoder().decode(c)), ["abc", "d", "efgh", "ijk".slice(0, 2)]);
+    assert.deepEqual(
+      splitBytes(bytes, [3, 0, 4]).map((c) => new TextDecoder().decode(c)),
+      ["abc", "d", "efgh", "ijk".slice(0, 2)],
+    );
     assert.deepEqual(splitBytes(new Uint8Array(0), [1]), []);
   });
 });

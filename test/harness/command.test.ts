@@ -11,7 +11,12 @@ const expand = (n: string): string => {
 };
 const parse = (s: string) => parseCommand(s, expand);
 const words = (s: string): string[][] => parse(s).stages.map((st) => st.map((w) => w.text));
-const refused = (s: string, re: RegExp) => assert.throws(() => parse(s), (e) => e instanceof CommandSyntax && re.test(e.message), s);
+const refused = (s: string, re: RegExp) =>
+  assert.throws(
+    () => parse(s),
+    (e) => e instanceof CommandSyntax && re.test(e.message),
+    s,
+  );
 
 describe("the run command syntax", () => {
   test("words, single and double quotes, and escapes", () => {
@@ -21,12 +26,25 @@ describe("the run command syntax", () => {
     assert.deepEqual(words("echo 'it'\\''s' \"say \\\"hi\\\"\""), [["echo", "it's", 'say "hi"']]);
     assert.deepEqual(words("echo a\\ b \\* \\$HOME"), [["echo", "a b", "*", "$HOME"]]);
     assert.deepEqual(words("echo ''"), [["echo", ""]], "an empty quoted word is a word");
-    assert.deepEqual(words("cat src\\main\\a.txt C:\\Users\\x"), [["cat", "src\\main\\a.txt", "C:\\Users\\x"]], "a backslash before an ordinary character is literal: Windows paths survive");
+    assert.deepEqual(
+      words("cat src\\main\\a.txt C:\\Users\\x"),
+      [["cat", "src\\main\\a.txt", "C:\\Users\\x"]],
+      "a backslash before an ordinary character is literal: Windows paths survive",
+    );
   });
 
   test("quoted characters are not operators: pipes, redirects, semicolons and wildcards inside quotes are text", () => {
     const p = parse("grep 'a|b' \"x > y\" 'c;d' '*.ts'");
-    assert.deepEqual(p.stages[0]?.map((w) => [w.text, w.glob]), [["grep", false], ["a|b", false], ["x > y", false], ["c;d", false], ["*.ts", false]]);
+    assert.deepEqual(
+      p.stages[0]?.map((w) => [w.text, w.glob]),
+      [
+        ["grep", false],
+        ["a|b", false],
+        ["x > y", false],
+        ["c;d", false],
+        ["*.ts", false],
+      ],
+    );
     assert.equal(p.stdout, undefined);
   });
 
@@ -62,12 +80,17 @@ describe("the run command syntax", () => {
 
   test("unquoted wildcards are marked for expansion; braces only when they list alternatives", () => {
     const p = parse("wc -l src/*.ts a?.txt [ab].md f{1,2}.txt {\"a\":1} 'x*'");
-    assert.deepEqual(p.stages[0]?.map((w) => w.glob), [false, false, true, true, true, true, false, false]);
+    assert.deepEqual(
+      p.stages[0]?.map((w) => w.glob),
+      [false, false, true, true, true, true, false, false],
+    );
     refused("*.sh arg", /program name cannot be a wildcard/);
   });
 
   test("$NAME and ${NAME} expand for allowed names, also inside double quotes but not single; other $ are literal", () => {
-    assert.deepEqual(words("echo $NAME ${NAME}s \"hi $NAME\" '$NAME' $DIR/*.ts"), [["echo", "world", "worlds", "hi world", "$NAME", "src/*.ts"]]);
+    assert.deepEqual(words("echo $NAME ${NAME}s \"hi $NAME\" '$NAME' $DIR/*.ts"), [
+      ["echo", "world", "worlds", "hi world", "$NAME", "src/*.ts"],
+    ]);
     assert.deepEqual(words("echo 'a$' \"cost: $5\" a$"), [["echo", "a$", "cost: $5", "a$"]]);
     assert.throws(() => parse("echo $SECRET"), /\$SECRET is not an allowed/);
     assert.equal(parse("echo $DIR/*.ts").stages[0]?.[1]?.glob, true, "the expanded text can still be globbed");
@@ -75,11 +98,25 @@ describe("the run command syntax", () => {
 
   test("what a shell does that run does not is refused, each time pointing to the script tool", () => {
     for (const [s, re] of [
-      ["a; b", /`;`/], ["a && b", /`&&`/], ["a || b", /`\|\|`/], ["a &", /`&`/], ["a & b", /`&`/], ["a &> f", /`&>`/],
-      ["echo `date`", /backticks/], ["echo \"`date`\"", /backticks/], ["echo $(date)", /\$\(\.\.\.\)/], ["(cd x; ls)", /subshells/],
-      ["cat <<EOF", /heredocs/], ["cat <(ls)", /process substitution/], ["A=1 node x.js", /setting a variable/],
-      ["ls ~/x", /`~`/], ["echo ${A:-b}", /\$\{NAME\}/], ["make 2> err.txt", /redirecting stderr to a file/], ["echo a\nls", /single line/],
-    ] as const) refused(s, new RegExp(`${re.source}[\\s\\S]*|${re.source}`));
+      ["a; b", /`;`/],
+      ["a && b", /`&&`/],
+      ["a || b", /`\|\|`/],
+      ["a &", /`&`/],
+      ["a & b", /`&`/],
+      ["a &> f", /`&>`/],
+      ["echo `date`", /backticks/],
+      ['echo "`date`"', /backticks/],
+      ["echo $(date)", /\$\(\.\.\.\)/],
+      ["(cd x; ls)", /subshells/],
+      ["cat <<EOF", /heredocs/],
+      ["cat <(ls)", /process substitution/],
+      ["A=1 node x.js", /setting a variable/],
+      ["ls ~/x", /`~`/],
+      ["echo ${A:-b}", /\$\{NAME\}/],
+      ["make 2> err.txt", /redirecting stderr to a file/],
+      ["echo a\nls", /single line/],
+    ] as const)
+      refused(s, new RegExp(`${re.source}[\\s\\S]*|${re.source}`));
     assert.throws(() => parse("a; b"), /script tool/);
     assert.throws(() => parse("echo a\nb"), /script tool/);
   });
@@ -111,17 +148,25 @@ describe("cross-platform utilities", () => {
     const bb = "C:\\tools\\busybox.exe";
     assert.deepEqual(portableStage(["cat", "a.txt"], "windows", bb), [bb, "cat", "a.txt"]);
     assert.deepEqual(portableStage(["SORT.EXE", "-r"], "windows", bb), [bb, "sort", "-r"]);
-    assert.deepEqual(portableStage(["find", ".", "-name", "*.ts"], "windows", bb), [bb, "find", ".", "-name", "*.ts"], "find is a different program on Windows");
+    assert.deepEqual(
+      portableStage(["find", ".", "-name", "*.ts"], "windows", bb),
+      [bb, "find", ".", "-name", "*.ts"],
+      "find is a different program on Windows",
+    );
     assert.deepEqual(portableStage(["./cat", "x"], "windows", bb), ["./cat", "x"]);
     assert.deepEqual(portableStage(["C:\\bin\\ls.exe"], "windows", bb), ["C:\\bin\\ls.exe"]);
   });
 
   test("on Windows without busybox the model is told what to do instead of getting 'command not found'", () => {
-    assert.throws(() => portableStage(["grep", "x"], "windows", undefined), (e) => e instanceof NotAvailable && /grep is not available.*fetch-busybox.*read tool/.test(e.message));
+    assert.throws(
+      () => portableStage(["grep", "x"], "windows", undefined),
+      (e) => e instanceof NotAvailable && /grep is not available.*fetch-busybox.*read tool/.test(e.message),
+    );
   });
 
   test("the list holds the everyday utilities and not programs that exist everywhere", () => {
-    for (const a of ["cat", "ls", "grep", "sed", "awk", "head", "tail", "wc", "sort", "find", "cp", "mv", "rm", "mkdir", "touch", "echo"]) assert.ok(BUSYBOX_APPLETS.has(a), a);
+    for (const a of ["cat", "ls", "grep", "sed", "awk", "head", "tail", "wc", "sort", "find", "cp", "mv", "rm", "mkdir", "touch", "echo"])
+      assert.ok(BUSYBOX_APPLETS.has(a), a);
     for (const a of ["git", "node", "npm", "curl", "python", "tar"]) assert.ok(!BUSYBOX_APPLETS.has(a), a);
   });
 });

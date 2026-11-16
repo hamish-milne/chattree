@@ -37,7 +37,11 @@ export interface InitResult {
 /** Which provider to configure: the flag, else the one whose key is in the environment, else ask (or fail saying how to choose). */
 async function chooseProvider(io: Io, o: InitOptions): Promise<string> {
   if (o.provider !== undefined) {
-    if (!["anthropic", "openai", "compatible", "local-models"].includes(o.provider)) throw new CliError(`${o.provider} is not a provider this CLI sets up`, "use anthropic, openai, compatible (an OpenAI-compatible server such as Ollama or llama.cpp) or local-models (models chattree runs itself, from `local_models` in the settings file)");
+    if (!["anthropic", "openai", "compatible", "local-models"].includes(o.provider))
+      throw new CliError(
+        `${o.provider} is not a provider this CLI sets up`,
+        "use anthropic, openai, compatible (an OpenAI-compatible server such as Ollama or llama.cpp) or local-models (models chattree runs itself, from `local_models` in the settings file)",
+      );
     return o.provider;
   }
   const have = ["anthropic", "openai"].filter((p) => (io.env[KEY_ENV[p] as string] ?? "") !== "");
@@ -46,11 +50,19 @@ async function chooseProvider(io: Io, o: InitOptions): Promise<string> {
     const a = await io.ask("Which provider (anthropic, openai, compatible)?", have[0] ?? "anthropic");
     return chooseProvider(io, { ...o, provider: a });
   }
-  throw new CliError(have.length === 0 ? "no provider chosen, and neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set" : "both ANTHROPIC_API_KEY and OPENAI_API_KEY are set; choose one", "pass --provider anthropic | openai | compatible (with --base-url and --model)");
+  throw new CliError(
+    have.length === 0
+      ? "no provider chosen, and neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set"
+      : "both ANTHROPIC_API_KEY and OPENAI_API_KEY are set; choose one",
+    "pass --provider anthropic | openai | compatible (with --base-url and --model)",
+  );
 }
 
 function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; windows?: boolean }): { text: string; name: string } {
-  const lines = ["# chattree configuration: the outside world (providers, limits). The agent's own setup (model, settings, instructions) is in the transcript.", "providers:"];
+  const lines = [
+    "# chattree configuration: the outside world (providers, limits). The agent's own setup (model, settings, instructions) is in the transcript.",
+    "providers:",
+  ];
   let name = provider;
   if (provider === "local-models") {
     name = "local-models";
@@ -98,7 +110,13 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; wi
     "    allow: {}",
     "  run:",
     "    safe: [cat, grep, head, tail, wc, ls, diff, git status, git diff, git log]",
-    ...(o.windows === true ? ["    # Windows: lets run start .cmd programs such as npm and pnpm through cmd.exe, which re-reads their arguments; arguments with its", "    # special characters are refused. Programs inside the workspace (node_modules\\.bin) also need a glob in `local`.", "    batch: true"] : []),
+    ...(o.windows === true
+      ? [
+          "    # Windows: lets run start .cmd programs such as npm and pnpm through cmd.exe, which re-reads their arguments; arguments with its",
+          "    # special characters are refused. Programs inside the workspace (node_modules\\.bin) also need a glob in `local`.",
+          "    batch: true",
+        ]
+      : []),
     "",
   );
   return { text: lines.join("\n"), name };
@@ -122,22 +140,38 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
       "a conversation shares its branch, and every entry commits the working tree's pending changes with it (that is how snapshots and rollback work). `--adopt` accepts that and starts on the checked-out branch of the repository; `--force` makes a separate, nested repository in this directory",
     );
   }
-  if (inRepo === undefined && o.adopt === true) throw new CliError(`${dir} is not inside a git repository, so there is nothing to adopt`, "drop --adopt to create one");
+  if (inRepo === undefined && o.adopt === true)
+    throw new CliError(`${dir} is not inside a git repository, so there is nothing to adopt`, "drop --adopt to create one");
 
   const provider = await chooseProvider(io, o);
-  if (provider === "compatible" && o.baseUrl === undefined) throw new CliError("an OpenAI-compatible provider needs its address", "pass --base-url http://localhost:11434/v1 (the address of the server, including /v1)");
+  if (provider === "compatible" && o.baseUrl === undefined)
+    throw new CliError(
+      "an OpenAI-compatible provider needs its address",
+      "pass --base-url http://localhost:11434/v1 (the address of the server, including /v1)",
+    );
   // The local models come from the settings file, which init does not otherwise read (a broken one must not stop the other providers).
   const where = provider === "local-models" ? { ...io, settings: io.settings ?? (await loadSettings(io)) } : io;
   const local = where.settings?.local_models;
   if (provider === "local-models") {
-    if (local === undefined || Object.keys(local.models).length === 0) throw new CliError("the settings file has no models under local_models", "add some with `chattree settings edit` (docs/local-models.md shows what goes in)");
+    if (local === undefined || Object.keys(local.models).length === 0)
+      throw new CliError(
+        "the settings file has no models under local_models",
+        "add some with `chattree settings edit` (docs/local-models.md shows what goes in)",
+      );
     const names = Object.keys(catalog(local));
-    if (o.model === undefined && Object.keys(local.models).length > 1) throw new CliError(`which model? the settings have ${Object.keys(local.models).join(", ")}`, "pass --model <name>");
-    if (o.model !== undefined && !names.includes(o.model)) throw new CliError(`${o.model} is not a model in local_models (known: ${names.join(", ")})`);
+    if (o.model === undefined && Object.keys(local.models).length > 1)
+      throw new CliError(`which model? the settings have ${Object.keys(local.models).join(", ")}`, "pass --model <name>");
+    if (o.model !== undefined && !names.includes(o.model))
+      throw new CliError(`${o.model} is not a model in local_models (known: ${names.join(", ")})`);
   }
   const model = o.model ?? (provider === "local-models" ? Object.keys(local?.models ?? {})[0] : DEFAULT_MODEL[provider]);
-  if (model === undefined) throw new CliError("an OpenAI-compatible provider needs a model name", "pass --model <name>, as the server calls it");
-  const cfg = configText(provider, { ...(o.baseUrl === undefined ? {} : { baseUrl: o.baseUrl }), ...(o.keyEnv === undefined ? {} : { keyEnv: o.keyEnv }), windows: io.host.platform === "windows" });
+  if (model === undefined)
+    throw new CliError("an OpenAI-compatible provider needs a model name", "pass --model <name>, as the server calls it");
+  const cfg = configText(provider, {
+    ...(o.baseUrl === undefined ? {} : { baseUrl: o.baseUrl }),
+    ...(o.keyEnv === undefined ? {} : { keyEnv: o.keyEnv }),
+    windows: io.host.platform === "windows",
+  });
 
   // The providers are built to check the configuration and to price the setup. A key that is not exported yet must not stop init, so
   // a variable that is missing gets a placeholder here; it exists only for this call and is never written anywhere.
@@ -148,7 +182,12 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
     env[keyVar] = `init-placeholder-${randomBytes(8).toString("hex")}`;
     notes.push(`${keyVar} is not set; set it before you chat`);
   }
-  const opts = { now: io.now, providers: { registry: cliRegistry(where), secrets: envSource(env) }, config: cfg.text, ...(o.branch === undefined ? {} : { branch: o.branch }) };
+  const opts = {
+    now: io.now,
+    providers: { registry: cliRegistry(where), secrets: envSource(env) },
+    config: cfg.text,
+    ...(o.branch === undefined ? {} : { branch: o.branch }),
+  };
   let convo: Conversation;
   try {
     convo = o.adopt === true ? await Conversation.adopt(io.host, inRepo as string, opts) : await Conversation.create(io.host, dir, opts);
@@ -170,11 +209,19 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
       pinned_extra["replay_reasoning"] = "turn";
       notes.push("pinned replay_reasoning turn: the model sees its own reasoning between tool calls");
     }
-    if (found.source !== undefined && found.source !== "settings") notes.push(`sampling pinned from ${found.detail}: ${Object.entries(found.values).map(([k, v]) => `${k} ${v}`).join(", ")}`);
+    if (found.source !== undefined && found.source !== "settings")
+      notes.push(
+        `sampling pinned from ${found.detail}: ${Object.entries(found.values)
+          .map(([k, v]) => `${k} ${v}`)
+          .join(", ")}`,
+      );
     for (const n of found.notes) notes.push(n);
   }
-  await convo.setupChange({ model: { provider: cfg.name, id: model, settings: { max_output_tokens: o.maxOutput ?? 8192, ...sampling, ...pinned_extra } } });
-  if (provider === "local-models") notes.push("the model host starts when you first chat; `chattree models start` does it now and shows the downloads");
+  await convo.setupChange({
+    model: { provider: cfg.name, id: model, settings: { max_output_tokens: o.maxOutput ?? 8192, ...sampling, ...pinned_extra } },
+  });
+  if (provider === "local-models")
+    notes.push("the model host starts when you first chat; `chattree models start` does it now and shows the downloads");
   let pinned = false;
   try {
     await convo.pinPricing();
@@ -185,6 +232,9 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   // The settings file is the person's, and a first init makes it from the template for this platform (`ffmpeg: auto`, since an unset ffmpeg
   // is an error when a conversion is needed); a file that is already there is never touched.
   const made = await initSettingsFile(io).catch(() => undefined);
-  if (made !== undefined) notes.push(`made the settings file ${made} (ffmpeg: auto converts pictures and sound a model cannot take, using an installed ffmpeg or, on Windows, a download of about 100 MB the first time it is needed; \`false\` turns that off)`);
+  if (made !== undefined)
+    notes.push(
+      `made the settings file ${made} (ffmpeg: auto converts pictures and sound a model cannot take, using an installed ffmpeg or, on Windows, a download of about 100 MB the first time it is needed; \`false\` turns that off)`,
+    );
   return { root: convo.dir, branch: convo.branch, provider: cfg.name, model, pinned, notes };
 }

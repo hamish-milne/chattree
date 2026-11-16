@@ -11,7 +11,13 @@ import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 const user = (text: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text }] });
-const reply = (text: string): NewEntry => ({ $tag: "assistant", provider: "anthropic", model: "m", blocks: [{ $tag: "text", text }], stop_reason: "end_turn" });
+const reply = (text: string): NewEntry => ({
+  $tag: "assistant",
+  provider: "anthropic",
+  model: "m",
+  blocks: [{ $tag: "text", text }],
+  stop_reason: "end_turn",
+});
 const CONFIG = "providers:\n  main:\n    $tag: anthropic\n    api_key_env: K\n";
 
 const env = { ...process.env, GIT_AUTHOR_NAME: "t", GIT_AUTHOR_EMAIL: "t@e", GIT_COMMITTER_NAME: "t", GIT_COMMITTER_EMAIL: "t@e" };
@@ -31,7 +37,11 @@ const codes = (ps: Problem[]): string[] => ps.map((p) => p.code);
 const both = async (c: Conversation): Promise<Problem[]> => {
   const shallow = await verifyHistory(c);
   const deep = await verifyHistory(c, { deep: true });
-  for (const p of shallow) assert.ok(deep.some((q) => q.code === p.code && q.commit === p.commit), "deep finds everything shallow finds");
+  for (const p of shallow)
+    assert.ok(
+      deep.some((q) => q.code === p.code && q.commit === p.commit),
+      "deep finds everything shallow finds",
+    );
   return deep;
 };
 const reopen = (dir: string) => Conversation.open(host, dir);
@@ -80,16 +90,37 @@ describe("verifyHistory: damaged conversations", () => {
 
   test("a trailer that names the wrong kind or entry", async () => {
     const { dir } = await fresh();
-    git(dir, "commit", "--amend", "--allow-empty", "-m", git(dir, "log", "-1", "--format=%B").replace(/Chattree-Kind: \w+/, "Chattree-Kind: user"));
+    git(
+      dir,
+      "commit",
+      "--amend",
+      "--allow-empty",
+      "-m",
+      git(dir, "log", "-1", "--format=%B").replace(/Chattree-Kind: \w+/, "Chattree-Kind: user"),
+    );
     assert.ok(codes(await both(await reopen(dir))).includes("kind-mismatch"));
-    git(dir, "commit", "--amend", "--allow-empty", "-m", git(dir, "log", "-1", "--format=%B").replace(/Chattree-Entry: \S+/, "Chattree-Entry: 01ARZ3NDEKTSV4RRFFQ69G5FAV"));
+    git(
+      dir,
+      "commit",
+      "--amend",
+      "--allow-empty",
+      "-m",
+      git(dir, "log", "-1", "--format=%B").replace(/Chattree-Entry: \S+/, "Chattree-Entry: 01ARZ3NDEKTSV4RRFFQ69G5FAV"),
+    );
     assert.ok(codes(await both(await reopen(dir))).includes("entry-id-mismatch"));
   });
 
   test("an offset that is not an entry boundary", async () => {
     const { dir } = await fresh();
     const size = Number(git(dir, "log", "-1", "--format=%B").match(/Chattree-Offset: (\d+)/)?.[1]);
-    git(dir, "commit", "--amend", "--allow-empty", "-m", git(dir, "log", "-1", "--format=%B").replace(/Chattree-Offset: \d+/, `Chattree-Offset: ${size - 3}`));
+    git(
+      dir,
+      "commit",
+      "--amend",
+      "--allow-empty",
+      "-m",
+      git(dir, "log", "-1", "--format=%B").replace(/Chattree-Offset: \d+/, `Chattree-Offset: ${size - 3}`),
+    );
     const c = codes(await both(await reopen(dir)));
     assert.ok(c.includes("offset-not-boundary") && c.includes("offset-mismatch"), c.join());
   });
@@ -169,12 +200,22 @@ describe("verifyHistory: damaged conversations", () => {
     const fs = await import("node:fs");
     const file = join(dir, CHAT_FILE);
     const id = "01ARZ3NDEKTSV4RRFFQ69G5FAV";
-    const bytes = encodeEntry(await convo.pipeline.encode({ $tag: "compaction", id, replaces: { from: "01ARZ3NDEKTSV4RRFFQ69G5FAA", to: "01ARZ3NDEKTSV4RRFFQ69G5FAB" }, summary: "nothing" }));
+    const bytes = encodeEntry(
+      await convo.pipeline.encode({
+        $tag: "compaction",
+        id,
+        replaces: { from: "01ARZ3NDEKTSV4RRFFQ69G5FAA", to: "01ARZ3NDEKTSV4RRFFQ69G5FAB" },
+        summary: "nothing",
+      }),
+    );
     fs.appendFileSync(file, bytes);
     git(dir, "add", CHAT_FILE);
     git(dir, "commit", "-m", `x\n\nChattree-Entry: ${id}\nChattree-Kind: compaction\nChattree-Offset: ${fs.statSync(file).size}\n`);
     const ps = await verifyHistory(await reopen(dir));
-    assert.deepEqual(ps.map((p) => [p.severity, p.code]), [["warning", "compaction-ignored"]]);
+    assert.deepEqual(
+      ps.map((p) => [p.severity, p.code]),
+      [["warning", "compaction-ignored"]],
+    );
   });
 
   test("a damaged transcript is reported, not thrown", async () => {

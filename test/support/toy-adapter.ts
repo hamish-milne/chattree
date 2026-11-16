@@ -1,6 +1,13 @@
 import type { Block } from "../../harness/context-builder.ts";
 import { httpStream, type HttpMapper, type HttpOptions } from "../../providers/http.ts";
-import { ProviderError, type Completed, type ErrorKind, type ProviderAdapter, type StreamEvent, type Usage } from "../../providers/types.ts";
+import {
+  ProviderError,
+  type Completed,
+  type ErrorKind,
+  type ProviderAdapter,
+  type StreamEvent,
+  type Usage,
+} from "../../providers/types.ts";
 
 /**
  * A made-up provider protocol, just rich enough to exercise the HTTP base and the conformance checks.
@@ -33,8 +40,19 @@ const json = (s: string): Record<string, unknown> => {
 };
 
 export const toyMapper = (baseUrl: string): HttpMapper<ToyState> => ({
-  request: (req) => ({ url: `${baseUrl}/v1/stream`, headers: { "content-type": "application/json" }, body: { model: req.setup.model?.id ?? "toy-1", turns: req.context.turns.length } }),
-  start: () => ({ blocks: new Map(), out: [], usage: { input_tokens: 0, output_tokens: 0 }, model: undefined, id: undefined, stop: undefined }),
+  request: (req) => ({
+    url: `${baseUrl}/v1/stream`,
+    headers: { "content-type": "application/json" },
+    body: { model: req.setup.model?.id ?? "toy-1", turns: req.context.turns.length },
+  }),
+  start: () => ({
+    blocks: new Map(),
+    out: [],
+    usage: { input_tokens: 0, output_tokens: 0 },
+    model: undefined,
+    id: undefined,
+    stop: undefined,
+  }),
   event(sse, s): StreamEvent[] {
     const d = json(sse.data);
     const i = d["i"] as number;
@@ -66,10 +84,16 @@ export const toyMapper = (baseUrl: string): HttpMapper<ToyState> => ({
         if (b === undefined) throw new ProviderError({ kind: "protocol", message: `end of unknown block ${i}` });
         let block: Block;
         if (b.type === "text") block = { type: "text", text: b.text };
-        else if (b.type === "reasoning") block = { type: "reasoning", provider: "toy", ...(b.sig === undefined ? {} : { payload: { sig: b.sig } }), visible: b.text };
+        else if (b.type === "reasoning")
+          block = { type: "reasoning", provider: "toy", ...(b.sig === undefined ? {} : { payload: { sig: b.sig } }), visible: b.text };
         else {
           try {
-            block = { type: "tool_call", call_id: b.id as string, name: b.name as string, args: JSON.parse(b.args || "{}") as Record<string, unknown> };
+            block = {
+              type: "tool_call",
+              call_id: b.id as string,
+              name: b.name as string,
+              args: JSON.parse(b.args || "{}") as Record<string, unknown>,
+            };
           } catch {
             block = { type: "tool_call", call_id: b.id as string, name: b.name as string, args: {}, args_raw: b.args };
           }
@@ -90,7 +114,12 @@ export const toyMapper = (baseUrl: string): HttpMapper<ToyState> => ({
     }
   },
   done: (s) => s.stop !== undefined,
-  finish: (s): Completed => ({ blocks: s.out.filter((b) => b !== undefined), stop_reason: s.stop as string, usage: s.usage, observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) } }),
+  finish: (s): Completed => ({
+    blocks: s.out.filter((b) => b !== undefined),
+    stop_reason: s.stop as string,
+    usage: s.usage,
+    observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) },
+  }),
 });
 
 export const toyAdapter = (baseUrl: string, http: HttpOptions = {}): ProviderAdapter => ({

@@ -38,7 +38,24 @@ import type { TrimRule } from "./trim.ts";
 import { DEFAULT_MAX_ATTACHMENT_BYTES, attachmentKind, decodeText, mimeCharset, normalizeMime } from "./attachments.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import type { ModelInfo } from "../providers/registry.ts";
-import { ChangeNotAllowed, applyChange, coreClassify, foldSetup, hasRequested, inToolLoop, minimizeChange, prefixLags, sameSetup, servedModelId, withDefsOf, type AgentSetup, type Change, type Classifier, type ModelSetup, type SetupChange } from "./setup.ts";
+import {
+  ChangeNotAllowed,
+  applyChange,
+  coreClassify,
+  foldSetup,
+  hasRequested,
+  inToolLoop,
+  minimizeChange,
+  prefixLags,
+  sameSetup,
+  servedModelId,
+  withDefsOf,
+  type AgentSetup,
+  type Change,
+  type Classifier,
+  type ModelSetup,
+  type SetupChange,
+} from "./setup.ts";
 import { createUlid } from "./ulid.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
 import { StreamAccumulator } from "./partial.ts";
@@ -132,7 +149,14 @@ export interface ConversationOptions {
 /** Something that happened to a conversation. Events are delivered after the change is committed, in order. */
 export type ConversationEvent =
   /** An entry was committed (also on a new branch's first entry). `recovered` entries were found uncommitted by `open`. */
-  | { type: "entry"; branch: string; entry: Appended; value: ChatEntry; recovered?: true; /** Another process appended it (see `Conversation.sync`). */ foreign?: true }
+  | {
+      type: "entry";
+      branch: string;
+      entry: Appended;
+      value: ChatEntry;
+      recovered?: true;
+      /** Another process appended it (see `Conversation.sync`). */ foreign?: true;
+    }
   /** An `agent_setup` entry was committed. For `reason: provider` this is the host's cue to tell the user ("the provider changed the model to X"). */
   | { type: "setup_changed"; branch: string; entry: Appended; value: Extract<ChatEntry, { $tag: "agent_setup" }> }
   /** Pending workspace changes were committed without an entry. */
@@ -149,7 +173,16 @@ export type ConversationEvent =
 /** What `Conversation.activity` reports. */
 export type Activity =
   | { state: "idle" }
-  | { state: "request"; live: boolean; since: number; provider: string; model: string; owner?: { pid?: number; host?: string; session?: string }; nonce?: string; lastWrite?: number };
+  | {
+      state: "request";
+      live: boolean;
+      since: number;
+      provider: string;
+      model: string;
+      owner?: { pid?: number; host?: string; session?: string };
+      nonce?: string;
+      lastWrite?: number;
+    };
 
 export interface RepoStats {
   looseObjects: number;
@@ -362,7 +395,12 @@ function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
 }
 
 function slug(s: string): string {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "unknown";
+  return (
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "unknown"
+  );
 }
 
 function oneLine(s: string, max: number): string {
@@ -438,14 +476,23 @@ export function summarizeMerge(childChanges: readonly DiffEntry[], merge: MergeT
   const changes = childChanges.filter((c) => !own(c.path));
   const touched = new Set(changes.map((c) => c.path));
   const byPath = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-  const discarded = changes.filter((c) => conflicted.has(c.path)).map((c) => c.path).sort(byPath);
+  const discarded = changes
+    .filter((c) => conflicted.has(c.path))
+    .map((c) => c.path)
+    .sort(byPath);
   const landed = changes.filter((c) => !conflicted.has(c.path));
   const conflicts: MergeConflict[] = [];
   for (const [path, ks] of kinds) if (touched.has(path)) for (const kind of ks) conflicts.push({ path, kind });
   conflicts.sort((a, b) => byPath(a.path, b.path) || byPath(a.kind, b.kind));
   return {
-    changed: landed.filter((c) => c.status !== "A").map((c) => c.path).sort(byPath),
-    added: landed.filter((c) => c.status === "A").map((c) => c.path).sort(byPath),
+    changed: landed
+      .filter((c) => c.status !== "A")
+      .map((c) => c.path)
+      .sort(byPath),
+    added: landed
+      .filter((c) => c.status === "A")
+      .map((c) => c.path)
+      .sort(byPath),
     discarded,
     conflicts,
   };
@@ -480,7 +527,16 @@ export class Conversation {
   #cacheReady = false;
   #delivery: Promise<void> = Promise.resolve();
 
-  private constructor(host: Host, git: Git, dir: string, branch: string, lockPath: string, opts: ConversationOptions, size: number, recovery: RecoveryReport) {
+  private constructor(
+    host: Host,
+    git: Git,
+    dir: string,
+    branch: string,
+    lockPath: string,
+    opts: ConversationOptions,
+    size: number,
+    recovery: RecoveryReport,
+  ) {
     this.host = host;
     this.git = git;
     this.dir = dir;
@@ -553,14 +609,21 @@ export class Conversation {
    * commits, on this branch. Use `create` for a repository of its own.
    */
   static async adopt(host: Host, dir: string, inOpts: CreateOptions = {}): Promise<Conversation> {
-    if ((await host.fs.stat(host.path.join(dir, ".git"))) === undefined) throw new ConversationError(`${dir} is not a git repository's top level`);
+    if ((await host.fs.stat(host.path.join(dir, ".git"))) === undefined)
+      throw new ConversationError(`${dir} is not a git repository's top level`);
     const git = await Git.open(host, { cwd: dir });
-    if ((await git.text(["rev-parse", "--show-prefix"], { readOnly: true })) !== "") throw new ConversationError(`${dir} is inside a repository, not at its top level; adopt the top level`);
+    if ((await git.text(["rev-parse", "--show-prefix"], { readOnly: true })) !== "")
+      throw new ConversationError(`${dir} is inside a repository, not at its top level; adopt the top level`);
     const branch = await git.currentBranch();
     if (branch === undefined) throw new ConversationError("HEAD is detached; check out the branch the conversation should live on");
-    for (const f of [CHAT_FILE, CONFIG_FILE]) if ((await host.fs.stat(host.path.join(dir, f))) !== undefined) throw new ConversationError(`${f} already exists here: this repository already has a conversation`);
+    for (const f of [CHAT_FILE, CONFIG_FILE])
+      if ((await host.fs.stat(host.path.join(dir, f))) !== undefined)
+        throw new ConversationError(`${f} already exists here: this repository already has a conversation`);
     const dirty = await git.status();
-    if (dirty.length > 0) throw new ConversationError(`the working tree has ${dirty.length} uncommitted change(s); commit or stash them first (the conversation commits every change in the tree)`);
+    if (dirty.length > 0)
+      throw new ConversationError(
+        `the working tree has ${dirty.length} uncommitted change(s); commit or stash them first (the conversation commits every change in the tree)`,
+      );
     const { configText, opts } = await Conversation.#prepareCreate({ ...inOpts, branch });
     await git.setConfig("merge.ours.driver", "true");
     const append = async (file: string, wanted: string, marker: string): Promise<void> => {
@@ -570,7 +633,11 @@ export class Conversation {
       await host.fs.writeAtomic(path, enc.encode(`${old}${old === "" || old.endsWith("\n") ? "" : "\n"}${wanted}`));
     };
     await append(".gitignore", GITIGNORE, "/.chattree/");
-    await append(".gitattributes", `# Transcripts are byte-exact: never convert line endings. Branches diverge by appending; a merge keeps the receiving branch's version.\n/${CHAT_FILE} -text merge=ours\n/blobs/** -text\n`, `/${CHAT_FILE} `);
+    await append(
+      ".gitattributes",
+      `# Transcripts are byte-exact: never convert line endings. Branches diverge by appending; a merge keeps the receiving branch's version.\n/${CHAT_FILE} -text merge=ours\n/blobs/** -text\n`,
+      `/${CHAT_FILE} `,
+    );
     return Conversation.#start(host, git, dir, branch, opts, configText);
   }
 
@@ -579,7 +646,8 @@ export class Conversation {
     let opts: CreateOptions = inOpts;
     if (configText !== undefined) {
       const parsed = await parseConfig(configText, harnessConfig);
-      if (!parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
+      if (!parsed.ok)
+        throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
       if (inOpts.providers !== undefined) {
         opts = { ...inOpts, ...(await Conversation.#withProviders(parsed.value, inOpts)) };
         if (!configText.includes("yaml-language-server")) configText = `${SCHEMA_COMMENT}\n${configText}`;
@@ -588,7 +656,14 @@ export class Conversation {
     return { configText, opts };
   }
 
-  static async #start(host: Host, git: Git, dir: string, branch: string, opts: CreateOptions, configText: string | undefined): Promise<Conversation> {
+  static async #start(
+    host: Host,
+    git: Git,
+    dir: string,
+    branch: string,
+    opts: CreateOptions,
+    configText: string | undefined,
+  ): Promise<Conversation> {
     const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [], cleaned: [] });
     if (configText !== undefined) {
       await host.fs.writeAtomic(host.path.join(dir, CONFIG_FILE), enc.encode(configText));
@@ -609,7 +684,8 @@ export class Conversation {
     try {
       built = await buildProviders(config.providers, p.registry, p.secrets);
     } catch (e) {
-      if (e instanceof ProviderSetupError) throw new ConversationError(`${CONFIG_FILE}: ${e.issues.map((i) => `${i.path}: ${i.message}`).join("; ")}`);
+      if (e instanceof ProviderSetupError)
+        throw new ConversationError(`${CONFIG_FILE}: ${e.issues.map((i) => `${i.path}: ${i.message}`).join("; ")}`);
       throw new ConversationError(`could not resolve the providers' secrets: ${e instanceof Error ? e.message : String(e)}`);
     }
     return { built, pipeline: { ...opts.pipeline, redact: [...(opts.pipeline?.redact ?? []), ...redactionPatterns(built.secretValues)] } };
@@ -647,8 +723,17 @@ export class Conversation {
     const cfg = await this.readConfig();
     const remote = cfg?.ok === true ? cfg.value.leases?.remote : undefined;
     // With `leases.remote` the lease is a ref on that remote, so clones that do not share this git directory agree on who runs a thread.
-    if (remote !== undefined) return sharedLeaseStore(this.host.fs, `${common}\0ref:${remote}`, () => new LeaseStore(refLeaseBackend(this.git, { remote, now: this.now })));
-    return sharedLeaseStore(this.host.fs, common, () => new LeaseStore(this.host.fs, (b) => this.host.path.join(common, "chattree", "leases", `${encodeURIComponent(b)}.lease`)));
+    if (remote !== undefined)
+      return sharedLeaseStore(
+        this.host.fs,
+        `${common}\0ref:${remote}`,
+        () => new LeaseStore(refLeaseBackend(this.git, { remote, now: this.now })),
+      );
+    return sharedLeaseStore(
+      this.host.fs,
+      common,
+      () => new LeaseStore(this.host.fs, (b) => this.host.path.join(common, "chattree", "leases", `${encodeURIComponent(b)}.lease`)),
+    );
   }
 
   /** The clock and owner probe the lease calls need. */
@@ -669,7 +754,10 @@ export class Conversation {
   /** One provider's adapter by the name used in `harness.yml` and in `agent_setup.model.provider`. */
   provider(name: string): ProviderAdapter {
     const a = this.providers.get(name);
-    if (a === undefined) throw new ConversationError(`no provider named ${JSON.stringify(name)}${this.providers.size === 0 ? " (open the conversation with the `providers` option)" : ` (have: ${[...this.providers.keys()].join(", ")})`}`);
+    if (a === undefined)
+      throw new ConversationError(
+        `no provider named ${JSON.stringify(name)}${this.providers.size === 0 ? " (open the conversation with the `providers` option)" : ` (have: ${[...this.providers.keys()].join(", ")})`}`,
+      );
     return a;
   }
 
@@ -686,16 +774,20 @@ export class Conversation {
       const file = host.path.join(dir, CONFIG_FILE);
       const bytes = (await host.fs.stat(file)) === undefined ? undefined : await host.fs.read(file);
       // A file the user has not approved is not read for providers: that is where the keys go.
-      const trusted = inOpts.configTrust === "ignore" || judge(await new TrustStore(host, await git.commonDir()).get(branch), configHash(bytes)).state === "trusted";
+      const trusted =
+        inOpts.configTrust === "ignore" ||
+        judge(await new TrustStore(host, await git.commonDir()).get(branch), configHash(bytes)).state === "trusted";
       if (trusted) {
         const parsed = bytes === undefined ? undefined : await parseConfig(dec.decode(bytes), harnessConfig);
-        if (parsed !== undefined && !parsed.ok) throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
+        if (parsed !== undefined && !parsed.ok)
+          throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
         opts = { ...inOpts, ...(await Conversation.#withProviders(parsed?.value ?? harnessConfig.parse({}), inOpts)) };
       }
       await Conversation.#writeSchema(host, git, dir, inOpts.providers.registry);
     }
     const gitDir = await git.gitDir();
-    if ((await host.fs.stat(host.path.join(gitDir, "MERGE_HEAD"))) !== undefined) throw new ConversationError("a merge is in progress; finish or abort it first");
+    if ((await host.fs.stat(host.path.join(gitDir, "MERGE_HEAD"))) !== undefined)
+      throw new ConversationError("a merge is in progress; finish or abort it first");
     const lockPath = await Conversation.#lockPathFor(host, git, branch);
     const lock = await acquireLock(host.fs, lockPath, { ...opts.lock, ...(opts.now === undefined ? {} : { now: opts.now }) });
     let convo: Conversation;
@@ -704,7 +796,8 @@ export class Conversation {
       const { size, report, recoveredEntries } = await Conversation.#recover(host, git, dir, opts);
       report.cleaned = cleaned;
       convo = await Conversation.#load(host, git, dir, branch, opts, size, report);
-      if (report.truncatedBytes > 0 || report.recovered.length > 0 || report.cleaned.length > 0) convo.#emit({ type: "recovery", branch, report });
+      if (report.truncatedBytes > 0 || report.recovered.length > 0 || report.cleaned.length > 0)
+        convo.#emit({ type: "recovery", branch, report });
       for (const [i, r] of report.recovered.entries()) convo.#emitEntry(branch, r, recoveredEntries[i] as ChatEntry, true);
     } finally {
       await lock.release();
@@ -777,7 +870,8 @@ export class Conversation {
       report.journal = r;
       this.#emit({ type: "recovery", branch: this.branch, report });
     };
-    if (await journalIsLive(this.host, path, stale, this.#opts.now)) return finish({ outcome: "in_flight", entries: [], note: "a request on this branch is probably still running in another process" });
+    if (await journalIsLive(this.host, path, stale, this.#opts.now))
+      return finish({ outcome: "in_flight", entries: [], note: "a request on this branch is probably still running in another process" });
     const j = await readJournal(this.host, path);
     if (j === undefined) {
       await this.host.fs.remove(path);
@@ -802,7 +896,11 @@ export class Conversation {
       if (adapter?.retrieve !== undefined) {
         try {
           const setup = await this.setup();
-          completed = await adapter.retrieve({ responseId: acc.observed.response_id, setup, signal: AbortSignal.timeout(this.#opts.recoveryTimeoutMs ?? 10_000) });
+          completed = await adapter.retrieve({
+            responseId: acc.observed.response_id,
+            setup,
+            signal: AbortSignal.timeout(this.#opts.recoveryTimeoutMs ?? 10_000),
+          });
           how = "retrieved";
           if (completed === undefined) note = "the provider no longer has the response";
         } catch (e) {
@@ -814,9 +912,12 @@ export class Conversation {
     const result = await this.#transaction(async (): Promise<JournalRecovery> => {
       const state = await committed(await readAll());
       if (state === true) return { outcome: "already_committed", entries: [] };
-      if (state === "gone") return { outcome: "discarded", entries: [], note: "the branch no longer contains the entry the request followed" };
+      if (state === "gone")
+        return { outcome: "discarded", entries: [], note: "the branch no longer contains the entry the request followed" };
       if (completed !== undefined) {
-        const entries = await this.#appendResponseLocked(assistantFromCompleted(provider, model, completed), { model: completed.observed.model ?? model });
+        const entries = await this.#appendResponseLocked(assistantFromCompleted(provider, model, completed), {
+          model: completed.observed.model ?? model,
+        });
         return { outcome: how, entries, ...(note === undefined ? {} : { note }) };
       }
       if (!acc.hasContent) return { outcome: "discarded", entries: [], note: "nothing had arrived" };
@@ -833,7 +934,15 @@ export class Conversation {
     finish(result);
   }
 
-  static async #load(host: Host, git: Git, dir: string, branch: string, opts: ConversationOptions, size: number, report: RecoveryReport): Promise<Conversation> {
+  static async #load(
+    host: Host,
+    git: Git,
+    dir: string,
+    branch: string,
+    opts: ConversationOptions,
+    size: number,
+    report: RecoveryReport,
+  ): Promise<Conversation> {
     const lockPath = await Conversation.#lockPathFor(host, git, branch);
     return new Conversation(host, git, dir, branch, lockPath, opts, size, report).#init();
   }
@@ -862,21 +971,29 @@ export class Conversation {
     for (const name of await host.fs.readdir(dir).catch(() => [] as string[])) {
       if (tmp.test(name)) await drop(host.path.join(dir, name), name);
     }
-    for (const rel of (await git.listFiles([BLOBS_DIR], "untracked")).filter((p) => tmp.test(p))) await drop(host.path.join(dir, ...rel.split("/")), rel);
+    for (const rel of (await git.listFiles([BLOBS_DIR], "untracked")).filter((p) => tmp.test(p)))
+      await drop(host.path.join(dir, ...rel.split("/")), rel);
     const common = await git.commonDir();
     const gitTmp = host.path.join(common, "chattree", "tmp");
     for (const name of await host.fs.readdir(gitTmp).catch(() => [] as string[])) {
-      if (/^index-[0-9a-f-]{36}$/.test(name) && (await older(host.path.join(gitTmp, name), 10 * 60_000))) await drop(host.path.join(gitTmp, name), `.git/chattree/tmp/${name}`);
+      if (/^index-[0-9a-f-]{36}$/.test(name) && (await older(host.path.join(gitTmp, name), 10 * 60_000)))
+        await drop(host.path.join(gitTmp, name), `.git/chattree/tmp/${name}`);
     }
     const locks = host.path.join(common, "chattree", "locks");
     const staleAfter = opts.lock?.staleAfterMs ?? 30_000;
     for (const name of await host.fs.readdir(locks).catch(() => [] as string[])) {
-      if (/\.lock\.stale-[0-9a-f]{8}$/.test(name) && (await older(host.path.join(locks, name), staleAfter))) await drop(host.path.join(locks, name), `.git/chattree/locks/${name}`);
+      if (/\.lock\.stale-[0-9a-f]{8}$/.test(name) && (await older(host.path.join(locks, name), staleAfter)))
+        await drop(host.path.join(locks, name), `.git/chattree/locks/${name}`);
     }
     return cleaned;
   }
 
-  static async #recover(host: Host, git: Git, dir: string, opts: ConversationOptions): Promise<{ size: number; report: RecoveryReport; recoveredEntries: ChatEntry[] }> {
+  static async #recover(
+    host: Host,
+    git: Git,
+    dir: string,
+    opts: ConversationOptions,
+  ): Promise<{ size: number; report: RecoveryReport; recoveredEntries: ChatEntry[] }> {
     const file = host.path.join(dir, CHAT_FILE);
     const committed = await git.readFileAt("HEAD", CHAT_FILE);
     if (committed === undefined) throw new ConversationError(`HEAD has no ${CHAT_FILE}: not a conversation repository`);
@@ -884,7 +1001,9 @@ export class Conversation {
     if (stat === undefined) throw new ConversationError(`${CHAT_FILE} is missing from the working tree (it is committed at HEAD)`);
     let disk = await host.fs.read(file);
     if (!startsWith(disk, committed)) {
-      throw new ConversationError(`${CHAT_FILE} in the working tree does not extend the version at HEAD: it was edited, not appended to. Restore it with git, or commit the edit deliberately.`);
+      throw new ConversationError(
+        `${CHAT_FILE} in the working tree does not extend the version at HEAD: it was edited, not appended to. Restore it with git, or commit the edit deliberately.`,
+      );
     }
 
     const report: RecoveryReport = { truncatedBytes: 0, recovered: [], cleaned: [] };
@@ -915,11 +1034,15 @@ export class Conversation {
         try {
           parsed = decodeSpan(disk, span);
         } catch (e) {
-          if (e instanceof ParseError) throw new ConversationError(`uncommitted entry ${idx + 1} in ${CHAT_FILE} is not valid: ${e.message}; fix or remove it`);
+          if (e instanceof ParseError)
+            throw new ConversationError(`uncommitted entry ${idx + 1} in ${CHAT_FILE} is not valid: ${e.message}; fix or remove it`);
           throw e;
         }
         const r = await pipeline.decode(parsed);
-        if (!r.ok) throw new ConversationError(`uncommitted entry ${idx + 1} in ${CHAT_FILE} is not valid (${r.issues.map((i) => `${i.path || "entry"}: ${i.message}`).join("; ")}); fix or remove it`);
+        if (!r.ok)
+          throw new ConversationError(
+            `uncommitted entry ${idx + 1} in ${CHAT_FILE} is not valid (${r.issues.map((i) => `${i.path || "entry"}: ${i.message}`).join("; ")}); fix or remove it`,
+          );
         decoded.push({ id: (r.value as { id?: string }).id ?? "", tag: r.tag, entry: r.value, end: span.end });
       }
       for (const d of decoded) {
@@ -934,7 +1057,14 @@ export class Conversation {
 
   // ---- commits ---------------------------------------------------------------------------------------------
 
-  static #commitFor(entry: ChatEntry, id: string, offset: number, opts: ConversationOptions, recovered = false, extra: readonly [string, string][] = []) {
+  static #commitFor(
+    entry: ChatEntry,
+    id: string,
+    offset: number,
+    opts: ConversationOptions,
+    recovered = false,
+    extra: readonly [string, string][] = [],
+  ) {
     const committer = opts.committer ?? DEFAULT_COMMITTER;
     let author: Identity = committer;
     if (entry.$tag === "user") author = opts.user ?? committer;
@@ -957,7 +1087,10 @@ export class Conversation {
 
   #transaction<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.#queue.then(async () => {
-      const lock = await acquireLock(this.host.fs, this.#lockPath, { ...this.#opts.lock, ...(this.#opts.now === undefined ? {} : { now: this.#opts.now }) });
+      const lock = await acquireLock(this.host.fs, this.#lockPath, {
+        ...this.#opts.lock,
+        ...(this.#opts.now === undefined ? {} : { now: this.#opts.now }),
+      });
       try {
         const result = await fn();
         await this.#autoMaintain();
@@ -979,11 +1112,18 @@ export class Conversation {
    * `attachments.max_bytes` in `harness.yml` (default 20 MiB). The bytes are written as a blob now and committed with
    * the entry that refers to them.
    */
-  async attach(bytes: Uint8Array, opts: { mime: string; name?: string; charset?: string }): Promise<{ $tag: "attachment"; name?: string; charset?: string; data: { $tag: "blob"; sha256: string; bytes: number; mime: string } }> {
+  async attach(
+    bytes: Uint8Array,
+    opts: { mime: string; name?: string; charset?: string },
+  ): Promise<{ $tag: "attachment"; name?: string; charset?: string; data: { $tag: "blob"; sha256: string; bytes: number; mime: string } }> {
     const mime = normalizeMime(opts.mime ?? "");
     const charset = (opts.charset ?? mimeCharset(opts.mime ?? ""))?.toLowerCase();
-    if (mime === undefined) throw new ConversationError(`attach needs the file's media type as type/subtype, got ${JSON.stringify(opts.mime)}`);
-    if (attachmentKind(mime) === undefined) throw new ConversationError(`${mime} files cannot be given to a model (pictures, sound and PDFs of the kinds in harness/formats.ts, and text types)`);
+    if (mime === undefined)
+      throw new ConversationError(`attach needs the file's media type as type/subtype, got ${JSON.stringify(opts.mime)}`);
+    if (attachmentKind(mime) === undefined)
+      throw new ConversationError(
+        `${mime} files cannot be given to a model (pictures, sound and PDFs of the kinds in harness/formats.ts, and text types)`,
+      );
     if (bytes.length === 0) throw new ConversationError("the file is empty");
     if (attachmentKind(mime) === "text") {
       try {
@@ -994,9 +1134,15 @@ export class Conversation {
     }
     const cfg = await this.readConfig();
     const max = cfg?.ok === true ? cfg.value.attachments.max_bytes : DEFAULT_MAX_ATTACHMENT_BYTES;
-    if (bytes.length > max) throw new ConversationError(`the file is ${bytes.length} bytes, over the limit of ${max} (attachments.max_bytes in harness.yml)`);
+    if (bytes.length > max)
+      throw new ConversationError(`the file is ${bytes.length} bytes, over the limit of ${max} (attachments.max_bytes in harness.yml)`);
     const sha256 = await this.store.put(bytes);
-    return { $tag: "attachment", ...(opts.name === undefined ? {} : { name: opts.name }), ...(charset === undefined || attachmentKind(mime) !== "text" ? {} : { charset }), data: { $tag: "blob", sha256, bytes: bytes.length, mime } };
+    return {
+      $tag: "attachment",
+      ...(opts.name === undefined ? {} : { name: opts.name }),
+      ...(charset === undefined || attachmentKind(mime) !== "text" ? {} : { charset }),
+      data: { $tag: "blob", sha256, bytes: bytes.length, mime },
+    };
   }
 
   // ---- continuing ------------------------------------------------------------------------------------------
@@ -1018,7 +1164,10 @@ export class Conversation {
         last = e;
         break;
       }
-      if (last?.$tag !== "interrupted") throw new ConversationError(`there is nothing to continue: the last entry is ${last === undefined ? "missing" : `a ${last.$tag}`}, not an interrupted reply`);
+      if (last?.$tag !== "interrupted")
+        throw new ConversationError(
+          `there is nothing to continue: the last entry is ${last === undefined ? "missing" : `a ${last.$tag}`}, not an interrupted reply`,
+        );
       const text = opts.instruction ?? findRenderer(foldSetup(entries).renderer ?? DEFAULT_RENDERER, opts.renderers).continueInterrupted();
       return this.#appendLocked({ $tag: "user", content: [{ $tag: "text", text }] }, [["Chattree-Continues", last.id]]);
     });
@@ -1107,7 +1256,13 @@ export class Conversation {
       const entry = await pipeline.encode(withId);
       const decoded = await pipeline.decode(entry);
       if (!decoded.ok) throw new ConversationError(`${input.$tag} entry failed to decode after encoding`);
-      items.push({ id: (decoded.value as { id?: string }).id ?? "", tag: decoded.tag, value: decoded.value, bytes: encodeEntry(entry), blobs: recorder.blobs });
+      items.push({
+        id: (decoded.value as { id?: string }).id ?? "",
+        tag: decoded.tag,
+        value: decoded.value,
+        bytes: encodeEntry(entry),
+        blobs: recorder.blobs,
+      });
     }
     const total = items.reduce((n, i) => n + i.bytes.length, 0);
     const existing = await this.host.fs.read(this.#file);
@@ -1126,7 +1281,8 @@ export class Conversation {
       for (const item of items) for (const data of item.blobs.values()) await this.store.put(data);
       await this.host.fs.append(this.#file, full.subarray(before), { sync: true });
       const after = (await this.host.fs.stat(this.#file))?.size ?? 0;
-      if (after !== full.length) throw new ConversationError(`${CHAT_FILE} is ${after} bytes after appending, expected ${full.length}: something else wrote to it`);
+      if (after !== full.length)
+        throw new ConversationError(`${CHAT_FILE} is ${after} bytes after appending, expected ${full.length}: something else wrote to it`);
       const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
       const seenBlobs = new Set<string>();
       commits = await this.git.importCommits(
@@ -1135,10 +1291,19 @@ export class Conversation {
         items.map((item, k) => {
           const c = Conversation.#commitFor(item.value, item.id, ends[k] as number, this.#opts);
           // A blob goes in with the first entry that refers to it, as it would with separate appends.
-          const blobFiles = [...item.blobs].map(([hash, data]) => ({ path: HostBlobStore.relativePath(hash), data })).filter((b) => !seenBlobs.has(b.path));
+          const blobFiles = [...item.blobs]
+            .map(([hash, data]) => ({ path: HostBlobStore.relativePath(hash), data }))
+            .filter((b) => !seenBlobs.has(b.path));
           for (const b of blobFiles) seenBlobs.add(b.path);
           const files = [{ path: CHAT_FILE, data: full.subarray(0, ends[k]) }, ...blobFiles];
-          return { message: c.message, trailers: c.trailers, author: c.author, committer: c.committer ?? committer, ...("date" in c && c.date !== undefined ? { date: c.date } : {}), files };
+          return {
+            message: c.message,
+            trailers: c.trailers,
+            author: c.author,
+            committer: c.committer ?? committer,
+            ...("date" in c && c.date !== undefined ? { date: c.date } : {}),
+            files,
+          };
         }),
       );
     } catch (e) {
@@ -1171,7 +1336,10 @@ export class Conversation {
     try {
       await this.host.fs.append(this.#file, bytes, { sync: true });
       const after = (await this.host.fs.stat(this.#file))?.size ?? 0;
-      if (after !== before + bytes.length) throw new ConversationError(`${CHAT_FILE} is ${after} bytes after appending ${bytes.length} to ${before}: something else wrote to it`);
+      if (after !== before + bytes.length)
+        throw new ConversationError(
+          `${CHAT_FILE} is ${after} bytes after appending ${bytes.length} to ${before}: something else wrote to it`,
+        );
       await this.git.addAll();
       const commit = await this.git.commit(Conversation.#commitFor(decoded.value, id, after, this.#opts, false, extraTrailers));
       this.#size = after;
@@ -1189,10 +1357,13 @@ export class Conversation {
   async #assertIntact(): Promise<number> {
     const size = (await this.host.fs.stat(this.#file))?.size ?? 0;
     if (size !== this.#size && !(await this.#adopt(size))) {
-      throw new ConversationError(`${CHAT_FILE} is ${size} bytes but this handle expected ${this.#size}: it was changed by something else; reopen the conversation`);
+      throw new ConversationError(
+        `${CHAT_FILE} is ${size} bytes but this handle expected ${this.#size}: it was changed by something else; reopen the conversation`,
+      );
     }
     const tail = size === 0 ? new Uint8Array(0) : await this.host.fs.readRange(this.#file, Math.max(0, size - 2), 2);
-    if (!endsCleanly(tail)) throw new ConversationError(`${CHAT_FILE} does not end with a complete entry; reopen the conversation to repair it`);
+    if (!endsCleanly(tail))
+      throw new ConversationError(`${CHAT_FILE} does not end with a complete entry; reopen the conversation to repair it`);
     return size;
   }
 
@@ -1222,7 +1393,8 @@ export class Conversation {
       const found: { entry: Appended; value: ChatEntry }[] = [];
       for (const [i, d] of decoded.entries()) {
         const ref = refs[i];
-        if (d.ok && ref !== undefined && refs.length === decoded.length) found.push({ entry: { id: ref.id ?? "", tag: ref.tag, commit: ref.commit, offset: ref.offset }, value: d.value });
+        if (d.ok && ref !== undefined && refs.length === decoded.length)
+          found.push({ entry: { id: ref.id ?? "", tag: ref.tag, commit: ref.commit, offset: ref.offset }, value: d.value });
       }
       this.#foreign.push(...found);
       if (this.#foreign.length > 1000) this.#foreign.splice(0, this.#foreign.length - 1000);
@@ -1258,7 +1430,14 @@ export class Conversation {
       }
       await new Promise<void>((resolve) => {
         const t = setTimeout(resolve, ms);
-        opts.signal.addEventListener("abort", () => { clearTimeout(t); resolve(); }, { once: true });
+        opts.signal.addEventListener(
+          "abort",
+          () => {
+            clearTimeout(t);
+            resolve();
+          },
+          { once: true },
+        );
       });
     }
   }
@@ -1290,7 +1469,13 @@ export class Conversation {
   interrupt(opts: InterruptOptions): Promise<Appended> {
     return this.#transaction(async () => {
       await opts.guard?.();
-      return this.#appendLocked({ $tag: "interrupted", by: opts.by, partial: opts.partial ?? [], ...(opts.error === undefined ? {} : { error: opts.error }), ...(opts.usage === undefined ? {} : { usage: opts.usage }) });
+      return this.#appendLocked({
+        $tag: "interrupted",
+        by: opts.by,
+        partial: opts.partial ?? [],
+        ...(opts.error === undefined ? {} : { error: opts.error }),
+        ...(opts.usage === undefined ? {} : { usage: opts.usage }),
+      });
     });
   }
 
@@ -1336,7 +1521,8 @@ export class Conversation {
         if (!e.ok) throw new ConversationError(`entry ${i + 1} no longer validates, so the context cannot be computed; cannot trim`);
         values.push(e.value);
       }
-      if (!contextEntries(values).some((e) => "id" in e && e.id === opts.upto)) throw new ConversationError(`${opts.upto} is not an entry in the current context`);
+      if (!contextEntries(values).some((e) => "id" in e && e.id === opts.upto))
+        throw new ConversationError(`${opts.upto} is not an entry in the current context`);
       return this.#appendLocked({ $tag: "trim", upto: opts.upto, rule: opts.rule, by: opts.by });
     });
   }
@@ -1353,7 +1539,9 @@ export class Conversation {
     const all = this.#opts.built?.models.get(provider);
     if (all === undefined) return undefined;
     if (all[model] !== undefined) return all[model];
-    const key = Object.keys(all).filter((k) => model.startsWith(k) && /^-(\d{4}-\d{2}-\d{2}|\d{8})$/.test(model.slice(k.length))).sort((a, b) => b.length - a.length)[0];
+    const key = Object.keys(all)
+      .filter((k) => model.startsWith(k) && /^-(\d{4}-\d{2}-\d{2}|\d{8})$/.test(model.slice(k.length)))
+      .sort((a, b) => b.length - a.length)[0];
     return key === undefined ? undefined : all[key];
   }
 
@@ -1371,7 +1559,10 @@ export class Conversation {
     const name = provider ?? (await this.setup()).model?.provider;
     if (name === undefined) throw new ConversationError("this agent has no model, so there is no provider whose prices to pin");
     const table = this.priceTable(name);
-    if (table === undefined) throw new ConversationError(`no price table for provider ${JSON.stringify(name)} (open the conversation with the \`providers\` option)`);
+    if (table === undefined)
+      throw new ConversationError(
+        `no price table for provider ${JSON.stringify(name)} (open the conversation with the \`providers\` option)`,
+      );
     const hash = await this.store.put(tableBytes(table));
     return this.setupChange({ pricing: { table: hash } }, { allow: ["pricing_changed"] });
   }
@@ -1428,7 +1619,8 @@ export class Conversation {
   async #inheritTrust(branch: string, from: string): Promise<void> {
     const mine = await this.configTrust();
     const store = await this.#trusts();
-    if (mine.state === "trusted" && mine.hash !== NO_CONFIG && configHash(await this.git.readFileAt(from, CONFIG_FILE)) === mine.hash) await store.set(branch, mine.hash);
+    if (mine.state === "trusted" && mine.hash !== NO_CONFIG && configHash(await this.git.readFileAt(from, CONFIG_FILE)) === mine.hash)
+      await store.set(branch, mine.hash);
     else await store.forget(branch);
   }
 
@@ -1472,22 +1664,35 @@ export class Conversation {
         const wide = server === undefined ? undefined : r.value.mcp[server]?.allow;
         if (wide === undefined || Object.keys(wide).length === 0) return own;
         const merged: Record<string, string> = { ...wide };
-        for (const [k, until] of Object.entries(own ?? {})) if (merged[k] === undefined || (untilMs(until) ?? 0) > (untilMs(merged[k] as string) ?? 0)) merged[k] = until;
+        for (const [k, until] of Object.entries(own ?? {}))
+          if (merged[k] === undefined || (untilMs(until) ?? 0) > (untilMs(merged[k] as string) ?? 0)) merged[k] = until;
         return merged;
       },
       grant: async (tool, keys, until, opts) => {
         await this.assertConfigTrusted();
-        await this.changeGrants((text, now) => addGrants(text, tool, keys, until, now), `allow ${tool}: ${keys.join(", ")} until ${until}`, opts.commit);
+        await this.changeGrants(
+          (text, now) => addGrants(text, tool, keys, until, now),
+          `allow ${tool}: ${keys.join(", ")} until ${until}`,
+          opts.commit,
+        );
       },
     };
   }
 
   /** Remove one key of a tool, or all of them (`key` undefined). For `/tools revoke`. */
   revokeGrant(tool: string, key: string | undefined, opts: { commit?: boolean } = {}): Promise<void> {
-    return this.changeGrants((text, now) => revokeGrants(text, tool, key, now), `revoke ${tool}${key === undefined ? "" : `: ${key}`}`, opts.commit ?? false);
+    return this.changeGrants(
+      (text, now) => revokeGrants(text, tool, key, now),
+      `revoke ${tool}${key === undefined ? "" : `: ${key}`}`,
+      opts.commit ?? false,
+    );
   }
 
-  changeGrants(edit: (text: string, nowMs: number) => Promise<{ ok: true; text: string } | { ok: false; message: string }>, what: string, commit: boolean): Promise<void> {
+  changeGrants(
+    edit: (text: string, nowMs: number) => Promise<{ ok: true; text: string } | { ok: false; message: string }>,
+    what: string,
+    commit: boolean,
+  ): Promise<void> {
     return this.#transaction(async () => {
       const path = this.host.path.join(this.dir, CONFIG_FILE);
       if ((await this.host.fs.stat(path)) === undefined) throw new ConversationError(`there is no ${CONFIG_FILE} to hold the approval`);
@@ -1498,7 +1703,17 @@ export class Conversation {
       const size = await this.#assertIntact();
       await this.git.add([CONFIG_FILE]);
       const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
-      const hash = await this.git.commit({ message: `approvals: ${what}`, trailers: [["Chattree-Offset", String(size)], ["Chattree-Config", "true"]], author: committer, committer, paths: [CONFIG_FILE], ...Conversation.#dateOpt(this.#opts) });
+      const hash = await this.git.commit({
+        message: `approvals: ${what}`,
+        trailers: [
+          ["Chattree-Offset", String(size)],
+          ["Chattree-Config", "true"],
+        ],
+        author: committer,
+        committer,
+        paths: [CONFIG_FILE],
+        ...Conversation.#dateOpt(this.#opts),
+      });
       this.#advance(hash);
     });
   }
@@ -1528,20 +1743,31 @@ export class Conversation {
    * the flags that would permit it; a host asks the user and retries. The first setup of an agent (one with
    * no model yet) changes nothing and needs no flags. Resolves to the entry, or undefined if nothing changes.
    */
-  setupChange(change: SetupChange, opts: { allow?: readonly ChangeKind[]; reason?: "user" | "fork" | "subagent"; acknowledges?: readonly string[] } = {}): Promise<Appended | undefined> {
+  setupChange(
+    change: SetupChange,
+    opts: { allow?: readonly ChangeKind[]; reason?: "user" | "fork" | "subagent"; acknowledges?: readonly string[] } = {},
+  ): Promise<Appended | undefined> {
     return this.#transaction(async () => {
       const { setup, entries } = await this.#foldedSetup();
       // An agent's first setup records the renderer explicitly, so what the model is shown never depends on a later default.
-      const first = setup.model === undefined && change.model !== undefined && change.renderer === undefined && setup.renderer === undefined;
+      const first =
+        setup.model === undefined && change.model !== undefined && change.renderer === undefined && setup.renderer === undefined;
       const delta = minimizeChange(setup, first ? { ...change, renderer: DEFAULT_RENDERER } : change);
       const acknowledges = (opts.acknowledges ?? []).filter((id) => setup.unacknowledged.some((u) => u.id === id));
-      for (const id of opts.acknowledges ?? []) if (!acknowledges.includes(id)) throw new ConversationError(`${id} is not an unacknowledged provider change on this branch`);
+      for (const id of opts.acknowledges ?? [])
+        if (!acknowledges.includes(id)) throw new ConversationError(`${id} is not an unacknowledged provider change on this branch`);
       if (Object.keys(delta).length === 0 && acknowledges.length === 0) return undefined;
       const next = applyChange(setup, delta);
       // A change to nothing but the instructions and skills is shown to the model where it is made: the cached prefix keeps what it has (docs/context.md),
       // so it is classified as if the instructions and skills had not changed.
       const touchesDefs = delta.instructions !== undefined || delta.skills !== undefined;
-      const defsOnly = touchesDefs && setup.model !== undefined && delta.model === undefined && delta.tools === undefined && delta.mcp === undefined && delta.renderer === undefined;
+      const defsOnly =
+        touchesDefs &&
+        setup.model !== undefined &&
+        delta.model === undefined &&
+        delta.tools === undefined &&
+        delta.mcp === undefined &&
+        delta.renderer === undefined;
       // Before the first request nothing is cached: the change goes straight into the prefix, and costs nothing.
       const appendOnly = defsOnly && hasRequested(entries);
       const seen = defsOnly ? withDefsOf(next, setup) : next;
@@ -1574,7 +1800,11 @@ export class Conversation {
       const { setup, entries } = await this.#foldedSetup();
       if (!prefixLags(setup)) return undefined;
       const changes = [...this.#classify(withDefsOf(setup, setup.prefix), setup, inToolLoop(entries))];
-      if (!changes.some((c) => c.kind === "cache_break")) changes.push({ kind: "cache_break", message: "the cached prefix is rewritten: the whole conversation is read again at the full input price" });
+      if (!changes.some((c) => c.kind === "cache_break"))
+        changes.push({
+          kind: "cache_break",
+          message: "the cached prefix is rewritten: the whole conversation is read again at the full input price",
+        });
       const allowed = new Set(opts.allow ?? []);
       const refused = changes.filter((c) => !allowed.has(c.kind));
       if (refused.length > 0) throw new ChangeNotAllowed(refused);
@@ -1596,7 +1826,11 @@ export class Conversation {
   async checkRequest(standing: readonly ChangeKind[] = []): Promise<AgentSetup> {
     const setup = await this.setup();
     const allowed = new Set(standing);
-    const refused = setup.unacknowledged.flatMap((u) => u.changes.filter((k) => !allowed.has(k)).map((kind) => ({ kind, message: `the provider changed the agent (entry ${u.id}) and nobody has acknowledged it` })));
+    const refused = setup.unacknowledged.flatMap((u) =>
+      u.changes
+        .filter((k) => !allowed.has(k))
+        .map((kind) => ({ kind, message: `the provider changed the agent (entry ${u.id}) and nobody has acknowledged it` })),
+    );
     if (refused.length > 0) throw new ChangeNotAllowed(refused, "request not allowed");
     return setup;
   }
@@ -1609,7 +1843,11 @@ export class Conversation {
    * (expected, never gated); a later mismatch is `reason: provider`, classified, and gates the next request
    * (see `checkRequest`). It is recorded either way: the response was already paid for.
    */
-  appendResponse(response: NewEntry & { $tag: "assistant" }, observed: { model?: string } = {}, guard?: () => Promise<void>): Promise<Appended[]> {
+  appendResponse(
+    response: NewEntry & { $tag: "assistant" },
+    observed: { model?: string } = {},
+    guard?: () => Promise<void>,
+  ): Promise<Appended[]> {
     return this.#transaction(async () => {
       await guard?.();
       return this.#appendResponseLocked(response, observed);
@@ -1658,7 +1896,12 @@ export class Conversation {
     if (at === undefined) ref = refs.at(-1);
     else if (typeof at === "string") ref = refs.find((r) => r.id === at);
     else ref = refs.find((r) => r.commit === at.commit);
-    if (ref === undefined) throw new ConversationError(at === undefined ? "the conversation has no entries" : `no such entry on branch ${this.branch}: ${typeof at === "string" ? at : at.commit}`);
+    if (ref === undefined)
+      throw new ConversationError(
+        at === undefined
+          ? "the conversation has no entries"
+          : `no such entry on branch ${this.branch}: ${typeof at === "string" ? at : at.commit}`,
+      );
     return ref;
   }
 
@@ -1679,14 +1922,22 @@ export class Conversation {
    * Encode an entry that is about to be committed straight into git (a branch start, a merge): its bytes and
    * any blobs it creates, held in memory so they can go into that commit's tree instead of a worktree.
    */
-  async #prepare(input: NewEntry): Promise<{ id: string; tag: string; value: ChatEntry; bytes: Uint8Array; blobs: Map<string, Uint8Array> }> {
+  async #prepare(
+    input: NewEntry,
+  ): Promise<{ id: string; tag: string; value: ChatEntry; bytes: Uint8Array; blobs: Map<string, Uint8Array> }> {
     const store = new RecordingBlobStore(this.store);
     const pipeline = createPipeline({ ...this.#opts.pipeline, store });
     const withId = input.$tag === "header" || input.id !== undefined ? input : { ...input, id: this.#nextId() };
     const entry = await pipeline.encode(withId);
     const decoded = await pipeline.decode(entry);
     if (!decoded.ok) throw new ConversationError(`${input.$tag} entry failed to decode after encoding`);
-    return { id: (decoded.value as { id?: string }).id ?? "", tag: decoded.tag, value: decoded.value, bytes: encodeEntry(entry), blobs: store.blobs };
+    return {
+      id: (decoded.value as { id?: string }).id ?? "",
+      tag: decoded.tag,
+      value: decoded.value,
+      bytes: encodeEntry(entry),
+      blobs: store.blobs,
+    };
   }
 
   static #blobEdits(blobs: ReadonlyMap<string, Uint8Array>): { path: string; data: Uint8Array }[] {
@@ -1704,11 +1955,16 @@ export class Conversation {
     const data = new Uint8Array(prefix.length + prepared.bytes.length);
     data.set(prefix);
     data.set(prepared.bytes, prefix.length);
-    const commit = await this.git.commitOnto(from, [{ path: CHAT_FILE, data }, ...Conversation.#blobEdits(prepared.blobs)], Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts));
+    const commit = await this.git.commitOnto(
+      from,
+      [{ path: CHAT_FILE, data }, ...Conversation.#blobEdits(prepared.blobs)],
+      Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts),
+    );
     await this.git.createBranch(name, commit);
     const start = { id: prepared.id, tag: prepared.tag, commit, offset: data.length };
     this.#emitEntry(name, start, prepared.value);
-    if (marker.$tag === "branch_start") this.#emit({ type: "branch", branch: name, kind: marker.kind, parent: marker.from.branch, from, start });
+    if (marker.$tag === "branch_start")
+      this.#emit({ type: "branch", branch: name, kind: marker.kind, parent: marker.from.branch, from, start });
     return start;
   }
 
@@ -1729,7 +1985,10 @@ export class Conversation {
     const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
     const commit = await this.git.commit({
       message: "workspace snapshot",
-      trailers: [["Chattree-Offset", String(size)], ["Chattree-Snapshot", "true"]],
+      trailers: [
+        ["Chattree-Offset", String(size)],
+        ["Chattree-Snapshot", "true"],
+      ],
       author: committer,
       committer,
       ...Conversation.#dateOpt(this.#opts),
@@ -1760,7 +2019,8 @@ export class Conversation {
       if (!(await this.git.isAncestor(to, from))) throw new ConversationError(`${target} is not an earlier commit of this thread`);
       const [tip] = await this.git.log(to, { maxCount: 1 });
       const offset = Number(tip?.trailers["Chattree-Offset"]?.[0]);
-      if (!Number.isFinite(offset) || offset <= 0) throw new ConversationError("that is before the thread's header: there is nothing to go back to");
+      if (!Number.isFinite(offset) || offset <= 0)
+        throw new ConversationError("that is before the thread's header: there is nothing to go back to");
       const ref = `refs/chattree/undone/${encodeURIComponent(this.branch)}/${new Date(this.#opts.now?.() ?? Date.now()).toISOString().replace(/[-:.]/g, "")}-${from.slice(0, 8)}`;
       await this.git.run(["update-ref", ref, from]);
       await this.#keepTrust(() => this.git.run(["reset", "--hard", to]));
@@ -1801,16 +2061,19 @@ export class Conversation {
     const source = await this.setup();
     if (source.model === undefined) return;
     const { provider, id, settings } = opts.model ?? source.model;
-    await target.setupChange({
-      model: { provider, id, ...(settings === undefined ? {} : { settings }) },
-      ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),
-      ...(source.instructions === undefined ? {} : { instructions: source.instructions }),
-      // A definition section is a delta: what a new agent starts with is `set`. (Tools are left to the host, which pins its own registry.)
-      ...(Object.keys(source.skills).length > 0 ? { skills: { set: source.skills } } : {}),
-      ...(Object.keys(source.mcp).length > 0 ? { mcp: { set: source.mcp } } : {}),
-      ...(source.pricing === undefined ? {} : { pricing: source.pricing }),
-      ...(source.renderer === undefined ? {} : { renderer: source.renderer }),
-    }, { reason });
+    await target.setupChange(
+      {
+        model: { provider, id, ...(settings === undefined ? {} : { settings }) },
+        ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),
+        ...(source.instructions === undefined ? {} : { instructions: source.instructions }),
+        // A definition section is a delta: what a new agent starts with is `set`. (Tools are left to the host, which pins its own registry.)
+        ...(Object.keys(source.skills).length > 0 ? { skills: { set: source.skills } } : {}),
+        ...(Object.keys(source.mcp).length > 0 ? { mcp: { set: source.mcp } } : {}),
+        ...(source.pricing === undefined ? {} : { pricing: source.pricing }),
+        ...(source.renderer === undefined ? {} : { renderer: source.renderer }),
+      },
+      { reason },
+    );
   }
 
   /**
@@ -1831,7 +2094,14 @@ export class Conversation {
     }
     const name = opts.name ?? `sub/${this.#nextId()}`;
     await this.#assertNewBranch(name);
-    const marker: NewEntry = { $tag: "branch_start", kind: "subagent", from: { branch: this.branch, commit: from }, context: "fresh", brief: opts.brief, call_id: opts.callId };
+    const marker: NewEntry = {
+      $tag: "branch_start",
+      kind: "subagent",
+      from: { branch: this.branch, commit: from },
+      context: "fresh",
+      brief: opts.brief,
+      call_id: opts.callId,
+    };
     return this.#newBranch(name, from, marker, opts);
   }
 
@@ -1889,13 +2159,20 @@ export class Conversation {
     if (head === undefined) throw new ConversationError("the conversation has no commits");
     if (tip === undefined) throw new ConversationError(`no such branch: ${child}`);
     if (await this.git.isAncestor(tip, head)) throw new ConversationError(`branch ${child} is already merged into ${this.branch}`);
-    if ((await this.git.mergeBase(head, tip)) === undefined) throw new ConversationError(`branches ${this.branch} and ${child} have no common history`);
+    if ((await this.git.mergeBase(head, tip)) === undefined)
+      throw new ConversationError(`branches ${this.branch} and ${child} have no common history`);
   }
 
   async #mergeBranch(
     child: Conversation | string,
     removeWorktree: boolean,
-    build: (m: { branch: string; tip: string; files: { changed: string[]; added: string[]; discarded: string[] }; merge: { policy: "trunk"; base: string; conflicts: MergeConflict[] }; spend?: Spend }) => NewEntry,
+    build: (m: {
+      branch: string;
+      tip: string;
+      files: { changed: string[]; added: string[]; discarded: string[] };
+      merge: { policy: "trunk"; base: string; conflicts: MergeConflict[] };
+      spend?: Spend;
+    }) => NewEntry,
   ): Promise<MergeOutcome> {
     const childBranch = typeof child === "string" ? child : child.branch;
     if (childBranch === this.branch) throw new ConversationError("a branch cannot be merged into itself");
@@ -1927,7 +2204,8 @@ export class Conversation {
         }),
       );
       const transcript = await this.git.readFileAt(head, CHAT_FILE);
-      if (transcript === undefined || transcript.length !== size) throw new ConversationError(`${CHAT_FILE} at HEAD does not match the working tree; reopen the conversation`);
+      if (transcript === undefined || transcript.length !== size)
+        throw new ConversationError(`${CHAT_FILE} at HEAD does not match the working tree; reopen the conversation`);
       const data = new Uint8Array(transcript.length + prepared.bytes.length);
       data.set(transcript);
       data.set(prepared.bytes, transcript.length);
@@ -1937,12 +2215,17 @@ export class Conversation {
         { path: CHAT_FILE, data },
         ...Conversation.#blobEdits(prepared.blobs),
       ]);
-      const commit = await this.git.commitTree(tree, [head, tip], Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts));
+      const commit = await this.git.commitTree(
+        tree,
+        [head, tip],
+        Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts),
+      );
       await this.git.fastForward(commit);
       // The merged file is approved when it is the file either side was approved with (the merge takes a file from one side whole).
       const store = await this.#trusts();
       const mergedHash = configHash(await this.#configBytes());
-      if (mergedHash !== NO_CONFIG && [await store.get(this.branch), await store.get(childBranch)].includes(mergedHash)) await store.set(this.branch, mergedHash);
+      if (mergedHash !== NO_CONFIG && [await store.get(this.branch), await store.get(childBranch)].includes(mergedHash))
+        await store.set(this.branch, mergedHash);
       const after = (await this.host.fs.stat(this.#file))?.size ?? 0;
       if (after !== data.length) throw new ConversationError(`${CHAT_FILE} is ${after} bytes after the merge, expected ${data.length}`);
       this.#size = after;
@@ -1950,7 +2233,14 @@ export class Conversation {
       const entry = { id: prepared.id, tag: prepared.tag, commit, offset: after };
       const report = { ...summary, base };
       this.#emitEntry(this.branch, entry, prepared.value);
-      this.#emit({ type: "merge", branch: this.branch, child: childBranch, kind: prepared.value.$tag === "fork_merge" ? "fork" : "subagent", entry, report });
+      this.#emit({
+        type: "merge",
+        branch: this.branch,
+        child: childBranch,
+        kind: prepared.value.$tag === "fork_merge" ? "fork" : "subagent",
+        entry,
+        report,
+      });
       return { entry, report, childTip: tip };
     });
     if (removeWorktree) await this.removeWorktree(childBranch);
@@ -1963,7 +2253,10 @@ export class Conversation {
     const decode = async (rev: string) => (await this.readEntriesAt(rev)).flatMap((e) => (e.ok ? [e.value] : []));
     const [all, before] = await Promise.all([decode(tip), decode(base)]);
     // Tables the child pinned may only exist in its own tree.
-    const resolver = priceResolver(this.#opts.built.prices.values(), async (hash) => (await this.store.get(hash)) ?? (await this.git.readFileAt(tip, HostBlobStore.relativePath(hash))));
+    const resolver = priceResolver(
+      this.#opts.built.prices.values(),
+      async (hash) => (await this.store.get(hash)) ?? (await this.git.readFileAt(tip, HostBlobStore.relativePath(hash))),
+    );
     return (await computeLedger(all, resolver, { from: before.length })).conversation;
   }
 
@@ -1981,12 +2274,16 @@ export class Conversation {
     if (wt.path === this.dir) throw new ConversationError("cannot remove the worktree this handle is using");
     if (opts.force !== true) {
       const [tip, head] = [await this.git.revParse(`refs/heads/${branch}`), await this.git.head()];
-      if (tip === undefined || head === undefined || !(await this.git.isAncestor(tip, head))) throw new ConversationError(`branch ${branch} is not merged into ${this.branch}; keep its worktree or pass force`);
+      if (tip === undefined || head === undefined || !(await this.git.isAncestor(tip, head)))
+        throw new ConversationError(`branch ${branch} is not merged into ${this.branch}; keep its worktree or pass force`);
     }
     try {
       await this.git.removeWorktree(wt.path, opts.force === true ? { force: true } : {});
     } catch (e) {
-      if (e instanceof GitError && opts.force !== true) throw new ConversationError(`the worktree of ${branch} has uncommitted or untracked changes; commit them, or pass force: ${e.message}`);
+      if (e instanceof GitError && opts.force !== true)
+        throw new ConversationError(
+          `the worktree of ${branch} has uncommitted or untracked changes; commit them, or pass force: ${e.message}`,
+        );
       throw e;
     }
     await this.git.pruneWorktrees();
@@ -2021,25 +2318,32 @@ export class Conversation {
       await this.#assertIntact();
       const wanted = new Set<string>();
       for (const [i, e] of (await this.readEntries()).entries()) {
-        if (!e.ok) throw new ConversationError(`entry ${i + 1} no longer validates, so its blob references are unknown; refusing to collect blobs`);
+        if (!e.ok)
+          throw new ConversationError(`entry ${i + 1} no longer validates, so its blob references are unknown; refusing to collect blobs`);
         for (const hash of blobRefs(e.value).keys()) wanted.add(HostBlobStore.relativePath(hash));
       }
-      const sizeOf = async (path: string): Promise<number> => (await this.host.fs.stat(this.host.path.join(this.dir, ...path.split("/"))))?.size ?? 0;
+      const sizeOf = async (path: string): Promise<number> =>
+        (await this.host.fs.stat(this.host.path.join(this.dir, ...path.split("/"))))?.size ?? 0;
       const orphans = async (which: "tracked" | "untracked") => {
         const out: { path: string; bytes: number }[] = [];
-        for (const path of (await this.git.listFiles([BLOBS_DIR], which)).filter((p) => !wanted.has(p)).sort()) out.push({ path, bytes: await sizeOf(path) });
+        for (const path of (await this.git.listFiles([BLOBS_DIR], which)).filter((p) => !wanted.has(p)).sort())
+          out.push({ path, bytes: await sizeOf(path) });
         return out;
       };
       const report: BlobGcReport = { untracked: await orphans("untracked"), tracked: await orphans("tracked"), commit: undefined };
       if (opts.dryRun === true) return report;
-      for (const o of [...report.untracked, ...report.tracked]) await this.host.fs.remove(this.host.path.join(this.dir, ...o.path.split("/")));
+      for (const o of [...report.untracked, ...report.tracked])
+        await this.host.fs.remove(this.host.path.join(this.dir, ...o.path.split("/")));
       if (report.tracked.length > 0) {
         const paths = report.tracked.map((o) => o.path);
         await this.git.add(paths);
         const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
         report.commit = await this.git.commit({
           message: "remove unreferenced blobs",
-          trailers: [["Chattree-Offset", String(this.#size)], ["Chattree-Gc", "true"]],
+          trailers: [
+            ["Chattree-Offset", String(this.#size)],
+            ["Chattree-Gc", "true"],
+          ],
           author: committer,
           committer,
           paths,
@@ -2079,7 +2383,14 @@ export class Conversation {
   /** All local branches with their tips, where each is checked out, whether it is archived, its last activity and whether a request is running on it. */
   async listBranches(): Promise<BranchInfo[]> {
     const [refs, worktrees, common] = await Promise.all([
-      this.git.run(["for-each-ref", "--format=%(refname)%00%(objectname)%00%(committerdate:iso-strict)%00%(contents:trailers:key=Chattree-Archived,valueonly)", "refs/heads"], { readOnly: true }),
+      this.git.run(
+        [
+          "for-each-ref",
+          "--format=%(refname)%00%(objectname)%00%(committerdate:iso-strict)%00%(contents:trailers:key=Chattree-Archived,valueonly)",
+          "refs/heads",
+        ],
+        { readOnly: true },
+      ),
       this.git.worktrees(),
       this.git.commonDir(),
     ]);
@@ -2112,7 +2423,15 @@ export class Conversation {
     const merged = new Set<string>();
     for (const p of branches) {
       const r = await this.git.run(["rev-list", "--first-parent", p.hash], { readOnly: true });
-      firstParent.set(p.hash, new Set(dec.decode(r.stdout).split("\n").filter((x) => x !== "")));
+      firstParent.set(
+        p.hash,
+        new Set(
+          dec
+            .decode(r.stdout)
+            .split("\n")
+            .filter((x) => x !== ""),
+        ),
+      );
     }
     for (const b of branches) {
       for (const p of branches) {
@@ -2145,7 +2464,10 @@ export class Conversation {
 
   async #mark(name: string, archived: boolean): Promise<boolean> {
     if (name === this.branch) return this.#transaction(() => this.#markLocked(name, archived));
-    const lock = await acquireLock(this.host.fs, await Conversation.#lockPathFor(this.host, this.git, name), { ...this.#opts.lock, ...(this.#opts.now === undefined ? {} : { now: this.#opts.now }) });
+    const lock = await acquireLock(this.host.fs, await Conversation.#lockPathFor(this.host, this.git, name), {
+      ...this.#opts.lock,
+      ...(this.#opts.now === undefined ? {} : { now: this.#opts.now }),
+    });
     try {
       return await this.#markLocked(name, archived);
     } finally {
@@ -2165,7 +2487,10 @@ export class Conversation {
       const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
       const commit = await this.git.commitTree(await this.git.treeOf(tip), [tip], {
         message: archived ? "archive thread" : "unarchive thread",
-        trailers: [["Chattree-Offset", String(offset)], ["Chattree-Archived", String(archived)]],
+        trailers: [
+          ["Chattree-Offset", String(offset)],
+          ["Chattree-Archived", String(archived)],
+        ],
         author: committer,
         committer,
         ...Conversation.#dateOpt(this.#opts),

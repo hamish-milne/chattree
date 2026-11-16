@@ -8,7 +8,15 @@ import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor
 import { httpStream, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
 import { DEFAULT_THINK, ThinkSplitter, type Piece, type ThinkOptions } from "./think-tags.ts";
-import { ProviderError, type Completed, type ErrorKind, type ProviderAdapter, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
+import {
+  ProviderError,
+  type Completed,
+  type ErrorKind,
+  type ProviderAdapter,
+  type StreamEvent,
+  type StreamRequest,
+  type Usage,
+} from "./types.ts";
 
 /**
  * The Chat Completions API as llama-server, Ollama, vLLM, LM Studio and similar servers speak it (docs/providers.md,
@@ -48,7 +56,12 @@ export const compatibleSettings = z.strictObject({
    * tag in the prompt, so the output starts mid-thought and only `</think>` appears (a response that skips thinking is then all
    * reasoning); an object names other tags.
    */
-  think_tags: z.union([z.enum(["auto", "off", "implicit"]), z.strictObject({ open: z.string().min(1), close: z.string().min(1), implicit_open: z.boolean().optional() })]).optional(),
+  think_tags: z
+    .union([
+      z.enum(["auto", "off", "implicit"]),
+      z.strictObject({ open: z.string().min(1), close: z.string().min(1), implicit_open: z.boolean().optional() }),
+    ])
+    .optional(),
   /** Extra top-level request fields for server extensions (`top_k`, `min_p`, `chat_template_kwargs`, Ollama's `think`). Cannot override the fields the adapter owns. */
   extra: z.record(z.string(), z.unknown()).optional(),
 });
@@ -64,7 +77,11 @@ function thinkOptions(setting: CompatibleSettings["think_tags"]): ThinkOptions |
 
 export function parseCompatibleSettings(settings: unknown): CompatibleSettings {
   const r = compatibleSettings.safeParse(settings ?? {});
-  if (!r.success) throw new ProviderError({ kind: "invalid_request", message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}` });
+  if (!r.success)
+    throw new ProviderError({
+      kind: "invalid_request",
+      message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
+    });
   return r.data;
 }
 
@@ -88,7 +105,11 @@ export interface RequestOptions {
 export function buildChatBody(ctx: ModelContext, setup: AgentSetup, opts: RequestOptions): Json {
   if (setup.model === undefined) throw new ProviderError({ kind: "invalid_request", message: "the agent has no model" });
   const s = parseCompatibleSettings(setup.model.settings);
-  const body: Json = { model: opts.modelName?.(servedModelId(setup.model)) ?? servedModelId(setup.model), stream: true, [opts.maxTokensParam]: s.max_output_tokens };
+  const body: Json = {
+    model: opts.modelName?.(servedModelId(setup.model)) ?? servedModelId(setup.model),
+    stream: true,
+    [opts.maxTokensParam]: s.max_output_tokens,
+  };
   if (opts.includeUsage) body["stream_options"] = { include_usage: true };
   body["messages"] = toMessages(ctx, s.replay_reasoning ?? false, { provider: setup.model.provider, model: servedModelId(setup.model) });
   if (ctx.tools.length > 0) body["tools"] = ctx.tools.map(toTool);
@@ -97,7 +118,10 @@ export function buildChatBody(ctx: ModelContext, setup: AgentSetup, opts: Reques
   return body;
 }
 
-const toTool = (t: ToolDefinition): Json => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.input_schema } });
+const toTool = (t: ToolDefinition): Json => ({
+  type: "function",
+  function: { name: t.name, description: t.description, parameters: t.input_schema },
+});
 
 function toMessages(ctx: ModelContext, replay: boolean | "turn", who: { provider: string; model: string }): Json[] {
   const out: Json[] = [];
@@ -108,23 +132,71 @@ function toMessages(ctx: ModelContext, replay: boolean | "turn", who: { provider
   for (const [i, t] of turns.entries()) {
     if (t.role === "user") {
       for (const p of t.parts) {
-        if (p.type === "attachment" && p.kind === "pdf") throw new ProviderError({ kind: "invalid_request", message: `${p.name ?? "a PDF"} cannot be sent: Chat Completions has no portable PDF input; send its text instead` });
+        if (p.type === "attachment" && p.kind === "pdf")
+          throw new ProviderError({
+            kind: "invalid_request",
+            message: `${p.name ?? "a PDF"} cannot be sent: Chat Completions has no portable PDF input; send its text instead`,
+          });
       }
-      if (t.parts.every((p) => p.type === "text")) out.push({ role: "user", content: t.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n\n") });
-      else out.push({ role: "user", content: t.parts.map((p): Json => (p.type === "text" ? { type: "text", text: p.text } : p.kind === "audio" ? { type: "input_audio", input_audio: { data: base64(p.bytes), format: audioFormat(p.mime) ?? "wav" } } : { type: "image_url", image_url: { url: dataUrl(p.mime, p.bytes) } })) });
+      if (t.parts.every((p) => p.type === "text"))
+        out.push({ role: "user", content: t.parts.map((p) => (p.type === "text" ? p.text : "")).join("\n\n") });
+      else
+        out.push({
+          role: "user",
+          content: t.parts.map((p): Json =>
+            p.type === "text"
+              ? { type: "text", text: p.text }
+              : p.kind === "audio"
+                ? { type: "input_audio", input_audio: { data: base64(p.bytes), format: audioFormat(p.mime) ?? "wav" } }
+                : { type: "image_url", image_url: { url: dataUrl(p.mime, p.bytes) } },
+          ),
+        });
     } else if (t.role === "tool_results") {
-      for (const r of t.results) out.push({ role: "tool", tool_call_id: r.call_id, content: r.media === undefined ? r.content : `${r.content}\n[${r.media.length === 1 ? "the attachment is" : `${r.media.length} attachments are`} in the next message]` });
+      for (const r of t.results)
+        out.push({
+          role: "tool",
+          tool_call_id: r.call_id,
+          content:
+            r.media === undefined
+              ? r.content
+              : `${r.content}\n[${r.media.length === 1 ? "the attachment is" : `${r.media.length} attachments are`} in the next message]`,
+        });
       // A tool message holds text only: what a result shows goes in a user message that follows the results, naming the call each part is from.
       const shown = t.results.flatMap((r) => (r.media ?? []).map((m) => ({ call: r.call_id, m })));
-      for (const { m } of shown) if (m.kind === "pdf") throw new ProviderError({ kind: "invalid_request", message: `${m.name ?? "a PDF"} cannot be sent: Chat Completions has no portable PDF input; send its text instead` });
-      if (shown.length > 0) out.push({ role: "user", content: shown.flatMap(({ call, m }): Json[] => [{ type: "text", text: `[From the result of call ${call}${m.name === undefined ? "" : `: ${m.name}`}]` }, m.kind === "audio" ? { type: "input_audio", input_audio: { data: base64(m.bytes), format: audioFormat(m.mime) ?? "wav" } } : { type: "image_url", image_url: { url: dataUrl(m.mime, m.bytes) } }]) });
+      for (const { m } of shown)
+        if (m.kind === "pdf")
+          throw new ProviderError({
+            kind: "invalid_request",
+            message: `${m.name ?? "a PDF"} cannot be sent: Chat Completions has no portable PDF input; send its text instead`,
+          });
+      if (shown.length > 0)
+        out.push({
+          role: "user",
+          content: shown.flatMap(({ call, m }): Json[] => [
+            { type: "text", text: `[From the result of call ${call}${m.name === undefined ? "" : `: ${m.name}`}]` },
+            m.kind === "audio"
+              ? { type: "input_audio", input_audio: { data: base64(m.bytes), format: audioFormat(m.mime) ?? "wav" } }
+              : { type: "image_url", image_url: { url: dataUrl(m.mime, m.bytes) } },
+          ]),
+        });
     } else {
       const text = t.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-      const calls = t.blocks.flatMap((b) => (b.type === "tool_call" ? [{ id: b.call_id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.args) } }] : []));
-      const replayHere = replay === true || (replay === "turn" && i > lastUser && t.provider === who.provider && t.model.split("@")[0] === who.model.split("@")[0]);
-      const reasoning = replayHere ? t.blocks.flatMap((b) => (b.type === "reasoning" && b.visible !== undefined && b.visible !== "" ? [b.visible] : [])).join("") : "";
+      const calls = t.blocks.flatMap((b) =>
+        b.type === "tool_call" ? [{ id: b.call_id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.args) } }] : [],
+      );
+      const replayHere =
+        replay === true ||
+        (replay === "turn" && i > lastUser && t.provider === who.provider && t.model.split("@")[0] === who.model.split("@")[0]);
+      const reasoning = replayHere
+        ? t.blocks.flatMap((b) => (b.type === "reasoning" && b.visible !== undefined && b.visible !== "" ? [b.visible] : [])).join("")
+        : "";
       if (text === "" && calls.length === 0) continue;
-      out.push({ role: "assistant", content: text === "" ? null : text, ...(reasoning === "" ? {} : { reasoning_content: reasoning }), ...(calls.length === 0 ? {} : { tool_calls: calls }) });
+      out.push({
+        role: "assistant",
+        content: text === "" ? null : text,
+        ...(reasoning === "" ? {} : { reasoning_content: reasoning }),
+        ...(calls.length === 0 ? {} : { tool_calls: calls }),
+      });
     }
   }
   return out;
@@ -175,7 +247,13 @@ const ERROR_KINDS: Record<string, { kind: ErrorKind; retryable: boolean }> = {
   unavailable_error: { kind: "overloaded", retryable: true },
 };
 
-const FINISH: Record<string, string> = { stop: "end_turn", length: "max_tokens", tool_calls: "tool_use", function_call: "tool_use", content_filter: "refusal" };
+const FINISH: Record<string, string> = {
+  stop: "end_turn",
+  length: "max_tokens",
+  tool_calls: "tool_use",
+  function_call: "tool_use",
+  content_filter: "refusal",
+};
 
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 const protocol = (message: string): ProviderError => new ProviderError({ kind: "protocol", message });
@@ -186,7 +264,8 @@ function errorFrom(d: unknown): { kind: ErrorKind; retryable: boolean; message: 
   if (typeof e === "string") return { kind: "server", retryable: false, message: e };
   const code = typeof e["code"] === "string" ? e["code"] : undefined;
   const type = typeof e["type"] === "string" ? e["type"] : undefined;
-  const known = (code === undefined ? undefined : ERROR_KINDS[code]) ?? (type === undefined ? undefined : ERROR_KINDS[type]) ?? { kind: "server" as const, retryable: false };
+  const known = (code === undefined ? undefined : ERROR_KINDS[code]) ??
+    (type === undefined ? undefined : ERROR_KINDS[type]) ?? { kind: "server" as const, retryable: false };
   return { ...known, message: `${code ?? type ?? "error"}: ${String(e["message"] ?? "")}` };
 }
 
@@ -265,13 +344,18 @@ function endContent(s: State, events: StreamEvent[]): void {
 export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper<State> {
   return {
     request(req: StreamRequest): HttpRequestSpec {
-      return { url: `${baseUrl.replace(/\/$/, "")}/chat/completions`, headers: { "content-type": "application/json", accept: "text/event-stream" }, body: buildChatBody(req.context, req.setup, request) };
+      return {
+        url: `${baseUrl.replace(/\/$/, "")}/chat/completions`,
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
+        body: buildChatBody(req.context, req.setup, request),
+      };
     },
     start: (req) => ({
       provider: req.setup.model?.provider ?? "openai-compatible",
       id: undefined,
       model: undefined,
-      requested: req.setup.model === undefined ? undefined : (request.modelName?.(servedModelId(req.setup.model)) ?? servedModelId(req.setup.model)),
+      requested:
+        req.setup.model === undefined ? undefined : (request.modelName?.(servedModelId(req.setup.model)) ?? servedModelId(req.setup.model)),
       started: false,
       announced: false,
       next: 0,
@@ -282,7 +366,9 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       finish: undefined,
       refused: false,
       sawTool: false,
-      think: ((o) => (o === undefined ? undefined : new ThinkSplitter(o)))(thinkOptions(parseCompatibleSettings(req.setup.model?.settings).think_tags)),
+      think: ((o) => (o === undefined ? undefined : new ThinkSplitter(o)))(
+        thinkOptions(parseCompatibleSettings(req.setup.model?.settings).think_tags),
+      ),
       raw: { prompt: 0, completion: 0, cached: undefined, reasoning: undefined },
       usage: { input_tokens: 0, output_tokens: 0 },
       hasUsage: false,
@@ -323,13 +409,21 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       if (request.observe !== undefined) s.model = request.observe(s.requested ?? "", s.model);
       if (!s.announced && (s.id !== undefined || s.model !== undefined)) {
         s.announced = true;
-        events.push({ type: "observed", observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) } });
+        events.push({
+          type: "observed",
+          observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) },
+        });
       }
 
       const choice = (Array.isArray(d["choices"]) ? d["choices"][0] : undefined) as Json | undefined;
       const delta = (choice?.["delta"] ?? {}) as Json;
 
-      const reasoningField = typeof delta["reasoning_content"] === "string" && delta["reasoning_content"] !== "" ? "reasoning_content" : typeof delta["reasoning"] === "string" && delta["reasoning"] !== "" ? "reasoning" : undefined;
+      const reasoningField =
+        typeof delta["reasoning_content"] === "string" && delta["reasoning_content"] !== ""
+          ? "reasoning_content"
+          : typeof delta["reasoning"] === "string" && delta["reasoning"] !== ""
+            ? "reasoning"
+            : undefined;
       if (reasoningField !== undefined) reasoningDelta(s, events, delta[reasoningField] as string, reasoningField);
       if (typeof delta["content"] === "string" && delta["content"] !== "") {
         if (s.think === undefined) content(s, events, [{ kind: "text", text: delta["content"] }]);
@@ -357,7 +451,12 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
             s.sawTool = true;
             events.push({ type: "tool_call.start", index: o.index, call_id: id, name });
           }
-          const args = typeof fn["arguments"] === "string" ? fn["arguments"] : fn["arguments"] !== undefined && fn["arguments"] !== null ? JSON.stringify(fn["arguments"]) : "";
+          const args =
+            typeof fn["arguments"] === "string"
+              ? fn["arguments"]
+              : fn["arguments"] !== undefined && fn["arguments"] !== null
+                ? JSON.stringify(fn["arguments"])
+                : "";
           if (args !== "" && o.kind === "tool") {
             o.args += args;
             events.push({ type: "tool_call.delta", index: o.index, args_delta: args });
@@ -393,7 +492,10 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
     classify({ status, body }) {
       try {
         const e = errorFrom(JSON.parse(body));
-        return { ...(e.message === ": " ? {} : { message: `${status} ${e.message}` }), ...(e.kind === "server" && !e.retryable ? {} : { kind: e.kind, retryable: e.retryable }) };
+        return {
+          ...(e.message === ": " ? {} : { message: `${status} ${e.message}` }),
+          ...(e.kind === "server" && !e.retryable ? {} : { kind: e.kind, retryable: e.retryable }),
+        };
       } catch {
         return undefined;
       }
@@ -419,7 +521,12 @@ export interface CompatibleOptions {
 }
 
 export function openaiCompatibleAdapter(opts: CompatibleOptions & { tag?: string }): ProviderAdapter {
-  const mapper = chatMapper(opts.baseUrl, { maxTokensParam: opts.maxTokensParam ?? "max_tokens", includeUsage: opts.includeUsage ?? true, modelName: opts.modelName, observe: opts.observe });
+  const mapper = chatMapper(opts.baseUrl, {
+    maxTokensParam: opts.maxTokensParam ?? "max_tokens",
+    includeUsage: opts.includeUsage ?? true,
+    modelName: opts.modelName,
+    observe: opts.observe,
+  });
   const http: HttpOptions = {
     ...opts.http,
     auth: async (spec) => {
@@ -429,7 +536,12 @@ export function openaiCompatibleAdapter(opts: CompatibleOptions & { tag?: string
       return { ...base, authorization: `Bearer ${key}` };
     },
   };
-  return { $tag: opts.tag ?? "openai-compatible", mediaSpec: () => CHAT_MEDIA, stream: (req) => httpStream(mapper, req, http), classify: classifyCompatible };
+  return {
+    $tag: opts.tag ?? "openai-compatible",
+    mediaSpec: () => CHAT_MEDIA,
+    stream: (req) => httpStream(mapper, req, http),
+    classify: classifyCompatible,
+  };
 }
 
 // ---- registration -----------------------------------------------------------------------------------------------
@@ -450,7 +562,10 @@ export const openaiCompatibleDefinition = defineAdapter({
   $tag: "openai-compatible",
   config: compatibleProviderConfig,
   settings: compatibleSettings,
-  jsonSchema: () => ({ config: z.toJSONSchema(compatibleProviderConfig, { io: "input" }), settings: z.toJSONSchema(compatibleSettings, { io: "input" }) }),
+  jsonSchema: () => ({
+    config: z.toJSONSchema(compatibleProviderConfig, { io: "input" }),
+    settings: z.toJSONSchema(compatibleSettings, { io: "input" }),
+  }),
   secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
   prices: (c) => pricesFor(undefined, c),
   models: (c) => modelsFor(undefined, c),
@@ -474,10 +589,20 @@ export function classifyCompatible(from: AgentSetup, to: AgentSetup): Change[] {
   if (f !== undefined && t !== undefined) {
     const fs = (f.settings ?? {}) as Json;
     const ts = (t.settings ?? {}) as Json;
-    if (f.id !== t.id || (f.resolved ?? f.id) !== (t.resolved ?? t.id)) out.push({ kind: "cache_break", message: "a server's prompt cache belongs to the loaded model: the conversation is processed again" });
-    else if (["reasoning_effort", "replay_reasoning"].some((k) => stable(fs[k] ?? null) !== stable(ts[k] ?? null))) out.push({ kind: "cache_break", message: "changing reasoning settings changes the prompt the server sees" });
+    if (f.id !== t.id || (f.resolved ?? f.id) !== (t.resolved ?? t.id))
+      out.push({
+        kind: "cache_break",
+        message: "a server's prompt cache belongs to the loaded model: the conversation is processed again",
+      });
+    else if (["reasoning_effort", "replay_reasoning"].some((k) => stable(fs[k] ?? null) !== stable(ts[k] ?? null)))
+      out.push({ kind: "cache_break", message: "changing reasoning settings changes the prompt the server sees" });
   }
-  if (from.model !== undefined && (stable(from.tools) !== stable(to.tools) || stable(from.instructions ?? null) !== stable(to.instructions ?? null) || (from.renderer ?? null) !== (to.renderer ?? null))) {
+  if (
+    from.model !== undefined &&
+    (stable(from.tools) !== stable(to.tools) ||
+      stable(from.instructions ?? null) !== stable(to.instructions ?? null) ||
+      (from.renderer ?? null) !== (to.renderer ?? null))
+  ) {
     out.push({ kind: "cache_break", message: "instructions, tools and rendering come before the conversation in the cached prefix" });
   }
   return out;

@@ -22,7 +22,12 @@ export const sha = (b: Buffer): string => createHash("sha256").update(b).digest(
 export async function fakeLlamaRelease(server: HttpFixture, work: string, digest: (b: Buffer) => string = sha): Promise<void> {
   const program = await tarball(work, "program.tar.gz", { "llama-b100/llama-server": "#!/bin/sh\n", "llama-b100/libllama.so": "lib" });
   const cudart = await tarball(work, "cudart.tar.gz", { "libcudart.so.12": "cuda" });
-  const asset = (name: string, b: Buffer) => ({ name, size: b.length, digest: `sha256:${digest(b)}`, browser_download_url: `${server.base}/dl/${name}` });
+  const asset = (name: string, b: Buffer) => ({
+    name,
+    size: b.length,
+    digest: `sha256:${digest(b)}`,
+    browser_download_url: `${server.base}/dl/${name}`,
+  });
   const assets = [
     asset("llama-b100-bin-ubuntu-x64.tar.gz", program),
     asset("llama-b100-bin-ubuntu-cuda-12.8-x64.tar.gz", program),
@@ -30,7 +35,9 @@ export async function fakeLlamaRelease(server: HttpFixture, work: string, digest
   ];
   server
     .on("/repos/ggml-org/llama.cpp/releases/tags/b100", { body: JSON.stringify({ body: "", assets }) })
-    .on("/repos/ggml-org/llama.cpp/releases/tags/v0.9.0", { body: JSON.stringify({ body: "Builds https://github.com/ggml-org/llama.cpp/releases/tag/b100", assets: [] }) })
+    .on("/repos/ggml-org/llama.cpp/releases/tags/v0.9.0", {
+      body: JSON.stringify({ body: "Builds https://github.com/ggml-org/llama.cpp/releases/tag/b100", assets: [] }),
+    })
     .on("/repos/ggml-org/llama.cpp/releases/tags/v0.1.0", { body: JSON.stringify({ body: "no link", assets: [] }) })
     .on("/dl/llama-b100-bin-ubuntu-x64.tar.gz", { body: program })
     .on("/dl/llama-b100-bin-ubuntu-cuda-12.8-x64.tar.gz", { body: program })

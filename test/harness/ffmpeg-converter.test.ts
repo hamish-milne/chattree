@@ -62,7 +62,10 @@ describe("ffmpeg converter", { skip: !have && "no ffmpeg" }, () => {
   test("a damaged file is a ConversionError saying what failed, and leaves nothing behind", async () => {
     const dir = await tempDir();
     const conv = await ffmpegConverter({ host: nodeHost(), ffmpeg: "ffmpeg", workDir: join(dir, "w") });
-    await assert.rejects(conv.convert(new TextEncoder().encode("not a picture at all"), fmt("image/bmp"), { mime: "image/png" }), /ffmpeg could not turn/);
+    await assert.rejects(
+      conv.convert(new TextEncoder().encode("not a picture at all"), fmt("image/bmp"), { mime: "image/png" }),
+      /ffmpeg could not turn/,
+    );
     assert.deepEqual(await nodeHost().fs.readdir(join(dir, "w")), []);
   });
 });
@@ -70,7 +73,14 @@ describe("ffmpeg converter", { skip: !have && "no ffmpeg" }, () => {
 describe("ffmpeg converter with a program that is not ffmpeg", () => {
   test("an ffmpeg whose codec lists cannot be read is said so, not left to say nothing can be converted", async () => {
     const dir = await tempDir();
-    const host = { ...nodeHost(), exec: async (_p: string, args: string[]) => ({ exitCode: 0, stdout: new TextEncoder().encode(args.includes("-version") ? "ffmpeg version 9.9\n" : "garbled\n"), stderr: new Uint8Array() }) } as ReturnType<typeof nodeHost>;
+    const host = {
+      ...nodeHost(),
+      exec: async (_p: string, args: string[]) => ({
+        exitCode: 0,
+        stdout: new TextEncoder().encode(args.includes("-version") ? "ffmpeg version 9.9\n" : "garbled\n"),
+        stderr: new Uint8Array(),
+      }),
+    } as ReturnType<typeof nodeHost>;
     await assert.rejects(ffmpegConverter({ host, ffmpeg: "ffmpeg", workDir: join(dir, "w") }), /could not read the codec lists/);
   });
 
@@ -81,7 +91,14 @@ describe("ffmpeg converter with a program that is not ffmpeg", () => {
 });
 
 describe("ffmpeg codec listings", () => {
-  const listing = ["Decoders:", " V..... = Video", " ------", " V....D bmp                  BMP (Windows and OS/2 bitmap)", " A....D flac                 FLAC (Free Lossless Audio Codec)", " V....D libwebp              libwebp WebP image (codec webp)"];
+  const listing = [
+    "Decoders:",
+    " V..... = Video",
+    " ------",
+    " V....D bmp                  BMP (Windows and OS/2 bitmap)",
+    " A....D flac                 FLAC (Free Lossless Audio Codec)",
+    " V....D libwebp              libwebp WebP image (codec webp)",
+  ];
   for (const eol of ["\n", "\r\n"]) {
     test(`reads names and (codec x) aliases with ${JSON.stringify(eol)} line ends`, () => {
       const n = codecNames(listing.join(eol) + eol);

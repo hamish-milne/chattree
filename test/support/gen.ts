@@ -29,21 +29,143 @@ export class Rng {
 
 /** Fragments chosen to stress quoting, block scalars, framing and YAML typing rules. */
 export const PIECES: readonly string[] = [
-  "a", "b", "Z", "0", "9", " ", "  ", "\t", "\n", "\n", "\n\n", "\r", "\r\n",
-  '"', "'", "\\", "#", ":", ": ", "- ", "-", "---", "...", "|", "|-", ">", "{", "}", "[", "]", ",",
-  "&", "*", "!", "!blob {", "%", "@", "`", "?", "~", "<<", "=",
-  "null", "true", "no", "on", "y", "1e5", "0x1f", "0o17", ".inf", "12:30", "key: value", "- item", "\n- item", "\n  - x",
-  cp(0), cp(0x1b), cp(0x7f), cp(0x85), cp(0x2028), cp(0x2029), cp(0xfeff), cp(0xfffe), cp(0xffff),
-  cp(0xe9), cp(0xf1), cp(0x65, 0x301), cp(0xa0), cp(0x65e5, 0x672c, 0x8a9e), cp(0x1f600), cp(0x1f469, 0x200d, 0x1f4bb), cp(0x10ffff),
+  "a",
+  "b",
+  "Z",
+  "0",
+  "9",
+  " ",
+  "  ",
+  "\t",
+  "\n",
+  "\n",
+  "\n\n",
+  "\r",
+  "\r\n",
+  '"',
+  "'",
+  "\\",
+  "#",
+  ":",
+  ": ",
+  "- ",
+  "-",
+  "---",
+  "...",
+  "|",
+  "|-",
+  ">",
+  "{",
+  "}",
+  "[",
+  "]",
+  ",",
+  "&",
+  "*",
+  "!",
+  "!blob {",
+  "%",
+  "@",
+  "`",
+  "?",
+  "~",
+  "<<",
+  "=",
+  "null",
+  "true",
+  "no",
+  "on",
+  "y",
+  "1e5",
+  "0x1f",
+  "0o17",
+  ".inf",
+  "12:30",
+  "key: value",
+  "- item",
+  "\n- item",
+  "\n  - x",
+  cp(0),
+  cp(0x1b),
+  cp(0x7f),
+  cp(0x85),
+  cp(0x2028),
+  cp(0x2029),
+  cp(0xfeff),
+  cp(0xfffe),
+  cp(0xffff),
+  cp(0xe9),
+  cp(0xf1),
+  cp(0x65, 0x301),
+  cp(0xa0),
+  cp(0x65e5, 0x672c, 0x8a9e),
+  cp(0x1f600),
+  cp(0x1f469, 0x200d, 0x1f4bb),
+  cp(0x10ffff),
 ];
 
 export const EDGE_STRINGS: readonly string[] = [
-  "", " ", "\n", "\t", "a ", " a", "a\n", "a\n\n", "\na", "a\n ", "a\n  ", "a\n\nb", "a\n\n\nb", "a\tb\n", "x\r\ny", "\r",
-  "- a\n- b", "#c\nd", "key: v\nk2: v2", "|\n", "---\n", "...\n", "a\n- b", "a\n  - b\n", "null", "true", "NO", "On", "y", "123", "1.5",
-  "-", "- ", "!blob {sha256: x}", cp(0xfeff) + "a", "a" + cp(0x2028) + "b", "a\nb" + cp(0x85),
+  "",
+  " ",
+  "\n",
+  "\t",
+  "a ",
+  " a",
+  "a\n",
+  "a\n\n",
+  "\na",
+  "a\n ",
+  "a\n  ",
+  "a\n\nb",
+  "a\n\n\nb",
+  "a\tb\n",
+  "x\r\ny",
+  "\r",
+  "- a\n- b",
+  "#c\nd",
+  "key: v\nk2: v2",
+  "|\n",
+  "---\n",
+  "...\n",
+  "a\n- b",
+  "a\n  - b\n",
+  "null",
+  "true",
+  "NO",
+  "On",
+  "y",
+  "123",
+  "1.5",
+  "-",
+  "- ",
+  "!blob {sha256: x}",
+  cp(0xfeff) + "a",
+  "a" + cp(0x2028) + "b",
+  "a\nb" + cp(0x85),
 ];
 
-const WORDS = ["id", "type", "user", "text", "name", "args", "path", "content", "tool_call", "x", "key_1", "a.b-c", "Z9", "_u", "e5", "E-3", "e", "inf", "nan", "extra"];
+const WORDS = [
+  "id",
+  "type",
+  "user",
+  "text",
+  "name",
+  "args",
+  "path",
+  "content",
+  "tool_call",
+  "x",
+  "key_1",
+  "a.b-c",
+  "Z9",
+  "_u",
+  "e5",
+  "E-3",
+  "e",
+  "inf",
+  "nan",
+  "extra",
+];
 const RESERVED = ["y", "n", "yes", "no", "true", "false", "on", "off", "null", "Null", "TRUE", "No"];
 
 export function randomString(rng: Rng): string {
@@ -110,7 +232,8 @@ function randomUntagged(rng: Rng, depth: number, opts: GenOptions): Value {
   if (r < 0.05) return null;
   if (r < 0.1) return rng.chance(0.5);
   if (r < 0.2) return randomNumber(rng, opts.simpleNumbers === true);
-  if (opts.blobs === true && r < 0.25) return new BlobRef(randomHex(rng), rng.int(1_000_000), rng.chance(0.7) ? rng.pick(MIMES) : undefined);
+  if (opts.blobs === true && r < 0.25)
+    return new BlobRef(randomHex(rng), rng.int(1_000_000), rng.chance(0.7) ? rng.pick(MIMES) : undefined);
   if (r < 0.6 || !containers) return randomString(rng);
   if (r < 0.8) {
     const n = rng.int(5);
@@ -129,8 +252,10 @@ export function randomEntry(rng: Rng, opts: GenOptions = {}): Entry {
   return opts.tags === true && rng.chance(0.6) ? (new Tagged(rng.pick(TAGS), m) as Entry) : m;
 }
 
-const LOREM = ("the quick brown fox jumps over a lazy dog while parsing tool output from the build system and " +
-  "reading configuration files error warning note fn let const return await async struct impl trait test passed failed").split(" ");
+const LOREM = (
+  "the quick brown fox jumps over a lazy dog while parsing tool output from the build system and " +
+  "reading configuration files error warning note fn let const return await async struct impl trait test passed failed"
+).split(" ");
 
 function paragraph(rng: Rng, targetBytes: number, multiline: boolean): string {
   let s = "";
@@ -157,14 +282,28 @@ export function realisticEntry(rng: Rng, i: number): Map<string, Value> {
     m.set("model", "claude-sonnet-5-5");
     const blocks: Value[] = [];
     if (rng.chance(0.4)) blocks.push(new Map<string, Value>([["text", paragraph(rng, size, true) + nonAscii]]));
-    blocks.push(new Map<string, Value>([["tool_call", new Map<string, Value>([
-      ["call_id", `toolu_${rng.int(1e9)}`],
-      ["name", rng.pick(["run_command", "read_file", "edit_file", "search"])],
-      ["args", new Map<string, Value>([["command", paragraph(rng, 20 + rng.int(120), false)]])],
-    ])]]));
+    blocks.push(
+      new Map<string, Value>([
+        [
+          "tool_call",
+          new Map<string, Value>([
+            ["call_id", `toolu_${rng.int(1e9)}`],
+            ["name", rng.pick(["run_command", "read_file", "edit_file", "search"])],
+            ["args", new Map<string, Value>([["command", paragraph(rng, 20 + rng.int(120), false)]])],
+          ]),
+        ],
+      ]),
+    );
     m.set("blocks", blocks);
     m.set("stop_reason", "tool_use");
-    m.set("usage", new Map<string, Value>([["input", rng.int(50000)], ["output", rng.int(2000)], ["cache_read", rng.int(50000)]]));
+    m.set(
+      "usage",
+      new Map<string, Value>([
+        ["input", rng.int(50000)],
+        ["output", rng.int(2000)],
+        ["cache_read", rng.int(50000)],
+      ]),
+    );
   } else {
     m.set("type", "tool_result");
     m.set("call_id", `toolu_${rng.int(1e9)}`);

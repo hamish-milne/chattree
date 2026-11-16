@@ -76,7 +76,8 @@ const dotOk = (pattern: string, name: string): boolean => !name.startsWith(".") 
 
 /** The workspace-relative paths matching `pattern` (files and directories), sorted. Throws `GlobError` for a pattern that leaves the workspace or matches too much to walk. */
 export async function expandGlob(host: Host, workspace: string, pattern: string): Promise<string[]> {
-  if (host.path.isAbsolute(pattern) || pattern.startsWith("/") || pattern.startsWith("\\")) throw new GlobError(`${pattern}: patterns are relative to the workspace`);
+  if (host.path.isAbsolute(pattern) || pattern.startsWith("/") || pattern.startsWith("\\"))
+    throw new GlobError(`${pattern}: patterns are relative to the workspace`);
   const root = (await host.fs.realpath(workspace)) ?? workspace;
   const results = new Set<string>();
   let visited = 0;

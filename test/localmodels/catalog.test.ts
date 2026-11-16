@@ -6,7 +6,14 @@ import { localModelsSchema } from "../../localmodels/config.ts";
 const config = localModelsSchema.parse({
   defaults: { ctx_size: 8192 },
   models: {
-    qwen: { hf: "o/qwen:Q4_K_M", ctx_size: 32768, aliases: ["q", "default"], description: "General use", tool_convention: "flat", sampling: { temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0 } },
+    qwen: {
+      hf: "o/qwen:Q4_K_M",
+      ctx_size: 32768,
+      aliases: ["q", "default"],
+      description: "General use",
+      tool_convention: "flat",
+      sampling: { temperature: 0.6, top_p: 0.95, top_k: 20, min_p: 0 },
+    },
     small: { url: "https://x.test/small.gguf" },
   },
 });

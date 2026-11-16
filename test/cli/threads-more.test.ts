@@ -32,8 +32,14 @@ describe("threads, part two", () => {
     const { server, dir } = await started([answer("one")]);
     try {
       const a = await session(dir, "hello", "/fork", "/thread", "/thread main", "/fork my/odd%name", "/thread");
-      const paths = a.out.split("\n").filter((l) => l.startsWith("worktree: ")).map((l) => l.slice(10).replace(/\\/g, "/"));
-      assert.deepEqual(paths.map((p) => p.slice(p.indexOf(".chattree"))), [".chattree/threads/fork-1", ".chattree/threads/my-odd-name"]);
+      const paths = a.out
+        .split("\n")
+        .filter((l) => l.startsWith("worktree: "))
+        .map((l) => l.slice(10).replace(/\\/g, "/"));
+      assert.deepEqual(
+        paths.map((p) => p.slice(p.indexOf(".chattree"))),
+        [".chattree/threads/fork-1", ".chattree/threads/my-odd-name"],
+      );
       assert.doesNotMatch(a.all, /%2F/);
       execFileSync("git", ["-C", dir, "config", "chattree.worktrees", "../elsewhere"]);
       const b = await session(dir, "/fork", "/thread");
@@ -47,7 +53,16 @@ describe("threads, part two", () => {
   test("/merge with the summary given asks no model; a missing thread and a repeat merge say why", async () => {
     const { server, dir } = await started([answer("one"), answer("two")]);
     try {
-      const r = await session(dir, "hello", "/fork side", "side question", "/thread main", "/merge nonexistent", "/merge side We settled on B.", "/merge side again");
+      const r = await session(
+        dir,
+        "hello",
+        "/fork side",
+        "side question",
+        "/thread main",
+        "/merge nonexistent",
+        "/merge side We settled on B.",
+        "/merge side again",
+      );
       assert.match(r.err, /nonexistent/);
       assert.match(r.all, /merged side into main: /);
       assert.match(r.err, /already merged/);
@@ -63,12 +78,30 @@ describe("threads, part two", () => {
   test("archiving hides a thread from /threads until asked for; unarchive brings it back", async () => {
     const { server, dir } = await started([answer("one")]);
     try {
-      const r = await session(dir, "/thread new old", "/thread main", "/thread archive old", "/threads", "/threads archived", "/thread unarchive old", "/threads");
+      const r = await session(
+        dir,
+        "/thread new old",
+        "/thread main",
+        "/thread archive old",
+        "/threads",
+        "/threads archived",
+        "/thread unarchive old",
+        "/threads",
+      );
       assert.equal(r.code, 0, r.err);
       assert.match(r.all, /old is archived/);
       assert.match(r.all, /old is no longer archived/);
       // first /threads: main only; archived listing: old only; last: both
-      const lines = r.out.split("\n").filter((l) => /^[* ] (main|old)\b/.test(l)).map((l) => l.trim().split(/\s+/)[1] === undefined ? l : (l.includes("archived") ? "old-archived" : l.trim().replace(/^\* /, "").split(/\s+/)[0]));
+      const lines = r.out
+        .split("\n")
+        .filter((l) => /^[* ] (main|old)\b/.test(l))
+        .map((l) =>
+          l.trim().split(/\s+/)[1] === undefined
+            ? l
+            : l.includes("archived")
+              ? "old-archived"
+              : l.trim().replace(/^\* /, "").split(/\s+/)[0],
+        );
       assert.deepEqual(lines, ["main", "old-archived", "main", "old"]);
     } finally {
       await server.close();

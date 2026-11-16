@@ -22,7 +22,8 @@ async function session(dir: string, lines: string[], opts: { yes?: boolean; io?:
   const code = await main(["chat", "--plain", ...(opts.yes === false ? [] : ["-y"])], io);
   return { code, out: io.stdout, err: io.stderr, all: `${io.stdout}${io.stderr}` };
 }
-const sentSystem = (server: FakeServer, n: number): string => ((JSON.parse(server.seen[n]?.body ?? "") as { messages: { role: string; content: string }[] }).messages[0]?.content ?? "");
+const sentSystem = (server: FakeServer, n: number): string =>
+  (JSON.parse(server.seen[n]?.body ?? "") as { messages: { role: string; content: string }[] }).messages[0]?.content ?? "";
 
 describe("model and settings", () => {
   test("/model shows the current model and what is available; a change is used by the next request", async () => {
@@ -43,7 +44,17 @@ describe("model and settings", () => {
   test("/set shows, changes, unsets and refuses what the provider would refuse", async () => {
     const { server, dir } = await started([answer("ok")]);
     try {
-      const r = await session(dir, ["/set", "/set temperature 0.5", "/set temperature", "/set stop [\"END\"]", "/set bogus 1", "/set temperature 9", "/set temperature unset", "/set", "hello"]);
+      const r = await session(dir, [
+        "/set",
+        "/set temperature 0.5",
+        "/set temperature",
+        '/set stop ["END"]',
+        "/set bogus 1",
+        "/set temperature 9",
+        "/set temperature unset",
+        "/set",
+        "hello",
+      ]);
       assert.match(r.out, /"max_output_tokens": 256[\s\S]*settings openai-compatible accepts: max_output_tokens, temperature/);
       assert.match(r.all, /temperature set to 0\.5/);
       assert.match(r.out, /temperature: 0\.5/);
@@ -63,7 +74,14 @@ describe("instructions", () => {
   test("set, show, and the model gets them; an unchanged or empty text is not recorded", async () => {
     const { server, dir } = await started([answer("ok")]);
     try {
-      const r = await session(dir, ["/instructions", "/instructions set Answer in one word.", "/instructions", "/instructions set Answer in one word.", "/instructions set", "hello"]);
+      const r = await session(dir, [
+        "/instructions",
+        "/instructions set Answer in one word.",
+        "/instructions",
+        "/instructions set Answer in one word.",
+        "/instructions set",
+        "hello",
+      ]);
       assert.match(r.out, /no instructions are set/);
       assert.match(r.out, /^Answer in one word\.$/m);
       assert.match(r.all, /the instructions are unchanged/);
@@ -101,7 +119,16 @@ describe("changing instructions mid-conversation", () => {
   test("the model is told in a message, the prefix is left alone, and /rebuild folds the change in", async () => {
     const { server, dir } = await started([answer("one"), answer("two"), answer("three")]);
     try {
-      const r = await session(dir, ["/instructions set Answer in one word.", "hello", "/instructions set Answer in two words.", "again", "/instructions", "/rebuild", "/rebuild", "last"]);
+      const r = await session(dir, [
+        "/instructions set Answer in one word.",
+        "hello",
+        "/instructions set Answer in two words.",
+        "again",
+        "/instructions",
+        "/rebuild",
+        "/rebuild",
+        "last",
+      ]);
       assert.match(sentSystem(server, 0), /Answer in one word\./);
       assert.match(sentSystem(server, 1), /Answer in one word\./, "the cached prefix is untouched");
       assert.doesNotMatch(sentSystem(server, 1), /two words/);
@@ -135,7 +162,9 @@ describe("providers, prices, config", () => {
       const e = await session(dir, ["/config edit"], { io: { edit } });
       assert.match(e.all, /reloaded/);
       assert.match(e.out, /"max_turn_usd":7/);
-      const broken = await session(dir, ["/config edit"], { io: { edit: async (p) => (await writeFile(p, "providers: {x: {$tag: nonsense}}\n"), true) } });
+      const broken = await session(dir, ["/config edit"], {
+        io: { edit: async (p) => (await writeFile(p, "providers: {x: {$tag: nonsense}}\n"), true) },
+      });
       assert.match(broken.err, /harness\.yml has problems/);
       await writeFile(join(dir, "harness.yml"), "providers: 5\n");
       await approve(dir);
@@ -149,7 +178,14 @@ describe("providers, prices, config", () => {
 
 describe("accepting provider changes", () => {
   test("a model alias that moves to a new version is held until /accept", async () => {
-    const served = (text: string, model: string): Reply => ({ acts: [`data: ${JSON.stringify({ id: "c", model, choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`, chunk({}, "stop"), usageChunk(10, 2), "data: [DONE]\n\n"] });
+    const served = (text: string, model: string): Reply => ({
+      acts: [
+        `data: ${JSON.stringify({ id: "c", model, choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`,
+        chunk({}, "stop"),
+        usageChunk(10, 2),
+        "data: [DONE]\n\n",
+      ],
+    });
     const { server, dir } = await started([served("first", "qwen3:4b-2026-10"), served("second", "qwen3:4b-2026-11"), answer("third")]);
     try {
       assert.equal((await session(dir, ["one"], { yes: false })).code, 0, "the first sighting of the dated model is just recorded");

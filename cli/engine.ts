@@ -63,7 +63,14 @@ export interface SessionState {
   history: string[];
 }
 
-export const emptyState = (display?: Settings["display"]): SessionState => ({ draft: "", drafts: [], attachments: [], thinking: display?.thinking ?? "off", tools: display?.tools ?? "brief", history: [] });
+export const emptyState = (display?: Settings["display"]): SessionState => ({
+  draft: "",
+  drafts: [],
+  attachments: [],
+  thinking: display?.thinking ?? "off",
+  tools: display?.tools ?? "brief",
+  history: [],
+});
 
 /** Nothing waiting to be sent: a session in this state is not worth keeping. (Preferences and history alone are not.) */
 export const hasPendingState = (s: SessionState): boolean => s.draft.trim() !== "" || s.drafts.length > 0 || s.attachments.length > 0;
@@ -196,7 +203,11 @@ export class Engine {
     this.#headless = o.headless === true;
     // Without a terminal prompt of our own, choices become a line of text ("[y] yes  [n] no") and the answer is typed.
     const plain = o.io.ask?.bind(o.io);
-    this.ask = o.ask ?? (plain === undefined ? undefined : (q, fallback, choices) => plain(choices === undefined ? q : `${q}\n  ${choiceMenu(choices)}\n>`, fallback));
+    this.ask =
+      o.ask ??
+      (plain === undefined
+        ? undefined
+        : (q, fallback, choices) => plain(choices === undefined ? q : `${q}\n  ${choiceMenu(choices)}\n>`, fallback));
   }
 
   /** The tools for the current thread (built once from harness.yml), or undefined when this session has none. */
@@ -211,7 +222,8 @@ export class Engine {
         projectDir: this.project.mainRoot,
         ...(this.sessionId === undefined ? {} : { session: this.sessionId }),
         onCommitted: (events) => {
-          for (const e of events) this.notices.push(`background job ${e.job} ${e.status}: ${e.summary}; your next message will report the result`);
+          for (const e of events)
+            this.notices.push(`background job ${e.job} ${e.status}: ${e.summary}; your next message will report the result`);
           this.onNotice?.();
         },
         onResume: () => this.#wantResume(),
@@ -219,19 +231,27 @@ export class Engine {
         onForkDraft: (branch, message) => {
           const name = `fork-${branch.replace(/[^A-Za-z0-9_-]+/g, "-")}`;
           this.state.drafts = [...this.state.drafts.filter((d) => d.name !== name), { name, text: message }];
-          this.notices.push(`the model started ${branch} and left a first message for it as draft ${name}; /thread ${branch}, then /send ${name}`);
+          this.notices.push(
+            `the model started ${branch} and left a first message for it as draft ${name}; /thread ${branch}, then /send ${name}`,
+          );
           this.onNotice?.();
         },
         pumped: true,
       });
       // Servers harness.yml names that are not running are said once, with what to do.
-      void p.then((set) => {
-        for (const s of set.mcp.status) {
-          if (s.connected) continue;
-          this.notices.push(s.state === "accepted" ? `MCP server ${s.name} is unavailable: ${s.error ?? "unknown"} (/mcp)` : `MCP server ${s.name} is ${s.state === "new" ? "not accepted by this thread" : "configured differently from what this thread accepted"}; /mcp accept ${s.name} shows what it would run`);
-        }
-        if (set.mcp.status.some((s) => !s.connected)) this.onNotice?.();
-      }).catch(() => undefined);
+      void p
+        .then((set) => {
+          for (const s of set.mcp.status) {
+            if (s.connected) continue;
+            this.notices.push(
+              s.state === "accepted"
+                ? `MCP server ${s.name} is unavailable: ${s.error ?? "unknown"} (/mcp)`
+                : `MCP server ${s.name} is ${s.state === "new" ? "not accepted by this thread" : "configured differently from what this thread accepted"}; /mcp accept ${s.name} shows what it would run`,
+            );
+          }
+          if (set.mcp.status.some((s) => !s.connected)) this.onNotice?.();
+        })
+        .catch(() => undefined);
       // A set that could not be built (no busybox) is built again next time, once the user has dealt with it.
       p.catch(() => {
         if (this.#toolsets.get(convo) === p) this.#toolsets.delete(convo);
@@ -249,7 +269,8 @@ export class Engine {
     if (!this.tools) return undefined;
     if (this.#pump === undefined) {
       this.#pump = new Pump({
-        open: (branch) => (branch === this.thread ? Promise.resolve(this.convo) : openThread(this.io, this.project, branch).then((o) => o.convo)),
+        open: (branch) =>
+          branch === this.thread ? Promise.resolve(this.convo) : openThread(this.io, this.project, branch).then((o) => o.convo),
         threads: async () => {
           const merged = await this.convo.mergedBranches();
           return (await this.convo.listBranches()).filter((b) => !b.archived && !merged.has(b.name)).map((b) => b.name);
@@ -270,7 +291,12 @@ export class Engine {
         onEnd: (branch, end) => {
           void this.#releaseChildMcp(branch);
           const status = end.result?.status;
-          const why = end.error !== undefined ? `failed: ${end.error instanceof Error ? end.error.message : String(end.error)}` : status === "stopped" || status === "deadline" || status === "interrupted" || status === "cancelled" ? status : undefined;
+          const why =
+            end.error !== undefined
+              ? `failed: ${end.error instanceof Error ? end.error.message : String(end.error)}`
+              : status === "stopped" || status === "deadline" || status === "interrupted" || status === "cancelled"
+                ? status
+                : undefined;
           if (why !== undefined) this.childLine?.(`  ↳ ${branch}: ${why}\n`);
         },
         onQuestions: () => this.onQuestion?.(),
@@ -312,7 +338,14 @@ export class Engine {
       // A thread the user is not on: run it only if its pinned tools are exactly the ones this session would give a child (a fork that works by itself).
       const d = await toolDrift(convo, set.childRegistry);
       if (d.missing.length + d.changed.length + d.extra.length > 0) return undefined;
-      return { system: this.system, environment: this.environment, registry: set.childRegistry, grants: convo.grantStore(), owner, standing: this.standing };
+      return {
+        system: this.system,
+        environment: this.environment,
+        registry: set.childRegistry,
+        grants: convo.grantStore(),
+        owner,
+        standing: this.standing,
+      };
     }
     if (!sub) {
       // No screen to pin the tools before a message is sent, so it is done here; a failure shows when the loop runs and is held.
@@ -323,13 +356,21 @@ export class Engine {
             await syncTools(convo, set.registry);
             break;
           } catch (e) {
-            if (attempt === 2) this.childLine?.(`  ↳ ${convo.branch}: could not pin the tools: ${e instanceof Error ? e.message : String(e)}\n`);
+            if (attempt === 2)
+              this.childLine?.(`  ↳ ${convo.branch}: could not pin the tools: ${e instanceof Error ? e.message : String(e)}\n`);
             else await new Promise((r) => setTimeout(r, 50 * (attempt + 1)));
           }
         }
       }
       if (this.#headless && convo === this.convo) await this.followSkills();
-      return { system: this.system, environment: this.environment, registry: set.registry, grants: convo.grantStore(), owner, ...(this.#headless ? { jobs: set.jobs, standing: this.standing } : {}) };
+      return {
+        system: this.system,
+        environment: this.environment,
+        registry: set.registry,
+        grants: convo.grantStore(),
+        owner,
+        ...(this.#headless ? { jobs: set.jobs, standing: this.standing } : {}),
+      };
     }
     // A subagent has the MCP servers its thread has (`subagent.mcp`), started for its own worktree, and pins their tools as the thread did.
     const mcp = await this.#childServers(convo);
@@ -341,7 +382,14 @@ export class Engine {
         this.childLine?.(`  ↳ ${convo.branch}: could not pin the MCP tools: ${e instanceof Error ? e.message : String(e)}\n`);
       }
     }
-    return { system: this.system, environment: this.environment, registry, grants: subagentGrants(convo.grantStore(), set.merge), owner, standing: this.standing };
+    return {
+      system: this.system,
+      environment: this.environment,
+      registry,
+      grants: subagentGrants(convo.grantStore(), set.merge),
+      owner,
+      standing: this.standing,
+    };
   }
 
   /** Connect the MCP servers a subagent gets (the thread's, all or the ones `subagent.mcp` names), once per run of its loop. */
@@ -353,9 +401,15 @@ export class Engine {
         const config = cfg?.ok === true ? cfg.value : undefined;
         const policy = config?.subagent.mcp ?? "inherit";
         const all = config?.mcp ?? {};
-        const wanted = Object.fromEntries(Object.entries(all).filter(([name]) => (policy === "inherit" ? true : policy === "none" ? false : policy.includes(name))));
-        const servers = await McpServers.connect(wanted, await convo.setup(), mcpDeps(this.io, convo, this.project.mainRoot), { pool: this.#mcpPool });
-        for (const st of servers.status) if (!st.connected && st.state === "accepted") this.childLine?.(`  ↳ ${convo.branch}: MCP server ${st.name} is unavailable: ${st.error ?? "unknown"}\n`);
+        const wanted = Object.fromEntries(
+          Object.entries(all).filter(([name]) => (policy === "inherit" ? true : policy === "none" ? false : policy.includes(name))),
+        );
+        const servers = await McpServers.connect(wanted, await convo.setup(), mcpDeps(this.io, convo, this.project.mainRoot), {
+          pool: this.#mcpPool,
+        });
+        for (const st of servers.status)
+          if (!st.connected && st.state === "accepted")
+            this.childLine?.(`  ↳ ${convo.branch}: MCP server ${st.name} is unavailable: ${st.error ?? "unknown"}\n`);
         return { servers, names: Object.keys(wanted) };
       })();
       this.#childMcp.set(convo.branch, p);
@@ -416,7 +470,10 @@ export class Engine {
         if (q === undefined || this.quit) return;
         const label = q.branch === this.thread ? undefined : q.branch;
         // With nobody to ask (a pipe) the call is declined, as it always was, and the model is told why.
-        const decision: Approval = ask === undefined ? { allow: false, reason: "no one was available to approve this call, so it did not run" } : await makeApprover(ask, label)({ name: q.name, args: q.args, keys: q.keys });
+        const decision: Approval =
+          ask === undefined
+            ? { allow: false, reason: "no one was available to approve this call, so it did not run" }
+            : await makeApprover(ask, label)({ name: q.name, args: q.args, keys: q.keys });
         const stopped = this.escaped;
         this.escaped = false;
         // Stopping at a question ends the turn it belongs to: the call is declined, and the thread does not go on to ask the model.
@@ -425,7 +482,8 @@ export class Engine {
           else pump.hold(q.branch, "stopped at a question");
         }
         const r = await pump.answer(q.branch, q.callId, decision);
-        if (r.status === "recorded" && r.grantError !== undefined) this.notices.push(`the call was allowed once, but the grant was not saved: ${r.grantError}`);
+        if (r.status === "recorded" && r.grantError !== undefined)
+          this.notices.push(`the call was allowed once, but the grant was not saved: ${r.grantError}`);
         else if (r.status !== "recorded") this.notices.push(`${q.branch}: that question was already answered elsewhere`);
       }
     } finally {
@@ -518,12 +576,16 @@ export class Engine {
       const others = this.questions().filter((q) => q.branch !== this.thread && !q.ancestors.includes(this.thread));
       if (sum.running > 0) parts.push(`${sum.running} running`);
       if (sum.blocked > 0) parts.push(`${sum.blocked} blocked`);
-      if (others.length > 0) parts.push(`${others.length} asking (${others.map((q) => `${q.branch}${q.since === undefined ? "" : ` ${formatAge(Date.now() - q.since)}`}`).join(", ")}; /questions)`);
+      if (others.length > 0)
+        parts.push(
+          `${others.length} asking (${others.map((q) => `${q.branch}${q.since === undefined ? "" : ` ${formatAge(Date.now() - q.since)}`}`).join(", ")}; /questions)`,
+        );
       if (sum.held > 0) parts.push(`${sum.held} held`);
     }
     const waiting = await skillsWaiting(this.io, this.project, this.convo).catch(() => 0);
     if (waiting > 0) parts.push(`${waiting} skill${waiting === 1 ? "" : "s"} changed on disk (/skills sync)`);
-    if (this.state.attachments.length > 0) parts.push(`${this.state.attachments.length} file${this.state.attachments.length === 1 ? "" : "s"} staged`);
+    if (this.state.attachments.length > 0)
+      parts.push(`${this.state.attachments.length} file${this.state.attachments.length === 1 ? "" : "s"} staged`);
     if (this.state.drafts.length > 0) parts.push(`${this.state.drafts.length} draft${this.state.drafts.length === 1 ? "" : "s"}`);
     return parts.join(" · ");
   }
@@ -606,7 +668,11 @@ export class Engine {
     const rest = parsed === undefined ? (trimmed.startsWith("//") ? trimmed.slice(1) : trimmed) : parsed.rest;
     const cmd = this.registry.find(name);
     if (cmd === undefined) {
-      yield { type: "error", message: `there is no command /${name}`, hint: "see /help; to say text that starts with a slash, use /say /text" };
+      yield {
+        type: "error",
+        message: `there is no command /${name}`,
+        hint: "see /help; to say text that starts with a slash, use /say /text",
+      };
       return;
     }
     if (cmd.busy === "blocked") {
@@ -630,7 +696,12 @@ export class Engine {
     if (this.running) return "a request is running in this session";
     const a = await this.convo.activity();
     if (a.state === "request" && a.live) {
-      const who = a.owner?.session !== undefined ? `session ${a.owner.session}` : a.owner?.pid !== undefined ? `process ${a.owner.pid}` : "another process";
+      const who =
+        a.owner?.session !== undefined
+          ? `session ${a.owner.session}`
+          : a.owner?.pid !== undefined
+            ? `process ${a.owner.pid}`
+            : "another process";
       return `a request to ${a.model} is running on this thread (${who})`;
     }
     return undefined;

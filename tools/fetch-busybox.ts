@@ -32,7 +32,9 @@ async function main(): Promise<void> {
     await mkdir(BUSYBOX_DIR, { recursive: true });
     const dest = join(BUSYBOX_DIR, "busybox.exe");
     await copyFile(exe, dest);
-    console.log(`busybox.exe installed at ${dest} (${applets.length} applets). Busybox is GPL-2.0 software; it is not part of this repository.`);
+    console.log(
+      `busybox.exe installed at ${dest} (${applets.length} applets). Busybox is GPL-2.0 software; it is not part of this repository.`,
+    );
     return;
   }
   const work = await mkdtemp(join(tmpdir(), "chattree-busybox-"));
@@ -44,7 +46,11 @@ async function main(): Promise<void> {
       zip = join(work, "download.zip");
       await writeFile(zip, await nodeBusyboxDeps.download(url));
     }
-    console.log(`zip sha256 ${createHash("sha256").update(await readFile(zip)).digest("hex")}`);
+    console.log(
+      `zip sha256 ${createHash("sha256")
+        .update(await readFile(zip))
+        .digest("hex")}`,
+    );
     const dest = await installBusyboxFromZip(zip, BUSYBOX_DIR);
     console.log(`busybox.exe installed at ${dest}. Busybox is GPL-2.0 software; it is not part of this repository.`);
   } finally {

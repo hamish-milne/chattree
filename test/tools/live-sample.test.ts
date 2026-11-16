@@ -5,7 +5,13 @@ import type { Completed, ProviderAdapter } from "../../providers/types.ts";
 import { blur, formatReport, parseArgs, runSamples, selectTasks } from "../../tools/live-sample.ts";
 
 const usage = { input_tokens: 1, output_tokens: 1 };
-const reply = (blocks: Completed["blocks"], stop = "tool_use"): Completed => ({ blocks, stop_reason: stop, usage, observed: { model: "m" }, ext: {} });
+const reply = (blocks: Completed["blocks"], stop = "tool_use"): Completed => ({
+  blocks,
+  stop_reason: stop,
+  usage,
+  observed: { model: "m" },
+  ext: {},
+});
 const text = (t: string) => reply([{ type: "text", text: t }], "end_turn");
 const call = (id: string, name: string, args: unknown) => reply([{ type: "tool_call", call_id: id, name, args: args as never }]);
 
@@ -25,12 +31,24 @@ function pretendModel(): ProviderAdapter {
         if (results.length === 0) return call("r", "read", { path: "notes.txt" });
         if (results.length === 1) {
           edits++;
-          return call("e", "edit", { path: "notes.txt", version: edits % 2 === 0 ? "latest" : `v ${version}`, start: 1, end: 1, content: "status: final" });
+          return call("e", "edit", {
+            path: "notes.txt",
+            version: edits % 2 === 0 ? "latest" : `v ${version}`,
+            start: 1,
+            end: 1,
+            content: "status: final",
+          });
         }
-        if (results.length === 2 && last.startsWith("failed:")) return call("e2", "edit", { path: "notes.txt", version, start: 1, end: 1, content: "status: final" });
+        if (results.length === 2 && last.startsWith("failed:"))
+          return call("e2", "edit", { path: "notes.txt", version, start: 1, end: 1, content: "status: final" });
         return text("done");
       }
-      if (prompt.startsWith("What is the code word")) return results.length === 0 ? call("r", "read", { path: "a.txt" }) : results.length === 1 ? call("r2", "read", { path: "b.txt" }) : text("WALRUS and 4417");
+      if (prompt.startsWith("What is the code word"))
+        return results.length === 0
+          ? call("r", "read", { path: "a.txt" })
+          : results.length === 1
+            ? call("r2", "read", { path: "b.txt" })
+            : text("WALRUS and 4417");
       return text("I would rather not.");
     },
     retrieve: async () => undefined,
@@ -39,30 +57,60 @@ function pretendModel(): ProviderAdapter {
 
 describe("selecting tasks", () => {
   test("by name part and group; tasks that need a missing program are skipped with the reason", () => {
-    assert.deepEqual(selectTasks({ tasks: ["one line", "read two"] }).run.map((t) => t.name), ["one line", "read two files"]);
+    assert.deepEqual(
+      selectTasks({ tasks: ["one line", "read two"] }).run.map((t) => t.name),
+      ["one line", "read two files"],
+    );
     assert.ok(selectTasks({ groups: ["edit"] }).run.every((t) => t.group === "edit"));
-    assert.deepEqual(selectTasks({ groups: ["context"] }).run.map((t) => t.name), ["month in a week", "riddle with a twist"]);
-    assert.ok(selectTasks({}).run.every((t) => t.group !== "context" && t.group !== "media"), "the context and media tasks are asked for, not run by default");
-    assert.deepEqual(selectTasks({ groups: ["media"] }).run.map((t) => t.name), ["look at a made picture (red)", "look at a made picture (blue)"]);
+    assert.deepEqual(
+      selectTasks({ groups: ["context"] }).run.map((t) => t.name),
+      ["month in a week", "riddle with a twist"],
+    );
+    assert.ok(
+      selectTasks({}).run.every((t) => t.group !== "context" && t.group !== "media"),
+      "the context and media tasks are asked for, not run by default",
+    );
+    assert.deepEqual(
+      selectTasks({ groups: ["media"] }).run.map((t) => t.name),
+      ["look at a made picture (red)", "look at a made picture (blue)"],
+    );
     const all = selectTasks({ groups: ["run"], busybox: "C:\\bb\\busybox.exe" });
     const without = selectTasks({ groups: ["run"] });
     assert.equal(all.run.length + all.skipped.length, without.run.length + without.skipped.length);
-    if (process.platform === "win32") assert.ok(without.skipped.some((t) => t.task === "utility pipe" && /utils/.test(t.why)), "no busybox on Windows: the utility tasks are skipped");
+    if (process.platform === "win32")
+      assert.ok(
+        without.skipped.some((t) => t.task === "utility pipe" && /utils/.test(t.why)),
+        "no busybox on Windows: the utility tasks are skipped",
+      );
     else assert.ok(without.run.some((t) => t.name === "utility pipe"));
   });
 });
 
 describe("blurring errors", () => {
   test("hashes, numbers and long quoted text do not make the same mistake look different", () => {
-    assert.equal(blur("edit", "failed: a.txt: a.txt has changed since you read it (you gave 1f08cd1f, it is at ab12cd34 now); read it again\nnothing"), "edit: a.txt has changed since you read it (you gave <hash>, it is at <hash> now); read it again");
-    assert.equal(blur("edit", "failed: b.txt: change 2: lines 9-9 are not within the file's 4 lines"), "edit: change #: lines #-# are not within the file's # lines");
+    assert.equal(
+      blur("edit", "failed: a.txt: a.txt has changed since you read it (you gave 1f08cd1f, it is at ab12cd34 now); read it again\nnothing"),
+      "edit: a.txt has changed since you read it (you gave <hash>, it is at <hash> now); read it again",
+    );
+    assert.equal(
+      blur("edit", "failed: b.txt: change 2: lines 9-9 are not within the file's 4 lines"),
+      "edit: change #: lines #-# are not within the file's # lines",
+    );
   });
 });
 
 describe("running samples", () => {
   test("scores outcomes, counts first-try success and tool errors, and reports what the tools said most", async () => {
     const seen: string[] = [];
-    const report = await runSamples({ flavor: "anthropic", baseUrl: "x", model: "m", repeat: 4, tasks: ["one line", "read two", "write a new"], adapter: pretendModel(), onSample: (s) => void seen.push(`${s.task}:${s.problem === undefined ? "ok" : "bad"}`) });
+    const report = await runSamples({
+      flavor: "anthropic",
+      baseUrl: "x",
+      model: "m",
+      repeat: 4,
+      tasks: ["one line", "read two", "write a new"],
+      adapter: pretendModel(),
+      onSample: (s) => void seen.push(`${s.task}:${s.problem === undefined ? "ok" : "bad"}`),
+    });
     const by = Object.fromEntries(report.stats.map((s) => [s.task, s]));
     assert.equal(by["one line"]?.correct, 4);
     assert.equal(by["one line"]?.firstTry, 2, "two samples hit a stale version first and recovered");
@@ -73,7 +121,10 @@ describe("running samples", () => {
     assert.equal(seen.length, 12);
     assert.equal(report.errors.length, 1);
     assert.equal(report.errors[0]?.count, 2);
-    assert.match(report.errors[0]?.message ?? "", /^edit: `version` must be the # hex digits that read shows after "version" \(the file is at <hash> now\)/);
+    assert.match(
+      report.errors[0]?.message ?? "",
+      /^edit: `version` must be the # hex digits that read shows after "version" \(the file is at <hash> now\)/,
+    );
     const text = formatReport(report, { flavor: "anthropic", model: "m", repeat: 4 });
     assert.match(text, /one line\s+4\/4\s+2\/4\s+\d\.\d\s+0\.5\s+0/);
     assert.match(text, /write a new file\s+0\/4/);
@@ -84,13 +135,52 @@ describe("running samples", () => {
 
 describe("parseArgs", () => {
   test("flags, repeats, a key from the environment", () => {
-    const { options, out, record } = parseArgs(["--flavor", "openai-compatible", "--base-url", "http://x", "--model", "m", "--api-key-env", "K", "--repeat", "20", "--group", "edit", "--task", "one", "--busybox", "bb.exe", "--out", "o.json", "--record", "d"], { K: "s" });
-    assert.deepEqual(options, { flavor: "openai-compatible", baseUrl: "http://x", model: "m", apiKey: "s", repeat: 20, tasks: ["one"], groups: ["edit"], busybox: "bb.exe" });
+    const { options, out, record } = parseArgs(
+      [
+        "--flavor",
+        "openai-compatible",
+        "--base-url",
+        "http://x",
+        "--model",
+        "m",
+        "--api-key-env",
+        "K",
+        "--repeat",
+        "20",
+        "--group",
+        "edit",
+        "--task",
+        "one",
+        "--busybox",
+        "bb.exe",
+        "--out",
+        "o.json",
+        "--record",
+        "d",
+      ],
+      { K: "s" },
+    );
+    assert.deepEqual(options, {
+      flavor: "openai-compatible",
+      baseUrl: "http://x",
+      model: "m",
+      apiKey: "s",
+      repeat: 20,
+      tasks: ["one"],
+      groups: ["edit"],
+      busybox: "bb.exe",
+    });
     assert.equal(out, "o.json");
     assert.equal(record, "d");
   });
   test("errors", () => {
-    for (const [argv, re] of [[[], /required/], [["--base-url", "u", "--model", "m", "--repeat", "0"], /whole number/], [["--base-url", "u", "--model", "m", "--group", "zz"], /--group/], [["--bogus", "1"], /unknown flag/]] as const) assert.throws(() => parseArgs(argv, {}), re, JSON.stringify(argv));
+    for (const [argv, re] of [
+      [[], /required/],
+      [["--base-url", "u", "--model", "m", "--repeat", "0"], /whole number/],
+      [["--base-url", "u", "--model", "m", "--group", "zz"], /--group/],
+      [["--bogus", "1"], /unknown flag/],
+    ] as const)
+      assert.throws(() => parseArgs(argv, {}), re, JSON.stringify(argv));
   });
 });
 
@@ -100,7 +190,10 @@ describe("the local-models flavor", () => {
     assert.deepEqual([ok.options.flavor, ok.options.model, ok.options.yes, ok.options.repeat], ["local-models", "gpt-oss-20b", true, 3]);
     assert.throws(() => parseArgs(["--flavor", "local-models"], {}), /--model is required: a name from local_models/);
     assert.throws(() => parseArgs(["--flavor", "local-models", "--model", "m", "--base-url", "http://x/v1"], {}), /chooses its address/);
-    assert.throws(() => parseArgs(["--flavor", "openai-compatible", "--model", "m", "--base-url", "http://x/v1", "--yes"], {}), /--yes is for --flavor local-models/);
+    assert.throws(
+      () => parseArgs(["--flavor", "openai-compatible", "--model", "m", "--base-url", "http://x/v1", "--yes"], {}),
+      /--yes is for --flavor local-models/,
+    );
     assert.throws(() => parseArgs(["--flavor", "local-models", "--model", "m", "--oops", "1"], {}), /unknown flag --oops/);
   });
 
@@ -116,10 +209,21 @@ describe("the local-models flavor", () => {
       retrieve: async () => undefined,
     } as unknown as ProviderAdapter;
     const sampling = { temperature: 0.6, top_p: 0.95, extra: { top_k: 20 } };
-    const report = await runSamples({ flavor: "local-models", baseUrl: "", model: "qwen", repeat: 1, tasks: ["one line"], adapter, sampling });
+    const report = await runSamples({
+      flavor: "local-models",
+      baseUrl: "",
+      model: "qwen",
+      repeat: 1,
+      tasks: ["one line"],
+      adapter,
+      sampling,
+    });
     assert.ok(seen.length > 0);
     assert.deepEqual(seen[0], { max_output_tokens: 4096, ...sampling });
-    assert.match(formatReport(report, { flavor: "local-models", model: "qwen", repeat: 1, sampling }), /^local-models qwen: .*\nsampling: \{"temperature":0\.6,"top_p":0\.95,"extra":\{"top_k":20\}\}/);
+    assert.match(
+      formatReport(report, { flavor: "local-models", model: "qwen", repeat: 1, sampling }),
+      /^local-models qwen: .*\nsampling: \{"temperature":0\.6,"top_p":0\.95,"extra":\{"top_k":20\}\}/,
+    );
     await assert.rejects(runSamples({ flavor: "local-models", baseUrl: "", model: "qwen", repeat: 1 }), /needs its adapter/);
   });
 });
@@ -129,15 +233,48 @@ test("--wire-log is a flag of its own", () => {
 });
 
 test("--setting KEY=VALUE is a model setting, a JSON value when it parses, and is sent and printed", async () => {
-  const p = parseArgs(["--flavor", "local-models", "--model", "m", "--setting", "replay_reasoning=true", "--setting", "reasoning_effort=low", "--setting", "top_k=20"], {});
+  const p = parseArgs(
+    [
+      "--flavor",
+      "local-models",
+      "--model",
+      "m",
+      "--setting",
+      "replay_reasoning=true",
+      "--setting",
+      "reasoning_effort=low",
+      "--setting",
+      "top_k=20",
+    ],
+    {},
+  );
   assert.deepEqual(p.options.settings, { replay_reasoning: true, reasoning_effort: "low", top_k: 20 });
   assert.throws(() => parseArgs(["--flavor", "local-models", "--model", "m", "--setting", "oops"], {}), /KEY=VALUE/);
   const seen: unknown[] = [];
-  const adapter = { $tag: "pretend", async *stream(req: { setup: { model?: { settings?: unknown } } }) { seen.push(req.setup.model?.settings); return text("nothing to do"); }, retrieve: async () => undefined } as unknown as ProviderAdapter;
+  const adapter = {
+    $tag: "pretend",
+    async *stream(req: { setup: { model?: { settings?: unknown } } }) {
+      seen.push(req.setup.model?.settings);
+      return text("nothing to do");
+    },
+    retrieve: async () => undefined,
+  } as unknown as ProviderAdapter;
   const settings = { replay_reasoning: true };
-  const report = await runSamples({ flavor: "local-models", baseUrl: "", model: "m", repeat: 1, tasks: ["one line"], adapter, sampling: { temperature: 1 }, settings });
+  const report = await runSamples({
+    flavor: "local-models",
+    baseUrl: "",
+    model: "m",
+    repeat: 1,
+    tasks: ["one line"],
+    adapter,
+    sampling: { temperature: 1 },
+    settings,
+  });
   assert.deepEqual(seen[0], { max_output_tokens: 4096, temperature: 1, replay_reasoning: true });
-  assert.match(formatReport(report, { flavor: "local-models", model: "m", repeat: 1, settings }), /\nsettings: \{"replay_reasoning":true\}/);
+  assert.match(
+    formatReport(report, { flavor: "local-models", model: "m", repeat: 1, settings }),
+    /\nsettings: \{"replay_reasoning":true\}/,
+  );
 });
 
 describe("the media group", () => {
@@ -150,7 +287,9 @@ describe("the media group", () => {
       async *stream(req: { context: ModelContext }) {
         const c = req.context;
         offered.push(c.tools.map((t) => t.name));
-        const results = c.turns.filter((t) => t.role === "tool_results") as { results: { content: string; media?: { kind: string; mime: string }[] }[] }[];
+        const results = c.turns.filter((t) => t.role === "tool_results") as {
+          results: { content: string; media?: { kind: string; mime: string }[] }[];
+        }[];
         if (results.length === 0) return call("r", "run", { command: "node make.cjs red" });
         if (results.length === 1) return call("m", "mm_read", { path: "picture.png" });
         sawPicture = results[1]?.results[0]?.media?.[0];
@@ -158,12 +297,27 @@ describe("the media group", () => {
       },
       retrieve: async () => undefined,
     } as unknown as ProviderAdapter;
-    const report = await runSamples({ flavor: "anthropic", baseUrl: "x", model: "m", repeat: 1, groups: ["media"], tasks: ["(red)"], adapter });
+    const report = await runSamples({
+      flavor: "anthropic",
+      baseUrl: "x",
+      model: "m",
+      repeat: 1,
+      groups: ["media"],
+      tasks: ["(red)"],
+      adapter,
+    });
     assert.equal(report.stats[0]?.correct, 1);
     assert.deepEqual([sawPicture?.kind, sawPicture?.mime], ["image", "image/png"]);
     assert.ok(offered[0]?.includes("mm_read"));
     const plain: string[][] = [];
-    const quiet = { $tag: "pretend", async *stream(req: { context: ModelContext }) { plain.push(req.context.tools.map((t) => t.name)); return text("x"); }, retrieve: async () => undefined } as unknown as ProviderAdapter;
+    const quiet = {
+      $tag: "pretend",
+      async *stream(req: { context: ModelContext }) {
+        plain.push(req.context.tools.map((t) => t.name));
+        return text("x");
+      },
+      retrieve: async () => undefined,
+    } as unknown as ProviderAdapter;
     await runSamples({ flavor: "anthropic", baseUrl: "x", model: "m", repeat: 1, tasks: ["one line"], adapter: quiet });
     assert.ok(plain[0] !== undefined && !plain[0].includes("mm_read"));
   });

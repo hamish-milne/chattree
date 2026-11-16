@@ -87,11 +87,21 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   // Instructions changed since the prefix was last rebuilt are shown where they were changed (docs/context.md).
   const instructionUpdates = new Map<string, string>();
   for (const e of pendingAppends(entries)) {
-    if (e.instructions !== undefined) instructionUpdates.set(e.id, (await loadPinned("instructions", INSTRUCTIONS_NAME, e.instructions, { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) })) as string);
+    if (e.instructions !== undefined)
+      instructionUpdates.set(
+        e.id,
+        (await loadPinned("instructions", INSTRUCTIONS_NAME, e.instructions, {
+          blobs: convo.store,
+          ...(opts.source === undefined ? {} : { source: opts.source }),
+        })) as string,
+      );
   }
   const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);
   // The same for skills; the catalog in the prefix lists what the prefix shows, not what is current, and only for a model that has the tool.
-  const skillNotes = await skillUpdates(entries, pendingAppends(entries), { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) });
+  const skillNotes = await skillUpdates(entries, pendingAppends(entries), {
+    blobs: convo.store,
+    ...(opts.source === undefined ? {} : { source: opts.source }),
+  });
   // What the sink takes of pictures, sound and PDFs: it decides whether the model is offered `mm_read`, and what the request's files become.
   const adapterFor = convo.providers.get(setup.model.provider);
   const spec = adapterFor?.mediaSpec === undefined ? undefined : await adapterFor.mediaSpec(setup);
@@ -116,11 +126,22 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
     },
   });
   // What the model is sent differs from the transcript where a picture or sound had to be converted or could not be shown.
-  const cache = opts.media?.cache === false ? undefined : (opts.media?.cache ?? hostConvertCache(convo.host, convo.host.path.join(await convo.git.commonDir(), "chattree", "convert")));
-  const prepared = spec === undefined ? { context: built, converted: [] as MediaConversion[], warnings: [] as CostWarning[] } : await prepareMedia(built, { spec, ...(opts.media?.converter === undefined ? {} : { converter: opts.media.converter }), ...(cache === undefined ? {} : { cache }) });
+  const cache =
+    opts.media?.cache === false
+      ? undefined
+      : (opts.media?.cache ?? hostConvertCache(convo.host, convo.host.path.join(await convo.git.commonDir(), "chattree", "convert")));
+  const prepared =
+    spec === undefined
+      ? { context: built, converted: [] as MediaConversion[], warnings: [] as CostWarning[] }
+      : await prepareMedia(built, {
+          spec,
+          ...(opts.media?.converter === undefined ? {} : { converter: opts.media.converter }),
+          ...(cache === undefined ? {} : { cache }),
+        });
   const context = prepared.context;
   const mediaOut = { ...(prepared.converted.length === 0 ? {} : { converted: prepared.converted }) };
-  if (opts.cost === false || convo.providers.size === 0) return { setup, context, ...(tip === undefined ? {} : { tip }), warnings: prepared.warnings, ...mediaOut };
+  if (opts.cost === false || convo.providers.size === 0)
+    return { setup, context, ...(tip === undefined ? {} : { tip }), warnings: prepared.warnings, ...mediaOut };
 
   // Prices: the agent's pin must be the provider's current table, or the host must have said it accepts the difference.
   const model = setup.model;
@@ -128,7 +149,15 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   if (current !== undefined) {
     const pinned = setup.pricing?.table;
     if (pinned !== tableHash(current) && !(opts.allowDrift ?? []).includes("pricing_changed")) {
-      throw new ChangeNotAllowed([{ kind: "pricing_changed", message: pinned === undefined ? "no price table is pinned for this agent; pin the current one with pinPricing()" : "the provider's price table is not the one this agent is pinned to; pin the new one with pinPricing()" }]);
+      throw new ChangeNotAllowed([
+        {
+          kind: "pricing_changed",
+          message:
+            pinned === undefined
+              ? "no price table is pinned for this agent; pin the current one with pinPricing()"
+              : "the provider's price table is not the one this agent is pinned to; pin the new one with pinPricing()",
+        },
+      ]);
     }
   }
   const resolver = convo.priceResolver();
@@ -144,10 +173,16 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const adapter = convo.providers.get(model.provider);
   const mode = opts.count ?? "auto";
   const near = (n: number | undefined): boolean => n !== undefined && estimate.inputTokens >= n * 0.6;
-  const matters = checked.violations.length > 0 || checked.warnings.some((w) => w.kind === "near_limit" || w.kind === "context_window" || w.kind === "long_context") || near(estimate.contextWindow) || near(estimate.longContextAt);
+  const matters =
+    checked.violations.length > 0 ||
+    checked.warnings.some((w) => w.kind === "near_limit" || w.kind === "context_window" || w.kind === "long_context") ||
+    near(estimate.contextWindow) ||
+    near(estimate.longContextAt);
   let countFailed: CostWarning | undefined;
   if (adapter?.countTokens !== undefined && mode !== "never" && (mode === "always" || matters)) {
-    const key = createHash("sha256").update(contextJson([model.provider, modelRef.id, context])).digest("hex");
+    const key = createHash("sha256")
+      .update(contextJson([model.provider, modelRef.id, context]))
+      .digest("hex");
     const cache = counts.get(convo) ?? new Map<string, number>();
     counts.set(convo, cache);
     try {
@@ -159,7 +194,10 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
       estimate = estimateRequest(context, modelRef, table, info, n);
       checked = checkLimits({ limits, ledger, estimate });
     } catch (e) {
-      countFailed = { kind: "token_count_failed", message: `could not count the request's tokens (${e instanceof Error ? e.message : String(e)}); using the size estimate, which errs high` };
+      countFailed = {
+        kind: "token_count_failed",
+        message: `could not count the request's tokens (${e instanceof Error ? e.message : String(e)}); using the size estimate, which errs high`,
+      };
     }
   }
   const { violations } = checked;

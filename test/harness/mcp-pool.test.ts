@@ -11,8 +11,12 @@ import { parseConfig } from "../../src/config.ts";
 const host = nodeHost();
 const SERVER = fileURLToPath(new URL("../support/mcp-server.ts", import.meta.url));
 const deps = { host, cwd: process.cwd(), env: {} };
-const cfg = (over: Partial<McpServerConfig> = {}): McpServerConfig => ({ command: process.execPath, args: ["--no-warnings", SERVER], allow: {}, ...over }) as McpServerConfig;
-const maker = (name: string, c: McpServerConfig) => ({ open: () => connectServer(name, c, "accepted", deps), list: (client: Parameters<typeof listServer>[0]) => listServer(client, name, c, "accepted", {}) });
+const cfg = (over: Partial<McpServerConfig> = {}): McpServerConfig =>
+  ({ command: process.execPath, args: ["--no-warnings", SERVER], allow: {}, ...over }) as McpServerConfig;
+const maker = (name: string, c: McpServerConfig) => ({
+  open: () => connectServer(name, c, "accepted", deps),
+  list: (client: Parameters<typeof listServer>[0]) => listServer(client, name, c, "accepted", {}),
+});
 
 describe("the MCP pool", () => {
   test("holders of the same key share one connection, which closes when the last lets go", async () => {
@@ -77,7 +81,10 @@ describe("the MCP pool", () => {
     const x = await McpServers.connect({ fake: c }, setup, deps, { pool });
     const y = await McpServers.connect({ fake: c }, setup, deps, { pool });
     assert.equal(pool.size, 1);
-    assert.deepEqual(x.tools.map((t) => t.definition.name), y.tools.map((t) => t.definition.name));
+    assert.deepEqual(
+      x.tools.map((t) => t.definition.name),
+      y.tools.map((t) => t.definition.name),
+    );
     await x.close();
     assert.equal(pool.size, 1, "y still holds it");
     await y.close();
@@ -86,7 +93,8 @@ describe("the MCP pool", () => {
 });
 
 describe("what makes two connections the same", () => {
-  const key = (c: McpServerConfig, d: Partial<typeof deps> & { projectDir?: string } = {}, name = "fake") => connectionKey(name, c, { ...deps, ...d });
+  const key = (c: McpServerConfig, d: Partial<typeof deps> & { projectDir?: string } = {}, name = "fake") =>
+    connectionKey(name, c, { ...deps, ...d });
   test("a program in another worktree is another connection, unless the server is project-wide", () => {
     assert.notEqual(key(cfg(), { cwd: "/a" }), key(cfg(), { cwd: "/b" }));
     const wide = cfg({ scope: "project" });

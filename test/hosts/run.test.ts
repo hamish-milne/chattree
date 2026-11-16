@@ -29,7 +29,16 @@ const alive = (pid: number): boolean => {
 describe("run", () => {
   test("collects stdout and stderr in the order they arrived, with the exit code", async () => {
     const cwd = await tempDir();
-    const r = await run({ cwd, stages: [[node, "-e", "const w=(s,m)=>new Promise(r=>setTimeout(()=>{s.write(m);r()},60)); (async()=>{await w(process.stdout,'one\\n');await w(process.stderr,'two\\n');await w(process.stdout,'three\\n');process.exit(3)})()"]] });
+    const r = await run({
+      cwd,
+      stages: [
+        [
+          node,
+          "-e",
+          "const w=(s,m)=>new Promise(r=>setTimeout(()=>{s.write(m);r()},60)); (async()=>{await w(process.stdout,'one\\n');await w(process.stderr,'two\\n');await w(process.stdout,'three\\n');process.exit(3)})()",
+        ],
+      ],
+    });
     assert.equal(dec.decode(r.output), "one\ntwo\nthree\n");
     assert.equal(r.exitCode, 3);
     assert.deepEqual(r.stageCodes, [3]);
@@ -56,7 +65,11 @@ describe("run", () => {
       cwd,
       stages: [
         [node, "-e", "process.stderr.write('warn\\n'); process.stdout.write('b\\na\\nc\\n'); process.exit(2)"],
-        [node, "-e", "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(s.split('\\n').filter(Boolean).sort().join('\\n')+'\\n'))"],
+        [
+          node,
+          "-e",
+          "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>process.stdout.write(s.split('\\n').filter(Boolean).sort().join('\\n')+'\\n'))",
+        ],
       ],
     });
     assert.deepEqual(r.stageCodes, [2, 0]);
@@ -68,27 +81,40 @@ describe("run", () => {
 
   test("feeds stdin to the first stage and can keep stdout apart from the output", async () => {
     const cwd = await tempDir();
-    const r = await run({ cwd, stdin: enc.encode("hello"), captureStdout: true, stages: [[node, "-e", "process.stdin.on('data',d=>process.stdout.write(String(d).toUpperCase()));process.stderr.write('note')"]] });
+    const r = await run({
+      cwd,
+      stdin: enc.encode("hello"),
+      captureStdout: true,
+      stages: [[node, "-e", "process.stdin.on('data',d=>process.stdout.write(String(d).toUpperCase()));process.stderr.write('note')"]],
+    });
     assert.equal(dec.decode(r.stdout ?? new Uint8Array()), "HELLO");
     assert.equal(dec.decode(r.output), "note");
   });
 
   test("closes stdin when there is none, so a program that reads it ends", async () => {
     const cwd = await tempDir();
-    const r = await run({ cwd, timeoutMs: 5000, stages: [[node, "-e", "process.stdin.resume();process.stdin.on('end',()=>console.log('eof'))"]] });
+    const r = await run({
+      cwd,
+      timeoutMs: 5000,
+      stages: [[node, "-e", "process.stdin.resume();process.stdin.on('end',()=>console.log('eof'))"]],
+    });
     assert.equal(dec.decode(r.output), "eof\n");
   });
 
-  test("a timeout kills the whole process group, not just the child", { skip: process.platform === "win32" && "needs a POSIX sh and process groups" }, async () => {
-    const cwd = await tempDir();
-    const pidFile = `${cwd}/pid`;
-    const r = await run({ cwd, timeoutMs: 400, stages: [["sh", "-c", `sleep 60 & echo $! > ${pidFile}; wait`]] });
-    assert.equal(r.timedOut, true);
-    const pid = Number(dec.decode(await host.fs.read(pidFile)).trim());
-    assert.ok(pid > 0);
-    await new Promise((r) => setTimeout(r, 100));
-    assert.equal(alive(pid), false, "the background sleep survived");
-  });
+  test(
+    "a timeout kills the whole process group, not just the child",
+    { skip: process.platform === "win32" && "needs a POSIX sh and process groups" },
+    async () => {
+      const cwd = await tempDir();
+      const pidFile = `${cwd}/pid`;
+      const r = await run({ cwd, timeoutMs: 400, stages: [["sh", "-c", `sleep 60 & echo $! > ${pidFile}; wait`]] });
+      assert.equal(r.timedOut, true);
+      const pid = Number(dec.decode(await host.fs.read(pidFile)).trim());
+      assert.ok(pid > 0);
+      await new Promise((r) => setTimeout(r, 100));
+      assert.equal(alive(pid), false, "the background sleep survived");
+    },
+  );
 
   test("aborting kills the group and says so", async () => {
     const cwd = await tempDir();
@@ -123,7 +149,19 @@ describe("run", () => {
     process.env["CT_TEST_PLAIN"] = "p";
     process.env["CT_TEST_NAMED"] = "n";
     try {
-      const r = await run({ cwd, unsetEnv: ["CT_TEST_NAMED"], unsetEnvPattern: "SECRET", env: { CT_TEST_ADDED: "a" }, stages: [[node, "-e", "console.log(['CT_TEST_SECRET_KEY','CT_TEST_PLAIN','CT_TEST_NAMED','CT_TEST_ADDED'].map(k=>process.env[k]??'-').join(','))"]] });
+      const r = await run({
+        cwd,
+        unsetEnv: ["CT_TEST_NAMED"],
+        unsetEnvPattern: "SECRET",
+        env: { CT_TEST_ADDED: "a" },
+        stages: [
+          [
+            node,
+            "-e",
+            "console.log(['CT_TEST_SECRET_KEY','CT_TEST_PLAIN','CT_TEST_NAMED','CT_TEST_ADDED'].map(k=>process.env[k]??'-').join(','))",
+          ],
+        ],
+      });
       assert.equal(dec.decode(r.output), "-,p,-,a\n");
     } finally {
       delete process.env["CT_TEST_SECRET_KEY"];
@@ -149,16 +187,20 @@ describe("path and file helpers for the tools", () => {
     assert.equal(host.path.isAbsolute("a"), false);
   });
 
-  test("writeAtomic keeps the executable bit when asked to", { skip: process.platform === "win32" && "Windows has no executable bit" }, async () => {
-    const dir = await tempDir();
-    const file = `${dir}/script.sh`;
-    await writeFile(file, "#!/bin/sh\n");
-    await chmod(file, 0o755);
-    await host.fs.writeAtomic(file, enc.encode("#!/bin/sh\necho hi\n"), { keepMode: true });
-    assert.equal((await stat(file)).mode & 0o777, 0o755);
-    await host.fs.writeAtomic(file, enc.encode("plain\n"));
-    assert.equal((await stat(file)).mode & 0o111, 0, "without keepMode the file is a fresh, non-executable one");
-    await host.fs.writeAtomic(`${dir}/new.txt`, enc.encode("n"), { keepMode: true });
-    assert.equal(dec.decode(await host.fs.read(`${dir}/new.txt`)), "n");
-  });
+  test(
+    "writeAtomic keeps the executable bit when asked to",
+    { skip: process.platform === "win32" && "Windows has no executable bit" },
+    async () => {
+      const dir = await tempDir();
+      const file = `${dir}/script.sh`;
+      await writeFile(file, "#!/bin/sh\n");
+      await chmod(file, 0o755);
+      await host.fs.writeAtomic(file, enc.encode("#!/bin/sh\necho hi\n"), { keepMode: true });
+      assert.equal((await stat(file)).mode & 0o777, 0o755);
+      await host.fs.writeAtomic(file, enc.encode("plain\n"));
+      assert.equal((await stat(file)).mode & 0o111, 0, "without keepMode the file is a fresh, non-executable one");
+      await host.fs.writeAtomic(`${dir}/new.txt`, enc.encode("n"), { keepMode: true });
+      assert.equal(dec.decode(await host.fs.read(`${dir}/new.txt`)), "n");
+    },
+  );
 });

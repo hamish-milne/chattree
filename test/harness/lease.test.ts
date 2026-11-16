@@ -39,7 +39,10 @@ describe("run leases", () => {
     const { a, b, env, now } = await setup();
     await a.hold("main", me, env(), "loop", now() + 5000);
     assert.equal(await a.hold("main", me, env(), "job:j1", now() + 5000), "ours");
-    await assert.rejects(b.hold("main", you, env(), "loop", now() + 5000), (e: unknown) => e instanceof ThreadBusy && e.holder.owner.session === "one" && /session one/.test(e.message));
+    await assert.rejects(
+      b.hold("main", you, env(), "loop", now() + 5000),
+      (e: unknown) => e instanceof ThreadBusy && e.holder.owner.session === "one" && /session one/.test(e.message),
+    );
     assert.equal((await b.inspect("main", env())).state, "live");
     await a.drop("main", "loop");
     await a.drop("main", "job:j1");
