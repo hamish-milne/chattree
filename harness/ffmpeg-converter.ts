@@ -56,11 +56,12 @@ const DECODERS: Readonly<Record<string, readonly string[]>> = {
 const EXT: Readonly<Record<string, string>> = { "image/jpeg": "jpg", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/ogg": "ogg", "audio/aiff": "aiff", "audio/x-ms-asf": "wma", "image/tiff": "tiff" };
 
 /** The names in the second column of `ffmpeg -decoders` / `-encoders`, plus the `(codec x)` aliases some carry. */
-function names(listing: string): Set<string> {
+export function codecNames(listing: string): Set<string> {
   const out = new Set<string>();
-  for (const line of listing.split("\n")) {
+  // ffmpeg on Windows ends its lines with CR LF
+  for (const line of listing.split(/\r?\n/)) {
     const m = /^\s([VAS.][A-Za-z.]{5})\s+(\S+)\s+(.*)$/.exec(line);
-    if (m === null) continue;
+    if (m === null || m[2] === "=") continue; // "=" is the legend line (` V..... = Video`)
     out.add(m[2] as string);
     const alias = /\(codec ([^)]+)\)/.exec(m[3] as string);
     if (alias !== null) out.add(alias[1] as string);
@@ -90,8 +91,9 @@ export async function ffmpegConverter(o: FfmpegConverterOptions): Promise<Conver
   });
   if (version.exitCode !== 0) throw new ConversionError(`${o.ffmpeg} does not run as ffmpeg (exit ${version.exitCode})`);
   const id = `ffmpeg ${/ffmpeg version (\S+)/.exec(dec.decode(version.stdout))?.[1] ?? "unknown"}`;
-  const decoders = names(dec.decode((await run(["-hide_banner", "-decoders"])).stdout));
-  const encoders = names(dec.decode((await run(["-hide_banner", "-encoders"])).stdout));
+  const decoders = codecNames(dec.decode((await run(["-hide_banner", "-decoders"])).stdout));
+  const encoders = codecNames(dec.decode((await run(["-hide_banner", "-encoders"])).stdout));
+  if (decoders.size === 0 || encoders.size === 0) throw new ConversionError(`could not read the codec lists of ${o.ffmpeg} (\`-decoders\` gave ${decoders.size} names, \`-encoders\` ${encoders.size}); is it a full ffmpeg build?`);
   const newId = o.newId ?? (() => `${process.pid}-${Date.now().toString(36)}-${(counter++).toString(36)}`);
 
   const can = (from: Format, to: MediaTarget): boolean => {

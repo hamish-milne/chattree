@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { ConversionError } from "../../harness/converter.ts";
-import { ffmpegConverter } from "../../harness/ffmpeg-converter.ts";
+import { codecNames, ffmpegConverter } from "../../harness/ffmpeg-converter.ts";
 import { formatOf, sniffFormat } from "../../harness/formats.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { tempDir } from "../support/tmp.ts";
@@ -68,8 +68,24 @@ describe("ffmpeg converter", { skip: !have && "no ffmpeg" }, () => {
 });
 
 describe("ffmpeg converter with a program that is not ffmpeg", () => {
+  test("an ffmpeg whose codec lists cannot be read is said so, not left to say nothing can be converted", async () => {
+    const dir = await tempDir();
+    const host = { ...nodeHost(), exec: async (_p: string, args: string[]) => ({ exitCode: 0, stdout: new TextEncoder().encode(args.includes("-version") ? "ffmpeg version 9.9\n" : "garbled\n"), stderr: new Uint8Array() }) } as ReturnType<typeof nodeHost>;
+    await assert.rejects(ffmpegConverter({ host, ffmpeg: "ffmpeg", workDir: join(dir, "w") }), /could not read the codec lists/);
+  });
+
   test("a program that will not start is a ConversionError", async () => {
     const dir = await tempDir();
     await assert.rejects(ffmpegConverter({ host: nodeHost(), ffmpeg: join(dir, "missing"), workDir: join(dir, "w") }), ConversionError);
   });
+});
+
+describe("ffmpeg codec listings", () => {
+  const listing = ["Decoders:", " V..... = Video", " ------", " V....D bmp                  BMP (Windows and OS/2 bitmap)", " A....D flac                 FLAC (Free Lossless Audio Codec)", " V....D libwebp              libwebp WebP image (codec webp)"];
+  for (const eol of ["\n", "\r\n"]) {
+    test(`reads names and (codec x) aliases with ${JSON.stringify(eol)} line ends`, () => {
+      const n = codecNames(listing.join(eol) + eol);
+      assert.deepEqual([...n].sort(), ["bmp", "flac", "libwebp", "webp"]);
+    });
+  }
 });
