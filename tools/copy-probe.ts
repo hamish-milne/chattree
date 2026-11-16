@@ -188,6 +188,9 @@ export interface ProbeSample {
 
 export type Shape = "single" | "pair";
 /** `pair` is the sampler's "read two files" shape (a word and a number, answered together), where the typo was first seen. */
+/** Sorts values compared as text, in code-unit order as the default sort does. */
+const byText = (a: unknown, b: unknown): number => (String(a) < String(b) ? -1 : String(a) > String(b) ? 1 : 0);
+
 const CONTENT = (x: string, shape: Shape): string =>
   shape === "pair" ? `the code word is ${x}\nthe number is 4417` : `the code word is ${x}`;
 export const PLAIN_PROMPT = (x: string, shape: Shape = "pair"): string =>
@@ -331,7 +334,7 @@ export function formatProbeReport(
       for (const s of mine) for (const c of s.hiddenInReasoning) inThought.set(c, (inThought.get(c) ?? 0) + 1);
       const show = (m: Map<string, number>): string =>
         [...m]
-          .sort()
+          .sort(byText)
           .map(([c, n]) => `${c} in ${n}`)
           .join(", ") || "none";
       lines.push(
@@ -348,7 +351,7 @@ export function formatProbeReport(
     const where = new Map<string, number>();
     for (const s of near) where.set(`${s.arm}: ${s.placed}`, (where.get(`${s.arm}: ${s.placed}`) ?? 0) + 1);
     lines.push("", "where they happened:");
-    for (const [k, c] of [...where].sort()) lines.push(`  ${String(c).padStart(3)}  ${k}`);
+    for (const [k, c] of [...where].sort(byText)) lines.push(`  ${String(c).padStart(3)}  ${k}`);
   }
   if (other.length > 0)
     lines.push(

@@ -189,7 +189,7 @@ describe("a request carries each model's own view", () => {
 
     level = undefined;
     await run(registry);
-    const props = (seen[0]?.input_schema as { properties: Record<string, { description?: string }> }).properties;
+    const props = (seen[0]!.input_schema as { properties: Record<string, { description?: string }> }).properties;
     assert.match(props["id"]?.description ?? "", /pattern: "\^\[a-z\]\+\$"/);
     assert.equal(props["either"], undefined, "an optional choice the subset cannot say is left out");
 

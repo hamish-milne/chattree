@@ -345,7 +345,7 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
         const settings = Object.entries(cfg).filter(
           ([k, v]) => v !== undefined && !["url", "hf", "file", "revision", "mmproj", "sha256"].includes(k),
         );
-        for (const [k, v] of settings.filter(([k]) => k !== "sampling"))
+        for (const [k, v] of settings.filter(([key]) => key !== "sampling"))
           lines.push(`  ${k}: ${typeof v === "object" ? JSON.stringify(v) : String(v)}`);
         const found = await lookupSampling(io, name, {
           fetch: o.fetch,

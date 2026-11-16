@@ -52,7 +52,7 @@ function checkFile(seed: number, count: number, version: "1.1" | "1.2", simpleNu
     assert.ok(valueEquals(r.value[i] as Value, yamlView(e)), `entry ${i} differs under YAML ${version}:\n${emitEntry(e)}`);
     // and our own parser agrees with the oracle about the same text
     assert.ok(valueEquals(parseEntry(emitEntry(e)), e));
-    JSON.stringify(e, (_k, v) => {
+    JSON.stringify(e, (_k, v: unknown) => {
       if (v instanceof BlobRef) blobs++;
       return v;
     });

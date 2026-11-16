@@ -226,7 +226,7 @@ describe("request body", () => {
       ],
     });
     const u = (text: string) => ({ role: "user" as const, parts: [{ type: "text" as const, text }] });
-    const turns: ModelContext["turns"] = [
+    const thread: ModelContext["turns"] = [
       u("one"),
       a("qwen3:4b@aaaa1111", "old"),
       u("two"),
@@ -236,7 +236,7 @@ describe("request body", () => {
     ];
     const sent = (mode: unknown) =>
       (
-        buildChatBody(ctx({ turns }), setupFor({ max_output_tokens: 5, replay_reasoning: mode }), opts)["messages"] as {
+        buildChatBody(ctx({ turns: thread }), setupFor({ max_output_tokens: 5, replay_reasoning: mode }), opts)["messages"] as {
           reasoning_content?: string;
         }[]
       ).flatMap((m) => (m.reasoning_content === undefined ? [] : [m.reasoning_content]));
@@ -402,7 +402,7 @@ describe("stream", () => {
   });
 
   test("reasoning in either field becomes a reasoning block before the text", async () => {
-    for (const [events, field] of [
+    for (const [events] of [
       [LLAMA_THINKING, "reasoning_content"],
       [OLLAMA_THINKING, "reasoning"],
     ] as const) {
@@ -543,7 +543,7 @@ describe("stream", () => {
     const rng = new Rng(5);
     for (let i = 0; i < 40; i++) {
       const sizes = Array.from({ length: 1 + rng.int(4) }, () => 1 + rng.int(30));
-      assert.deepEqual(await run(replay(all, sizes)), baseline, `sizes ${sizes}`);
+      assert.deepEqual(await run(replay(all, sizes)), baseline, `sizes ${String(sizes)}`);
     }
   });
 });
@@ -588,7 +588,7 @@ describe("HTTP", () => {
       const seen = server.seen[0];
       assert.equal(seen?.url, "/v1/chat/completions");
       assert.equal(seen?.headers["authorization"], `Bearer ${KEY}`);
-      assert.equal(JSON.parse(seen?.body ?? "").stream, true);
+      assert.equal((JSON.parse(seen?.body ?? "") as Record<string, unknown>).stream, true);
       await collectStream(
         openaiCompatibleAdapter({
           baseUrl: `${server.url}/v1`,
@@ -598,8 +598,8 @@ describe("HTTP", () => {
           http: fast,
         }).stream(req()),
       );
-      assert.equal(JSON.parse(server.seen[1]?.body ?? "").max_completion_tokens, 1024);
-      assert.equal(JSON.parse(server.seen[1]?.body ?? "").stream_options, undefined);
+      assert.equal((JSON.parse(server.seen[1]?.body ?? "") as Record<string, unknown>).max_completion_tokens, 1024);
+      assert.equal((JSON.parse(server.seen[1]?.body ?? "") as Record<string, unknown>).stream_options, undefined);
       await collectStream(openaiCompatibleAdapter({ baseUrl: `${server.url}/v1`, http: fast }).stream(req()));
       assert.equal(server.seen[2]?.headers["authorization"], undefined);
     });

@@ -59,7 +59,7 @@ export class HttpFixture {
     const headers = { ...(route.headers ?? {}) };
     let status = route.status ?? 200;
     let slice = body;
-    const range = /^bytes=(\d+)-$/.exec(String(req.headers["range"] ?? ""));
+    const range = /^bytes=(\d+)-$/.exec(req.headers["range"] ?? "");
     if (range !== null && route.ranges !== false && status === 200) {
       const from = Number(range[1]);
       if (from >= body.length) {

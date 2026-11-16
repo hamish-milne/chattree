@@ -14,7 +14,7 @@ const joinPath = (path: string, key: string | number): string =>
 
 function isPlainObject(x: unknown): x is Record<string, unknown> {
   if (typeof x !== "object" || x === null || Array.isArray(x)) return false;
-  const proto = Object.getPrototypeOf(x);
+  const proto: unknown = Object.getPrototypeOf(x);
   return proto === Object.prototype || proto === null;
 }
 

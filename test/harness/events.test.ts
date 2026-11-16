@@ -6,7 +6,6 @@ import { nodeHost } from "../../hosts/node.ts";
 import { CONFIG_FILE, Conversation, ConversationError, type NewEntry } from "../../harness/conversation.ts";
 import { contextEntries } from "../../harness/context.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
-import { faultyHost } from "../support/hosts.ts";
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();

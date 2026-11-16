@@ -75,7 +75,7 @@ describe("the gemini provider", () => {
       assert.equal(seen?.headers["authorization"], `Bearer ${KEY}`);
       assert.equal(seen?.headers["user-agent"], USER_AGENT);
       assert.equal(seen?.headers["x-opencode-session"], undefined);
-      assert.equal(JSON.parse(seen?.body ?? "{}").reasoning_effort, "low");
+      assert.equal((JSON.parse(seen?.body ?? "{}") as Record<string, unknown>).reasoning_effort, "low");
       assert.equal(b.prices.get("g")?.models["gemini-3.8-flash"] !== undefined, true);
     } finally {
       await server.close();

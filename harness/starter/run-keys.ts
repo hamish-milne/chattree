@@ -124,7 +124,11 @@ export function globRegex(pat: string): RegExp {
       if (pat[i + 1] === "*") {
         re += ".*";
         i++;
-        if (pat[i + 1] === "/") ((re = re.slice(0, -2) + "(?:.*/)?"), i++); // `a/**/b` also matches `a/b`
+        if (pat[i + 1] === "/") {
+          // `a/**/b` also matches `a/b`
+          re = re.slice(0, -2) + "(?:.*/)?";
+          i++;
+        }
       } else re += "[^/]*";
     } else if (c === "?") re += "[^/]";
     else if (c === "[") {
@@ -281,7 +285,6 @@ export async function runAllowKeys(command: string, ctx: RunKeyContext): Promise
   for (const [i, stage] of p.stages.entries()) {
     const wantIn = i === 0 ? p.stdin : undefined;
     const wantOut = i === p.stages.length - 1 ? p.stdout : undefined;
-    const program = stage.argv[0] as string;
     const safe = ctx.safe
       .map((s) => s.trim().split(/\s+/))
       .find(

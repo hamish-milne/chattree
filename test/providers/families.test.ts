@@ -199,12 +199,12 @@ describe("pictures are written into the prompt as the server's marker", () => {
   const withPicture = (
     parts: ModelContext["turns"][number] extends infer T ? (T extends { parts: infer P } ? P : never) : never,
   ): ModelContext => chat([{ role: "user", parts }], "");
-  const render = (d: Dialect, context: ModelContext, marker: string | undefined) =>
+  const renderPicture = (d: Dialect, context: ModelContext, marker: string | undefined) =>
     d.render({ context, options: {}, effort: undefined, date: "2026-11-11", provider: "local-models", model: "gpt-oss", marker });
 
   test("each format writes the marker where the picture is, and says which pictures the markers are for", () => {
     const context = withPicture([png("a.png"), { type: "text", text: "what is this?" }]);
-    const kimi = render(kimiVlDialect, context, "<__m__>");
+    const kimi = renderPicture(kimiVlDialect, context, "<__m__>");
     assert.equal(
       kimi.prompt,
       "<|im_system|>system<|im_middle|>You are a helpful assistant<|im_end|><|im_user|>user<|im_middle|><__m__>\nwhat is this?<|im_end|><|im_assistant|>assistant<|im_middle|>",
@@ -214,11 +214,11 @@ describe("pictures are written into the prompt as the server's marker", () => {
       ["a.png"],
     );
     for (const d of [hermesDialect, mistralDialect, glmDialect, glm46Dialect, deepseekR1Dialect])
-      assert.ok(render(d, context, "<__m__>").prompt.includes("<__m__>\nwhat is this?"), d.id);
+      assert.ok(renderPicture(d, context, "<__m__>").prompt.includes("<__m__>\nwhat is this?"), d.id);
   });
   test("sound is written as the same marker, in order with pictures, and is carried in media", () => {
     const wav: AttachmentPart = { ...png("a.wav"), kind: "audio", mime: "audio/wav" };
-    const r = render(hermesDialect, withPicture([png("p.png"), wav, { type: "text", text: "what did you hear?" }]), "<__m__>");
+    const r = renderPicture(hermesDialect, withPicture([png("p.png"), wav, { type: "text", text: "what did you hear?" }]), "<__m__>");
     assert.ok(
       r.prompt.includes(
         '<__m__>\n[The audio clip "a.wav" attached here is heard by you as follows:]\n<__m__>\n[End of audio clip.]\nwhat did you hear?',
@@ -233,21 +233,21 @@ describe("pictures are written into the prompt as the server's marker", () => {
         ["a.wav", "audio"],
       ],
     );
-    assert.throws(() => render(hermesDialect, withPicture([wav]), undefined), /sound, and the server has not said how to mark it/);
+    assert.throws(() => renderPicture(hermesDialect, withPicture([wav]), undefined), /sound, and the server has not said how to mark it/);
   });
   test("several pictures keep their order, and a turn without one has no media", () => {
-    const r = render(hermesDialect, withPicture([{ type: "text", text: "compare" }, png("1.png"), png("2.png")]), "<__m__>");
+    const r = renderPicture(hermesDialect, withPicture([{ type: "text", text: "compare" }, png("1.png"), png("2.png")]), "<__m__>");
     assert.ok(r.prompt.includes("compare\n<__m__>\n<__m__>"));
     assert.deepEqual(
       r.media?.map((m) => m.name),
       ["1.png", "2.png"],
     );
-    assert.equal(render(hermesDialect, chat([said("hi")]), "<__m__>").media, undefined);
+    assert.equal(renderPicture(hermesDialect, chat([said("hi")]), "<__m__>").media, undefined);
   });
   test("a picture with no marker to write, or a PDF, cannot be sent", () => {
-    assert.throws(() => render(hermesDialect, withPicture([png("a.png")]), undefined), /how to mark it/);
+    assert.throws(() => renderPicture(hermesDialect, withPicture([png("a.png")]), undefined), /how to mark it/);
     const pdf: AttachmentPart = { ...png("a.pdf"), kind: "pdf", mime: "application/pdf" };
-    assert.throws(() => render(hermesDialect, withPicture([pdf]), "<__m__>"), /a\.pdf cannot be sent/);
+    assert.throws(() => renderPicture(hermesDialect, withPicture([pdf]), "<__m__>"), /a\.pdf cannot be sent/);
   });
 });
 
@@ -263,8 +263,8 @@ const tools = [
 ];
 
 /** What the parser says about `text` fed in pieces of `size`, with runs of text joined. */
-function read(d: Dialect, prompt: string, text: string, size: number, options: Record<string, unknown> = {}): Emit[] {
-  const p = d.parser(options, tools, prompt);
+function read(d: Dialect, promptText: string, text: string, size: number, options: Record<string, unknown> = {}): Emit[] {
+  const p = d.parser(options, tools, promptText);
   const out: Emit[] = [];
   for (let i = 0; i < text.length; i += size) out.push(...p.push(text.slice(i, i + size)));
   out.push(...p.end("stop"));

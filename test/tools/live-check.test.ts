@@ -177,19 +177,19 @@ describe(slow("runLiveChecks"), slowOptions, () => {
   });
 
   test("chaining and retrieval scenarios against a Responses server that stores what it says", async () => {
-    const item = (text: string) => ({
+    const item = (words: string) => ({
       id: "m1",
       type: "message",
       role: "assistant",
       status: "completed",
-      content: [{ type: "output_text", text }],
+      content: [{ type: "output_text", text: words }],
     });
-    const done = (text: string, n: number): Reply => ({
+    const done = (words: string, n: number): Reply => ({
       acts: [
         ev("response.created", { response: { id: `r${n}`, model: "fake", store: true } }),
         ev("response.output_item.added", { output_index: 0, item: { id: "m1", type: "message", content: [] } }),
-        ev("response.output_text.delta", { output_index: 0, delta: text }),
-        ev("response.output_item.done", { output_index: 0, item: item(text) }),
+        ev("response.output_text.delta", { output_index: 0, delta: words }),
+        ev("response.output_item.done", { output_index: 0, item: item(words) }),
         ev("response.completed", {
           response: { id: `r${n}`, model: "fake", status: "completed", store: true, usage: { input_tokens: 5, output_tokens: 4 } },
         }),
@@ -454,7 +454,8 @@ describe(slow("runLiveChecks, tool scenarios"), slowOptions, () => {
 
   test("a model that uses another tool is not counted as malformed, and every request is recorded in its own file", async () => {
     const server = await FakeServer.start((n, seen) =>
-      JSON.stringify(JSON.parse(seen.body).messages).includes("run tool") && !seen.body.includes("Read notes.txt, then")
+      JSON.stringify((JSON.parse(seen.body) as { messages: unknown }).messages).includes("run tool") &&
+      !seen.body.includes("Read notes.txt, then")
         ? toolCalls({ id: "q", name: "read", args: { files: [{ path: "notes.txt" }] } })
         : agentPretend()(n, seen),
     );

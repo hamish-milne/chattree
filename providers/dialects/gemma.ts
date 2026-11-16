@@ -1,5 +1,5 @@
 import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
-import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
+import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
 import { audioFrameOf, resultContent, userContent } from "./media.ts";
 import { nextMarker, safeLength, Trimmer } from "./scan.ts";
 import { argNode, concreteTypes, isNullable, parseSchema, type SchemaNode } from "./schema-tree.ts";

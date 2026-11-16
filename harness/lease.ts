@@ -308,7 +308,7 @@ const shared = new WeakMap<Fs, Map<string, LeaseStore>>();
 /** The store a process uses for one repository's leases (`key` names the repository and where leases are kept): every handle on it gets the same one, so a loop and its jobs share a lease. */
 export function sharedLeaseStore(fs: Fs, key: string, make: () => LeaseStore): LeaseStore {
   let byKey = shared.get(fs);
-  if (byKey === undefined) shared.set(fs, (byKey = new Map()));
+  if (byKey === undefined) shared.set(fs, (byKey = new Map<string, LeaseStore>()));
   let store = byKey.get(key);
   if (store === undefined) byKey.set(key, (store = make()));
   return store;

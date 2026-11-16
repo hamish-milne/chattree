@@ -376,7 +376,7 @@ interface Sample {
   calls: Message[];
 }
 
-function args(argv: readonly string[]): {
+function parseArgs(argv: readonly string[]): {
   model: string;
   repeat: number;
   out: string | undefined;
@@ -404,7 +404,7 @@ const tally = (xs: (string | undefined)[]): string => {
 };
 
 async function main(): Promise<void> {
-  const o = args(process.argv.slice(2));
+  const o = parseArgs(process.argv.slice(2));
   const io = nodeIo();
   io.settings = await loadSettings(io);
   await ensureLocalModels(io, { yes: o.yes });

@@ -14,7 +14,7 @@ const compact = (from: ChatEntry, to: ChatEntry, summary: string): ChatEntry => 
   summary,
 });
 const label = (e: ChatEntry): string =>
-  e.$tag === "user" ? (e.content[0] as { text: string }).text : e.$tag === "compaction" ? `[${e.summary}]` : e.$tag;
+  e.$tag === "user" ? (e.content[0] as { text: string }).text : e.$tag === "compaction" ? `[${String(e.summary)}]` : e.$tag;
 
 describe("contextEntries", () => {
   test("passes a plain transcript through", () => {

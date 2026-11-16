@@ -646,7 +646,7 @@ describe("background jobs in a session", () => {
             x.$tag === "tool_result"
               ? `tool_result ${text(x.content)}`
               : x.$tag === "job_event"
-                ? `job_event ${x.status} ${x.summary}`
+                ? `job_event ${x.status} ${String(x.summary)}`
                 : x.$tag,
           )
           .join("\n");

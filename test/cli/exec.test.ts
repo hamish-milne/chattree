@@ -6,7 +6,6 @@ import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { host, initArgs, testIo } from "./support.ts";
-import { approve } from "../support/trust.ts";
 
 async function started() {
   const server = await FakeServer.start([]);

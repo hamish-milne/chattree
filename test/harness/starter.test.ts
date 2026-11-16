@@ -210,20 +210,20 @@ describe("write", () => {
 
   test("a file that ended with a newline still does after a whole-file write, and the result says so", async () => {
     const { dir, call } = await workspace({ "a.txt": "one\ntwo\n", "crlf.txt": "one\r\ntwo\r\n", "bare.txt": "one\ntwo", "empty.txt": "" });
-    const text = async (n: string) => new TextDecoder().decode(await host.fs.read(join(dir, n)));
+    const contents = async (n: string) => new TextDecoder().decode(await host.fs.read(join(dir, n)));
     const r = await call("write", { path: "a.txt", content: "1\n2" });
     assert.match(r.content, /replaced a.txt \(4 bytes, was 8, version [0-9a-f]{8}; added the final newline the file had\)/);
-    assert.equal(await text("a.txt"), "1\n2\n");
+    assert.equal(await contents("a.txt"), "1\n2\n");
     await call("write", { path: "crlf.txt", content: "1\r\n2" });
-    assert.equal(await text("crlf.txt"), "1\r\n2\r\n");
+    assert.equal(await contents("crlf.txt"), "1\r\n2\r\n");
     await call("write", { path: "bare.txt", content: "1\n2" });
-    assert.equal(await text("bare.txt"), "1\n2", "a file with no final newline is left alone");
+    assert.equal(await contents("bare.txt"), "1\n2", "a file with no final newline is left alone");
     await call("write", { path: "empty.txt", content: "x" });
-    assert.equal(await text("empty.txt"), "x");
+    assert.equal(await contents("empty.txt"), "x");
     await call("write", { path: "new.txt", content: "x" });
-    assert.equal(await text("new.txt"), "x", "a new file is written as given");
+    assert.equal(await contents("new.txt"), "x", "a new file is written as given");
     await call("write", { path: "a.txt", content: "" });
-    assert.equal(await text("a.txt"), "", "empty content empties the file");
+    assert.equal(await contents("a.txt"), "", "empty content empties the file");
   });
 
   test("a directory or a protected file is refused and said so", async () => {
@@ -749,7 +749,6 @@ import { test as t2 } from "node:test";
 
 t2("a write to a name Windows cannot keep is refused, a read is not", async () => {
   const dir = await tempDir();
-  const host = nodeHost();
   for (const p of ["calc..", "dir /x.txt", "a.txt ", "sub/b.", 'q"x', "what?"])
     await assert.rejects(
       resolveInWorkspace(host, dir, p, "write"),

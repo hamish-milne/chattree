@@ -1,6 +1,6 @@
-import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
+import type { AttachmentPart, Turn } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
-import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
+import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
 import { audioFrameOf, userContent } from "./media.ts";
 import { ProviderError } from "../types.ts";
 import { builtinPreamble, builtinSpecs, commandFor, messageOf, RUN_TOOL, type BuiltinSpec } from "./harmony-builtin.ts";
@@ -49,7 +49,7 @@ export interface HarmonyOptions {
 const IDENTITY = "You are ChatGPT, a large language model trained by OpenAI.";
 
 /** An option that is a string, `false` for nothing, or absent for the default. */
-const text = (v: unknown, fallback: string | undefined): string | undefined =>
+const stringOption = (v: unknown, fallback: string | undefined): string | undefined =>
   v === false ? undefined : typeof v === "string" ? v : fallback;
 
 export function harmonyOptions(o: Record<string, unknown>): HarmonyOptions {
@@ -57,8 +57,8 @@ export function harmonyOptions(o: Record<string, unknown>): HarmonyOptions {
   return {
     keepReasoning: o["keep_reasoning"] !== false,
     full: o["schema"] !== "flat",
-    identity: text(o["identity"], IDENTITY),
-    cutoff: text(o["knowledge_cutoff"], "2024-06"),
+    identity: stringOption(o["identity"], IDENTITY),
+    cutoff: stringOption(o["knowledge_cutoff"], "2024-06"),
     date: date === "none" ? undefined : date,
     builtin: builtinSpecs(o["builtin_tools"]),
   };

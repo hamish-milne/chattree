@@ -21,6 +21,7 @@ import { flatProblems } from "../../harness/tool-schema.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
 import { approve } from "../support/trust.ts";
+import { byText } from "../support/sort.ts";
 
 const host = nodeHost();
 
@@ -1127,7 +1128,7 @@ describe("background jobs", () => {
     await settle();
     assert.equal(stopped.n, 1);
     const evs = await events(convo);
-    assert.deepEqual(evs.map((e) => [e.job, e.status]).sort(), [
+    assert.deepEqual(evs.map((e) => [e.job, e.status]).sort(byText), [
       ["j1", "failed"],
       ["j2", "stopped"],
     ]);

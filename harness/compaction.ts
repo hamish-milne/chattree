@@ -63,9 +63,6 @@ export class ContextFull extends Error {
 
 export class CompactionInsufficient extends Error {
   override name = "CompactionInsufficient";
-  constructor(message: string) {
-    super(message);
-  }
 }
 
 const carries = (e: ChatEntry): boolean =>
@@ -166,13 +163,14 @@ export async function summariseRange(
   by: "user" | "auto",
 ): Promise<{ summary: string; model: string }> {
   const setup = await convo.setup();
-  if (setup.model === undefined) throw new Error("this thread has no model; set one with /model");
+  const model = setup.model;
+  if (model === undefined) throw new Error("this thread has no model; set one with /model");
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const dec = new TextDecoder();
   const input = (trims: boolean): Promise<string> =>
     buildContext(entries, {
       system: "",
-      target: { provider: setup.model!.provider, model: servedModelId(setup.model!) },
+      target: { provider: model.provider, model: servedModelId(model) },
       renderer: chattreeEnglishV1,
       from: range.from,
       upTo: range.to,
@@ -188,8 +186,8 @@ export async function summariseRange(
         return dec.decode(bytes);
       },
     }).then(turnsAsText);
-  const summarizer = s.summaryModel ?? servedModelId(setup.model);
-  const window = convo.modelInfo(setup.model.provider, summarizer)?.context_window;
+  const summarizer = s.summaryModel ?? servedModelId(model);
+  const window = convo.modelInfo(model.provider, summarizer)?.context_window;
   const fits = (text: string): boolean => window === undefined || byteLength(text) / 3 + 2000 < window * 0.9;
   let transcript = s.summaryInput === "raw" ? await input(false) : await input(true);
   if (s.summaryInput === "raw" && !fits(transcript)) transcript = await input(true);

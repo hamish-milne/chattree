@@ -206,7 +206,7 @@ describe("flat schemas", () => {
 });
 
 describe("repairing slips the models in the live runs made", () => {
-  const read = {
+  const readSchema = {
     type: "object",
     additionalProperties: false,
     required: ["files"],
@@ -229,9 +229,9 @@ describe("repairing slips the models in the live runs made", () => {
     properties: { command: { type: "string" }, stdin: { type: "string" }, timeout_seconds: { type: "integer" } },
   };
   test("a list of bare strings where objects with one required text property belong", () => {
-    assert.deepEqual(coerceArgs(read, { files: ["a.txt", "b.txt"] }), { files: [{ path: "a.txt" }, { path: "b.txt" }] });
-    assert.deepEqual(coerceArgs(read, { files: "a.txt" }), { files: [{ path: "a.txt" }] });
-    assert.deepEqual(coerceArgs(read, { files: [{ path: "a.txt" }] }), { files: [{ path: "a.txt" }] });
+    assert.deepEqual(coerceArgs(readSchema, { files: ["a.txt", "b.txt"] }), { files: [{ path: "a.txt" }, { path: "b.txt" }] });
+    assert.deepEqual(coerceArgs(readSchema, { files: "a.txt" }), { files: [{ path: "a.txt" }] });
+    assert.deepEqual(coerceArgs(readSchema, { files: [{ path: "a.txt" }] }), { files: [{ path: "a.txt" }] });
   });
   test("optional arguments sent as null or empty text are not given; required ones are left for validation", () => {
     assert.deepEqual(coerceArgs(run, { command: "ls", stdin: "", timeout_seconds: null }), { command: "ls" });

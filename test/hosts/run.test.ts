@@ -111,7 +111,7 @@ describe("run", () => {
       assert.equal(r.timedOut, true);
       const pid = Number(dec.decode(await host.fs.read(pidFile)).trim());
       assert.ok(pid > 0);
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((resume) => setTimeout(resume, 100));
       assert.equal(alive(pid), false, "the background sleep survived");
     },
   );

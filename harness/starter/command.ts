@@ -235,7 +235,7 @@ export function parseCommand(input: string, expand: (name: string) => string): P
   if (stdoutStage !== -1 && stdoutStage !== stages.length - 1) throw new CommandSyntax("`>` only works on the last command of a pipeline");
   if (stdin?.text === "/dev/null") stdin = undefined;
 
-  const first = tokens.find((t) => t.kind === "word") as Extract<Token, { kind: "word" }> | undefined;
+  const first = tokens.find((t): t is Extract<Token, { kind: "word" }> => t.kind === "word");
   if (first !== undefined && !first.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(first.word.text) && stages[0]?.[0] === first.word) {
     throw new CommandSyntax(
       `setting a variable before a command (${first.word.text.split("=")[0]}=...) is not supported by run (${SCRIPT})`,

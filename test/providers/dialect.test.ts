@@ -299,8 +299,8 @@ describe("pictures to the server", () => {
         : sse([chunk({ content: "a cat", stop: false }), last()]),
     );
     try {
-      const run = await ask(server);
-      assert.equal(run.error, undefined);
+      const result = await ask(server);
+      assert.equal(result.error, undefined);
       const body = JSON.parse(server.seen.find((r) => r.url === "/completion")!.body) as {
         prompt: { prompt_string: string; multimodal_data: string[] };
       };
@@ -320,8 +320,8 @@ describe("pictures to the server", () => {
         : sse([last()]),
     );
     try {
-      const run = await ask(server);
-      assert.match((run.error as ProviderError).message, /no multimodal projector/);
+      const result = await ask(server);
+      assert.match((result.error as ProviderError).message, /no multimodal projector/);
       assert.equal(server.seen.filter((r) => r.url === "/completion").length, 0);
     } finally {
       await server.close();
@@ -355,8 +355,8 @@ describe("pictures to the server", () => {
         : sse([chunk({ content: "a beep", stop: false }), last()]),
     );
     try {
-      const run = await ask(ear, hearing);
-      assert.equal(run.error, undefined);
+      const result = await ask(ear, hearing);
+      assert.equal(result.error, undefined);
       const body = JSON.parse(ear.seen.find((r) => r.url === "/completion")!.body) as { prompt: { multimodal_data: string[] } };
       assert.deepEqual(body.prompt.multimodal_data, [Buffer.from([1, 2, 3]).toString("base64")]);
     } finally {
@@ -391,8 +391,8 @@ describe("pictures to the server", () => {
         : sse([last()]),
     );
     try {
-      const run = await ask(server, { ...ctx, turns: [{ role: "user", parts: [picture, { type: "text", text: "say <__m__>" }] }] });
-      assert.match((run.error as ProviderError).message, /contains the server's picture marker/);
+      const result = await ask(server, { ...ctx, turns: [{ role: "user", parts: [picture, { type: "text", text: "say <__m__>" }] }] });
+      assert.match((result.error as ProviderError).message, /contains the server's picture marker/);
     } finally {
       await server.close();
     }

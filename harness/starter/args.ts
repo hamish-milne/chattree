@@ -13,7 +13,7 @@ export function flattenArgs(args: unknown, aliases: Record<string, readonly stri
   for (const w of WRAPPERS) {
     const v = out[w];
     if (v === undefined) continue;
-    const one = Array.isArray(v) ? (v.length === 1 ? v[0] : undefined) : v;
+    const one: unknown = Array.isArray(v) ? (v.length === 1 ? v[0] : undefined) : v;
     if (isObj(one)) {
       delete out[w];
       out = { ...one, ...out };

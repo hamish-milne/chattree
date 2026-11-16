@@ -388,8 +388,8 @@ describe("stream", () => {
       r.completed?.blocks.map((b) => b.type),
       ["reasoning", "text", "tool_call"],
     );
-    assert.deepEqual((r.completed?.blocks[2] as { args: unknown }).args, { a: 1 });
-    assert.equal((r.completed?.blocks[0] as { visible?: string }).visible, "hm");
+    assert.deepEqual((r.completed!.blocks[2] as { args: unknown }).args, { a: 1 });
+    assert.equal((r.completed!.blocks[0] as { visible?: string }).visible, "hm");
     assert.equal(r.completed?.stop_reason, "tool_use");
   });
 
@@ -418,7 +418,7 @@ describe("stream", () => {
       ),
     );
     assert.equal(refusal.completed?.stop_reason, "refusal");
-    assert.equal((refusal.completed?.blocks[0] as { text: string }).text, "No.");
+    assert.equal((refusal.completed!.blocks[0] as { text: string }).text, "No.");
     const odd = good(
       await run(
         replay([
@@ -459,7 +459,7 @@ describe("stream", () => {
     const rng = new Rng(5);
     for (let i = 0; i < 40; i++) {
       const sizes = Array.from({ length: 1 + rng.int(4) }, () => 1 + rng.int(40));
-      assert.deepEqual(await run(replay(TOOL, sizes)), baseline, `sizes ${sizes}`);
+      assert.deepEqual(await run(replay(TOOL, sizes)), baseline, `sizes ${String(sizes)}`);
     }
   });
 });
@@ -515,7 +515,7 @@ describe("HTTP", () => {
       const seen = server.seen[0];
       assert.equal(seen?.url, "/v1/responses");
       assert.equal(seen?.headers["authorization"], `Bearer ${KEY}`);
-      assert.equal(JSON.parse(seen?.body ?? "").store, false);
+      assert.equal((JSON.parse(seen?.body ?? "") as Record<string, unknown>).store, false);
     });
   });
 

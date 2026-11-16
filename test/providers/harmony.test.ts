@@ -394,8 +394,8 @@ describe("built-in tools", () => {
       example: "print 6 * 7",
     };
     const made = { builtin_tools: { perl } };
-    const specs = builtinSpecs(made.builtin_tools);
-    const rendered = (tools: ModelContext["tools"], turns: ModelContext["turns"] = []) =>
+    const specList = builtinSpecs(made.builtin_tools);
+    const renderWith = (tools: ModelContext["tools"], turns: ModelContext["turns"] = []) =>
       renderHarmony({
         context: { system: "S", instructions: undefined, tools, cacheHints: [], turns },
         options: made,
@@ -421,13 +421,13 @@ describe("built-in tools", () => {
     test("a template without $message is refused when the options are read", () =>
       assert.throws(() => builtinSpecs({ perl: { run: "perl -e" } }), /must contain \$message/));
     test("is described in the system block when run is offered, and not otherwise", () => {
-      assert.ok(rendered([run]).includes("## perl\n\nRun Perl code. It has no state between calls."));
-      assert.ok(rendered([run]).includes("Example call to perl:\n  channel: analysis\n  recipient: perl\n  message: print 6 * 7"));
-      assert.ok(rendered([run]).includes("type run ="), "run stays a function");
-      assert.ok(!rendered([write]).includes("## perl"));
+      assert.ok(renderWith([run]).includes("## perl\n\nRun Perl code. It has no state between calls."));
+      assert.ok(renderWith([run]).includes("Example call to perl:\n  channel: analysis\n  recipient: perl\n  message: print 6 * 7"));
+      assert.ok(renderWith([run]).includes("type run ="), "run stays a function");
+      assert.ok(!renderWith([write]).includes("## perl"));
     });
     test("a call is a call of run with the quoted message, and keeps the built-in's name and message for the next prompt", () => {
-      const p = harmonyParser([run], specs);
+      const p = harmonyParser([run], specList);
       const out = [...p.push("<|channel|>analysis to=perl code<|message|>print 'a'<|call|>"), ...p.end("stop")];
       assert.deepEqual(
         out.filter((e) => e.kind === "call.start" || e.kind === "call.end"),
@@ -438,7 +438,7 @@ describe("built-in tools", () => {
       );
     });
     test("an ambiguous call is refused, and keeps the built-in's name for the next prompt", () => {
-      const p = harmonyParser([run], specs);
+      const p = harmonyParser([run], specList);
       const out = [...p.push('<|channel|>analysis to=perl code<|message|>{"a": 1, "b": 2}<|call|>'), ...p.end("stop")];
       const end = out.find((e) => e.kind === "call.end") as Extract<Emit, { kind: "call.end" }>;
       assert.equal(end.raw, '{"a": 1, "b": 2}');
@@ -471,7 +471,7 @@ describe("built-in tools", () => {
           ],
         },
       ];
-      const p = rendered([run], turns);
+      const p = renderWith([run], turns);
       assert.ok(
         p.includes(
           "<|start|>assistant<|channel|>analysis to=perl code<|message|>print 42<|call|><|start|>perl to=assistant<|channel|>analysis<|message|>42<|end|>",
@@ -513,7 +513,7 @@ describe("built-in tools", () => {
           ],
         },
       ];
-      assert.throws(() => rendered([run], turns), /text only/);
+      assert.throws(() => renderWith([run], turns), /text only/);
     });
     test("a refused call is written back as the model sent it", () => {
       const turns: ModelContext["turns"] = [
@@ -535,7 +535,7 @@ describe("built-in tools", () => {
         },
         { role: "tool_results", results: [{ call_id: "1", content: "perl was NOT run", is_error: true, truncated: false }] },
       ];
-      assert.ok(rendered([run], turns).includes('analysis to=perl code<|message|>{"a": 1, "b": 2}<|call|><|start|>perl to=assistant'));
+      assert.ok(renderWith([run], turns).includes('analysis to=perl code<|message|>{"a": 1, "b": 2}<|call|><|start|>perl to=assistant'));
     });
   });
 });

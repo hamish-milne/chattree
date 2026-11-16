@@ -148,7 +148,7 @@ export async function runInjections(
       });
       continue;
     }
-    for (const item of items === undefined ? [] : Array.isArray(items) ? items : [items as InjectionItem]) {
+    for (const item of items === undefined ? [] : "key" in items ? [items] : items) {
       if (item.text.trim() === "" || seen.has(item.key)) continue; // one entry per key per request
       seen.add(item.key);
       await convo.inject(item.key, item.text);

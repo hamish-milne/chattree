@@ -131,7 +131,7 @@ providers:
   });
 
   test("a string and a number never collide", async () => {
-    const s = miniSchema(obj({ v: (v, p) => ({ value: v }) }));
+    const s = miniSchema(obj({ v: (v) => ({ value: v }) }));
     const a = await parseConfig("v: 1\n", s);
     const b = await parseConfig('v: "1"\n', s);
     assert.ok(a.ok && b.ok && a.hash !== b.hash);

@@ -26,7 +26,7 @@ export const RATE = 16_000;
 export function encodeWav(samples: Float32Array, rate = RATE): Uint8Array {
   const out = new Uint8Array(44 + samples.length * 2);
   const v = new DataView(out.buffer);
-  const tag = (at: number, s: string): void => [...s].forEach((c, i) => v.setUint8(at + i, c.charCodeAt(0)));
+  const tag = (at: number, s: string): void => s.split("").forEach((c, i) => v.setUint8(at + i, c.charCodeAt(0)));
   tag(0, "RIFF");
   v.setUint32(4, 36 + samples.length * 2, true);
   tag(8, "WAVE");

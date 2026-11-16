@@ -262,7 +262,10 @@ describe("compaction", () => {
         c.blocks.map((b) => b.type),
         ["text", "provider_compaction"],
       );
-      assert.equal(JSON.parse((c.blocks[1] as { payload: string }).payload)["encrypted_content"], "gAAAA-COMPACT");
+      assert.equal(
+        (JSON.parse((c.blocks[1] as { payload: string }).payload) as Record<string, unknown>)["encrypted_content"],
+        "gAAAA-COMPACT",
+      );
     });
   });
 

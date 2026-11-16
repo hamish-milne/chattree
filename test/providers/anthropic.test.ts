@@ -506,7 +506,7 @@ describe("stream", () => {
     const rng = new Rng(3);
     for (let i = 0; i < 40; i++) {
       const sizes = Array.from({ length: 1 + rng.int(4) }, () => 1 + rng.int(30));
-      assert.deepEqual(await run(replay(THINKING, sizes)), baseline, `sizes ${sizes}`);
+      assert.deepEqual(await run(replay(THINKING, sizes)), baseline, `sizes ${String(sizes)}`);
     }
   });
 });
@@ -573,7 +573,7 @@ describe("HTTP", () => {
       assert.equal(seen?.headers["x-api-key"], KEY);
       assert.equal(seen?.headers["anthropic-version"], "2023-06-01");
       assert.equal(seen?.headers["anthropic-beta"], "x-beta-1,x-beta-2");
-      const body = JSON.parse(seen?.body ?? "");
+      const body = JSON.parse(seen?.body ?? "") as { stream?: boolean };
       assert.equal(body.stream, true);
       assert.ok(!seen?.body.includes("cache_control"), "no cache markers for a compatible server");
     });

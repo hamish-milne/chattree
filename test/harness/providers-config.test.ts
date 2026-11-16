@@ -286,7 +286,7 @@ describe("create and open", () => {
     const convo = await Conversation.open(host, dir, opts());
     assert.equal(convo.providers.size, 3);
     assert.equal(
-      JSON.parse(await readFile(join(dir, SCHEMA_PATH), "utf8")).title,
+      (JSON.parse(await readFile(join(dir, SCHEMA_PATH), "utf8")) as Record<string, unknown>).title,
       "chattree harness.yml",
       "open regenerates the schema in every worktree",
     );

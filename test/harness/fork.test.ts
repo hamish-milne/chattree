@@ -117,8 +117,8 @@ describe("reading history", () => {
     await talk(convo);
     for (const ref of await convo.index()) {
       const fast = await convo.readEntriesUpTo(ref);
-      const slow = await convo.readEntriesAt(ref.commit);
-      assert.deepEqual(fast, slow);
+      const atCommit = await convo.readEntriesAt(ref.commit);
+      assert.deepEqual(fast, atCommit);
       const bytes = await convo.git.readFileAt(ref.commit, CHAT_FILE);
       assert.equal(bytes?.length, ref.offset);
     }
@@ -451,11 +451,11 @@ describe("mergeFork", () => {
     const { conversation: fork, branch } = await convo.fork(ids[0]);
     await (fork as Conversation).append(user("only in the fork"));
     await convo.mergeFork(branch, { summary: "nothing much" });
-    const texts = (await convo.readEntries()).map((e) =>
+    const messageTexts = (await convo.readEntries()).map((e) =>
       e.ok && e.value.$tag === "user" ? (e.value.content[0] as { text: string }).text : e.ok ? e.tag : "?",
     );
-    assert.ok(!texts.includes("only in the fork"));
-    assert.equal(texts.at(-1), "fork_merge");
+    assert.ok(!messageTexts.includes("only in the fork"));
+    assert.equal(messageTexts.at(-1), "fork_merge");
   });
 });
 

@@ -1,8 +1,8 @@
 import type { Conversation } from "./conversation.ts";
 import { isMcpTool, serverOf } from "./mcp/servers.ts";
-import type { ChangeKind, ChatEntry } from "./entries.ts";
+import type { ChangeKind } from "./entries.ts";
 import { hashDefinition } from "./definitions.ts";
-import { DEFAULT_RESULT_LIMIT, ToolRegistry, isStarted, shapeResult, type Tool, type ToolOutput } from "./tools.ts";
+import { ToolRegistry, isStarted, shapeResult, type Tool, type ToolOutput } from "./tools.ts";
 import { requestStream, type TurnOptions, type TurnResult } from "./turn.ts";
 import type { StreamEvent } from "../providers/types.ts";
 import type { Block } from "./context-builder.ts";
@@ -683,8 +683,8 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     const calls = result.completed.blocks.filter((b): b is CallBlock => b.type === "tool_call");
     if (result.completed.stop_reason !== "tool_use" || calls.length === 0) {
       // A message sent while this request was streaming was not in it: answer it before the turn ends.
-      const now = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-      if (!unseenQueued(now)) return { status: "completed", requests, last: result };
+      const latest = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+      if (!unseenQueued(latest)) return { status: "completed", requests, last: result };
       const why = stopReason();
       if (why !== undefined) return { status: why, requests, last: result };
       continue;

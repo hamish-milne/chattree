@@ -9,6 +9,7 @@ import { readCommitGraph } from "../../harness/graph.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
+import { byText } from "../support/sort.ts";
 
 const host = nodeHost();
 const say = (t: string): NewEntry => ({ $tag: "user", content: [{ $tag: "text", text: t }] });
@@ -96,7 +97,7 @@ describe("archiving threads", () => {
     assert.equal(await convo.archive("side"), false, "already archived");
     assert.equal(await git(convo.dir, "rev-parse", "side^{tree}"), treeBefore, "the commit changes nothing");
     const listed = await convo.listBranches();
-    assert.deepEqual(listed.map((b) => [b.name, b.archived]).sort(), [
+    assert.deepEqual(listed.map((b) => [b.name, b.archived]).sort(byText), [
       ["main", false],
       ["side", true],
     ]);

@@ -1,4 +1,4 @@
-import { Document, isAlias, isMap, isScalar, parseDocument, visit, type ParsedNode } from "yaml";
+import { Document, isAlias, isMap, isScalar, parseDocument, visit } from "yaml";
 import { SchemaError, type Issue } from "./errors.ts";
 import { hashValue } from "./hash.ts";
 import { TAG_KEY, VALUE_KEY, findDropped, objectToValue } from "./schema.ts";

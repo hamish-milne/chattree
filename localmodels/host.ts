@@ -125,7 +125,6 @@ export class LocalModelHost {
   #binary: string | undefined;
   #port: number | undefined;
   #preset = "";
-  #files: Record<string, ModelFiles> = {};
   #chain: Promise<unknown> = Promise.resolve();
   #abort = new AbortController();
   #wanted = false;
@@ -207,7 +206,6 @@ export class LocalModelHost {
         const before = sections(this.#preset);
         const after = sections(next);
         this.#config = config;
-        this.#files = prepared.files;
         if (next !== this.#preset) {
           await writeFile(join(this.#o.data, "run", "preset.ini"), next);
           this.#preset = next;
@@ -366,7 +364,6 @@ export class LocalModelHost {
       this.#binary = installed.binary;
       this.#set({ tag: installed.tag, backend: installed.backend, backendNote: installed.backendNote });
       const prepared = await this.#prepare(config);
-      this.#files = prepared.files;
       this.#preset = presetIni(config, prepared.files);
       await mkdir(join(this.#o.data, "run"), { recursive: true });
       await writeFile(join(this.#o.data, "run", "preset.ini"), this.#preset);

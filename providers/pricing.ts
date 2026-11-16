@@ -129,31 +129,31 @@ export function ratesFor(price: ModelPrice, tier: string | undefined, promptToke
 }
 
 /** The rate for writes at a lifetime (one number ignores it; a map needs the lifetime, or the shortest if none is asked for). */
-export function cacheWriteRate(rate: Rates["cache_write"], minutes?: number): number | undefined {
-  if (rate === undefined || typeof rate === "number") return rate;
-  const shortest = Object.keys(rate).sort((a, b) => Number(a) - Number(b))[0];
-  const key = minutes === undefined ? shortest : String(minutes);
-  return key === undefined ? undefined : rate[key];
+export function cacheWriteRate(writeRate: Rates["cache_write"], lifetime?: number): number | undefined {
+  if (writeRate === undefined || typeof writeRate === "number") return writeRate;
+  const shortest = Object.keys(writeRate).sort((a, b) => Number(a) - Number(b))[0];
+  const key = lifetime === undefined ? shortest : String(lifetime);
+  return key === undefined ? undefined : writeRate[key];
 }
 
 /** Dollars for `tokens` written to caches, given the meter's rate (one number, or one per lifetime). `undefined` if a needed rate is missing. */
-function cacheWriteUsd(tokens: Tokens, rate: Rates["cache_write"]): number | undefined {
+function cacheWriteUsd(tokens: Tokens, writeRate: Rates["cache_write"]): number | undefined {
   const total = tokens.cache_write_tokens ?? 0;
   if (total === 0) return 0;
-  if (rate === undefined) return undefined;
-  if (typeof rate === "number") return (total * rate) / 1_000_000;
+  if (writeRate === undefined) return undefined;
+  if (typeof writeRate === "number") return (total * writeRate) / 1_000_000;
   let usd = 0;
   let known = 0;
   for (const [w, n] of Object.entries(tokens.cache_write_by_minutes ?? {})) {
     if (n === 0) continue;
-    const per = rate[w];
+    const per = writeRate[w];
     if (per === undefined) return undefined; // a lifetime the table does not price
     usd += (n * per) / 1_000_000;
     known += n;
   }
   const rest = Math.max(0, total - known);
   if (rest === 0) return usd;
-  const per = cacheWriteRate(rate, tokens.default_cache_minutes);
+  const per = cacheWriteRate(writeRate, tokens.default_cache_minutes);
   return per === undefined ? undefined : usd + (rest * per) / 1_000_000;
 }
 

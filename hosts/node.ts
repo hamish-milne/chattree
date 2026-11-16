@@ -354,7 +354,7 @@ const nodeFs: Fs = {
   watch(path, onChange, opts) {
     try {
       const w = fsWatch(path, { persistent: false, recursive: opts?.recursive === true }, (_event, name) =>
-        onChange(name === null ? undefined : String(name)),
+        onChange(name === null ? undefined : name),
       );
       w.on("error", () => undefined); // the directory went away, or the platform cannot watch it: the caller's polling covers it
       return () => w.close();

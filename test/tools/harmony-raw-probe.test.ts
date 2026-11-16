@@ -73,7 +73,7 @@ describe("the probe's variations", () => {
 });
 
 describe("the strict arms", () => {
-  const run = (raw: string, builtin = "python") => {
+  const run = (raw: string) => {
     const p = probeDialect.parser({ strict: true }, [python], "");
     return [...p.push(raw), ...p.end("stop")].filter((e) => e.kind === "call.end");
   };

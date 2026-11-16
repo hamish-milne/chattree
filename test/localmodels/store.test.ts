@@ -60,16 +60,16 @@ describe("picking a quantisation", () => {
 });
 
 describe("the projector and draft files of a repository", () => {
-  const f = (path: string): RepoFile => ({ path, size: 1, sha256: undefined });
+  const repoFile = (path: string): RepoFile => ({ path, size: 1, sha256: undefined });
   const unsloth = [
-    f("gemma-4-12b-it-Q4_K_M.gguf"),
-    f("gemma-4-12b-it-Q8_0.gguf"),
-    f("mmproj-F16.gguf"),
-    f("mmproj-BF16.gguf"),
-    f("mtp-gemma-4-12b-it.gguf"),
-    f("MTP/mtp-gemma-4-12b-it-Q8_0.gguf"),
-    f("MTP/mtp-gemma-4-12b-it-BF16.gguf"),
-    f("MTP/mtp-gemma-4-12b-it-F16.gguf"),
+    repoFile("gemma-4-12b-it-Q4_K_M.gguf"),
+    repoFile("gemma-4-12b-it-Q8_0.gguf"),
+    repoFile("mmproj-F16.gguf"),
+    repoFile("mmproj-BF16.gguf"),
+    repoFile("mtp-gemma-4-12b-it.gguf"),
+    repoFile("MTP/mtp-gemma-4-12b-it-Q8_0.gguf"),
+    repoFile("MTP/mtp-gemma-4-12b-it-BF16.gguf"),
+    repoFile("MTP/mtp-gemma-4-12b-it-F16.gguf"),
   ];
 
   test("neither is ever taken for the model", () => {
@@ -79,7 +79,7 @@ describe("the projector and draft files of a repository", () => {
       ["gemma-4-12b-it-Q4_K_M.gguf"],
     );
     assert.deepEqual(
-      pickGguf([f("a-assistant-Q4_0.gguf"), f("a-Q4_0.gguf")], undefined).map((x) => x.path),
+      pickGguf([repoFile("a-assistant-Q4_0.gguf"), repoFile("a-Q4_0.gguf")], undefined).map((x) => x.path),
       ["a-Q4_0.gguf"],
     );
   });
@@ -90,14 +90,14 @@ describe("the projector and draft files of a repository", () => {
   });
   test("a lone file is taken, whatever it is called, and several of one rank are listed", () => {
     assert.equal(
-      pickSidecar([f("m.gguf"), f("gemma-4-31b-it-qat-q4_0-assistant.gguf")], "draft", undefined).path,
+      pickSidecar([repoFile("m.gguf"), repoFile("gemma-4-31b-it-qat-q4_0-assistant.gguf")], "draft", undefined).path,
       "gemma-4-31b-it-qat-q4_0-assistant.gguf",
     );
     assert.throws(
-      () => pickSidecar([f("a-assistant-Q4_0.gguf"), f("b-assistant-Q4_0.gguf")], "draft", undefined, "o/r"),
+      () => pickSidecar([repoFile("a-assistant-Q4_0.gguf"), repoFile("b-assistant-Q4_0.gguf")], "draft", undefined, "o/r"),
       /more than one draft model file \(a-assistant-Q4_0.gguf, b-assistant-Q4_0.gguf\)/,
     );
-    assert.throws(() => pickSidecar([f("m.gguf")], "draft", undefined, "o/r"), /o\/r has no draft model file/);
+    assert.throws(() => pickSidecar([repoFile("m.gguf")], "draft", undefined, "o/r"), /o\/r has no draft model file/);
     assert.throws(() => pickSidecar(unsloth, "draft", "Q2_K", "o/r"), /no Q2_K draft model file/);
   });
 });

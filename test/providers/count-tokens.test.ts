@@ -9,7 +9,7 @@ type Call = { url: string; headers: Record<string, string>; body: Record<string,
 function fakeFetch(status: number, reply: unknown, calls: Call[]): typeof fetch {
   return (async (url: string, init: RequestInit) => {
     calls.push({
-      url: String(url),
+      url: url,
       headers: init.headers as Record<string, string>,
       body: JSON.parse(String(init.body)) as Record<string, unknown>,
     });

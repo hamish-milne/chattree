@@ -146,7 +146,7 @@ describe("models update", () => {
 
 describe("models reload and logs (host running)", () => {
   test("reload reports, logs show what the server printed, and a pull goes through the daemon", async () => {
-    const { server, dir, data, env, run } = await setup();
+    const { server, dir, data, run } = await setup();
     let starts = 0;
     const daemon = new Daemon({
       data,

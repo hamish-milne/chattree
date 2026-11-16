@@ -90,10 +90,10 @@ export function ffmpegArgs(s: Sample, out: string, source: string = sourceUrl(s.
 }
 
 function run(cmd: string, args: string[]): Promise<number> {
-  return new Promise((resolve, reject) => {
+  return new Promise((done, reject) => {
     const p = spawn(cmd, args, { stdio: ["ignore", "inherit", "inherit"] });
     p.on("error", reject);
-    p.on("close", (code) => resolve(code ?? 1));
+    p.on("close", (code) => done(code ?? 1));
   });
 }
 

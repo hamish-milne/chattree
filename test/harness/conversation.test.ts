@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { appendFile, mkdir, readFile, rm, truncate, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { Git, LockHeldError, acquireLock, encodeEntry, parseFile, scan } from "../../src/index.ts";
+import { Git, LockHeldError, acquireLock, encodeEntry } from "../../src/index.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { CHAT_FILE, Conversation, ConversationError, describeEntry, type NewEntry } from "../../harness/conversation.ts";
 import { inlineBlobs } from "../../harness/context-builder.ts";
@@ -153,7 +153,7 @@ describe("append", () => {
   });
 
   test("large values become blobs committed with the entry that uses them", async () => {
-    const { dir, convo } = await fresh({ pipeline: { threshold: 200 } });
+    const { convo } = await fresh({ pipeline: { threshold: 200 } });
     const big = "line of output\n".repeat(200);
     const r = await convo.append(toolResult(big));
     const changed = (await convo.git.diff(`${r.commit}~1`, r.commit)).map((d) => d.path);

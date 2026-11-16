@@ -94,7 +94,7 @@ describe("string forms", () => {
     [cp(0xfeff), '- k: "\\ufeff"\n\n'],
     [cp(0x85), '- k: "\\u0085"\n\n'],
     ['q"uote\\', '- k: "q\\"uote\\\\"\n\n'],
-    [cp(0x1f600), "- k: " + '"' + cp(0x1f600) + '"' + "\n\n"], // astral characters stay raw
+    [cp(0x1f600), `- k: "${cp(0x1f600)}"\n\n`], // astral characters stay raw
   ];
   for (const [input, expected] of cases) {
     test(JSON.stringify(input), () => {

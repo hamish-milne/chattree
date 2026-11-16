@@ -125,11 +125,11 @@ describe("running samples", () => {
       report.errors[0]?.message ?? "",
       /^edit: `version` must be the # hex digits that read shows after "version" \(the file is at <hash> now\)/,
     );
-    const text = formatReport(report, { flavor: "anthropic", model: "m", repeat: 4 });
-    assert.match(text, /one line\s+4\/4\s+2\/4\s+\d\.\d\s+0\.5\s+0/);
-    assert.match(text, /write a new file\s+0\/4/);
-    assert.match(text, /wrong outcomes[\s\S]*write a new file: the model made no tool call/);
-    assert.match(text, /most common tool errors:\s+2\s+edit: `version` must be/);
+    const reportText = formatReport(report, { flavor: "anthropic", model: "m", repeat: 4 });
+    assert.match(reportText, /one line\s+4\/4\s+2\/4\s+\d\.\d\s+0\.5\s+0/);
+    assert.match(reportText, /write a new file\s+0\/4/);
+    assert.match(reportText, /wrong outcomes[\s\S]*write a new file: the model made no tool call/);
+    assert.match(reportText, /most common tool errors:\s+2\s+edit: `version` must be/);
   });
 });
 

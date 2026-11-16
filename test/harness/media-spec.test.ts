@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { FORMATS, formatOf, type Format } from "../../harness/formats.ts";
+import { formatOf, type Format } from "../../harness/formats.ts";
 import { planMedia, type MediaSpec } from "../../harness/media-spec.ts";
 import { ANTHROPIC_MEDIA, CHAT_MEDIA, RESPONSES_MEDIA, localMedia } from "../../providers/media-specs.ts";
 

@@ -15,6 +15,7 @@ import {
 } from "../../src/index.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { identity, newRepo, tempDir } from "../support/tmp.ts";
+import { byText } from "../support/sort.ts";
 
 const dec = new TextDecoder();
 const enc = new TextEncoder();
@@ -651,7 +652,7 @@ describe("worktrees", () => {
     await git.addWorktree(wtPath, { newBranch: "sub/one", start: base });
     const wt = git.withCwd(wtPath);
     assert.equal(await wt.currentBranch(), "sub/one");
-    assert.equal(await wt.version.minor, git.version.minor);
+    assert.equal(wt.version.minor, git.version.minor);
     await commitFile(wt, "child", "c\n");
     assert.equal(await git.readFileAt("HEAD", "child"), undefined);
     assert.ok(await git.readFileAt("sub/one", "child"));
@@ -661,11 +662,11 @@ describe("worktrees", () => {
 
     const list = await git.worktrees();
     assert.deepEqual(
-      list.map((w) => [w.path, w.branch]).sort(),
+      list.map((w) => [w.path, w.branch]).sort(byText),
       [
         [git.cwd, "refs/heads/main"],
         [wtPath, "refs/heads/sub/one"],
-      ].sort(),
+      ].sort(byText),
     );
     assert.ok(list.every((w) => !w.bare && !w.detached && !w.locked && !w.prunable));
     assert.equal(list.find((w) => w.path === wtPath)?.head, await wt.head());

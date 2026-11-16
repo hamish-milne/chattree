@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";

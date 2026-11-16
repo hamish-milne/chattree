@@ -5,7 +5,7 @@ import { nodeHost } from "../../hosts/node.ts";
 import { Conversation, type NewEntry } from "../../harness/conversation.ts";
 import { openEntry, search } from "../../harness/search.ts";
 import { searchTool } from "../../harness/search-tool.ts";
-import type { Tool, ToolOutput } from "../../harness/tools.ts";
+import type { ToolOutput } from "../../harness/tools.ts";
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();

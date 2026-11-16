@@ -71,13 +71,13 @@ describe("media in a tool result, on each wire", () => {
     const m = (buildAnthropicBody(ctx([pdf]), setup, { cacheControl: false })["messages"] as { content: Record<string, unknown>[] }[]).at(
       -1,
     );
-    assert.equal(((m?.content[0] as { content: { type: string }[] }).content[1] as { type: string }).type, "document");
+    assert.equal(((m!.content[0] as { content: { type: string }[] }).content[1] as { type: string }).type, "document");
     assert.throws(() => buildAnthropicBody(ctx([wav]), setup, { cacheControl: false }), ProviderError);
   });
 
   test("anthropic: a result without media keeps a plain string", () => {
     const m = (buildAnthropicBody(ctx([]), setup, { cacheControl: false })["messages"] as { content: Record<string, unknown>[] }[]).at(-1);
-    assert.equal((m?.content[0] as { content: unknown }).content, "out.png: picture");
+    assert.equal((m!.content[0] as { content: unknown }).content, "out.png: picture");
   });
 
   test("openai-responses: function_call_output.output is an array with an input_image", () => {

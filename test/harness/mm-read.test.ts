@@ -5,12 +5,11 @@ import { describe, test } from "node:test";
 import { nodeHost } from "../../hosts/node.ts";
 import { MemoryBlobStore } from "../../src/index.ts";
 import { MM_READ_MAX_BYTES, leafTools } from "../../harness/starter/index.ts";
-import type { Tool, ToolContext, ToolOutput } from "../../harness/tools.ts";
+import type { Tool, ToolOutput } from "../../harness/tools.ts";
 import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 const PNG = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
-const WAV = Uint8Array.from([...Buffer.from("RIFF"), 0, 0, 0, 0, ...Buffer.from("WAVEfmt ")]);
 
 async function setup(files: Record<string, Uint8Array | string>, mmRead = true) {
   const dir = await tempDir();
@@ -50,12 +49,12 @@ describe("mm_read", () => {
         ...Buffer.from("OggS"),
         0,
         2,
-        ...new Array(20).fill(0),
+        ...new Array<number>(20).fill(0),
         1,
         30,
         1,
         ...Buffer.from("vorbis"),
-        ...new Array(40).fill(0),
+        ...new Array<number>(40).fill(0),
       ]),
     });
     assert.match((await run("mm_read", { path: "e.png" })).content, /empty \(0 bytes\)/);
@@ -70,12 +69,12 @@ describe("mm_read", () => {
       ...Buffer.from("OggS"),
       0,
       2,
-      ...new Array(20).fill(0),
+      ...new Array<number>(20).fill(0),
       1,
       30,
       1,
       ...Buffer.from("vorbis"),
-      ...new Array(40).fill(0),
+      ...new Array<number>(40).fill(0),
     ]);
     const { run } = await setup({ "o.ogg": ogg });
     const r = await run("mm_read", { path: "o.ogg" });

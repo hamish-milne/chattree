@@ -15,6 +15,7 @@ import {
   type ToolDefinition,
 } from "../../harness/definitions.ts";
 import { ChangeNotAllowed, foldSetup, type PinnedDefinition } from "../../harness/setup.ts";
+import { byText } from "../support/sort.ts";
 
 const memory = (): BlobStore & { map: Map<string, Uint8Array> } => {
   const map = new Map<string, Uint8Array>();
@@ -110,7 +111,7 @@ describe("drift", () => {
       { kind: "skill", name: "pdf", value: { name: "pdf" } },
     ]);
     const issues = await checkDefinitions(s, src);
-    assert.deepEqual(issues.map((i) => [i.kind, i.message.split(" ").slice(0, 3).join(" ")]).sort(), [
+    assert.deepEqual(issues.map((i) => [i.kind, i.message.split(" ").slice(0, 3).join(" ")]).sort(byText), [
       ["instructions_changed", "instructions instructions changed:"],
       ["tools_changed", "tool a changed:"],
       ["tools_changed", "tool gone is"],

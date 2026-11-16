@@ -34,7 +34,7 @@
     "typescript/no-floating-promises": "error",
     "typescript/no-misused-promises": "error",
     "typescript/await-thenable": "error",
-    "typescript/require-await": "error",
+    "typescript/require-await": "off",
     "typescript/no-for-in-array": "error",
     "typescript/no-base-to-string": "error",
     "eslint/no-await-in-loop": "off",

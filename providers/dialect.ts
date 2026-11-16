@@ -305,17 +305,24 @@ export async function serverProps(base: string, model: string, doFetch: typeof f
   return found;
 }
 
+/** The model a request is for: an adapter is only asked to stream once the thread has one. */
+const modelOf = (req: StreamRequest): NonNullable<StreamRequest["setup"]["model"]> => {
+  const model = req.setup.model;
+  if (model === undefined) throw new Error("the request has no model");
+  return model;
+};
+
 export function completionMapper(opts: CompletionOptions, settings: (req: StreamRequest) => DialectSettings): HttpMapper<State> {
   const rendered = new WeakMap<StreamRequest, Rendered>();
   const markerIds = new WeakMap<StreamRequest, Map<number, string>>();
   const renderFor = (req: StreamRequest, s: DialectSettings, marker?: string): Rendered => {
-    const served = servedModelId(req.setup.model!);
+    const served = servedModelId(modelOf(req));
     return opts.dialects.get(s.dialect).render({
       context: req.context,
       options: s.dialect_options ?? {},
       effort: s.reasoning_effort,
       date: opts.today(),
-      provider: req.setup.model!.provider,
+      provider: modelOf(req).provider,
       model: served,
       marker,
     });
@@ -392,13 +399,13 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
     },
     start(req) {
       const s = settings(req);
-      const served = servedModelId(req.setup.model!);
+      const served = servedModelId(modelOf(req));
       return {
         markers: markerIds.get(req) ?? new Map(),
         parser: opts.dialects
           .get(s.dialect)
           .parser(s.dialect_options ?? {}, req.context.tools, (rendered.get(req) ?? renderFor(req, s)).prompt),
-        assembler: new Assembler(req.setup.model!.provider, opts.newId),
+        assembler: new Assembler(modelOf(req).provider, opts.newId),
         started: false,
         requested: opts.modelName(served),
         observed: false,

@@ -12,7 +12,7 @@ import { nodeHost } from "../../hosts/node.ts";
 import { AdapterRegistry, defineAdapter } from "../../providers/registry.ts";
 import { tempDir } from "../support/tmp.ts";
 
-const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
+const ascii = (s: string): number[] => s.split("").map((c) => c.charCodeAt(0));
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
 const BMP = Uint8Array.from([
   ...ascii("BM"),

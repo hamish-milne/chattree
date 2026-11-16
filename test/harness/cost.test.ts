@@ -109,7 +109,7 @@ describe("ledger", () => {
     ];
     const l = await computeLedger(entries, resolver);
     assert.deepEqual(l.turn, { usd: 2.5, requests: 5, unpriced: 1 });
-    const fresh = await computeLedger(
+    const recomputed = await computeLedger(
       [
         setup(cheap),
         user(),
@@ -119,7 +119,11 @@ describe("ledger", () => {
       ],
       resolver,
     );
-    assert.deepEqual([fresh.conversation.usd, fresh.conversation.unpriced], [1, 1], "the child's first reply had no setup of its own");
+    assert.deepEqual(
+      [recomputed.conversation.usd, recomputed.conversation.unpriced],
+      [1, 1],
+      "the child's first reply had no setup of its own",
+    );
   });
 
   test("from: counts only a branch's own entries but still prices them under earlier setups", async () => {
@@ -456,15 +460,15 @@ describe("token counting in prepareContext", () => {
   const TIGHT = CONFIG.replace("max_request_usd: 1", "max_request_usd: 0.001");
   const big: NewEntry = { $tag: "user", content: [{ $tag: "text", text: "x".repeat(9_500) }] };
 
-  async function counting(config: string, reply: (() => number) | Error) {
+  async function counting(config: string, answer: (() => number) | Error) {
     const { convo } = await fresh(config);
     await convo.pinPricing();
     const adapter = convo.providers.get("gpt") as { countTokens?: unknown };
     let calls = 0;
     adapter.countTokens = async () => {
       calls++;
-      if (reply instanceof Error) throw reply;
-      return reply();
+      if (answer instanceof Error) throw answer;
+      return answer();
     };
     return { convo, calls: () => calls };
   }

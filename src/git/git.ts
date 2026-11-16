@@ -174,7 +174,7 @@ export class Git {
       version = r.exitCode === 0 ? parseGitVersion(dec.decode(r.stdout)) : undefined;
       if (version === undefined)
         throw new GitError(`cannot determine the git version (exit ${r.exitCode}): ${dec.decode(r.stderr).trim()}`);
-      if (known === undefined) knownVersions.set(host, (known = new Map()));
+      if (known === undefined) knownVersions.set(host, (known = new Map<string, GitVersion>()));
       known.set(program, version);
     }
     const min = opts.minVersion ?? MIN_GIT_VERSION;

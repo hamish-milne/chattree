@@ -77,7 +77,7 @@ async function setup(llama: Record<string, unknown> | "path" = "path") {
 
 describe("the daemon", () => {
   test("is found through its state file, only one runs, and a stale file is ignored", async () => {
-    const { data, daemon, port, info, client, close } = await setup();
+    const { data, port, info, client, close } = await setup();
     try {
       assert.equal(info.port, port);
       if (process.platform !== "win32") assert.equal((await stat(stateFile(data))).mode & 0o777, 0o600);

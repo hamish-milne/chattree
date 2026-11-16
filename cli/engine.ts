@@ -256,7 +256,7 @@ export class Engine {
       p.catch(() => {
         if (this.#toolsets.get(convo) === p) this.#toolsets.delete(convo);
         const i = this.#sets.indexOf(p as Promise<ToolSet>);
-        if (i >= 0) this.#sets.splice(i, 1);
+        if (i >= 0) void this.#sets.splice(i, 1);
       });
       this.#toolsets.set(convo, p);
       this.#sets.push(p);
@@ -549,7 +549,6 @@ export class Engine {
     const set = await this.toolset(); // a tool set that cannot be built is the user's to fix: this throws
     if (set === undefined) return;
     try {
-      const { syncTools } = await import("../harness/loop.ts");
       await syncTools(this.convo, set.registry);
     } catch {
       /* the request reports what is wrong with the setup */

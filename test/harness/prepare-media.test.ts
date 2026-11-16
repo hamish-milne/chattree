@@ -9,7 +9,7 @@ import type { MediaSpec } from "../../harness/media-spec.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { tempDir } from "../support/tmp.ts";
 
-const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
+const ascii = (s: string): number[] => s.split("").map((c) => c.charCodeAt(0));
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
 const pad = (a: number[], n = 600): Uint8Array => Uint8Array.from([...a, ...new Array<number>(Math.max(0, n - a.length)).fill(0)]);
 const PNG = Uint8Array.from([

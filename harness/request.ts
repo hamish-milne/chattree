@@ -183,13 +183,13 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
     const key = createHash("sha256")
       .update(contextJson([model.provider, modelRef.id, context]))
       .digest("hex");
-    const cache = counts.get(convo) ?? new Map<string, number>();
-    counts.set(convo, cache);
+    const tokenCache = counts.get(convo) ?? new Map<string, number>();
+    counts.set(convo, tokenCache);
     try {
-      let n = cache.get(key);
+      let n = tokenCache.get(key);
       if (n === undefined) {
         n = await adapter.countTokens({ context, setup, signal: AbortSignal.timeout(15_000) });
-        cache.set(key, n);
+        tokenCache.set(key, n);
       }
       estimate = estimateRequest(context, modelRef, table, info, n);
       checked = checkLimits({ limits, ledger, estimate });

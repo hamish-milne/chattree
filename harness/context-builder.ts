@@ -30,7 +30,6 @@ export type Block =
   | { type: "reasoning"; provider: string; payload?: Record<string, unknown>; visible?: string; ext?: Record<string, unknown> }
   | { type: "provider_compaction"; provider: string; payload: string; ext?: Record<string, unknown> }
   | { type: "tool_call"; call_id: string; name: string; args: Record<string, unknown>; args_raw?: string; ext?: Record<string, unknown> };
-type BlobRef = { $tag: "blob"; sha256: string; bytes: number; mime?: string | undefined };
 
 /** A file for the model to see. Text files never get here: they are inlined as text (see `Renderer.textAttachment`). */
 export type AttachmentPart = {

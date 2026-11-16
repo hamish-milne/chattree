@@ -132,7 +132,7 @@ describe("hostile input never produces anything but ParseError", () => {
       try {
         parseEntry(s);
       } catch (e) {
-        assert.ok(e instanceof ParseError, `unexpected ${e}`);
+        assert.ok(e instanceof ParseError, `unexpected ${String(e)}`);
       }
     }
   });

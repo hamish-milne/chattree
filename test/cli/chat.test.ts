@@ -314,7 +314,10 @@ describe("handing the terminal over", () => {
       assert.ok(off >= 0 && on > off, "paste mode was off while the editor ran and on again after");
       t.type("\n");
       await waitFor(() => server.seen.length === 1, "the request");
-      assert.equal(JSON.parse(server.seen[0]?.body ?? "").messages.at(-1).content, "written in the editor");
+      assert.equal(
+        (JSON.parse(server.seen[0]?.body ?? "") as { messages: { content: string }[] }).messages.at(-1)?.content,
+        "written in the editor",
+      );
       t.type("/clear\n");
       await waitFor(() => t.raw().includes("\x1b[2J"), "the screen was cleared");
       t.type("/quit\n");

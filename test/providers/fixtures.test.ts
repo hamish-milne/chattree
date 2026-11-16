@@ -71,7 +71,7 @@ describe("recording", () => {
       toyAdapter("http://none.invalid", { fetch: replayFetch(fixture), retry: { maxAttempts: 1 } }).stream(req()),
     );
     assert.deepEqual(conformanceProblems(run), []);
-    assert.match(String((run.error as Error).message), /401.*bad key/);
+    assert.match((run.error as Error).message, /401.*bad key/);
   });
 
   test("recordingFetch passes the response through untouched while recording", async () => {

@@ -45,9 +45,9 @@ export function tapFetch(
         const reader = copy.body?.getReader();
         const dec = new TextDecoder();
         for (;;) {
-          const n = await reader?.read();
-          if (n === undefined || n.done) break;
-          text += dec.decode(n.value, { stream: true });
+          const chunk = await reader?.read();
+          if (chunk === undefined || chunk.done) break;
+          text += dec.decode(chunk.value, { stream: true });
         }
       } catch (e) {
         text += `\n[the response was cut: ${e instanceof Error ? e.message : String(e)}]`;

@@ -7,7 +7,7 @@ import { describe, test } from "node:test";
 import { findFfmpeg } from "../../hosts/ffmpeg.ts";
 import { FORMATS, canonicalMime, formatOf, sniffFormat } from "../../harness/formats.ts";
 
-const ascii = (s: string): number[] => [...s].map((c) => c.charCodeAt(0));
+const ascii = (s: string): number[] => s.split("").map((c) => c.charCodeAt(0));
 const le32 = (n: number): number[] => [n & 255, (n >> 8) & 255, (n >> 16) & 255, (n >>> 24) & 255];
 const bytes = (...parts: (number[] | string)[]): Uint8Array =>
   Uint8Array.from(parts.flatMap((p) => (typeof p === "string" ? ascii(p) : p)));

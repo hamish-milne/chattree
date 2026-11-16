@@ -29,7 +29,7 @@ import { redactionPatterns, type SecretSource } from "./secrets.ts";
 import { ConfigNotTrusted, NO_CONFIG, TrustStore, configHash, judge, type ConfigTrust } from "./trust.ts";
 import { ProviderSetupError, buildProviders, validateProviders, type AdapterRegistry, type BuiltProviders } from "../providers/registry.ts";
 import type { ProviderAdapter } from "../providers/types.ts";
-import { tableBytes, tableHash, type PriceTable } from "../providers/pricing.ts";
+import { tableBytes, type PriceTable } from "../providers/pricing.ts";
 import { computeLedger, priceResolver, type Ledger, type PriceResolver, type Spend } from "./ledger.ts";
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";

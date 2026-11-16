@@ -21,10 +21,6 @@ async function session(dir: string, ...lines: string[]) {
   const code = await main(["chat", "--plain", "-y"], io);
   return { code, out: io.stdout, err: io.stderr, all: `${io.stdout}${io.stderr}` };
 }
-const tagsOn = async (dir: string, branch: string) => {
-  const c = await Conversation.open(host, dir);
-  return (await c.readEntriesAt(`refs/heads/${branch}`)).flatMap((e) => (e.ok ? [e.value.$tag] : []));
-};
 
 /** The second half of the thread tests: Windows runs each test in about 25 s, so one file of eight went past the 3-minute limit. */
 describe("threads, part two", () => {

@@ -3,7 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { nodeHost } from "../../hosts/node.ts";
-import { Conversation, ConversationError, type NewEntry } from "../../harness/conversation.ts";
+import { Conversation, type NewEntry } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import { tempDir } from "../support/tmp.ts";

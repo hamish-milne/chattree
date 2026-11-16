@@ -6,8 +6,6 @@ import { z } from "zod";
 import { nodeHost } from "../../hosts/node.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
-import { LimitExceeded } from "../../harness/limits.ts";
-import { JobRegistry, jobTools } from "../../harness/jobs.ts";
 import { deliverForks, forkTool, mergeTool } from "../../harness/fork-tools.ts";
 import {
   deliverSubagents,
@@ -20,23 +18,11 @@ import {
 import { Pump } from "../../harness/pump.ts";
 import { ALL, FOREVER } from "../../harness/approvals.ts";
 import { resolveSubagentModels } from "../../harness/subagent-models.ts";
-import { ThreadRuns } from "../../harness/runs.ts";
-import {
-  runLoop,
-  syncTools,
-  type GrantStore,
-  toolDrift,
-  ToolsNotSupported,
-  ToolsOutOfSync,
-  type LoopEvent,
-  type LoopOptions,
-} from "../../harness/loop.ts";
-import { leafTools } from "../../harness/starter/index.ts";
-import { ToolRegistry, type Tool, type ToolOutput } from "../../harness/tools.ts";
+import { runLoop, syncTools, type GrantStore, type LoopEvent, type LoopOptions } from "../../harness/loop.ts";
+import { ToolRegistry, type Tool } from "../../harness/tools.ts";
 import { envSource } from "../../harness/secrets.ts";
-import { AdapterRegistry, defineAdapter, type ToolConvention } from "../../providers/registry.ts";
+import { AdapterRegistry, defineAdapter } from "../../providers/registry.ts";
 import { ProviderError, type Completed } from "../../providers/types.ts";
-import { flatProblems } from "../../harness/tool-schema.ts";
 import { assertHistoryInvariants } from "../support/history.ts";
 import { tempDir } from "../support/tmp.ts";
 
@@ -65,7 +51,6 @@ const calls = (...cs: { id: string; name: string; args: unknown }[]): Completed 
 });
 const call = (id: string, name: string, args: unknown = {}) => ({ id, name, args });
 
-let convention: ToolConvention | undefined;
 const adapters = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
@@ -75,7 +60,6 @@ const adapters = new AdapterRegistry().register(
     secrets: () => [],
     models: () => ({
       m1: {
-        ...(convention === undefined ? {} : { tool_convention: convention }),
         description: "the everyday model",
         cost_tier: "medium" as const,
         reasoning: { low: { effort: "low" }, high: { effort: "high" } },
@@ -155,7 +139,6 @@ async function until<T>(fn: () => T | undefined, ms = 5000): Promise<T> {
 }
 const entries = async (c: Conversation): Promise<ChatEntry[]> => (await c.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
 
-const allow = { system: "s", cost: false as const, approve: () => Promise.resolve({ allow: true as const }) };
 /** Every call is covered: nothing is asked. */
 const yes: GrantStore = { allow: () => Promise.resolve({ [ALL]: FOREVER }), grant: () => Promise.resolve() };
 

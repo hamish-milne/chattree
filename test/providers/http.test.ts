@@ -90,7 +90,7 @@ describe("a normal stream", () => {
       const pieces = Array.from({ length: Math.ceil(text.length / size) }, (_, i) => text.slice(i * size, (i + 1) * size));
       await withServer([{ acts: pieces }], async (server) => {
         const r = checked(await run(toyAdapter(server.url, fast())));
-        assert.equal((r.completed?.blocks[0] as { text: string }).text, "Hé日lo");
+        assert.equal((r.completed!.blocks[0] as { text: string }).text, "Hé日lo");
       });
     }
   });
