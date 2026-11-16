@@ -5,6 +5,7 @@ import { z } from "zod";
 import { Conversation } from "../../harness/conversation.ts";
 import type { AttachmentPart } from "../../harness/context-builder.ts";
 import { ConversionError, type Converter } from "../../harness/converter.ts";
+import { pinDefinition } from "../../harness/definitions.ts";
 import { prepareContext } from "../../harness/request.ts";
 import { envSource } from "../../harness/secrets.ts";
 import { nodeHost } from "../../hosts/node.ts";
@@ -25,7 +26,7 @@ const registry = new AdapterRegistry().register(
     secrets: () => [],
     create: () => ({
       $tag: "fake",
-      mediaSpec: () => ({ image: [{ mime: "image/png" }] }),
+      mediaSpec: (setup: { model?: { id: string } }) => (setup.model?.id === "blind" ? {} : { image: [{ mime: "image/png" }] }),
       // eslint-disable-next-line require-yield
       async *stream() {
         throw new Error("not used");
@@ -34,9 +35,11 @@ const registry = new AdapterRegistry().register(
   }),
 );
 
-async function thread(): Promise<Conversation> {
+async function thread(withTools = false): Promise<Conversation> {
   const convo = await Conversation.create(nodeHost(), join(await tempDir(), "c"), { providers: { registry, secrets: envSource({}) }, config: "providers:\n  f:\n    $tag: fake\n" });
-  await convo.setupChange({ model: { provider: "f", id: "m1", settings: {} } });
+  const tool = (name: string) => ({ name, description: name, input_schema: { type: "object" } as const });
+  const set = withTools ? { mm_read: await pinDefinition("tool", tool("mm_read"), { store: "blob", blobs: convo.store }), read: await pinDefinition("tool", tool("read"), { store: "blob", blobs: convo.store }) } : undefined;
+  await convo.setupChange({ model: { provider: "f", id: "m1", settings: {} }, ...(set === undefined ? {} : { tools: { set } }) });
   await convo.append({ $tag: "user", content: [{ $tag: "text", text: "look" }, { $tag: "attachment", name: "a.bmp", data: { $tag: "blob", sha256: await convo.store.put(BMP), bytes: BMP.length, mime: "image/bmp" } }] });
   return convo;
 }
@@ -70,5 +73,14 @@ describe("prepareContext converts media for the sink", () => {
       assert.equal(p.warnings.filter((w) => w.kind === "media_not_sent").length, 1);
       assert.equal(p.converted, undefined);
     }
+  });
+
+  test("mm_read is offered to a model that takes some media, and left out for one that takes none", async () => {
+    const convo = await thread(true);
+    const sighted = await prepareContext(convo, { system: "s", cost: false });
+    assert.deepEqual(sighted.context.tools.map((t) => t.name).sort(), ["mm_read", "read"]);
+    await convo.setupChange({ model: { provider: "f", id: "blind", settings: {} } }, { allow: ["model_changed"] });
+    const blind = await prepareContext(convo, { system: "s", cost: false });
+    assert.deepEqual(blind.context.tools.map((t) => t.name), ["read"]);
   });
 });

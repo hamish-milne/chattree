@@ -14,6 +14,7 @@ import { hasSkillTool, skillCatalog, skillUpdates, withCatalog } from "./skills.
 import { tableHash } from "../providers/pricing.ts";
 import { hostConvertCache, type ConvertCache } from "./convert-cache.ts";
 import type { Converter } from "./converter.ts";
+import { takesMedia } from "./media-spec.ts";
 import { prepareMedia, type MediaConversion } from "./prepare-media.ts";
 
 export interface PrepareOptions {
@@ -91,13 +92,17 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);
   // The same for skills; the catalog in the prefix lists what the prefix shows, not what is current, and only for a model that has the tool.
   const skillNotes = await skillUpdates(entries, pendingAppends(entries), { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) });
+  // What the sink takes of pictures, sound and PDFs: it decides whether the model is offered `mm_read`, and what the request's files become.
+  const adapterFor = convo.providers.get(setup.model.provider);
+  const spec = adapterFor?.mediaSpec === undefined ? undefined : await adapterFor.mediaSpec(setup);
+  const toolDefs = spec === undefined || takesMedia(spec) ? defs.tools : defs.tools.filter((t) => t.name !== "mm_read");
   const built = await buildContext(entries, {
     renderer,
     system: opts.system,
     instructions: withCatalog(defs.prefixInstructions, hasSkillTool(setup) ? skillCatalog(renderer, defs.prefixSkills) : undefined),
     instructionUpdates,
     skillUpdates: skillNotes,
-    tools: projectedTools(convo, setup.model, defs.tools),
+    tools: projectedTools(convo, setup.model, toolDefs),
     target: { provider: setup.model.provider, model: servedModelId(setup.model) },
     readBytes: async (r) => {
       const bytes = await convo.store.get(r.sha256);
@@ -111,8 +116,6 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
     },
   });
   // What the model is sent differs from the transcript where a picture or sound had to be converted or could not be shown.
-  const adapterFor = convo.providers.get(setup.model.provider);
-  const spec = adapterFor?.mediaSpec === undefined ? undefined : await adapterFor.mediaSpec(setup);
   const cache = opts.media?.cache === false ? undefined : (opts.media?.cache ?? hostConvertCache(convo.host, convo.host.path.join(await convo.git.commonDir(), "chattree", "convert")));
   const prepared = spec === undefined ? { context: built, converted: [] as MediaConversion[], warnings: [] as CostWarning[] } : await prepareMedia(built, { spec, ...(opts.media?.converter === undefined ? {} : { converter: opts.media.converter }), ...(cache === undefined ? {} : { cache }) });
   const context = prepared.context;

@@ -52,3 +52,8 @@ export function planMedia(
   if (to === undefined) return { action: "refuse", reason: `${format.label} is not one this model takes (it takes ${accepted}) and cannot be converted to one of them` };
   return { action: "convert", to };
 }
+
+/** Whether a sink takes any picture, sound or PDF at all (a model with none has no use for a tool that shows files). */
+export function takesMedia(spec: MediaSpec): boolean {
+  return (spec.image?.length ?? 0) + (spec.audio?.length ?? 0) + (spec.pdf?.length ?? 0) > 0;
+}

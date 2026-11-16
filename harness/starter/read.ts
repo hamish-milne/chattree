@@ -52,7 +52,7 @@ async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{
     if (st.size > MAX_FILE_BYTES) return failed(name, `${st.size} bytes is too large to read whole; use run with head, tail or grep`);
     bytes = await host.fs.read(abs);
   }
-  if (bytes.subarray(0, 8000).includes(0)) return failed(name, mmRead ? "a binary file; if it is a picture, sound or PDF, use mm_read to see it" : "a binary file");
+  if (bytes.subarray(0, 8000).includes(0)) return failed(name, mmRead ? "a binary file; if it is a picture, sound or PDF, use mm_read to see it (when it is among your tools)" : "a binary file");
   let text: string;
   try {
     text = dec.decode(bytes);

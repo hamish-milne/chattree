@@ -5,7 +5,11 @@
  *   node tools/live-check.ts --flavor openai-responses --base-url http://localhost:11434/v1 --model qwen3 --api-key-env OPENAI_API_KEY
  *   node tools/live-check.ts --flavor openai-compatible --base-url http://localhost:8080/v1 --model qwen3   (llama-server, Ollama, vLLM: Chat Completions)
  *
- * Flags: --busybox PATH (busybox.exe for the everyday utilities on Windows; default CHATTREE_BUSYBOX or vendor/busybox, see tools/fetch-busybox.ts), --flavor, --base-url, --model, --max-tokens (default 512), --api-key-env NAME (the key is read from that
+ * Pictures: `vision` sends made pictures (a coloured shape) as attachments; `vision-convert` sends the same as a BMP through the adapter's media spec and
+ * ffmpeg (so it is converted to what the server takes); `tool-result-picture` has the model call a tool whose result is a picture and asks what it shows. Each
+ * skips when the model does not take pictures; the last two need ffmpeg (--ffmpeg PATH, CHATTREE_FFMPEG or the PATH).
+ *
+ * Flags: --ffmpeg PATH (for vision-convert), --busybox PATH (busybox.exe for the everyday utilities on Windows; default CHATTREE_BUSYBOX or vendor/busybox, see tools/fetch-busybox.ts), --flavor, --base-url, --model, --max-tokens (default 512), --api-key-env NAME (the key is read from that
  * environment variable; never pass a key on the command line), --record DIR (save each scenario's events as JSON,
  * secrets scrubbed), --only NAME (repeatable), --list.
  *
@@ -16,15 +20,20 @@
  * reasoning) is reported as `skip`, not as a failure. Ollama is a zero-cost stand-in: it speaks the Anthropic
  * and OpenAI Responses shapes. It ignores some fields (cache_control, tool_choice) and may not report in-stream errors.
  */
-import { mkdir, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { leafTools } from "../harness/starter/index.ts";
 import { findBusybox } from "../hosts/node.ts";
 import { runAgentTask } from "./agent-task.ts";
+import { findFfmpeg } from "../hosts/ffmpeg.ts";
+import { reencode, throughSink as throughSinkAt } from "./media-source.ts";
+import { scenarios as pictureScenarios } from "./vision-scenarios.ts";
 import { EDIT_TASKS, TASKS, type Task } from "./tasks.ts";
 import { ToolRegistry } from "../harness/tools.ts";
 import { validateArgs } from "../harness/tool-schema.ts";
-import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
+import type { AttachmentPart, Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import { emptySetup, type AgentSetup } from "../harness/setup.ts";
 import { anthropicAdapter } from "../providers/anthropic.ts";
 import { collectStream, conformanceProblems, type StreamRun } from "../providers/conformance.ts";
@@ -41,6 +50,8 @@ export interface LiveOptions {
   model: string;
   maxTokens?: number;
   apiKey?: string;
+  /** ffmpeg, for the scenarios that convert a picture. Default: found as the settings would (CHATTREE_FFMPEG, vendor, PATH). */
+  ffmpeg?: string | undefined;
   /** busybox.exe, for the everyday utilities on Windows. */
   busybox?: string | undefined;
   only?: readonly string[];
@@ -139,6 +150,12 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
     const r = await runAgentTask({ adapter, busybox: o.busybox, model: setup.model as NonNullable<AgentSetup["model"]>, files: task.files, prompt: task.prompt, onRequest: (run, c) => o.onRun?.(scenario, run, summary(c)) });
     await o.onLog?.(scenario, label, { workspace: r.dir, prompt: task.prompt, status: r.status, steps: r.steps, answer: r.answer, files: r.after });
     return { ...r, outcome: await task.check(r) };
+  };
+
+  const picture = (bytes: Uint8Array, name: string, mime: string): AttachmentPart => ({ type: "attachment", kind: "image", name, mime, sha256: createHash("sha256").update(bytes).digest("hex"), bytes });
+  /** A model that cannot take pictures says so with a request error: that is a skip, not a failure of the adapter. */
+  const skipIfNoPictures = (run: StreamRun): void => {
+    if (run.error instanceof ProviderError && run.error.kind === "invalid_request" && /image|vision|multimodal|picture|content/i.test(run.error.message)) skip(`the model does not seem to take pictures: ${run.error.message.slice(0, 120)}`);
   };
 
   const scenarios: [string, () => Promise<string>][] = [
@@ -276,6 +293,62 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
       ok(r.problems.length === 0, `the history does not verify: ${JSON.stringify(r.problems).slice(0, 300)}`);
       return `${r.requests} requests, tools used: ${[...r.used].sort().join(", ")}${r.errors > 0 ? `, ${r.errors} tool error(s) recovered` : ""}; file edited; history verifies`;
     }],
+    ["vision", async () => {
+      const picts = pictureScenarios({ kinds: ["shape"], count: 3, seed: 11 });
+      let right = 0;
+      const notes: string[] = [];
+      for (const sc of picts) {
+        const r = await go(ctx([{ role: "user", parts: [picture(sc.png, `${sc.id}.png`, "image/png"), { type: "text", text: sc.question }] }]));
+        skipIfNoPictures(r);
+        const answer = textOf(clean(r).completed?.blocks ?? []);
+        if (sc.check(answer)) right++;
+        notes.push(`${sc.expected}: ${JSON.stringify(answer.trim().slice(0, 40))}`);
+      }
+      ok(right > 0, `no picture was read right: ${notes.join("; ")}`);
+      return `${right}/${picts.length} right; ${notes.join("; ")}`;
+    }],
+    ["vision-convert", async () => {
+      const ffmpeg = o.ffmpeg ?? (await findFfmpeg());
+      if (ffmpeg === undefined) return skip("no ffmpeg (--ffmpeg PATH, CHATTREE_FFMPEG, or on the PATH)");
+      if (adapter.mediaSpec === undefined) return skip("this adapter has no media spec");
+      const picts = pictureScenarios({ kinds: ["shape"], count: 2, seed: 12 });
+      const work = await mkdtemp(join(tmpdir(), "chattree-live-"));
+      try {
+        let right = 0;
+        const notes: string[] = [];
+        for (const sc of picts) {
+          const bmp = await reencode(ffmpeg, sc.png, "png", "bmp");
+          const asked = ctx([{ role: "user", parts: [picture(bmp.bytes, `${sc.id}.bmp`, bmp.mime), { type: "text", text: sc.question }] }]);
+          const prepared = await throughSinkAt(adapter, setup, asked, ffmpeg, join(work, "w"));
+          ok(prepared.warnings.length === 0, `the picture was not sent: ${prepared.warnings.map((w) => w.message).join("; ")}`);
+          const r = await go(prepared.context);
+          skipIfNoPictures(r);
+          const answer = textOf(clean(r).completed?.blocks ?? []);
+          if (sc.check(answer)) right++;
+          notes.push(`${prepared.converted.map((c) => `${c.from} -> ${c.to}`).join(", ") || "sent as it was"}: ${sc.expected} -> ${JSON.stringify(answer.trim().slice(0, 40))}`);
+        }
+        ok(right > 0, `no converted picture was read right: ${notes.join("; ")}`);
+        return `${right}/${picts.length} right; ${notes.join("; ")}`;
+      } finally {
+        await rm(work, { recursive: true, force: true });
+      }
+    }],
+    ["tool-result-picture", async () => {
+      const [sc] = pictureScenarios({ kinds: ["shape"], count: 1, seed: 13 });
+      if (sc === undefined) return skip("no picture");
+      const SHOW = { name: "show_picture", description: "Show the picture the user is asking about. Its result is the picture itself.", input_schema: { type: "object", properties: {} } };
+      const c1 = ctx([user("Call the show_picture tool, then tell me what is in the picture. Answer in the form: <colour> <shape>.")], [SHOW]);
+      const r1 = clean(await go(c1));
+      const call = r1.completed?.blocks.find((b) => b.type === "tool_call");
+      if (call?.type !== "tool_call") return skip("the model did not call the tool (it may not support tools)");
+      const media = picture(sc.png, "picture.png", "image/png");
+      const c2 = ctx([...c1.turns, assistantTurn(r1.completed?.blocks ?? []), { role: "tool_results", results: [{ call_id: call.call_id, is_error: false, content: "picture.png (a picture, shown below)", truncated: false, media: [media] }] }], [SHOW]);
+      const r2 = await go(c2);
+      skipIfNoPictures(r2);
+      const answer = textOf(clean(r2).completed?.blocks ?? []);
+      ok(sc.check(answer), `expected ${sc.expected}, answered ${JSON.stringify(answer.trim().slice(0, 80))}`);
+      return `${sc.expected} -> ${JSON.stringify(answer.trim().slice(0, 40))}`;
+    }],
     ["reasoning-replay", async () => {
       const c1 = ctx([user("What is 17 * 23? Think it through.")]);
       const r1 = clean(await go(c1));
@@ -360,7 +433,7 @@ export async function runLiveChecks(o: LiveOptions): Promise<ScenarioResult[]> {
   return results;
 }
 
-export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "tools-schema", "tools-nesting", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
+export const SCENARIO_NAMES = ["plain", "usage", "streaming", "tool-call", "tools-schema", "tools-nesting", "tools-parallel", "tools-reliability", "tools-edit", "agent-loop", "vision", "vision-convert", "tool-result-picture", "reasoning-replay", "chaining", "retrieve", "abort", "bad-model"];
 
 export function parseArgs(argv: readonly string[], env: Record<string, string | undefined>): { options: LiveOptions; record?: string; list: boolean } {
   const flags = new Map<string, string[]>();
@@ -375,7 +448,7 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
     } else throw new Error(`unexpected argument ${a}`);
   }
   const one = (name: string): string | undefined => flags.get(name)?.[0];
-  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--record", "--only", "--busybox"]);
+  const known = new Set(["--flavor", "--base-url", "--model", "--max-tokens", "--api-key-env", "--record", "--only", "--busybox", "--ffmpeg"]);
   for (const k of flags.keys()) if (!known.has(k)) throw new Error(`unknown flag ${k}`);
   const flavor = one("--flavor") ?? "anthropic";
   if (!(FLAVORS as readonly string[]).includes(flavor)) throw new Error(`--flavor must be one of ${FLAVORS.join(", ")}`);
@@ -393,8 +466,9 @@ export function parseArgs(argv: readonly string[], env: Record<string, string | 
   for (const n of only ?? []) if (!SCENARIO_NAMES.includes(n)) throw new Error(`unknown scenario ${n} (${SCENARIO_NAMES.join(", ")})`);
   const record = one("--record");
   const busybox = one("--busybox");
+  const ffmpeg = one("--ffmpeg");
   return {
-    options: { flavor: flavor as Flavor, baseUrl: baseUrl ?? "", model: model ?? "", ...(maxTokens === undefined ? {} : { maxTokens: Number(maxTokens) }), ...(apiKey === undefined ? {} : { apiKey }), ...(only === undefined ? {} : { only }), ...(busybox === undefined ? {} : { busybox }) },
+    options: { flavor: flavor as Flavor, baseUrl: baseUrl ?? "", model: model ?? "", ...(maxTokens === undefined ? {} : { maxTokens: Number(maxTokens) }), ...(apiKey === undefined ? {} : { apiKey }), ...(only === undefined ? {} : { only }), ...(busybox === undefined ? {} : { busybox }), ...(ffmpeg === undefined ? {} : { ffmpeg }) },
     ...(record === undefined ? {} : { record }),
     list,
   };
