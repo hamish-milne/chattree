@@ -20,10 +20,15 @@
     "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.test.json",
     "bench": "node --no-warnings bench/bench.ts",
     "catalog": "node --no-warnings scripts/catalog.ts",
-    "chattree": "node --no-warnings cli/chattree.ts"
+    "chattree": "node --no-warnings cli/chattree.ts",
+    "lint": "oxlint",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",
+    "oxfmt": "^0.78.0",
+    "oxlint": "^1.93.0",
     "typescript": "^7.0.2"
   },
   "dependencies": {
