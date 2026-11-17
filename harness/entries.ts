@@ -1,9 +1,25 @@
 import { Type, type Static } from "typebox";
-import { Pipeline, defineEntry, externalizeLarge, redact, type BlobStore, type Transform } from "../src/index.ts";
+import {
+  Pipeline,
+  Tagged,
+  defineEntry,
+  externalizeLarge,
+  redact,
+  type BlobStore,
+  type DecodeResult,
+  type Entry,
+  type EntryType,
+  type Transform,
+} from "../src/index.ts";
 import { pattern, strictObject } from "../src/validate.ts";
 import { ULID_RE } from "./ulid.ts";
 
-/** Format version recorded in the header entry. Minor bumps only add optional fields; readers of an older minor ignore them. */
+/**
+ * Format version recorded in the header entry. A minor bump widens what an entry may hold (a new optional field, a new entry type), so a
+ * build that reads minor N reads every file of minor N or below; a file of a higher minor may hold what this build does not know, which is an
+ * error (update chattree), not something to skip. A major bump narrows or changes it (a new required field), and a build reads only the
+ * majors it has entry types for (`entryTypesByMajor`).
+ */
 export const FORMAT = { format: "chatlog", major: 2, minor: 7 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
@@ -420,3 +436,81 @@ export function createPipeline(config: PipelineConfig = {}): Pipeline<ChatEntry>
 
 /** The id of an entry, for the kinds that have one. */
 export const idOf = (e: ChatEntry): string | undefined => ("id" in e && typeof e.id === "string" ? e.id : undefined);
+
+// ---- versions: the format as the state of a read ------------------------------------------------------------
+
+export interface FormatVersion {
+  major: number;
+  minor: number;
+}
+
+/** The entry types of each format major this build reads. Each is checked as authored, for reading and writing alike. */
+const entryTypesByMajor: ReadonlyMap<number, readonly EntryType[]> = new Map([[FORMAT.major, entryTypes]]);
+
+/** The newest minor this build reads, for each major it reads. */
+const newestMinor: ReadonlyMap<number, number> = new Map([[FORMAT.major, FORMAT.minor]]);
+
+/** Why a header may not take effect after the version `current` (none yet for the first), or undefined when it may. */
+export function versionProblem(h: FormatVersion, current: FormatVersion | undefined): string | undefined {
+  const at = `${h.major}.${h.minor}`;
+  const newest = newestMinor.get(h.major);
+  if (newest === undefined) {
+    const majors = [...newestMinor.keys()];
+    return h.major > Math.max(...majors)
+      ? `this thread is format ${at}, which this version of chattree cannot read (it reads format ${majors.join(", ")}); update chattree`
+      : `this thread is format ${at}, which this version of chattree no longer reads (it reads format ${majors.join(", ")})`;
+  }
+  if (h.minor > newest)
+    return `this thread is format ${at}, newer than the ${h.major}.${newest} this version of chattree reads; update chattree`;
+  if (current !== undefined && current.major === h.major && h.minor < current.minor)
+    return `a header says format ${at} after one that said ${current.major}.${current.minor}: the version never goes back within a major`;
+  return undefined;
+}
+
+/**
+ * Reads entries in file order, holding the format version as its state. Before any header the version is unknown and every other entry is
+ * refused ("expected a header first"); a header is checked (see `versionProblem`) and sets the version; each later entry is read by the entry
+ * types of the current major. A header may appear again (a newer build writes one when it first adds to an older file). A refused entry
+ * comes back with reason `version` and no state change, like any entry that does not decode.
+ */
+export class EntryReader {
+  static readonly #headers = new Pipeline<ChatEntry>({ types: [defineEntry("header", header)] });
+  static readonly #majors = new Map<number, Pipeline<ChatEntry>>();
+  #version: FormatVersion | undefined;
+
+  constructor(start?: FormatVersion) {
+    this.#version = start;
+  }
+
+  /** The version the entries read so far have set; undefined before the header. */
+  get version(): FormatVersion | undefined {
+    return this.#version;
+  }
+
+  async decode(entry: Entry): Promise<DecodeResult<ChatEntry>> {
+    const refuse = (message: string): DecodeResult<ChatEntry> => ({
+      ok: false,
+      reason: "version",
+      tag: entry instanceof Map ? undefined : entry.tag,
+      issues: [{ path: "", message }],
+      raw: entry,
+    });
+    if (entry instanceof Tagged && entry.tag === "header") {
+      const r = await EntryReader.#headers.decode(entry);
+      if (!r.ok || r.value.$tag !== "header") return r;
+      const problem = versionProblem(r.value, this.#version);
+      if (problem !== undefined) return refuse(problem);
+      this.#version = { major: r.value.major, minor: r.value.minor };
+      return r;
+    }
+    if (this.#version === undefined) return refuse("expected a header entry first, to say which format this thread is in");
+    let pipeline = EntryReader.#majors.get(this.#version.major);
+    if (pipeline === undefined) {
+      const types = entryTypesByMajor.get(this.#version.major);
+      if (types === undefined) return refuse(versionProblem(this.#version, undefined) ?? "unsupported format");
+      pipeline = new Pipeline<ChatEntry>({ types });
+      EntryReader.#majors.set(this.#version.major, pipeline);
+    }
+    return pipeline.decode(entry);
+  }
+}

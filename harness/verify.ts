@@ -2,7 +2,7 @@ import { FrameError, ParseError, decodeSpan, scan, sha256Hex, type CommitInfo } 
 import { HostBlobStore, blobRefs } from "./blob-store.ts";
 import { contextEntries } from "./context.ts";
 import { CHAT_FILE, Conversation } from "./conversation.ts";
-import { FORMAT, idOf, type ChatEntry } from "./entries.ts";
+import { EntryReader, idOf, type ChatEntry } from "./entries.ts";
 import { nth } from "../src/nth.ts";
 
 export interface Problem {
@@ -39,7 +39,7 @@ export interface VerifyOptions {
  *   and size claim
  */
 export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {}): Promise<Problem[]> {
-  const { git, pipeline } = convo;
+  const { git } = convo;
   const rev = opts.rev ?? "HEAD";
   const problems: Problem[] = [];
   const add = (severity: Problem["severity"], code: string, message: string, extra: { commit?: string; entry?: string } = {}): void => {
@@ -71,6 +71,7 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
   const entries: { ok: boolean; id: string | undefined; tag: string | undefined; end: number; value?: ChatEntry }[] = [];
   const decodedValues: ChatEntry[] = [];
   const seen = new Set<string>();
+  const reader = new EntryReader();
   for (const [i, span] of framed.spans.entries()) {
     const label = `#${i + 1}`;
     let parsed;
@@ -84,11 +85,19 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
       }
       throw e;
     }
-    const r = await pipeline.decode(parsed);
+    const r = await reader.decode(parsed);
     if (!r.ok) {
+      const code =
+        r.reason === "unknown-tag"
+          ? "unknown-entry-type"
+          : r.reason !== "version"
+            ? "invalid-entry"
+            : r.tag === "header"
+              ? "unsupported-format"
+              : "no-header";
       add(
         r.reason === "unknown-tag" ? "warning" : "error",
-        r.reason === "unknown-tag" ? "unknown-entry-type" : "invalid-entry",
+        code,
         `entry ${label}: ${r.issues.map((x) => `${x.path || "entry"}: ${x.message}`).join("; ")}`,
         { entry: label },
       );
@@ -102,25 +111,6 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
     }
     entries.push({ ok: true, id, tag: r.tag, end: span.end, value: r.value });
     decodedValues.push(r.value);
-  }
-
-  const first = entries[0]?.value;
-  if (entries.length > 0 && first?.$tag !== "header") add("error", "no-header", "the first entry is not a header", { entry: "#1" });
-  entries.slice(1).forEach((e, i) => {
-    if (e.tag === "header") add("error", "extra-header", "a header appears after the first entry", { entry: `#${i + 2}` });
-  });
-  if (first?.$tag === "header") {
-    if (first.major !== FORMAT.major)
-      add("error", "unsupported-format", `format major version ${first.major} is not supported (this build reads ${FORMAT.major})`, {
-        entry: "#1",
-      });
-    else if (first.minor > FORMAT.minor)
-      add(
-        "warning",
-        "newer-format",
-        `format ${first.major}.${first.minor} is newer than this build (${FORMAT.major}.${FORMAT.minor}); unknown fields are ignored`,
-        { entry: "#1" },
-      );
   }
 
   // ---- the commits ----------------------------------------------------------------------------------------

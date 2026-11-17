@@ -132,9 +132,15 @@ export interface PipelineOptions {
   verify?: boolean;
 }
 
+/**
+ * Why an entry did not decode. `version` is for a reader that tracks a format version (see the chat harness's `EntryReader`): the entry
+ * came before any header, or its header names a version this build cannot read. The pipeline itself never gives it.
+ */
+export type DecodeFailure = "untagged" | "unknown-tag" | "invalid" | "version";
+
 export type DecodeResult<T> =
   | { ok: true; tag: string; value: T }
-  | { ok: false; reason: "untagged" | "unknown-tag" | "invalid"; tag: string | undefined; issues: Issue[]; raw: Entry };
+  | { ok: false; reason: DecodeFailure; tag: string | undefined; issues: Issue[]; raw: Entry };
 
 /**
  * Entries in and out. Writing: validate, convert to the value model, run the transforms, check the
@@ -181,7 +187,7 @@ export class Pipeline<T = unknown> {
 
   /** Validate an entry read from a file. Never throws. */
   async decode(entry: Entry): Promise<DecodeResult<T>> {
-    const fail = (reason: "untagged" | "unknown-tag" | "invalid", tag: string | undefined, issues: Issue[]): DecodeResult<T> => ({
+    const fail = (reason: DecodeFailure, tag: string | undefined, issues: Issue[]): DecodeResult<T> => ({
       ok: false,
       reason,
       tag,

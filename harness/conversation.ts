@@ -33,7 +33,16 @@ import { tableBytes, type PriceTable } from "../providers/pricing.ts";
 import { computeLedger, priceResolver, type Ledger, type PriceResolver, type Spend } from "./ledger.ts";
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
-import { FORMAT, createPipeline, idOf, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
+import {
+  EntryReader,
+  FORMAT,
+  createPipeline,
+  idOf,
+  type FormatVersion,
+  type ChangeKind,
+  type ChatEntry,
+  type PipelineConfig,
+} from "./entries.ts";
 import type { TrimRule } from "./trim.ts";
 import { DEFAULT_MAX_ATTACHMENT_BYTES, attachmentKind, decodeText, mimeCharset, normalizeMime } from "./attachments.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
@@ -389,6 +398,12 @@ const dec = new TextDecoder();
 /** The kinds of change that lose the cached prefix anyway: rewriting the prefix with them costs nothing more. */
 const PREFIX_BREAKING: readonly ChangeKind[] = ["cache_break", "tools_changed", "renderer_changed", "model_changed", "provider_changed"];
 
+const HEADER_START = new TextEncoder().encode("- !header");
+/** Whether the entry at this span is a header, from its first bytes alone (so the whole file need not be parsed to find the headers). */
+function isHeaderSpan(bytes: Uint8Array, span: { start: number }): boolean {
+  return startsWith(bytes.subarray(span.start, span.start + HEADER_START.length), HEADER_START);
+}
+
 function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
   if (prefix.length > bytes.length) return false;
   for (let i = 0; i < prefix.length; i++) if (bytes[i] !== prefix[i]) return false;
@@ -520,6 +535,8 @@ export class Conversation {
   readonly #lockPath: string;
   readonly #nextId: () => string;
   #size: number;
+  /** The format version the file says it is in (from its last header); unknown until the header is appended. */
+  #version: FormatVersion | undefined;
   #queue: Promise<unknown> = Promise.resolve();
   #sinceCheck = 0;
   #foreign: { entry: Appended; value: ChatEntry }[] = [];
@@ -538,6 +555,7 @@ export class Conversation {
     opts: ConversationOptions,
     size: number,
     recovery: RecoveryReport,
+    version: FormatVersion | undefined,
   ) {
     this.host = host;
     this.git = git;
@@ -547,6 +565,7 @@ export class Conversation {
     this.#lockPath = lockPath;
     this.#file = host.path.join(dir, CHAT_FILE);
     this.#size = size;
+    this.#version = version;
     this.recovery = recovery;
     this.store = new HostBlobStore(host, host.path.join(dir, BLOBS_DIR));
     this.pipeline = createPipeline({ ...opts.pipeline, store: this.store });
@@ -666,7 +685,7 @@ export class Conversation {
     opts: CreateOptions,
     configText: string | undefined,
   ): Promise<Conversation> {
-    const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [], cleaned: [] });
+    const convo = await Conversation.#load(host, git, dir, branch, opts, 0, { truncatedBytes: 0, recovered: [], cleaned: [] }, undefined);
     if (configText !== undefined) {
       await host.fs.writeAtomic(host.path.join(dir, CONFIG_FILE), enc.encode(configText));
       // The user is creating this conversation with this file.
@@ -796,9 +815,9 @@ export class Conversation {
     let convo: Conversation;
     try {
       const cleaned = await Conversation.#tidy(host, git, dir, opts);
-      const { size, report, recoveredEntries } = await Conversation.#recover(host, git, dir, opts);
+      const { size, report, recoveredEntries, version } = await Conversation.#recover(host, git, dir, opts);
       report.cleaned = cleaned;
-      convo = await Conversation.#load(host, git, dir, branch, opts, size, report);
+      convo = await Conversation.#load(host, git, dir, branch, opts, size, report, version);
       if (report.truncatedBytes > 0 || report.recovered.length > 0 || report.cleaned.length > 0)
         convo.#emit({ type: "recovery", branch, report });
       for (const [i, r] of report.recovered.entries()) convo.#emitEntry(branch, r, nth(recoveredEntries, i), true);
@@ -945,9 +964,10 @@ export class Conversation {
     opts: ConversationOptions,
     size: number,
     report: RecoveryReport,
+    version: FormatVersion | undefined,
   ): Promise<Conversation> {
     const lockPath = await Conversation.#lockPathFor(host, git, branch);
-    return new Conversation(host, git, dir, branch, lockPath, opts, size, report).#init();
+    return new Conversation(host, git, dir, branch, lockPath, opts, size, report, version).#init();
   }
 
   static async #lockPathFor(host: Host, git: Git, branch: string): Promise<string> {
@@ -996,7 +1016,7 @@ export class Conversation {
     git: Git,
     dir: string,
     opts: ConversationOptions,
-  ): Promise<{ size: number; report: RecoveryReport; recoveredEntries: ChatEntry[] }> {
+  ): Promise<{ size: number; report: RecoveryReport; recoveredEntries: ChatEntry[]; version: FormatVersion | undefined }> {
     const file = host.path.join(dir, CHAT_FILE);
     const committed = await git.readFileAt("HEAD", CHAT_FILE);
     if (committed === undefined) throw new ConversationError(`HEAD has no ${CHAT_FILE}: not a conversation repository`);
@@ -1024,7 +1044,25 @@ export class Conversation {
       disk = disk.subarray(0, framed.validLength);
     }
 
-    const pipeline = createPipeline(opts.pipeline ?? {});
+    // The format version is the state of a read from the top, and only the headers set it: check each one now, so a thread this build cannot read
+    // is refused here, with the reason, and not read as an empty one.
+    const reader = new EntryReader();
+    const checkHeaders = async (spans: typeof framed.spans): Promise<void> => {
+      for (const [i, span] of spans.entries()) {
+        if (!(i === 0 && reader.version === undefined) && !isHeaderSpan(disk, span)) continue;
+        let parsed;
+        try {
+          parsed = decodeSpan(disk, span);
+        } catch (e) {
+          if (e instanceof ParseError) throw new ConversationError(`${CHAT_FILE} is damaged: ${e.message}`);
+          throw e;
+        }
+        const r = await reader.decode(parsed);
+        if (!r.ok && r.reason === "version")
+          throw new ConversationError(`${CHAT_FILE} cannot be read: ${r.issues.map((x) => x.message).join("; ")}`);
+      }
+    };
+    await checkHeaders(framed.spans.filter((s) => s.end <= committed.length));
     const pending = framed.spans.filter((s) => s.end > committed.length);
     if (pending.length > 0) {
       // Blobs written for these entries before the crash belong in the first recovery commit.
@@ -1041,7 +1079,7 @@ export class Conversation {
             throw new ConversationError(`uncommitted entry ${idx + 1} in ${CHAT_FILE} is not valid: ${e.message}; fix or remove it`);
           throw e;
         }
-        const r = await pipeline.decode(parsed);
+        const r = await reader.decode(parsed);
         if (!r.ok)
           throw new ConversationError(
             `uncommitted entry ${idx + 1} in ${CHAT_FILE} is not valid (${r.issues.map((i) => `${i.path || "entry"}: ${i.message}`).join("; ")}); fix or remove it`,
@@ -1055,7 +1093,7 @@ export class Conversation {
         recoveredEntries.push(d.entry);
       }
     }
-    return { size: disk.length, report, recoveredEntries };
+    return { size: disk.length, report, recoveredEntries, version: reader.version };
   }
 
   // ---- commits ---------------------------------------------------------------------------------------------
@@ -1243,8 +1281,17 @@ export class Conversation {
     return this.#transaction(() => this.#appendManyLocked(inputs));
   }
 
+  /**
+   * Whether the file says an older minor than this build writes. Such a file gets a new header before this build's first entry in it, since
+   * what the entry may hold is what this build's minor allows, and an older build must refuse the file from there on.
+   */
+  #behind(): boolean {
+    return this.#version !== undefined && this.#version.major === FORMAT.major && this.#version.minor < FORMAT.minor;
+  }
+
   async #appendManyLocked(inputs: readonly NewEntry[]): Promise<Appended[]> {
     if (inputs.length === 0) return [];
+    if (this.#behind() && inputs[0]?.$tag !== "header") inputs = [{ $tag: "header", ...FORMAT }, ...inputs];
     await this.#snapshotLocked();
     const before = await this.#assertIntact();
     const head = await this.git.head();
@@ -1314,6 +1361,7 @@ export class Conversation {
       throw e;
     }
     this.#size = full.length;
+    for (const item of items) if (item.value.$tag === "header") this.#version = { major: item.value.major, minor: item.value.minor };
     // The commits bypassed the index; bring it back in line. If this fails the next staging heals it.
     await this.git.syncIndex().catch(() => undefined);
     const out: Appended[] = [];
@@ -1327,6 +1375,7 @@ export class Conversation {
   }
 
   async #appendLocked(input: NewEntry, extraTrailers: readonly [string, string][] = []): Promise<Appended> {
+    if (this.#behind() && input.$tag !== "header") await this.#appendLocked({ $tag: "header", ...FORMAT });
     const withId = input.$tag === "header" || input.id !== undefined ? input : { ...input, id: this.#nextId() };
     const entry = await this.pipeline.encode(withId);
     const bytes = encodeEntry(entry);
@@ -1346,6 +1395,7 @@ export class Conversation {
       await this.git.addAll();
       const commit = await this.git.commit(Conversation.#commitFor(decoded.value, id, after, this.#opts, false, extraTrailers));
       this.#size = after;
+      if (decoded.value.$tag === "header") this.#version = { major: decoded.value.major, minor: decoded.value.minor };
       this.#advance(commit, { id: id === "" ? undefined : id, tag: decoded.tag, commit, offset: after });
       const appended = { id, tag: decoded.tag, commit, offset: after };
       this.#emitEntry(this.branch, appended, decoded.value);
@@ -1391,7 +1441,10 @@ export class Conversation {
     this.#size = size;
     this.#head = head;
     try {
-      const decoded = await Promise.all(parseFile(bytes).entries.map((e) => this.pipeline.decode(e)));
+      const reader = new EntryReader(this.#version);
+      const decoded: DecodeResult<ChatEntry>[] = [];
+      for (const e of parseFile(bytes).entries) decoded.push(await reader.decode(e));
+      this.#version = reader.version ?? this.#version;
       const refs = oldHead === undefined || oldHead === head ? [] : await this.#indexOf(head, oldHead);
       const found: { entry: Appended; value: ChatEntry }[] = [];
       for (const [i, d] of decoded.entries()) {
@@ -2517,7 +2570,10 @@ export class Conversation {
   async readEntries(): Promise<DecodeResult<ChatEntry>[]> {
     const bytes = await this.host.fs.read(this.#file);
     const { entries } = parseFile(bytes);
-    return Promise.all(entries.map((e) => this.pipeline.decode(e)));
+    const reader = new EntryReader();
+    const out: DecodeResult<ChatEntry>[] = [];
+    for (const e of entries) out.push(await reader.decode(e));
+    return out;
   }
 
   /**

@@ -18,7 +18,7 @@ import {
   valueToObject,
   type Entry,
 } from "../../src/index.ts";
-import { FORMAT, createPipeline } from "../../harness/entries.ts";
+import { EntryReader, FORMAT, createPipeline } from "../../harness/entries.ts";
 import { ULID_RE, createUlid, ulidTime } from "../../harness/ulid.ts";
 import { Rng, cp, randomEntry, randomString } from "../support/gen.ts";
 
@@ -508,5 +508,48 @@ describe("hostile text through the real schemas", () => {
     const { entries } = parseFile(file);
     assert.equal(entries.length, inputs.length);
     for (const [i, e] of entries.entries()) assert.deepEqual(((await pipeline.decode(e)) as { value: unknown }).value, inputs[i]);
+  });
+});
+
+describe("the format version as the state of a read", () => {
+  const header = (major: number, minor: number) => parseEntry(`- !header\n  format: chatlog\n  major: ${major}\n  minor: ${minor}\n\n`);
+  const note = () => parseEntry('- !user\n  id: "01K8ZQ3M0A5G2W7Y9C4T1R6B8D"\n  content:\n  - !text\n    text: hi\n\n');
+  const said = (r: Awaited<ReturnType<EntryReader["decode"]>>) => (r.ok ? "" : r.issues.map((i) => i.message).join("; "));
+
+  test("an entry before any header is refused, and the header after it still sets the version", async () => {
+    const reader = new EntryReader();
+    const early = await reader.decode(note());
+    assert.ok(!early.ok && early.reason === "version");
+    assert.match(said(early), /expected a header entry first/);
+    assert.ok((await reader.decode(header(FORMAT.major, FORMAT.minor))).ok);
+    assert.ok((await reader.decode(note())).ok);
+  });
+
+  test("a minor newer than this build reads is refused with what to do, and sets nothing", async () => {
+    const reader = new EntryReader();
+    const r = await reader.decode(header(FORMAT.major, FORMAT.minor + 1));
+    assert.ok(!r.ok && r.reason === "version");
+    assert.match(said(r), /newer than the .* this version of chattree reads; update chattree/);
+    assert.equal(reader.version, undefined);
+    assert.ok(!(await reader.decode(note())).ok, "the entries after it are not read as if it were fine");
+  });
+
+  test("a major this build has no entry types for is refused, newer or older", async () => {
+    assert.match(said(await new EntryReader().decode(header(FORMAT.major + 1, 0))), /cannot read.*update chattree/);
+    assert.match(said(await new EntryReader().decode(header(FORMAT.major - 1, 0))), /no longer reads/);
+  });
+
+  test("an older minor is read, and a later header may raise the version but never lower it", async () => {
+    const reader = new EntryReader();
+    assert.ok((await reader.decode(header(FORMAT.major, 3))).ok);
+    assert.ok((await reader.decode(note())).ok);
+    assert.ok((await reader.decode(header(FORMAT.major, FORMAT.minor))).ok);
+    assert.deepEqual(reader.version, { major: FORMAT.major, minor: FORMAT.minor });
+    assert.match(said(await reader.decode(header(FORMAT.major, 3))), /never goes back/);
+  });
+
+  test("a header with a field the schema does not name is invalid, not a version problem", async () => {
+    const r = await new EntryReader().decode(parseEntry("- !header\n  format: chatlog\n  major: 2\n  minor: 7\n  extra: 1\n\n"));
+    assert.ok(!r.ok && r.reason === "invalid");
   });
 });

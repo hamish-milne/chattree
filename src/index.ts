@@ -35,6 +35,7 @@ export {
   defineEntry,
   objectToValue,
   valueToObject,
+  type DecodeFailure,
   type DecodeResult,
   type EntryType,
   type PipelineOptions,

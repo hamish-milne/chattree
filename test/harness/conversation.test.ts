@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Git, LockHeldError, acquireLock, encodeEntry } from "../../src/index.ts";
 import { nodeHost } from "../../hosts/node.ts";
+import { FORMAT } from "../../harness/entries.ts";
 import { CHAT_FILE, Conversation, ConversationError, describeEntry, type NewEntry } from "../../harness/conversation.ts";
 import { inlineBlobs } from "../../harness/context-builder.ts";
 import { ULID_RE } from "../../harness/ulid.ts";
@@ -508,5 +509,35 @@ describe(slow("crash at every step"), slowOptions, () => {
         return c.append(toolResult("big\n".repeat(2000)));
       },
     );
+  });
+});
+
+describe("the format version", () => {
+  async function rewriteHeader(dir: string, convo: Conversation, minor: number): Promise<void> {
+    const path = join(dir, CHAT_FILE);
+    const text = await readFile(path, "utf8");
+    await writeFile(path, text.replace(/minor: \d+/, `minor: ${minor}`));
+    await convo.git.addAll();
+    await convo.git.commit({ message: "edit header" });
+    await convo.close();
+  }
+
+  test("a thread written by a newer build is refused at open, with what to do about it", async () => {
+    const { dir, convo } = await fresh();
+    await convo.append(user("hi"));
+    await rewriteHeader(dir, convo, FORMAT.minor + 1);
+    await assert.rejects(Conversation.open(host, dir), (e) => e instanceof ConversationError && /update chattree/.test(e.message));
+  });
+
+  test("a build that adds to a file of an older minor first says which minor it writes", async () => {
+    const { dir, convo } = await fresh();
+    await rewriteHeader(dir, convo, 3);
+    const reopened = await Conversation.open(host, dir);
+    await reopened.append(user("hi"));
+    const entries = await reopened.readEntries();
+    const headers = entries.flatMap((e) => (e.ok && e.value.$tag === "header" ? [e.value.minor] : []));
+    assert.deepEqual(headers, [3, FORMAT.minor]);
+    await reopened.append(user("again"));
+    assert.equal((await reopened.readEntries()).filter((e) => e.ok && e.value.$tag === "header").length, 2, "only once");
   });
 });

@@ -114,6 +114,26 @@ project code in a submodule. The submodule pointer is tracked as normal, with ex
 since a submodule is detached when its head moves) and a saved working-tree diff so intra-commit changes are
 kept. This separates chat from final code and lets one agent flow work across several repositories.
 
+### D9. Format versions
+
+The transcript's `header` entry gives the format as `major.minor`, and the version is the state of a read: it starts unknown, a header
+sets it (after a check), and every later entry is read by the entry types of the current major. An entry before any header is an
+error. A header may appear again, so a transcript can pass from one version to a later one (and, later, from one major to another).
+
+- **Minor is backwards compatibility only.** A build that reads minor N reads every file of minor N or below. Widening what an entry
+  may hold (a new optional field, a new entry type) is a minor bump. A file whose minor is higher than the build's may hold what the
+  build does not know, and that is an error ("update chattree"), not something to skip. So there is no lenient reading: an entry
+  is checked, for reading and for writing, against its schema as authored (`strictObject`, so a field the schema does not name is
+  an error), and nothing the code writes can differ from what the schema says.
+- **Major is for breaking changes.** Narrowing or changing an entry (a new required field) is a major bump. A build reads the majors it
+  has entry types for (`entryTypesByMajor` in `harness/entries.ts`) and refuses the others, newer or older, saying which.
+- **The check happens at `open`** (so a thread this build cannot read is refused, not read as an empty one) and in `EntryReader`, which
+  `readEntries`, `verifyHistory` and the reading of other processes' appends use. A later header may raise the minor but never lower
+  it within a major.
+- **Writing.** A build that adds to a file whose last header says a lower minor than the build's appends a header with its own version
+  first (once), so an older build refuses the file from there on. Branch starts and merges, which are committed straight into git,
+  do not yet do this: they write only entry types that have existed since the early minors.
+
 ## Build order (status)
 
 1. `Host` and `Fs`, the Node host, the `Git` wrapper, and tests against real git. **Done.**
