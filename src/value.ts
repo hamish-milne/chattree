@@ -1,4 +1,5 @@
 import { EmitError } from "./errors.ts";
+import { nth } from "../src/nth.ts";
 
 /** Maximum container nesting accepted by both emitter and parser. An entry's own map is depth 1. */
 export const MAX_DEPTH = 64;
@@ -82,7 +83,7 @@ export function valueEquals(a: Value, b: Value): boolean {
   }
   if (a instanceof Tagged) return b instanceof Tagged && a.tag === b.tag && valueEquals(a.value, b.value);
   if (Array.isArray(a)) {
-    return Array.isArray(b) && a.length === b.length && a.every((x, i) => valueEquals(x, b[i] as Value));
+    return Array.isArray(b) && a.length === b.length && a.every((x, i) => valueEquals(x, nth(b, i)));
   }
   if (!(b instanceof Map) || a.size !== b.size) return false;
   const bi = b.entries();
@@ -100,7 +101,7 @@ export function fromPlain(x: unknown): Value {
   if (x instanceof Map || x instanceof BlobRef || x instanceof BlobData || x instanceof Tagged) return x as Value;
   if (typeof x === "object") {
     const m = new Map<string, Value>();
-    for (const k of Object.keys(x)) m.set(k, fromPlain((x as Record<string, unknown>)[k]));
+    for (const [k, v] of Object.entries(x)) m.set(k, fromPlain(v));
     return m;
   }
   throw new EmitError(`cannot represent ${typeof x} value`);

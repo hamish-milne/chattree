@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AdapterRegistry } from "../providers/registry.ts";
 import { harnessConfig } from "./config.ts";
+import { jsonOr } from "../src/json.ts";
 
 /** Where `create` and `open` write the generated schema (inside the ignored `.chattree/` directory). */
 export const SCHEMA_PATH = ".chattree/harness.schema.json";
@@ -18,7 +19,7 @@ export function configJsonSchema(registry: AdapterRegistry): object {
   };
   const variants = registry.tags().map((tag) => {
     const def = registry.get(tag);
-    return { title: tag, ...(def?.jsonSchema().config as object) };
+    return { title: tag, ...jsonOr(def?.jsonSchema().config) };
   });
   return {
     ...core,

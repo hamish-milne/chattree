@@ -1,12 +1,13 @@
 import { contextEntries } from "./context.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
 import type { Conversation } from "./conversation.ts";
-import type { ChatEntry } from "./entries.ts";
+import { idOf, type ChatEntry } from "./entries.ts";
 import { askModel } from "./oneshot.ts";
 import { prepareContext, type PrepareOptions, type Prepared } from "./request.ts";
 import { chattreeEnglishV1 } from "./renderer.ts";
 import { servedModelId } from "./setup.ts";
 import { planTrim, byteLength, textBytes, type TrimRule } from "./trim.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * Keeping a thread inside the model's window (docs/context.md, sections 5 and 6). `compactionSettings` reads the policy from `harness.yml`;
@@ -74,7 +75,6 @@ const carries = (e: ChatEntry): boolean =>
   e.$tag === "fork_merge" ||
   e.$tag === "job_event" ||
   e.$tag === "interrupted";
-const idOf = (e: ChatEntry): string | undefined => ("id" in e && typeof e.id === "string" ? e.id : undefined);
 
 /** Whether the next request starts a turn: the last entry that carries content is a user message or a finished job, not the middle of a tool loop. */
 export function atTurnStart(entries: readonly ChatEntry[]): boolean {
@@ -93,31 +93,39 @@ export function summaryRange(
 ): { from: string; to: string; entries: number; merges: boolean } | undefined {
   const visible = contextEntries(entries);
   let end = visible.length - 1;
-  for (let kept = 0; end >= 0 && kept < keepRecent; end--) if (carries(visible[end] as ChatEntry)) kept++;
+  const carriesAt = (i: number): boolean => {
+    const e = visible[i];
+    return e !== undefined && carries(e);
+  };
+  const idAt = (i: number): string | undefined => {
+    const e = visible[i];
+    return e === undefined ? undefined : idOf(e);
+  };
+  for (let kept = 0; end >= 0 && kept < keepRecent; end--) if (carriesAt(end)) kept++;
   const open = visible.findLastIndex((e) => e.$tag === "user" && e.queued !== true);
   if (open >= 0) end = Math.min(end, open - 1);
   // Do not cut a call from its result: end before the first assistant in the range whose call is answered after it.
   const answeredLater = new Set<string>();
   for (let i = end + 1; i < visible.length; i++) {
-    const e = visible[i] as ChatEntry;
+    const e = nth(visible, i);
     if (e.$tag === "tool_result" || e.$tag === "subagent_result") answeredLater.add(e.call_id);
     else if (e.$tag === "fork_merge" && e.call_id !== undefined) answeredLater.add(e.call_id);
   }
   for (let i = 0; i <= end; i++) {
-    const e = visible[i] as ChatEntry;
+    const e = nth(visible, i);
     if (e.$tag === "assistant" && e.blocks.some((b) => b.$tag === "tool_call" && answeredLater.has(b.call_id))) {
       end = i - 1;
       break;
     }
   }
-  while (end >= 0 && !(carries(visible[end] as ChatEntry) && idOf(visible[end] as ChatEntry) !== undefined)) end--;
+  while (end >= 0 && !(carriesAt(end) && idAt(end) !== undefined)) end--;
   if (end < 0) return undefined;
   const pick = (first: number, merges: boolean): { from: string; to: string; entries: number; merges: boolean } | undefined => {
     if (first < 0 || first > end) return undefined;
     const count = visible.slice(first, end + 1).filter(carries).length;
-    return count < 2
-      ? undefined
-      : { from: idOf(visible[first] as ChatEntry) as string, to: idOf(visible[end] as ChatEntry) as string, entries: count, merges };
+    const from = idAt(first);
+    const to = idAt(end);
+    return count < 2 || from === undefined || to === undefined ? undefined : { from, to, entries: count, merges };
   };
   const firstOf = (from: number): number => visible.findIndex((e, i) => i >= from && carries(e) && idOf(e) !== undefined);
   // Summaries already in the context stay as they are (their text, and so the cached prefix, does not change) while they are small: the new one covers

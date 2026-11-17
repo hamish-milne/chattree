@@ -8,6 +8,7 @@ import { withConfirmation } from "../changes.ts";
 import { openThread } from "../project.ts";
 import type { Command } from "../registry.ts";
 import { failure } from "../turn.ts";
+import { nth } from "../../src/nth.ts";
 
 const providersOf = async (convo: Conversation): Promise<Record<string, { $tag: string; [k: string]: unknown }>> => {
   const cfg = await convo.readConfig();
@@ -75,7 +76,7 @@ const model: Command = {
         yield { type: "error", message: "give one model", hint: "/model [provider/id]" };
         return;
       }
-      const want = args[0] as string;
+      const want = nth(args, 0);
       const slash = want.indexOf("/");
       const provider = slash < 0 ? setup.model?.provider : want.slice(0, slash);
       const id = slash < 0 ? want : want.slice(slash + 1);

@@ -1,6 +1,7 @@
 import type { Host } from "../src/host.ts";
 import { nodeHost } from "../hosts/node.ts";
 import type { Settings } from "./settings.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * Everything the CLI needs from the process, so tests can run it in-process: where output goes, the environment, the
@@ -59,9 +60,9 @@ export function nodeIo(): Io {
       const handlers = names.map((n) => {
         const h = (): void => fn(n);
         process.on(n, h);
-        return h;
+        return { n, h };
       });
-      return () => names.forEach((n, i) => process.off(n, handlers[i] as () => void));
+      return () => handlers.forEach(({ n, h }) => process.off(n, h));
     },
     async edit(path, editor) {
       const { spawn } = await import("node:child_process");
@@ -85,7 +86,7 @@ export function nodeIo(): Io {
       process.on("SIGINT", () => undefined);
       try {
         return await new Promise<number>((resolve) => {
-          const child = spawn(stage[0] as string, stage.slice(1), { cwd, stdio: "inherit" });
+          const child = spawn(nth(stage, 0), stage.slice(1), { cwd, stdio: "inherit" });
           child.on("exit", (code, signal) => resolve(code ?? (signal === null ? 1 : 128)));
           child.on("error", () => resolve(127));
         });

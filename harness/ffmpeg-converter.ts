@@ -2,6 +2,7 @@ import { ConversionError, type Converter } from "./converter.ts";
 import { formatOf, type Format } from "./formats.ts";
 import type { MediaTarget } from "./media-spec.ts";
 import type { Host } from "../src/host.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * The converter that runs ffmpeg (`hosts/ffmpeg.ts` finds or fetches it). It asks the program once what it can decode and encode, so `can`
@@ -80,9 +81,9 @@ export function codecNames(listing: string): Set<string> {
   for (const line of listing.split(/\r?\n/)) {
     const m = /^\s([VAS.][A-Za-z.]{5})\s+(\S+)\s+(.*)$/.exec(line);
     if (m === null || m[2] === "=") continue; // "=" is the legend line (` V..... = Video`)
-    out.add(m[2] as string);
-    const alias = /\(codec ([^)]+)\)/.exec(m[3] as string);
-    if (alias !== null) out.add(alias[1] as string);
+    out.add(nth(m, 2));
+    const alias = /\(codec ([^)]+)\)/.exec(nth(m, 3));
+    if (alias !== null) out.add(nth(alias, 1));
   }
   return out;
 }

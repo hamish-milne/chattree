@@ -1,8 +1,9 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import type { AddressInfo } from "node:net";
 import type { HostEvent, HostState } from "./host.ts";
 import type { InstallPlan } from "./install.ts";
+import { portOf } from "./typed.ts";
+import { jsonOr } from "../src/json.ts";
 
 /**
  * The control API (docs/local-models.md, section 3): HTTP on a loopback port, the same for the CLI and a future GUI. Every request carries
@@ -80,7 +81,7 @@ export class ControlServer {
       this.#server.once("error", reject);
       this.#server.listen(0, "127.0.0.1", resolve);
     });
-    this.#port = (this.#server.address() as AddressInfo).port;
+    this.#port = portOf(this.#server);
     return this.#port;
   }
 
@@ -178,7 +179,7 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   if (size === 0) return {};
   try {
     const v: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+    return jsonOr(v);
   } catch {
     throw new Error("the request is not JSON");
   }

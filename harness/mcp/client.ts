@@ -59,6 +59,8 @@ export interface McpCallResult {
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+/** A JSON-RPC 2.0 message, as far as the version field says it is one. */
+const isMessage = (m: unknown): m is JsonRpcMessage => isObject(m) && m["jsonrpc"] === "2.0";
 
 interface Pending {
   resolve(v: unknown): void;
@@ -170,7 +172,7 @@ export class McpClient {
     const r = await this.#request("tools/call", { name, arguments: args }, opts);
     if (!isObject(r)) throw new McpError("the server's result was not understood");
     const content = Array.isArray(r["content"])
-      ? (r["content"].filter((c) => isObject(c) && typeof c["type"] === "string") as McpContent[])
+      ? r["content"].filter((c): c is McpContent => isObject(c) && typeof c["type"] === "string")
       : [];
     return {
       content,
@@ -217,10 +219,11 @@ export class McpClient {
       });
       if (opts.signal?.aborted === true) return onAbort();
       opts.signal?.addEventListener("abort", onAbort, { once: true });
-      if (opts.timeoutMs !== undefined)
+      const timeoutMs = opts.timeoutMs;
+      if (timeoutMs !== undefined)
         timer = setTimeout(
-          () => cancel("timed out", new McpError(`${method} timed out after ${Math.round((opts.timeoutMs as number) / 1000)} s`)),
-          opts.timeoutMs,
+          () => cancel("timed out", new McpError(`${method} timed out after ${Math.round(timeoutMs / 1000)} s`)),
+          timeoutMs,
         );
       this.#transport.send({ jsonrpc: "2.0", id, method, params }).catch((e: unknown) => {
         if (!this.#pending.has(id)) return;
@@ -294,7 +297,7 @@ export function stdioTransport(host: Host, o: StdioOptions): McpTransport {
               if (line === "") continue;
               try {
                 const m = JSON.parse(line) as unknown;
-                if (isObject(m) && m["jsonrpc"] === "2.0") onMessage(m as JsonRpcMessage);
+                if (isMessage(m)) onMessage(m);
               } catch {
                 /* a server that logs to stdout: not a message */
               }
@@ -345,7 +348,7 @@ export function httpTransport(o: HttpOptions): McpTransport {
     ...(version === undefined ? {} : { "mcp-protocol-version": version }),
   });
   const dispatch = (v: unknown): void => {
-    for (const m of Array.isArray(v) ? v : [v]) if (isObject(m) && m["jsonrpc"] === "2.0") deliver?.(m as JsonRpcMessage);
+    for (const m of Array.isArray(v) ? v : [v]) if (isMessage(m)) deliver?.(m);
   };
   return {
     async start(onMessage, onClose) {

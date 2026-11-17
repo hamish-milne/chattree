@@ -1,5 +1,7 @@
 import { CHANGE_KINDS, type ChangeKind, type ChatEntry } from "./entries.ts";
 import { DEFAULT_RENDERER } from "./renderer.ts";
+import { nth } from "../src/nth.ts";
+import { isJson } from "../src/json.ts";
 
 /**
  * An agent's state, as folded from the `agent_setup` entries on its branch (docs/providers.md, P8). Agents are
@@ -162,7 +164,7 @@ export function hasRequested(entries: readonly ChatEntry[]): boolean {
 /** Whether the last assistant entry made tool calls that have no result yet. */
 export function inToolLoop(entries: readonly ChatEntry[]): boolean {
   for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i] as ChatEntry;
+    const e = nth(entries, i);
     if (e.$tag === "branch_start" && e.context === "fresh") return false;
     if (e.$tag !== "assistant") continue;
     const answered = new Set<string>();
@@ -175,10 +177,10 @@ export function inToolLoop(entries: readonly ChatEntry[]): boolean {
 /** Stable text of a JSON-like value (sorted keys), for comparing settings. */
 export function stable(v: unknown): string {
   if (Array.isArray(v)) return `[${v.map(stable).join(",")}]`;
-  if (v !== null && typeof v === "object") {
+  if (isJson(v)) {
     return `{${Object.keys(v)
       .sort()
-      .map((k) => `${JSON.stringify(k)}:${stable((v as Record<string, unknown>)[k])}`)
+      .map((k) => `${JSON.stringify(k)}:${stable(v[k])}`)
       .join(",")}}`;
   }
   return JSON.stringify(v) ?? "null";

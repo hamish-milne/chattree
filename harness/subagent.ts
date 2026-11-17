@@ -8,6 +8,9 @@ import { approvalKey, childModel, describeModels, modelProperties, type ChildMod
 import type { ModelSetup } from "./setup.ts";
 import type { ChatEntry } from "./entries.ts";
 import { inlineBlobs } from "./context-builder.ts";
+import { optStringArg, stringArg } from "./tool-args.ts";
+import { nth } from "../src/nth.ts";
+import { jsonOr } from "../src/json.ts";
 
 /**
  * The `subagent` tool (docs/tools.md, section 4.2). It hands a self-contained task to a fresh-context child on its own branch and
@@ -68,7 +71,7 @@ function reportTool(): Tool {
     },
     allowKeys: () => null,
     execute: (args) => {
-      const summary = (args["summary"] as string).trim();
+      const summary = stringArg(args, "summary").trim();
       if (summary === "") return Promise.resolve({ content: "summary must not be empty: say what you did and found", is_error: true });
       return Promise.resolve({ content: "Handed back. Your work is finished.", finish: true });
     },
@@ -77,7 +80,7 @@ function reportTool(): Tool {
 
 /** The registry a child works with: the leaf tools it was given, the MCP tools it connected (`extra`), and the `merge` tool that hands its work back. */
 export function subagentChildRegistry(base: ToolRegistry, extra: readonly Tool[] = []): ToolRegistry {
-  return new ToolRegistry([...base.names().map((n) => base.get(n) as Tool), ...extra, reportTool()]);
+  return new ToolRegistry([...base.names().flatMap((n) => base.get(n) ?? []), ...extra, reportTool()]);
 }
 
 /**
@@ -112,16 +115,16 @@ export async function childState(child: Conversation, entries: readonly ChatEntr
   const own = entries.slice(start + 1);
   // Handed back: the last assistant entry called merge and the call has a result that is not an error.
   for (let i = own.length - 1; i >= 0; i--) {
-    const e = own[i] as ChatEntry;
+    const e = nth(own, i);
     if (e.$tag !== "assistant") continue;
     const call = e.blocks.find((b) => b.$tag === "tool_call" && b.name === "merge");
     if (call?.$tag === "tool_call") {
       const result = own.slice(i + 1).find((x) => x.$tag === "tool_result" && x.call_id === call.call_id);
       if (result?.$tag === "tool_result" && !result.is_error) {
-        const args = (await inlineBlobs(call.args, async (ref) => dec.decode((await child.store.get(ref.sha256)) ?? new Uint8Array()))) as {
-          summary?: unknown;
-        };
-        return { state: "handed_back", summary: typeof args.summary === "string" ? args.summary.trim() : "" };
+        const args = jsonOr(
+          await inlineBlobs(call.args, async (ref) => dec.decode((await child.store.get(ref.sha256)) ?? new Uint8Array())),
+        );
+        return { state: "handed_back", summary: typeof args["summary"] === "string" ? args["summary"].trim() : "" };
       }
     }
     break;
@@ -173,7 +176,7 @@ export async function deliverSubagents(convo: Conversation, opts: { review?: boo
     if (e.$tag !== "tool_result" || typeof e.content !== "string" || done.has(e.call_id)) continue;
     const m = SUBAGENT_STARTED.exec(e.content);
     if (m === null) continue;
-    const name = (m[1] as string).replace(/[:.]$/, "");
+    const name = nth(m, 1).replace(/[:.]$/, "");
     const st = await lookChild(convo, name);
     if (!st.found) continue;
     if (st.state === "handed_back") {
@@ -229,12 +232,7 @@ export function subagentTool(deps: SubagentDeps): Tool {
   const choose = async (args: Record<string, unknown>): Promise<ChildModel> => {
     const parent = (await deps.convo.setup()).model;
     const info = parent === undefined ? undefined : deps.convo.modelInfo(parent.provider, parent.id);
-    return childModel(
-      { model: args["model"] as string | undefined, reasoning: args["reasoning"] as string | undefined },
-      models,
-      parent,
-      info,
-    );
+    return childModel({ model: optStringArg(args, "model"), reasoning: optStringArg(args, "reasoning") }, models, parent, info);
   };
 
   return {
@@ -285,14 +283,14 @@ export function subagentTool(deps: SubagentDeps): Tool {
         ? undefined
         : "write it as provider/model@level (globs allowed, for example anthropic/claude-haiku-*@*), or inherit",
     waitingOn: async (args, callId) => {
-      const name = subagentBranch(args["name"] as string | undefined, callId);
+      const name = subagentBranch(optStringArg(args, "name"), callId);
       if (args["background"] === true) return undefined;
       const st = await lookChild(deps.convo, name);
       return st.found && (st.state === "working" || st.state === "needs_nudge") ? name : undefined;
     },
     execute: async (args, ctx): Promise<ToolOutput | StartedJob> => {
-      const brief = args["brief"] as string;
-      const label = args["name"] as string | undefined;
+      const brief = stringArg(args, "brief");
+      const label = optStringArg(args, "name");
       if (label !== undefined && !SAFE_NAME.test(label))
         return { content: "name must be letters, digits, - and _ (at most 31 characters)", is_error: true };
       const choice = await choose(args);

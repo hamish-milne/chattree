@@ -2,6 +2,7 @@ import { GitError } from "../errors.ts";
 import type { ExecResult, Host } from "../host.ts";
 import { CatFileSession, assertObjectName, type ObjectReader } from "./cat-file.ts";
 import { MIN_GIT_VERSION, compareVersions, formatVersion, parseGitVersion, type GitVersion } from "./version.ts";
+import { nth } from "../../src/nth.ts";
 
 const dec = new TextDecoder("utf-8", { fatal: false });
 const enc = new TextEncoder();
@@ -488,7 +489,7 @@ export class Git {
     const lines = dec.decode(r.stdout).split("\n");
     return specs.map((_, i) => {
       const m = /^([0-9a-f]{40,64}) (\S+) (\d+)$/.exec(lines[i] ?? "");
-      return m === null ? undefined : { oid: m[1] as string, type: m[2] as string, size: Number(m[3]) };
+      return m === null ? undefined : { oid: nth(m, 1), type: nth(m, 2), size: Number(m[3]) };
     });
   }
 
@@ -666,7 +667,10 @@ export class Git {
     const tree = f[0] ?? "";
     let i = 1;
     const conflictedPaths: string[] = [];
-    while (i < f.length && f[i] !== "") conflictedPaths.push(f[i++] as string);
+    for (let path = f[i]; path !== undefined && path !== ""; path = f[i]) {
+      conflictedPaths.push(path);
+      i++;
+    }
     i++; // the empty field that ends the path list
     const messages: MergeMessage[] = [];
     while (i < f.length && f[i] !== "") {

@@ -17,7 +17,7 @@ import {
   type StreamRequest,
   type Usage,
 } from "./types.ts";
-import { messageText } from "./wire.ts";
+import { asJson, asString, jsonList, jsonOr, messageText, parseJsonObject, type Json } from "./wire.ts";
 
 /**
  * The Chat Completions API as llama-server, Ollama, vLLM, LM Studio and similar servers speak it (docs/providers.md,
@@ -88,7 +88,6 @@ export function parseCompatibleSettings(settings: unknown): CompatibleSettings {
 
 // ---- request --------------------------------------------------------------------------------------------------
 
-type Json = Record<string, unknown>;
 const OWNED = new Set(["model", "messages", "tools", "stream", "stream_options", "max_tokens", "max_completion_tokens", "tool_choice"]);
 
 export interface RequestOptions {
@@ -261,8 +260,10 @@ const protocol = (message: string): ProviderError => new ProviderError({ kind: "
 
 /** What an error body or event says: `{error: {message, type, code}}`, or a bare string. */
 function errorFrom(d: unknown): { kind: ErrorKind; retryable: boolean; message: string } {
-  const e = (typeof d === "object" && d !== null ? ((d as Json)["error"] ?? d) : d) as Json | string;
-  if (typeof e === "string") return { kind: "server", retryable: false, message: e };
+  const root = asJson(d);
+  const inner = root === undefined ? d : (root["error"] ?? d);
+  if (typeof inner === "string") return { kind: "server", retryable: false, message: inner };
+  const e = jsonOr(inner);
   const code = typeof e["code"] === "string" ? e["code"] : undefined;
   const type = typeof e["type"] === "string" ? e["type"] : undefined;
   const known = (code === undefined ? undefined : ERROR_KINDS[code]) ??
@@ -275,8 +276,8 @@ function updateUsage(s: State, raw: Json): void {
   // Take the largest figure seen for each count, so that servers that report running totals, or revise one, never make usage go down.
   const prompt = num(raw["prompt_tokens"]);
   const completion = num(raw["completion_tokens"]);
-  const cached = num((raw["prompt_tokens_details"] as Json | undefined)?.["cached_tokens"]);
-  const reasoning = num((raw["completion_tokens_details"] as Json | undefined)?.["reasoning_tokens"]);
+  const cached = num(asJson(raw["prompt_tokens_details"])?.["cached_tokens"]);
+  const reasoning = num(asJson(raw["completion_tokens_details"])?.["reasoning_tokens"]);
   if (prompt !== undefined) s.raw.prompt = Math.max(s.raw.prompt, prompt);
   if (completion !== undefined) s.raw.completion = Math.max(s.raw.completion, completion);
   if (cached !== undefined) s.raw.cached = Math.max(s.raw.cached ?? 0, cached);
@@ -300,9 +301,8 @@ function close(o: Open | undefined, s: State, events: StreamEvent[]): void {
   else if (o.kind === "reasoning") block = { type: "reasoning", provider: s.provider, visible: o.text };
   else {
     try {
-      const parsed: unknown = o.args === "" ? {} : JSON.parse(o.args);
-      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
-      block = { type: "tool_call", call_id: o.id, name: o.name, args: parsed as Json };
+      const parsed = o.args === "" ? {} : parseJsonObject(o.args, "the tool arguments");
+      block = { type: "tool_call", call_id: o.id, name: o.name, args: parsed };
     } catch {
       block = { type: "tool_call", call_id: o.id, name: o.name, args: {}, args_raw: o.args };
     }
@@ -395,7 +395,7 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       }
       let d: Json;
       try {
-        d = JSON.parse(data) as Json;
+        d = parseJsonObject(data, "the chunk");
       } catch {
         throw protocol("malformed chunk");
       }
@@ -416,16 +416,15 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
         });
       }
 
-      const choice = (Array.isArray(d["choices"]) ? d["choices"][0] : undefined) as Json | undefined;
-      const delta = (choice?.["delta"] ?? {}) as Json;
+      const choice = Array.isArray(d["choices"]) ? asJson(d["choices"][0]) : undefined;
+      const delta = jsonOr(choice?.["delta"]);
 
-      const reasoningField =
-        typeof delta["reasoning_content"] === "string" && delta["reasoning_content"] !== ""
-          ? "reasoning_content"
-          : typeof delta["reasoning"] === "string" && delta["reasoning"] !== ""
-            ? "reasoning"
-            : undefined;
-      if (reasoningField !== undefined) reasoningDelta(s, events, delta[reasoningField] as string, reasoningField);
+      const reasoningField = (["reasoning_content", "reasoning"] as const).find((f) => {
+        const v = delta[f];
+        return typeof v === "string" && v !== "";
+      });
+      const reasoningText = reasoningField === undefined ? undefined : asString(delta[reasoningField]);
+      if (reasoningField !== undefined && reasoningText !== undefined) reasoningDelta(s, events, reasoningText, reasoningField);
       if (typeof delta["content"] === "string" && delta["content"] !== "") {
         if (s.think === undefined) content(s, events, [{ kind: "text", text: delta["content"] }]);
         else content(s, events, s.think.push(delta["content"]));
@@ -439,9 +438,9 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
         close(s.reasoning, s, events);
         close(s.text, s, events);
         s.reasoning = s.text = undefined;
-        for (const c of calls as Json[]) {
+        for (const c of jsonList(calls)) {
           const k = num(c["index"]) ?? 0;
-          const fn = (c["function"] ?? {}) as Json;
+          const fn = jsonOr(c["function"]);
           let o = s.tools.get(k);
           const name = typeof fn["name"] === "string" && fn["name"] !== "" ? fn["name"] : undefined;
           if (o === undefined) {
@@ -473,9 +472,8 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
         s.reasoning = s.text = undefined;
         s.tools.clear();
       }
-      if (typeof d["usage"] === "object" && d["usage"] !== null) {
-        updateUsage(s, d["usage"] as Json);
-      }
+      const usage = asJson(d["usage"]);
+      if (usage !== undefined) updateUsage(s, usage);
       return events;
     },
     done: (s) => s.done,

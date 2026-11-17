@@ -5,6 +5,7 @@ import type { Command } from "../registry.ts";
 import type { Output } from "../output.ts";
 import { withConfirmation } from "../changes.ts";
 import { failure } from "../turn.ts";
+import { nth } from "../../src/nth.ts";
 
 const flat = (s: string, max: number): string => {
   const t = s.replace(/\s+/g, " ").trim();
@@ -39,7 +40,7 @@ const mcp: Command = {
   busy: "blocked",
   async complete(ctx, previous, partial) {
     if (previous.length === 0) return ["show", "accept", "forget", "refresh"].filter((s) => s.startsWith(partial));
-    if (["show", "accept", "forget"].includes(previous[0] as string))
+    if (["show", "accept", "forget"].includes(nth(previous, 0)))
       return Object.keys(await configured(ctx)).filter((n) => n.startsWith(partial));
     return [];
   },

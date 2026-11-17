@@ -43,7 +43,7 @@ export function resultContent(
 export type AudioFrame = "none" | "label" | "transcript";
 export const AUDIO_FRAMES: readonly AudioFrame[] = ["none", "label", "transcript"];
 export const audioFrameOf = (options: Record<string, unknown>): AudioFrame =>
-  AUDIO_FRAMES.includes(options["audio_frame"] as AudioFrame) ? (options["audio_frame"] as AudioFrame) : "transcript";
+  AUDIO_FRAMES.find((f) => f === options["audio_frame"]) ?? "transcript";
 
 /** The marker for a sound, with the lines around it that `frame` asks for. Only sound is framed. */
 export function framed(p: AttachmentPart, marker: string, frame: AudioFrame): string {

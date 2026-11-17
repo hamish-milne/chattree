@@ -95,7 +95,8 @@ const applet = (program: string): string | undefined => {
 
 /** The stage to start: busybox standing in for a missing utility on Windows, otherwise the stage itself. */
 export function portableStage(stage: readonly string[], platform: "windows" | "posix" | undefined, busybox: string | undefined): string[] {
-  const [program, ...args] = stage as readonly [string, ...string[]];
+  const [program, ...args] = stage;
+  if (program === undefined) return [...stage];
   if (platform !== "windows") return [...stage];
   const name = applet(program);
   if (name === undefined || !BUSYBOX_APPLETS.has(name)) return [...stage];

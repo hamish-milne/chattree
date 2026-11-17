@@ -1,8 +1,6 @@
 import { parseArgs } from "node:util";
-import { search, SearchError, type Scope } from "../../harness/search.ts";
+import { parseScope, SCOPES, search, SearchError } from "../../harness/search.ts";
 import type { Command } from "../registry.ts";
-
-const SCOPES = ["thread", "family", "project"];
 
 const searchCommand: Command = {
   name: "search",
@@ -39,7 +37,7 @@ const searchCommand: Command = {
       return;
     }
     const { values, positionals } = parsed;
-    if (values.scope !== undefined && !SCOPES.includes(values.scope)) {
+    if (values.scope !== undefined && parseScope(values.scope) === undefined) {
       yield { type: "error", message: `--scope takes thread, family or project, not ${values.scope}` };
       return;
     }
@@ -57,7 +55,7 @@ const searchCommand: Command = {
     try {
       const r = await search(ctx.convo, ctx.convo.branch, {
         query,
-        scope: (values.scope ?? "thread") as Scope,
+        scope: parseScope(values.scope) ?? "thread",
         regex: values.regex === true,
         includeVisible: values.visible === true,
         reasoning: values.reasoning === true,

@@ -80,8 +80,8 @@ export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {
     if (b.type === "text" && text.has(i) && text.get(i) !== b.text) out.push(`block ${i}: text deltas do not add up to the block`);
     if (b.type === "reasoning" && reasoning.has(i) && b.visible !== undefined && reasoning.get(i) !== b.visible)
       out.push(`block ${i}: reasoning deltas do not add up to the block`);
-    if (b.type === "tool_call" && args.has(i)) {
-      const raw = args.get(i) as string;
+    const raw = args.get(i);
+    if (b.type === "tool_call" && raw !== undefined) {
       try {
         if (JSON.stringify(JSON.parse(raw)) !== JSON.stringify(b.args))
           out.push(`block ${i}: argument deltas do not parse to the block's arguments`);
@@ -111,7 +111,11 @@ export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {
   // Secrets never leave the adapter.
   const everything =
     JSON.stringify([ev, run.completed]) +
-    (run.error instanceof Error ? `${run.error.message}${JSON.stringify((run.error as ProviderError).partial ?? [])}` : "");
+    (run.error instanceof ProviderError
+      ? `${run.error.message}${JSON.stringify(run.error.partial)}`
+      : run.error instanceof Error
+        ? run.error.message
+        : "");
   for (const s of opts.secrets ?? []) if (s.length > 0 && everything.includes(s)) out.push("a secret appears in the stream's output");
   return out;
 }

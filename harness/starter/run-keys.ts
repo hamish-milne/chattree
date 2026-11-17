@@ -1,7 +1,8 @@
 import type { ApprovalContext } from "../tools.ts";
-import { CommandSyntax, parseCommand, type Word } from "./command.ts";
+import { CommandSyntax, parseCommand } from "./command.ts";
 import { expandGlob } from "./glob.ts";
 import { PathRefused, resolveInWorkspace } from "./workspace.ts";
+import { nth } from "../../src/nth.ts";
 
 /**
  * Approval keys for `run` (docs/tools.md, section 5). A key is one pipeline stage written as a command line with
@@ -87,8 +88,8 @@ export function parseKey(key: string): KeyPattern | string {
     return e instanceof Error ? e.message : String(e);
   }
   if (parsed.stages.length !== 1) return "a key is one command, not a pipeline: grant each stage on its own";
-  const words = (parsed.stages[0] as Word[]).map((w) => w.text);
-  const program = words[0] as string;
+  const words = (parsed.stages[0] ?? []).map((w) => w.text);
+  const program = nth(words, 0);
   if (hasWildcard(program)) return "the program in a key must be written out, without wildcards";
   const middle = words.slice(1, -1).indexOf("**");
   if (middle >= 0) return `** can only be the last word (it is word ${middle + 2})`;
@@ -119,7 +120,7 @@ export function validateRunKey(key: string): string | undefined {
 export function globRegex(pat: string): RegExp {
   let re = "";
   for (let i = 0; i < pat.length; i++) {
-    const c = pat[i] as string;
+    const c = nth(pat, i);
     if (c === "*") {
       if (pat[i + 1] === "*") {
         re += ".*";
@@ -165,13 +166,11 @@ function argvMatches(ctx: ApprovalContext, key: readonly string[], groups: reado
   const last = key[key.length - 1] === "**";
   const fixed = last ? key.slice(0, -1) : key;
   if (last ? groups.length < fixed.length : groups.length !== fixed.length) return false;
-  return fixed.every((p, i) =>
-    i === 0 ? p === groups[0]?.[0] : p === "*" || (groups[i] as readonly string[]).every((c) => wordMatches(ctx, p, c)),
-  );
+  return fixed.every((p, i) => (i === 0 ? p === groups[0]?.[0] : p === "*" || nth(groups, i).every((c) => wordMatches(ctx, p, c))));
 }
 
 function writesOrRuns(argv: readonly string[]): boolean {
-  const program = argv[0] as string;
+  const program = nth(argv, 0);
   if (RUNNERS.has(program)) return true;
   const rules = [...(WRITING_ARGS["*"] ?? []), ...(WRITING_ARGS[program] ?? [])];
   return argv.slice(1).some((a) => rules.some((r) => r.test(a)));
@@ -287,9 +286,7 @@ export async function runAllowKeys(command: string, ctx: RunKeyContext): Promise
     const wantOut = i === p.stages.length - 1 ? p.stdout : undefined;
     const safe = ctx.safe
       .map((s) => s.trim().split(/\s+/))
-      .find(
-        (prefix) => prefix.length <= stage.argv.length && prefix.every((w, k) => w === stage.argv[k]) && !RUNNERS.has(prefix[0] as string),
-      );
+      .find((prefix) => prefix.length <= stage.argv.length && prefix.every((w, k) => w === stage.argv[k]) && !RUNNERS.has(nth(prefix, 0)));
     let parts: string[];
     if (safe !== undefined && !writesOrRuns(stage.argv)) {
       parts = [...safe.map(quote), "**"];

@@ -11,6 +11,7 @@ import {
   type Sidecar,
   type Speculative,
 } from "./config.ts";
+import { typedKeys } from "./typed.ts";
 
 /**
  * From settings to what the host has to do (docs/local-models.md, section 6): the files to have, the preset file and the arguments
@@ -78,12 +79,17 @@ export const fileDest = (path: PathApi, data: string, url: string, file: string)
 /** The directory the files of a model were kept in before they were shared (`models/<name>/`); only read, to bring them across. */
 export const legacyDir = (path: PathApi, data: string, model: string): string => path.join(data, "models", model);
 
+/** The models of the settings, in name order. */
+export const modelsByName = (config: LocalModels): [string, ModelEntry][] =>
+  Object.entries(config.models).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+
+const baseName = (file: string): string => file.split("/").at(-1) ?? file;
+
 /** The files the settings call for, in model order. A model that cannot be fetched (a URL that is not a GGUF file) is an issue, not a download. */
 export function downloadList(config: LocalModels, path: PathApi, data: string): { downloads: Download[]; issues: PlanIssue[] } {
   const downloads: Download[] = [];
   const issues: PlanIssue[] = [];
-  for (const model of Object.keys(config.models).sort()) {
-    const m = config.models[model] as ModelEntry;
+  for (const [model, m] of modelsByName(config)) {
     const dir = filesDir(path, data);
     const source = modelSource(m);
     if (source === undefined) {
@@ -110,7 +116,7 @@ export function downloadList(config: LocalModels, path: PathApi, data: string): 
         file: source.file,
         sha256: m.sha256,
         dir,
-        dest: fileDest(path, data, url, source.file.split("/").at(-1) as string),
+        dest: fileDest(path, data, url, baseName(source.file)),
       });
     }
     for (const [role, spec] of [
@@ -140,7 +146,7 @@ function sidecarDownload(
     file,
     sha256,
     dir,
-    dest: fileDest(path, data, url, file.split("/").at(-1) as string),
+    dest: fileDest(path, data, url, baseName(file)),
   });
   const lookup = (resolve: Resolve, sha256: string | undefined): Download => ({
     model,
@@ -153,7 +159,12 @@ function sidecarDownload(
     resolve,
   });
   const own = source.kind === "url" ? undefined : { repo: source.repo, revision: source.revision };
-  if (spec === "auto") return lookup({ ...(own as { repo: string; revision: string }), quant: undefined, pick: role }, undefined);
+  /** The model's own repository, for a file looked for there; the settings are checked to give one wherever it is asked for. */
+  const ownRepo = (): { repo: string; revision: string } => {
+    if (own === undefined) throw new Error(`the ${role} of ${model} is looked for in the model's repository, but the model is a url`);
+    return own;
+  };
+  if (spec === "auto") return lookup({ ...ownRepo(), quant: undefined, pick: role }, undefined);
   if (spec.url !== undefined)
     return direct(
       spec.url,
@@ -166,8 +177,9 @@ function sidecarDownload(
       spec.sha256,
     );
   if (spec.hf === undefined) {
-    const o = own as { repo: string; revision: string };
-    return direct(hfUrl(o.repo, o.revision, spec.file as string), spec.file as string, spec.sha256);
+    const o = ownRepo();
+    if (spec.file === undefined) throw new Error(`the ${role} of ${model} names neither a url, a repository nor a file`);
+    return direct(hfUrl(o.repo, o.revision, spec.file), spec.file, spec.sha256);
   }
   const at = spec.hf.indexOf(":");
   const repo = at < 0 ? spec.hf : spec.hf.slice(0, at);
@@ -225,19 +237,24 @@ function specLines(sp: Speculative): [string, number | string][] {
   return out;
 }
 
-type Params = Partial<Record<keyof typeof PARAM_KEYS, string | number | boolean>> & { speculative?: Speculative | undefined } & {
+type Params = Partial<Record<keyof typeof PARAM_KEYS, string | number | boolean | undefined>> & {
+  speculative?: Speculative | undefined;
+} & {
   options?: Record<string, string | number | boolean> | undefined;
 };
 
 function paramLines(p: Params): [string, string | number | boolean][] {
   const out: [string, string | number | boolean][] = [];
-  for (const k of Object.keys(PARAM_KEYS) as (keyof typeof PARAM_KEYS)[]) {
+  for (const k of typedKeys(PARAM_KEYS)) {
     const v = p[k];
     if (v !== undefined) out.push([PARAM_KEYS[k], v]);
   }
   if (p.speculative !== undefined) out.push(...specLines(p.speculative));
-  for (const k of Object.keys(p.options ?? {}).sort())
-    out.push([k, (p.options as Record<string, string | number | boolean>)[k] as string | number | boolean]);
+  const options = p.options ?? {};
+  for (const k of Object.keys(options).sort()) {
+    const v = options[k];
+    if (v !== undefined) out.push([k, v]);
+  }
   return out;
 }
 
@@ -264,21 +281,19 @@ const ini = (v: string | number | boolean): string => {
  */
 export function presetIni(config: LocalModels, files: Readonly<Record<string, ModelFiles>>): string {
   const lines: string[] = ["version = 1", ""];
-  const shared = paramLines(config.defaults as Params);
+  const shared = paramLines(config.defaults);
   lines.push("[*]");
   for (const [k, v] of shared) lines.push(`${k} = ${ini(v)}`);
-  for (const model of Object.keys(config.models).sort()) {
-    const m = config.models[model] as ModelEntry;
+  for (const [model, m] of modelsByName(config)) {
     const f = files[model];
     if (f === undefined) continue;
     lines.push("", `[${model}]`, `model = ${ini(f.file)}`);
     if (f.mmproj !== undefined) lines.push(`mmproj = ${ini(f.mmproj)}`);
     if (f.draft !== undefined) lines.push(`model-draft = ${ini(f.draft)}`);
     if (f.template !== undefined) lines.push(`chat-template-file = ${ini(f.template)}`);
-    for (const [k, v] of paramLines(m as Params)) lines.push(`${k} = ${ini(v)}`);
+    for (const [k, v] of paramLines(m)) lines.push(`${k} = ${ini(v)}`);
     const s = m.sampling ?? {};
-    for (const k of Object.keys(SAMPLING_KEYS) as (keyof Sampling)[])
-      if (s[k] !== undefined) lines.push(`${SAMPLING_KEYS[k]} = ${ini(s[k])}`);
+    for (const k of typedKeys(SAMPLING_KEYS)) if (s[k] !== undefined) lines.push(`${SAMPLING_KEYS[k]} = ${ini(s[k])}`);
     if (m.load_on_startup !== undefined) lines.push(`load-on-startup = ${ini(m.load_on_startup)}`);
     if (m.embeddings === true) lines.push("embeddings = true");
   }

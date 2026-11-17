@@ -4,6 +4,8 @@ import { Pipeline, acquireLock, defineEntry, emitEntry, parseEntry, LockHeldErro
 import { createUlid, ULID_RE } from "../harness/ulid.ts";
 import { hasPendingState, type SessionState, type StagedAttachment } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
+import { nth } from "../src/nth.ts";
+import { jsonOr } from "../src/json.ts";
 
 /**
  * Session files (docs/cli.md, section 3): everything a CLI process holds that is not in the transcript, one YAML file per
@@ -277,8 +279,8 @@ export class SessionStore {
 
   async #lockedNow(id: string): Promise<boolean> {
     try {
-      const v = JSON.parse(dec.decode(await this.#host.fs.read(this.#lockFile(id)))) as { createdAt?: unknown };
-      return typeof v.createdAt === "number" && this.#now() - v.createdAt <= (this.#opts.staleAfterMs ?? 30_000);
+      const created = jsonOr(JSON.parse(dec.decode(await this.#host.fs.read(this.#lockFile(id)))))["createdAt"];
+      return typeof created === "number" && this.#now() - created <= (this.#opts.staleAfterMs ?? 30_000);
     } catch {
       return false;
     }
@@ -357,10 +359,10 @@ export class SessionStore {
   async open(req: OpenRequest): Promise<{ session: Session; resumed: boolean; skipped: string[] }> {
     const skipped: string[] = [];
     if (req.id !== undefined) {
-      const matches = (await this.ids()).filter((i) => i === req.id || i.startsWith(req.id as string));
+      const matches = (await this.ids()).filter((i) => i === req.id || i.startsWith(req.id ?? ""));
       if (matches.length === 0) throw new CliError(`there is no session ${req.id}`, "chattree sessions lists them");
       if (matches.length > 1) throw new CliError(`${req.id} matches ${matches.length} sessions`, "give more of the id");
-      const id = matches[0] as string;
+      const id = nth(matches, 0);
       const lock = await this.#lock(id);
       if (lock === undefined)
         throw new CliError(`session ${id} is in use by another process`, "close it there, or start another with --new-session");

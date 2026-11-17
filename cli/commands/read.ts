@@ -1,6 +1,6 @@
 import type { ChatEntry } from "../../harness/entries.ts";
 import { openEntry, parseRef } from "../../harness/search.ts";
-import { formatEntry, type Thinking, type ToolView } from "../output.ts";
+import { formatEntry, parseThinking, parseToolView, THINKING_VIEWS, TOOL_VIEWS } from "../output.ts";
 import { verifyHistory } from "../../harness/verify.ts";
 import type { Command } from "../registry.ts";
 import type { Ctx } from "../engine.ts";
@@ -65,8 +65,8 @@ const show: Command = {
   },
 };
 
-const THINKING = ["on", "brief", "off"];
-const TOOLS = ["full", "brief", "off"];
+const THINKING: readonly string[] = THINKING_VIEWS;
+const TOOLS: readonly string[] = TOOL_VIEWS;
 
 const display: Command = {
   name: "display",
@@ -98,12 +98,14 @@ const display: Command = {
       yield { type: "text", text: `${what} is ${what === "thinking" ? ctx.state.thinking : ctx.state.tools}` };
       return;
     }
-    if (!(what === "thinking" ? THINKING : TOOLS).includes(value) || args.length > 2) {
+    const thinking = what === "thinking" ? parseThinking(value) : undefined;
+    const tools = what === "tools" ? parseToolView(value) : undefined;
+    if ((thinking === undefined && tools === undefined) || args.length > 2) {
       yield { type: "error", message: `${value} is not ${what === "thinking" ? "on, brief or off" : "full, brief or off"}` };
       return;
     }
-    if (what === "thinking") ctx.state.thinking = value as Thinking;
-    else ctx.state.tools = value as ToolView;
+    if (thinking !== undefined) ctx.state.thinking = thinking;
+    if (tools !== undefined) ctx.state.tools = tools;
     yield { type: "notice", message: `${what} is ${value}; it applies to the live display, /history and the recap when a thread opens` };
   },
 };

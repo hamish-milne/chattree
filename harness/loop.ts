@@ -325,6 +325,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   const now = convo.now;
   const approvalCtx = { thread: convo.branch, workspace: convo.dir, host: convo.host };
   let deadline = opts.deadline;
+  const approve = opts.approve;
   const config = await convo.readConfig();
   const limits = config?.ok === true ? config.value.limits : undefined;
   if (deadline === undefined) {
@@ -475,7 +476,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       );
       if (hit.permitted)
         yield { type: "tool.approval", callId: call.call_id, name: call.name, allowed: true, via: "allowlist", keys: hit.keys };
-      else if (opts.approve === undefined) {
+      else if (approve === undefined) {
         const keys = (await checked.tool.allowKeys?.(checked.args, approvalCtx)) ?? null;
         if (opts.waitForApproval === true) {
           waiting = { callId: call.call_id, name: call.name, args: checked.args, keys };
@@ -491,7 +492,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       } else {
         const keys = (await checked.tool.allowKeys?.(checked.args, approvalCtx)) ?? null;
         const decision = await whileAsking(() =>
-          (opts.approve as NonNullable<typeof opts.approve>)({
+          approve({
             callId: call.call_id,
             name: call.name,
             args: checked.args,
@@ -531,9 +532,9 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
           yield ev;
         }
       }
-    } else if (opts.approve !== undefined) {
+    } else if (approve !== undefined) {
       const decision = await whileAsking(() =>
-        (opts.approve as NonNullable<typeof opts.approve>)({
+        approve({
           callId: call.call_id,
           name: call.name,
           args: checked.args,
@@ -598,7 +599,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       }
       if (res === "timeout") {
         running.catch(() => undefined); // it was told to stop; whatever it does now is not the loop's concern
-        out = { content: `The tool did not finish within ${allowed as number} seconds and was stopped.`, is_error: true };
+        out = { content: `The tool did not finish within ${String(allowed)} seconds and was stopped.`, is_error: true };
       } else if (!isStarted(res)) out = res;
       else if (opts.jobs === undefined) {
         res.started.stop();
@@ -659,8 +660,8 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   }
   if (resumedFinish) return { status: "finished", requests: 0 };
 
-  const turnOpts: TurnOptions = { ...opts, deadline: deadline as number };
-  if (deadline === undefined) delete (turnOpts as { deadline?: number }).deadline;
+  const turnOpts: TurnOptions = { ...opts, ...(deadline === undefined ? {} : { deadline }) };
+  if (deadline === undefined) delete turnOpts.deadline;
   let requests = 0;
   for (;;) {
     if (opts.jobs !== undefined) for (const j of await opts.jobs.flush()) yield { type: "job.event", ...j };

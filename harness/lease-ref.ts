@@ -66,7 +66,7 @@ export function refLeaseBackend(git: Git, o: RefLeaseOptions): LeaseBackend {
       .decode(out)
       .split("\n")
       .find((l) => l.endsWith(`\t${ref}`));
-    const rev = line === undefined ? undefined : (line.split("\t")[0] as string);
+    const rev = line === undefined ? undefined : line.split("\t")[0];
     looked.set(ref, { rev, at: now() });
     return rev;
   };

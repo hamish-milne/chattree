@@ -1,4 +1,5 @@
 import type { Git, Host } from "../src/index.ts";
+import { jsonOr } from "../src/json.ts";
 
 /** The part of an entry reference the cache keeps. Matches `EntryRef` in conversation.ts. */
 export interface CachedRef {
@@ -61,13 +62,18 @@ export class FileIndexCache implements IndexCache {
 /** Parse and sanity-check a cache file; anything unexpected yields undefined (rebuild instead). */
 export function parseCachedIndex(text: string): CachedIndex | undefined {
   try {
-    const raw = JSON.parse(text) as { v?: unknown; tip?: unknown; refs?: unknown };
-    if (raw.v !== 1 || typeof raw.tip !== "string" || !Array.isArray(raw.refs)) return undefined;
+    const raw = jsonOr(JSON.parse(text));
+    const { v, tip, refs: rows } = raw;
+    if (v !== 1 || typeof tip !== "string" || !Array.isArray(rows)) return undefined;
     const refs: CachedRef[] = [];
     let prev = 0;
-    for (const row of raw.refs as unknown[]) {
+    const list: unknown[] = rows;
+    for (const row of list) {
       if (!Array.isArray(row) || row.length !== 4) return undefined;
-      const [id, tag, commit, offset] = row as [unknown, unknown, unknown, unknown];
+      const id: unknown = row[0];
+      const tag: unknown = row[1];
+      const commit: unknown = row[2];
+      const offset: unknown = row[3];
       if (
         (id !== null && typeof id !== "string") ||
         typeof tag !== "string" ||
@@ -79,8 +85,8 @@ export function parseCachedIndex(text: string): CachedIndex | undefined {
       prev = offset;
       refs.push({ id: id === null ? undefined : id, tag, commit, offset });
     }
-    if (!/^[0-9a-f]{40,64}$/.test(raw.tip)) return undefined;
-    return { tip: raw.tip, refs };
+    if (!/^[0-9a-f]{40,64}$/.test(tip)) return undefined;
+    return { tip, refs };
   } catch {
     return undefined;
   }

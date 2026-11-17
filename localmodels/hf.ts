@@ -1,4 +1,5 @@
 import { fetchFollow, fetchJson, type FetchFn } from "./net.ts";
+import { asJson, jsonList } from "../src/json.ts";
 
 /** Hugging Face (docs/local-models.md, section 2): which file a quantisation names, and the SHA-256 a file must have. */
 
@@ -46,8 +47,9 @@ export function pickGguf(files: readonly RepoFile[], quant: string | undefined, 
     throw new QuantError(
       `${repo}${quant === undefined ? "" : `:${quant}`} matches more than one file (${keys.join(", ")}); name one with file:`,
     );
-  const parts = (groups.get(keys[0] as string) as RepoFile[]).slice().sort((a, b) => a.path.localeCompare(b.path));
-  const first = parts[0] as RepoFile;
+  const parts = (groups.get(keys[0] ?? "") ?? []).slice().sort((a, b) => a.path.localeCompare(b.path));
+  const first = parts[0];
+  if (first === undefined) throw new QuantError(`${repo} has no .gguf files`);
   if (PART.test(first.path)) {
     const count = Number(PART.exec(first.path)?.[2]);
     if (parts.length !== count || !/-00001-of-/.test(first.path))
@@ -87,7 +89,9 @@ export function pickSidecar(files: readonly RepoFile[], kind: SidecarKind, quant
   const top = found.filter((f) => rank(f) === best);
   if (top.length > 1)
     throw new QuantError(`${repo} has more than one ${what} file (${top.map((f) => f.path).join(", ")}); name one with file:`);
-  return top[0] as RepoFile;
+  const [only] = top;
+  if (only === undefined) throw new QuantError(`${repo} has no ${what} file`);
+  return only;
 }
 
 const hex64 = (v: unknown): string | undefined => (typeof v === "string" && /^[0-9a-f]{64}$/i.test(v) ? v.toLowerCase() : undefined);
@@ -105,9 +109,9 @@ export async function listRepoFiles(
     const res: Response = await fetchFollow(url, { fetch: o.fetch, token: o.token, headers: { accept: "application/json" } });
     const rows: unknown = await res.json();
     if (!Array.isArray(rows)) throw new QuantError(`${repo}: Hugging Face did not list the files`);
-    for (const r of rows as Record<string, unknown>[]) {
+    for (const r of jsonList(rows)) {
       if (r["type"] !== "file" || typeof r["path"] !== "string") continue;
-      const lfs = r["lfs"] as Record<string, unknown> | undefined;
+      const lfs = asJson(r["lfs"]);
       out.push({ path: r["path"], size: typeof r["size"] === "number" ? r["size"] : 0, sha256: hex64(lfs?.["oid"]) });
     }
     const next = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get("link") ?? "");

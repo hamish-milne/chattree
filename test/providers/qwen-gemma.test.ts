@@ -77,6 +77,7 @@ describe("gemma rendering matches the model's own template", () => {
 const tools = [
   {
     name: "write",
+    description: "",
     input_schema: {
       properties: {
         path: { type: "string" },

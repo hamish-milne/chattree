@@ -1,5 +1,7 @@
 import { chmod, mkdir, open, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { hasCode } from "../src/json.ts";
+import { jsonOr } from "../src/json.ts";
 
 /**
  * How a session finds the daemon (docs/local-models.md, section 3): `run/daemon.json` in the data directory holds the process id, the
@@ -24,7 +26,7 @@ export function pidAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "EPERM";
+    return hasCode(e, "EPERM");
   }
 }
 
@@ -32,9 +34,10 @@ export async function readInfo(data: string): Promise<DaemonInfo | undefined> {
   const text = await readFile(stateFile(data), "utf8").catch(() => undefined);
   if (text === undefined) return undefined;
   try {
-    const v = JSON.parse(text) as Partial<DaemonInfo>;
-    return typeof v.pid === "number" && typeof v.port === "number" && typeof v.token === "string" && typeof v.startedAt === "number"
-      ? (v as DaemonInfo)
+    const v = jsonOr(JSON.parse(text));
+    const { pid, port, token, startedAt } = v;
+    return typeof pid === "number" && typeof port === "number" && typeof token === "string" && typeof startedAt === "number"
+      ? { pid, port, token, startedAt }
       : undefined;
   } catch {
     return undefined;
@@ -63,7 +66,7 @@ export async function acquireLock(data: string): Promise<boolean> {
       await fh.close();
       return true;
     } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      if (!hasCode(e, "EEXIST")) throw e;
       const holder = Number((await readFile(lockFile(data), "utf8").catch(() => "")).trim());
       if (holder > 0 && pidAlive(holder)) return false;
       await rm(lockFile(data), { force: true });

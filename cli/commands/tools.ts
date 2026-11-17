@@ -10,7 +10,8 @@ export function parseDuration(text: string): number | undefined {
   if (text === "forever") return Infinity;
   const m = /^(\d+)\s*([smhd])$/.exec(text);
   if (m === null) return undefined;
-  return Number(m[1]) * ({ s: 1, m: 60, h: 3600, d: 86400 } as const)[m[2] as "s" | "m" | "h" | "d"];
+  const unit = { s: 1, m: 60, h: 3600, d: 86400 }[m[2] ?? ""];
+  return unit === undefined ? undefined : Number(m[1]) * unit;
 }
 
 const tools: Command = {
@@ -38,8 +39,8 @@ const tools: Command = {
       yield { type: "text", text: lines.join("\n") };
       return;
     }
-    const [name, verb, ...more] = args;
-    const tool = set.registry.get(name as string);
+    const [name = "", verb, ...more] = args;
+    const tool = set.registry.get(name);
     if (tool === undefined) {
       yield { type: "error", message: `there is no tool ${name}`, hint: `tools: ${set.registry.names().join(", ")}` };
       return;
@@ -59,12 +60,12 @@ const tools: Command = {
         return;
       }
       const until = untilAfter(now, seconds);
-      await store.grant(name as string, [key], until, { commit: !Number.isFinite(seconds) });
+      await store.grant(name, [key], until, { commit: !Number.isFinite(seconds) });
       yield { type: "notice", message: `${name}: ${key === "all" ? "everything" : key} allowed until ${until}` };
       return;
     }
     if (verb === "revoke") {
-      await ctx.convo.revokeGrant(name as string, more[0]);
+      await ctx.convo.revokeGrant(name, more[0]);
       yield { type: "notice", message: `${name}: ${more[0] === undefined ? "every grant removed" : `${more[0]} removed`}` };
       return;
     }
@@ -133,7 +134,12 @@ const expand: Command = {
       return;
     }
     const ref = e.full ?? (typeof e.content === "string" ? undefined : e.content);
-    const text = ref === undefined ? (e.content as string) : new TextDecoder().decode(await ctx.convo.store.get(ref.sha256));
+    const text =
+      ref === undefined
+        ? typeof e.content === "string"
+          ? e.content
+          : ""
+        : new TextDecoder().decode(await ctx.convo.store.get(ref.sha256));
     yield { type: "text", text: `${e.is_error ? "[error] " : ""}${text}` };
   },
 };
@@ -186,10 +192,8 @@ const runs: Command = {
       return;
     }
     // A fork that works by itself runs in the tool set; subagents run in the pump.
-    const groups = [
-      set.runs,
-      ...(ctx.engine.pump() === undefined ? [] : [(ctx.engine.pump() as NonNullable<ReturnType<typeof ctx.engine.pump>>).runs]),
-    ];
+    const running = ctx.engine.pump();
+    const groups = [set.runs, ...(running === undefined ? [] : [running.runs])];
     if (args.length === 0) {
       const list = groups.flatMap((g) => g.list());
       const now = ctx.io.now();

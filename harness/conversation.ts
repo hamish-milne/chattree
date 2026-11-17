@@ -33,7 +33,7 @@ import { tableBytes, type PriceTable } from "../providers/pricing.ts";
 import { computeLedger, priceResolver, type Ledger, type PriceResolver, type Spend } from "./ledger.ts";
 import { FileIndexCache, type IndexCache } from "./index-cache.ts";
 import { contextEntries } from "./context.ts";
-import { FORMAT, createPipeline, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
+import { FORMAT, createPipeline, idOf, type ChangeKind, type ChatEntry, type PipelineConfig } from "./entries.ts";
 import type { TrimRule } from "./trim.ts";
 import { DEFAULT_MAX_ATTACHMENT_BYTES, attachmentKind, decodeText, mimeCharset, normalizeMime } from "./attachments.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
@@ -61,6 +61,7 @@ import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
 import { StreamAccumulator } from "./partial.ts";
 import { journalIsLive, readJournal, requestAbortOf } from "./journal.ts";
 import { usageRecord } from "./ledger.ts";
+import { nth } from "../src/nth.ts";
 
 /** The transcript, relative to the repository root. */
 export const CHAT_FILE = "chat.yml";
@@ -407,7 +408,7 @@ function oneLine(s: string, max: number): string {
   // Control characters and Unicode line separators become spaces (built from code points to keep this file ASCII).
   let flat = "";
   for (const ch of s) {
-    const c = ch.codePointAt(0) as number;
+    const c = ch.codePointAt(0) ?? 0;
     flat += c < 0x20 || c === 0x7f || c === 0x2028 || c === 0x2029 ? " " : ch;
   }
   flat = flat.replace(/ +/g, " ").trim();
@@ -680,7 +681,8 @@ export class Conversation {
 
   /** Validate the providers, resolve their secrets, build them, and add the secrets to the redaction patterns. */
   static async #withProviders(config: HarnessConfig, opts: ConversationOptions): Promise<Pick<ConversationOptions, "built" | "pipeline">> {
-    const p = opts.providers as NonNullable<ConversationOptions["providers"]>;
+    const p = opts.providers;
+    if (p === undefined) throw new ConversationError("there are no providers to build");
     let built: BuiltProviders;
     try {
       built = await buildProviders(config.providers, p.registry, p.secrets);
@@ -799,7 +801,7 @@ export class Conversation {
       convo = await Conversation.#load(host, git, dir, branch, opts, size, report);
       if (report.truncatedBytes > 0 || report.recovered.length > 0 || report.cleaned.length > 0)
         convo.#emit({ type: "recovery", branch, report });
-      for (const [i, r] of report.recovered.entries()) convo.#emitEntry(branch, r, recoveredEntries[i] as ChatEntry, true);
+      for (const [i, r] of report.recovered.entries()) convo.#emitEntry(branch, r, nth(recoveredEntries, i), true);
     } finally {
       await lock.release();
     }
@@ -882,7 +884,7 @@ export class Conversation {
     for (const e of j.events) acc.add(e);
     const { provider, model } = j.start;
     const committed = async (entries: readonly ChatEntry[]): Promise<boolean | "gone"> => {
-      const at = j.start.after === undefined ? 0 : entries.findIndex((e) => (e as { id?: string }).id === j.start.after);
+      const at = j.start.after === undefined ? 0 : entries.findIndex((e) => idOf(e) === j.start.after);
       if (at < 0) return "gone";
       return entries.slice(at + 1).some((e) => e.$tag === "assistant" || e.$tag === "interrupted");
     };
@@ -1044,7 +1046,7 @@ export class Conversation {
           throw new ConversationError(
             `uncommitted entry ${idx + 1} in ${CHAT_FILE} is not valid (${r.issues.map((i) => `${i.path || "entry"}: ${i.message}`).join("; ")}); fix or remove it`,
           );
-        decoded.push({ id: (r.value as { id?: string }).id ?? "", tag: r.tag, entry: r.value, end: span.end });
+        decoded.push({ id: idOf(r.value) ?? "", tag: r.tag, entry: r.value, end: span.end });
       }
       for (const d of decoded) {
         await git.stageContent(CHAT_FILE, await git.hashObject(disk.subarray(0, d.end)));
@@ -1160,7 +1162,7 @@ export class Conversation {
       const entries = (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
       let last: ChatEntry | undefined;
       for (let i = entries.length - 1; i >= 0; i--) {
-        const e = entries[i] as ChatEntry;
+        const e = nth(entries, i);
         if (e.$tag === "agent_setup") continue;
         last = e;
         break;
@@ -1258,7 +1260,7 @@ export class Conversation {
       const decoded = await pipeline.decode(entry);
       if (!decoded.ok) throw new ConversationError(`${input.$tag} entry failed to decode after encoding`);
       items.push({
-        id: (decoded.value as { id?: string }).id ?? "",
+        id: idOf(decoded.value) ?? "",
         tag: decoded.tag,
         value: decoded.value,
         bytes: encodeEntry(entry),
@@ -1290,7 +1292,7 @@ export class Conversation {
         `refs/heads/${this.branch}`,
         head,
         items.map((item, k) => {
-          const c = Conversation.#commitFor(item.value, item.id, ends[k] as number, this.#opts);
+          const c = Conversation.#commitFor(item.value, item.id, nth(ends, k), this.#opts);
           // A blob goes in with the first entry that refers to it, as it would with separate appends.
           const blobFiles = [...item.blobs]
             .map(([hash, data]) => ({ path: HostBlobStore.relativePath(hash), data }))
@@ -1316,7 +1318,7 @@ export class Conversation {
     await this.git.syncIndex().catch(() => undefined);
     const out: Appended[] = [];
     for (const [k, item] of items.entries()) {
-      const a = { id: item.id, tag: item.tag, commit: commits[k] as string, offset: ends[k] as number };
+      const a = { id: item.id, tag: item.tag, commit: nth(commits, k), offset: nth(ends, k) };
       out.push(a);
       this.#advance(a.commit, { id: item.id === "" ? undefined : item.id, tag: item.tag, commit: a.commit, offset: a.offset });
       this.#emitEntry(this.branch, a, item.value);
@@ -1330,7 +1332,7 @@ export class Conversation {
     const bytes = encodeEntry(entry);
     const decoded = await this.pipeline.decode(entry);
     if (!decoded.ok) throw new ConversationError("entry failed to decode after encoding");
-    const id = (decoded.value as { id?: string }).id ?? "";
+    const id = idOf(decoded.value) ?? "";
 
     const before = await this.#assertIntact();
 
@@ -1933,7 +1935,7 @@ export class Conversation {
     const decoded = await pipeline.decode(entry);
     if (!decoded.ok) throw new ConversationError(`${input.$tag} entry failed to decode after encoding`);
     return {
-      id: (decoded.value as { id?: string }).id ?? "",
+      id: idOf(decoded.value) ?? "",
       tag: decoded.tag,
       value: decoded.value,
       bytes: encodeEntry(entry),
@@ -2049,7 +2051,8 @@ export class Conversation {
     if (header === undefined) throw new ConversationError("the conversation has no header entry");
     const marker: NewEntry = { $tag: "branch_start", kind: "fork", from: { branch: this.branch, commit: header.commit }, context: "fresh" };
     const made = await this.#newBranch(name, header.commit, marker, opts.worktree === undefined ? {} : { worktree: opts.worktree });
-    const thread = made.conversation as Conversation;
+    const thread = made.conversation;
+    if (thread === undefined) throw new ConversationError(`the fork ${name} was not checked out`);
     if (opts.inheritSetup !== false) await this.copySetupTo(thread, "fork");
     return thread;
   }

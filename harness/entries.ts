@@ -404,3 +404,6 @@ export function createPipeline(config: PipelineConfig = {}): Pipeline<ChatEntry>
   }
   return new Pipeline<ChatEntry>({ types: entryTypes, transforms });
 }
+
+/** The id of an entry, for the kinds that have one. */
+export const idOf = (e: ChatEntry): string | undefined => ("id" in e && typeof e.id === "string" ? e.id : undefined);

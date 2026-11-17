@@ -2,6 +2,7 @@ import type { Conversation } from "./conversation.ts";
 import type { ToolDefinition } from "./definitions.ts";
 import { servedModelId, type ModelSetup } from "./setup.ts";
 import { checkSchema, schemaProblems } from "./tool-schema.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * What a model is shown of a tool's schema. A tool definition keeps its schema as written (any JSON Schema); what goes into a request depends on
@@ -41,7 +42,7 @@ export function toPortableSchema(input: unknown): Converted {
       const ref = s["$ref"];
       if (typeof ref !== "string") return s;
       const m = /^#\/(?:\$defs|definitions)\/(.+)$/.exec(ref);
-      const target = m === null ? undefined : defs[m[1] as string];
+      const target = m === null ? undefined : defs[nth(m, 1)];
       if (!isObject(target) || depth > MAX_DEPTH) throw new Unsupported(`it refers to ${ref}, which cannot be followed`);
       return { ...resolve(target, depth + 1), ...(typeof s["description"] === "string" ? { description: s["description"] } : {}) };
     };
@@ -65,9 +66,11 @@ export function toPortableSchema(input: unknown): Converted {
       const choice = ["anyOf", "oneOf"].find((k) => Array.isArray(s[k]));
       if (choice !== undefined) {
         // A choice that is really one type with null allowed is that type; anything else cannot be said in the subset.
-        const live = (s[choice] as unknown[]).filter((b) => !(isObject(b) && b["type"] === "null"));
+        const options: unknown[] = Array.isArray(s[choice]) ? s[choice] : [];
+        const live = options.filter((b) => !(isObject(b) && b["type"] === "null"));
         if (live.length !== 1) throw new Unsupported(`${path} is a choice between different shapes`);
-        s = { ...(live[0] as Schema), ...(typeof s["description"] === "string" ? { description: s["description"] } : {}) };
+        const only = live[0];
+        s = { ...(isObject(only) ? only : {}), ...(typeof s["description"] === "string" ? { description: s["description"] } : {}) };
         s = resolve(s, 0);
       }
       if (Array.isArray(s["allOf"])) throw new Unsupported(`${path} combines schemas with allOf`);

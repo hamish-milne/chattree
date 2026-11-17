@@ -11,6 +11,7 @@ import { formatTranscript } from "../output.ts";
 import { resolveEntry } from "../refs.ts";
 import type { Command } from "../registry.ts";
 import { failure } from "../turn.ts";
+import { nth } from "../../src/nth.ts";
 
 const entriesOf = async (ctx: Ctx): Promise<ChatEntry[]> => (await ctx.convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
 
@@ -55,8 +56,8 @@ const compact: Command = {
     }
     try {
       const entries = await entriesOf(ctx);
-      const from = resolveEntry(entries, args[0] as string);
-      const to = resolveEntry(entries, args[1] as string);
+      const from = resolveEntry(entries, nth(args, 0));
+      const to = resolveEntry(entries, nth(args, 1));
       if (from === undefined || to === undefined) {
         yield { type: "error", message: `no entry matches ${from === undefined ? args[0] : args[1]}` };
         return;

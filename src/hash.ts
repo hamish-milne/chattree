@@ -8,7 +8,7 @@ export function sortKeysDeep(v: Value): Value {
   if (v instanceof Tagged) return new Tagged(v.tag, sortKeysDeep(v.value));
   if (Array.isArray(v)) return v.map(sortKeysDeep);
   const out = new Map<string, Value>();
-  for (const k of [...v.keys()].sort()) out.set(k, sortKeysDeep(v.get(k) as Value));
+  for (const [k, x] of [...v.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))) out.set(k, sortKeysDeep(x));
   return out;
 }
 

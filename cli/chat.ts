@@ -62,7 +62,8 @@ function confirmWith(engine: () => Engine, io: Io, yes: boolean): (q: string) =>
 export async function runChat(io: Io, start: string, o: ChatOptions): Promise<number> {
   const project = await findProject(io, start);
   const sessions = await SessionStore.open(io, project.git);
-  const interactive = io.interactive && io.tty !== undefined && o.plain !== true;
+  const tty = io.tty;
+  const interactive = io.interactive && tty !== undefined && o.plain !== true;
 
   let session: Session;
   let resumed: boolean;
@@ -135,7 +136,7 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
       );
       const term = new Terminal({
         engine,
-        tty: io.tty as NonNullable<Io["tty"]>,
+        tty,
         color: style === ansiStyle,
         ...(o.spinnerMs === undefined ? {} : { spinnerMs: o.spinnerMs }),
         ...(o.watchMs === undefined ? {} : { watchMs: o.watchMs }),

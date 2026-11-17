@@ -16,7 +16,7 @@ export function builtinDialects(): Dialect[] {
 export function dialectForModel(name: string): string | undefined {
   // The start of the model's own name (after any `org/`), never a part of it: `my-qwen-tune` is nobody's guess, and a base model's name inside a
   // fine-tune's (DeepSeek-R1-Distill-Qwen) does not make it that base model.
-  const m = (name.toLowerCase().split("/").at(-1) as string).replace(/^[-_.\s]+/, "");
+  const m = (name.toLowerCase().split("/").at(-1) ?? "").replace(/^[-_.\s]+/, "");
   // Only the generations whose format a dialect reproduces: older models of the same makers (DeepSeek-MoE-16B, ChatGLM, Mistral 7B) were not trained for these calls.
   const by: [RegExp, string][] = [
     [/^gpt-oss/, "harmony"],

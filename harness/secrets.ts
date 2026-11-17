@@ -1,4 +1,5 @@
 import { Git, type Host } from "../src/index.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * Where secret values come from (docs/providers.md, P7). `harness.yml` holds only the *names* of environment
@@ -21,11 +22,11 @@ export function parseDotenv(text: string): Map<string, string> {
     if (line === "" || line.startsWith("#")) continue;
     const m = /^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line);
     if (m === null) continue;
-    let v = (m[2] as string).trim();
+    let v = nth(m, 2).trim();
     const q = v[0];
     if ((q === '"' || q === "'") && v.lastIndexOf(q) > 0) v = v.slice(1, v.lastIndexOf(q));
     else v = v.replace(/\s+#.*$/, "");
-    out.set(m[1] as string, v);
+    out.set(nth(m, 1), v);
   }
   return out;
 }

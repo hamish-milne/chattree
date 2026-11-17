@@ -1,7 +1,5 @@
-import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Parser, RenderInput } from "../dialect.ts";
 import { anyOf, defineFamily, jsonCall, tagParams, type FamilySpec } from "./family.ts";
-import { argNode } from "./schema-tree.ts";
 import { spacedJson } from "./scan.ts";
 
 /**
@@ -68,5 +66,5 @@ const SPEC: FamilySpec = {
 
 export const qwenXml: Dialect = defineFamily(SPEC);
 export const renderQwen = (input: RenderInput): { prompt: string; stop: string[] } => qwenXml.render(input);
-export const qwenParser = (options: Record<string, unknown>, tools: Parameters<typeof argNode>[0], prompt: string): Parser =>
-  qwenXml.parser(options, tools as readonly ToolDefinition[], prompt);
+export const qwenParser = (options: Record<string, unknown>, tools: Parameters<typeof qwenXml.parser>[1], prompt: string): Parser =>
+  qwenXml.parser(options, tools, prompt);

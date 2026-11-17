@@ -3,6 +3,8 @@ import { mkdir, open } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import type { DaemonEvent, DaemonStatus } from "./control.ts";
 import { logFile, pidAlive, readInfo, removeInfo, runDir, type DaemonInfo } from "./daemon-files.ts";
+import { streamChunks } from "../src/stream.ts";
+import { asString, jsonOr } from "../src/json.ts";
 
 /** Talking to the daemon (docs/local-models.md, section 3): finding it, starting it when it is not there, and its control API. */
 
@@ -38,7 +40,7 @@ export class DaemonClient {
     }
     if (!res.ok)
       throw new DaemonError(
-        `the model host answered ${res.status}: ${((await res.json().catch(() => ({}))) as { error?: string }).error ?? res.statusText}`,
+        `the model host answered ${res.status}: ${asString(jsonOr(await res.json().catch(() => ({})))["error"]) ?? res.statusText}`,
       );
     return (await res.json()) as T;
   }
@@ -88,7 +90,7 @@ export class DaemonClient {
     const decoder = new TextDecoder();
     let buffer = "";
     try {
-      for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+      for await (const chunk of streamChunks(res.body)) {
         buffer += decoder.decode(chunk, { stream: true });
         let at: number;
         while ((at = buffer.indexOf("\n\n")) >= 0) {

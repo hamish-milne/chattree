@@ -1,7 +1,9 @@
-import type { ChatEntry } from "./entries.ts";
+import { idOf, type ChatEntry } from "./entries.ts";
 import { contextEntries } from "./context.ts";
 import type { z } from "zod";
 import type { trimRule } from "./entries.ts";
+import { nth } from "../src/nth.ts";
+import { asJson } from "../src/json.ts";
 
 /**
  * Trimming (docs/context.md, section 5): the cheap kind of compaction. Nothing is summarised: the bulky parts of old entries (big tool output,
@@ -78,8 +80,8 @@ export function elideArgs(value: unknown, min: number): unknown {
 
 /** The size of a long string that was stored as a blob (`inlineBlobs` puts it back). */
 function blobBytes(v: unknown): number | undefined {
-  if (typeof v !== "object" || v === null || Array.isArray(v)) return undefined;
-  const o = v as Record<string, unknown>;
+  const o = asJson(v);
+  if (o === undefined) return undefined;
   return o["$tag"] === "blob" && typeof o["sha256"] === "string" && typeof o["bytes"] === "number" ? o["bytes"] : undefined;
 }
 
@@ -139,19 +141,24 @@ export function planTrim(entries: readonly ChatEntry[], keepRecent: number, rule
   let kept = 0;
   let end = visible.length - 1;
   while (end >= 0 && kept < keepRecent) {
-    if (carries(visible[end] as ChatEntry)) kept++;
+    const e = visible[end];
+    if (e !== undefined && carries(e)) kept++;
     end--;
   }
   // `end` is the last entry before the kept ones; end the range on an entry that has an id.
-  while (end >= 0 && !("id" in (visible[end] as ChatEntry))) end--;
+  const idAt = (i: number): string | undefined => {
+    const e = visible[i];
+    return e === undefined ? undefined : idOf(e);
+  };
+  while (end >= 0 && idAt(end) === undefined) end--;
   if (end < 0) return undefined;
   const before = trimRules(visible);
   let bytes = 0;
   for (let i = 0; i <= end; i++) {
-    const e = visible[i] as ChatEntry;
+    const e = nth(visible, i);
     bytes += Math.max(0, elidedBytes(e, mergeRules(before[i], rule)) - elidedBytes(e, before[i]));
   }
   if (bytes === 0) return undefined;
-  const last = visible[end] as ChatEntry & { id: string };
-  return { upto: last.id, bytes };
+  const upto = idAt(end);
+  return upto === undefined ? undefined : { upto, bytes };
 }

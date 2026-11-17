@@ -1,4 +1,5 @@
 import type { ChatEntry } from "./entries.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * The entries a model should be shown, given a branch's full transcript. The transcript itself is never
@@ -27,7 +28,7 @@ export function contextEntries(entries: readonly ChatEntry[]): ChatEntry[] {
   const active: { from: number; entry: ChatEntry; swallowed: boolean }[] = [];
 
   for (let i = start; i < entries.length; i++) {
-    const e = entries[i] as ChatEntry;
+    const e = nth(entries, i);
     if (e.$tag !== "compaction") {
       if ("id" in e && typeof e.id === "string") span.set(e.id, [i, i]);
       continue;
@@ -48,7 +49,7 @@ export function contextEntries(entries: readonly ChatEntry[]): ChatEntry[] {
 
   const out: ChatEntry[] = [];
   for (let i = start; i < entries.length; i++) {
-    const e = entries[i] as ChatEntry;
+    const e = nth(entries, i);
     for (const a of anchors.get(i) ?? []) out.push(a);
     if (covered[i] || e.$tag === "compaction") continue;
     out.push(e);

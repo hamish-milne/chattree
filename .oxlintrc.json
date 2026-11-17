@@ -50,7 +50,9 @@
   "overrides": [
     {
       "files": [
-        "test/**"
+        "test/**",
+        "tools/**",
+        "bench/**"
       ],
       "rules": {
         "typescript/no-non-null-assertion": "off",

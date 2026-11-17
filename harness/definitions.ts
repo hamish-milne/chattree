@@ -164,8 +164,9 @@ export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): 
   for (const { section, kind, name, pin } of pinnedOf(setup)) {
     const value = await loadPinned(kind, name, pin, from);
     if (section === "tools") out.tools.push(value as ToolDefinition);
-    else if (section === "instructions") out.instructions = value as string;
-    else out[section][name] = value;
+    else if (section === "instructions") {
+      if (typeof value === "string") out.instructions = value;
+    } else out[section][name] = value;
   }
   out.tools.sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
   const shown = setup.prefix.instructions;

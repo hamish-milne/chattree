@@ -2,7 +2,7 @@ import { readdir, rm, rmdir, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { LocalModels } from "./config.ts";
 import type { Lock } from "./lock.ts";
-import { downloadList, resolveKey, sourceHash } from "./plan.ts";
+import { downloadList, modelsByName, resolveKey, sourceHash } from "./plan.ts";
 import { hfUrl } from "./config.ts";
 
 /** What is on disk for each configured model, from the settings and the lock alone: no network, no running host (docs/local-models.md, section 3). */
@@ -28,7 +28,7 @@ export interface ModelInfo {
 }
 
 const sourceText = (m: LocalModels["models"][string]): string =>
-  m.url ?? `hf:${m.hf as string}${m.file === undefined ? "" : ` ${m.file}`}${m.revision === "main" ? "" : `@${m.revision}`}`;
+  m.url ?? `hf:${m.hf ?? ""}${m.file === undefined ? "" : ` ${m.file}`}${m.revision === "main" ? "" : `@${m.revision}`}`;
 
 const keyOf = (data: string, dest: string): string => dest.slice(data.length).replaceAll("\\", "/").replace(/^\/+/, "");
 
@@ -56,7 +56,8 @@ function wantedFiles(config: LocalModels, lock: Lock, data: string): Map<string,
           const dest = join(d.dir, sourceHash(hfUrl(d.resolve.repo, d.resolve.revision, p)), basename(p));
           files.push({ role: d.role, file: basename(p), dest, key: keyOf(data, dest) });
         }
-      } else files.push({ role: d.role, file: d.file as string, dest: d.dest as string, key: keyOf(data, d.dest as string) });
+      } else if (d.file !== undefined && d.dest !== undefined)
+        files.push({ role: d.role, file: d.file, dest: d.dest, key: keyOf(data, d.dest) });
     }
     out.set(name, { files, looked, resolved });
   }
@@ -66,9 +67,9 @@ function wantedFiles(config: LocalModels, lock: Lock, data: string): Map<string,
 export async function inventory(config: LocalModels, lock: Lock, data: string): Promise<ModelInfo[]> {
   const wanted = wantedFiles(config, lock, data);
   const out: ModelInfo[] = [];
-  for (const name of Object.keys(config.models).sort()) {
-    const m = config.models[name] as LocalModels["models"][string];
-    const w = wanted.get(name) as { files: Wanted[]; looked: boolean };
+  for (const [name, m] of modelsByName(config)) {
+    const w = wanted.get(name);
+    if (w === undefined) continue;
     const files: ModelFile[] = [];
     let complete = w.looked;
     for (const f of w.files) {

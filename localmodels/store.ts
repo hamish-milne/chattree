@@ -126,7 +126,7 @@ export async function fetchDownloads(downloads: readonly Download[], o: StoreOpt
       fetch: o.fetch,
       signal: o.signal,
       onProgress: (p) =>
-        o.onEvent?.({ type: "download", model: d.model, role: d.role, file: d.file as string, received: p.received, total: p.total }),
+        o.onEvent?.({ type: "download", model: d.model, role: d.role, file: d.file ?? "", received: p.received, total: p.total }),
     });
     o.lock.setFile(key, { sha256: got.sha256, size: got.size });
     await o.lock.save();

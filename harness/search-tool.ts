@@ -1,6 +1,7 @@
 import type { Conversation } from "./conversation.ts";
-import { openEntry, refThread, search, SearchError, type Hit, type Scope } from "./search.ts";
+import { openEntry, parseScope, refThread, search, SearchError, type Hit } from "./search.ts";
 import type { Tool, ToolOutput } from "./tools.ts";
+import { optStringArg } from "./tool-args.ts";
 
 /**
  * The `search` tool (docs/tools.md, 4.4). Searching the asking thread's own history needs the key `current`; anything that reads another
@@ -14,9 +15,10 @@ export interface SearchToolDeps {
 const KEYS = ["current", "other"];
 
 function wanted(args: Record<string, unknown>, thread: string | undefined): "current" | "other" {
-  const entry = args["entry"] as string | undefined;
+  const entry = optStringArg(args, "entry");
   if (entry !== undefined) return refThread(entry) === thread ? "current" : "other";
-  return (args["scope"] as Scope | undefined) === undefined || args["scope"] === "thread" ? "current" : "other";
+  const scope = parseScope(args["scope"]);
+  return scope === undefined || scope === "thread" ? "current" : "other";
 }
 
 const line = (h: Hit): string =>
@@ -66,10 +68,10 @@ export function searchTool(deps: SearchToolDeps): Tool {
           const r = await openEntry(deps.convo, args["entry"]);
           return "error" in r ? { content: r.error, is_error: true } : { content: r.text };
         }
-        const query = args["query"] as string | undefined;
+        const query = optStringArg(args, "query");
         if (query === undefined || query.trim() === "")
           return { content: "give a query to search for, or an entry to read", is_error: true };
-        const scope = (args["scope"] as Scope | undefined) ?? "thread";
+        const scope = parseScope(args["scope"]) ?? "thread";
         const r = await search(deps.convo, thread, {
           query,
           scope,

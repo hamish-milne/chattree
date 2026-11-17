@@ -5,10 +5,12 @@ import * as nodePath from "node:path";
 import { randomBytes } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import type { ExecOptions, ExecResult, FileStat, Fs, Host, HostProcess, PathOps, RunOutcome, RunSpec } from "../src/host.ts";
+import { hasCode } from "../src/json.ts";
+import { nth } from "../src/nth.ts";
 
 const DEFAULT_MAX_OUTPUT = 256 * 1024 * 1024;
 
-const isCode = (e: unknown, code: string): boolean => typeof e === "object" && e !== null && (e as { code?: unknown }).code === code;
+const isCode = hasCode;
 
 /**
  * Rename over an existing file. On Windows the rename fails transiently (EPERM, EACCES, EBUSY) while another process (git, an indexer,
@@ -237,7 +239,7 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
       if (timer !== undefined) clearTimeout(timer);
       if (fallback !== undefined) clearTimeout(fallback);
       spec.signal?.removeEventListener("abort", onAbort);
-      const last = codes[codes.length - 1] as number;
+      const last = nth(codes, codes.length - 1);
       resolve({
         exitCode: last,
         stageCodes: codes,
@@ -274,7 +276,8 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
     spec.signal?.addEventListener("abort", onAbort, { once: true });
 
     spec.stages.forEach((stage, i) => {
-      const [program, ...args] = stage as readonly [string, ...string[]];
+      const [program, ...args] = stage;
+      if (program === undefined) return;
       const last = i === spec.stages.length - 1;
       const child = spawn(program, args, {
         cwd: spec.cwd,

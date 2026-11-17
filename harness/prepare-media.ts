@@ -117,7 +117,7 @@ export async function prepareMedia(context: ModelContext, o: PrepareMediaOptions
 
   const turns: Turn[] = context.turns.map((t): Turn => {
     if (t.role === "user") {
-      if (!t.parts.some((p) => results.has(p as AttachmentPart))) return t;
+      if (!t.parts.some((p) => p.type === "attachment" && results.has(p))) return t;
       return {
         ...t,
         parts: t.parts.map((p): UserPart => {

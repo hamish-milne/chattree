@@ -110,7 +110,7 @@ export function configRule(key: string, rule: ConfigRule, readFile: (path: strin
     const since = ctx.since(key);
     const due = since === undefined ? (rule.first ? true : ctx.turns >= rule.every) : since >= rule.every;
     if (!due) return undefined;
-    const text = rule.text ?? (await readFile(rule.file as string));
+    const text = rule.text ?? (rule.file === undefined ? "" : await readFile(rule.file));
     return text.trim() === "" ? undefined : { key, text: text.trim() };
   };
 }

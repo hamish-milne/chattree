@@ -1,6 +1,7 @@
 import type { Conversation } from "./conversation.ts";
 import type { ChatEntry } from "./entries.ts";
 import type { Tool, ToolOutput } from "./tools.ts";
+import { optNumberArg, stringArg } from "./tool-args.ts";
 
 /**
  * The `thread_read` and `thread_send` tools (docs/tools.md, 4.3). A parent reads what a child has done and tells it something; a child
@@ -97,18 +98,20 @@ export function transcript(entries: readonly ChatEntry[], opts: { last: number; 
     if (text !== undefined) lines.push({ n: i + 1, text });
   });
   const total = own.length;
-  let shown = opts.since !== undefined ? lines.filter((l) => l.n > (opts.since as number)) : lines.slice(-opts.last);
+  const since = opts.since;
+  let shown = since !== undefined ? lines.filter((l) => l.n > since) : lines.slice(-opts.last);
   let dropped = 0;
   let size = shown.reduce((a, l) => a + l.text.length + 8, 0);
   while (size > MAX_TOTAL && shown.length > 1) {
-    size -= (shown[0] as { text: string }).text.length + 8;
+    const [oldest] = shown;
+    size -= (oldest?.text.length ?? 0) + 8;
     shown = shown.slice(1);
     dropped++;
   }
   if (shown.length === 0)
     return `Nothing new: the thread has ${total} entries of its own${opts.since === undefined ? "" : `, and you have seen up to ${opts.since}`}.`;
-  const first = (shown[0] as { n: number }).n;
-  const last = (shown[shown.length - 1] as { n: number }).n;
+  const first = shown[0]?.n ?? 0;
+  const last = shown[shown.length - 1]?.n ?? 0;
   const head = `Entries ${first}-${last} of ${total} (the thread's own, counted from when it started).${dropped > 0 ? ` ${dropped} older entries were left out to keep this short.` : ""}`;
   return `${head}\n${shown.map((l) => `#${l.n} ${l.text}`).join("\n")}\n(To read what comes after, call again with since=${last}. Long results are cut: full=true shows more, and a blob can be read with the read tool.)`;
 }
@@ -164,11 +167,11 @@ export function threadTools(deps: ThreadDeps): Tool[] {
     },
     allowKeys: () => ["all"],
     execute: async (args, ctx): Promise<ToolOutput> => {
-      const r = await resolve(deps, ctx.thread, args["thread"] as string);
+      const r = await resolve(deps, ctx.thread, stringArg(args, "thread"));
       if ("error" in r) return { content: r.error, is_error: true };
-      const since = args["since"] as number | undefined;
+      const since = optNumberArg(args, "since");
       return {
-        content: `${r.branch} (your ${r.relation}). ${transcript(r.entries, { last: (args["last"] as number | undefined) ?? 20, ...(since === undefined ? {} : { since }), full: args["full"] === true })}`,
+        content: `${r.branch} (your ${r.relation}). ${transcript(r.entries, { last: optNumberArg(args, "last") ?? 20, ...(since === undefined ? {} : { since }), full: args["full"] === true })}`,
       };
     },
   };
@@ -190,17 +193,19 @@ export function threadTools(deps: ThreadDeps): Tool[] {
     },
     allowKeys: () => ["all"],
     execute: async (args, ctx): Promise<ToolOutput> => {
-      const message = (args["message"] as string).trim();
+      const message = stringArg(args, "message").trim();
       if (message === "") return { content: "message must not be empty", is_error: true };
-      const r = await resolve(deps, ctx.thread, args["thread"] as string);
+      const r = await resolve(deps, ctx.thread, stringArg(args, "thread"));
       if ("error" in r) return { content: r.error, is_error: true };
+      const sender = ctx.thread;
+      if (sender === undefined) return { content: "this call does not belong to a thread", is_error: true };
       const there = await deps.convo.openBranch(r.branch);
       try {
         await there.append({
           $tag: "user",
           queued: true,
-          from: ctx.thread as string,
-          content: [{ $tag: "text", text: `[Message from thread ${ctx.thread as string}]\n${message}` }],
+          from: sender,
+          content: [{ $tag: "text", text: `[Message from thread ${sender}]\n${message}` }],
         });
       } finally {
         await there.close();

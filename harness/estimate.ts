@@ -3,6 +3,7 @@ import type { ModelInfo } from "../providers/registry.ts";
 import type { Change } from "./setup.ts";
 import { IMAGE_TOKEN_GUESS, audioTokenGuess, pdfTokenGuess } from "./attachments.ts";
 import type { ModelContext } from "./context-builder.ts";
+import { jsonOr } from "../src/json.ts";
 
 /**
  * A pre-flight estimate of one request (docs/providers.md, P9). Deliberately pessimistic, because it guards a
@@ -61,14 +62,15 @@ export function estimateRequest(
   counted?: number,
 ): Estimate {
   const inputTokens = counted ?? estimateInputTokens(ctx);
-  const maxOutputTokens = Number((model.settings as { max_output_tokens?: unknown } | undefined)?.max_output_tokens ?? 0);
+  const settings = jsonOr(model.settings);
+  const maxOutputTokens = Number(settings["max_output_tokens"] ?? 0);
   const price = table === undefined ? undefined : findModel(table, model.id);
-  const tier = (model.settings as { service_tier?: unknown } | undefined)?.service_tier;
+  const tier = settings["service_tier"];
   let usd: number | undefined;
   if (price?.free === true) usd = 0;
   else if (price !== undefined) {
     const r = ratesFor(price, typeof tier === "string" ? tier : undefined, inputTokens);
-    const per = r === undefined ? undefined : promptRate(r, (model.settings as { cache_ttl?: unknown } | undefined)?.cache_ttl);
+    const per = r === undefined ? undefined : promptRate(r, settings["cache_ttl"]);
     if (r?.output !== undefined && per !== undefined) usd = (inputTokens * per + maxOutputTokens * r.output) / 1_000_000;
   }
   return {

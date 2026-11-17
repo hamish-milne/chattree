@@ -36,18 +36,21 @@ const KNOWN_BACKENDS = ["cpu", "cuda", "vulkan", "rocm", "sycl", "openvino", "op
 export function parseAssetName(name: string): ParsedAsset | undefined {
   const m = /^(llama|cudart-llama)-(?:(b\d+)-)?bin-(.+)\.(tar\.gz|zip)$/.exec(name);
   if (m === null) return undefined;
-  const tokens = (m[3] as string).split("-");
-  const os = tokens.shift() as string;
+  const [, family, tag, platform = "", ext] = m;
+  const tokens = platform.split("-");
+  const os = tokens.shift();
+  if (os === undefined) return undefined;
   const archAt = tokens.findIndex((t) => ARCHES.includes(t));
   if (archAt < 0) return undefined;
-  const arch = tokens.splice(archAt, 1)[0] as string;
+  const arch = tokens.splice(archAt, 1)[0];
+  if (arch === undefined) return undefined;
   // What is left is the backend, with its version or variant; a bare version such as "26.04" is the operating system's.
   const rest = tokens.filter((t) => !/^\d+(\.\d+)*$/.test(t) || tokens[0] !== t);
   const first = rest[0];
-  const kind = m[1] === "llama" ? "llama" : "cudart";
+  const kind = family === "llama" ? "llama" : "cudart";
   const backend = first !== undefined && KNOWN_BACKENDS.includes(first) ? first : os === "macos" ? "metal" : "cpu";
   const cuda = backend === "cuda" ? rest[1] : undefined;
-  return { kind, tag: m[2], os, arch, backend, cuda, ext: m[4] as "zip" | "tar.gz" };
+  return { kind, tag, os, arch, backend, cuda, ext: ext === "zip" ? "zip" : "tar.gz" };
 }
 
 const OS_NAME: Record<Platform, string> = { windows: "win", linux: "ubuntu", macos: "macos" };
@@ -117,7 +120,8 @@ export function selectAsset(assets: readonly ReleaseAsset[], opts: SelectOptions
       };
     chosen = programs.filter(({ p }) => (p.cuda ?? "0") === want);
   }
-  const program = chosen[0] as (typeof chosen)[number];
+  const program = chosen[0];
+  if (program === undefined) return { ok: false, error: `this release has no ${backend} build for ${opts.platform} ${opts.arch}` };
   const runtime = matching.find(
     ({ p }) => p.kind === "cudart" && p.cuda === program.p.cuda && (p.tag === undefined || p.tag === program.p.tag),
   );

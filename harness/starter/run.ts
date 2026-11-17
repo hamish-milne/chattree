@@ -6,6 +6,8 @@ import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import { isStarted, type Tool, type ToolContext, type ToolOutput } from "../tools.ts";
 import { batchProblem, batchStage, findProgram, isBatch, localAllowed } from "./batch.ts";
 import { runAllowKeys, runCovers, validateRunKey } from "./run-keys.ts";
+import { optNumberArg, stringArg } from "../tool-args.ts";
+import { nth } from "../../src/nth.ts";
 
 /**
  * `run` and `script` (docs/tools.md, 4.1). `run` takes one command line in a small bash-like syntax that `command.ts`
@@ -59,7 +61,7 @@ const GIT_REFUSED =
 /** Replace `$VAR` and `${VAR}` in one argument, only for allowed names. */
 export function expandEnv(arg: string, opts: RunToolOptions["env"]): string {
   return arg.replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, a: string | undefined, b: string | undefined) => {
-    const name = (a ?? b) as string;
+    const name = a ?? b ?? "";
     const allowed = opts !== undefined && (opts.allow === "*" || opts.allow.includes(name));
     if (!allowed)
       throw new RunRefused(
@@ -96,7 +98,7 @@ async function prepare(
     if (opts.git !== true && /^git(\.exe)?$/i.test(words[0] ?? "")) throw new RunRefused(GIT_REFUSED);
     const mapped = portableStage(words, ctx.host.platform, opts.busybox);
     if (ctx.host.platform === "windows" && mapped[0] === words[0]) {
-      const found = await findProgram(ctx.host, ctx.workspace, words[0] as string, opts.hostEnv ?? {});
+      const found = await findProgram(ctx.host, ctx.workspace, nth(words, 0), opts.hostEnv ?? {});
       if (found !== undefined && isBatch(found.path)) {
         if (opts.batch !== true)
           throw new RunRefused(
@@ -161,7 +163,7 @@ function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => st
     background: true,
     // Started in the background the call returns at once; otherwise it is as long as the command's own timeout.
     timeout: (args) =>
-      args["background"] === true ? 60 : Math.min((args["timeout_seconds"] as number | undefined) ?? defaultSeconds ?? 120, MAX_TIMEOUT),
+      args["background"] === true ? 60 : Math.min(optNumberArg(args, "timeout_seconds") ?? defaultSeconds ?? 120, MAX_TIMEOUT),
     definition: {
       ...tool.definition,
       input_schema: { ...schema, properties: { ...schema.properties, background: backgroundProp } },
@@ -174,7 +176,7 @@ function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => st
         (r): ToolOutput => (isStarted(r) ? { content: "nested background job", is_error: true } : r),
         (e: unknown): ToolOutput => ({ content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true }),
       );
-      const seconds = Math.min((args["timeout_seconds"] as number | undefined) ?? 3600, MAX_TIMEOUT);
+      const seconds = Math.min(optNumberArg(args, "timeout_seconds") ?? 3600, MAX_TIMEOUT);
       return { started: { lease: { seconds }, summary: label(args), done, stop: () => stop.abort() } };
     },
   };
@@ -186,13 +188,13 @@ const oneLine = (s: string, max = 80): string => {
 };
 
 export function runTool(opts: RunToolOptions = {}): Tool {
-  return backgroundable(plainRunTool(opts), (a) => `run: ${oneLine(a["command"] as string)}`, opts.timeoutSeconds);
+  return backgroundable(plainRunTool(opts), (a) => `run: ${oneLine(stringArg(a, "command"))}`, opts.timeoutSeconds);
 }
 
 export function scriptTool(opts: RunToolOptions = {}): Tool {
   return backgroundable(
     plainScriptTool(opts),
-    (a) => `script: ${oneLine((a["script"] as string).split("\n")[0] ?? "")}`,
+    (a) => `script: ${oneLine(stringArg(a, "script").split("\n")[0] ?? "")}`,
     opts.timeoutSeconds,
   );
 }
@@ -216,15 +218,16 @@ function plainRunTool(opts: RunToolOptions): Tool {
         },
       },
     },
-    allowKeys: (args, ctx) => runAllowKeys(args["command"] as string, { ...ctx, expand: envLookup(opts.env), safe: opts.safe ?? [] }),
-    covers: (keys, args, ctx) => runCovers(keys, args["command"] as string, { ...ctx, expand: envLookup(opts.env), safe: opts.safe ?? [] }),
+    allowKeys: (args, ctx) => runAllowKeys(stringArg(args, "command"), { ...ctx, expand: envLookup(opts.env), safe: opts.safe ?? [] }),
+    covers: (keys, args, ctx) =>
+      runCovers(keys, stringArg(args, "command"), { ...ctx, expand: envLookup(opts.env), safe: opts.safe ?? [] }),
     validateKey: validateRunKey,
     async execute(args, ctx) {
       const { host, workspace } = ctx;
       if (host.run === undefined) return { content: "this host cannot run commands", is_error: true };
-      const timeout = Math.min((args["timeout_seconds"] as number | undefined) ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
+      const timeout = Math.min(optNumberArg(args, "timeout_seconds") ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
       try {
-        const parsed = parseCommand(args["command"] as string, envLookup(opts.env));
+        const parsed = parseCommand(stringArg(args, "command"), envLookup(opts.env));
         const { stages, verbatim } = await prepare(parsed, ctx, opts);
         let stdin: Uint8Array | undefined;
         if (parsed.stdin !== undefined) {
@@ -293,10 +296,10 @@ function plainScriptTool(opts: RunToolOptions): Tool {
     },
     async execute(args, ctx) {
       if (ctx.host.run === undefined) return { content: "this host cannot run commands", is_error: true };
-      const timeout = Math.min((args["timeout_seconds"] as number | undefined) ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
+      const timeout = Math.min(optNumberArg(args, "timeout_seconds") ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
       let stage: string[];
       try {
-        stage = shellStage(args["script"] as string, ctx.host.platform, opts.busybox);
+        stage = shellStage(stringArg(args, "script"), ctx.host.platform, opts.busybox);
       } catch (e) {
         if (e instanceof NotAvailable) return { content: e.message, is_error: true };
         throw e;

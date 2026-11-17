@@ -386,15 +386,14 @@ async function failure<S>(mapper: HttpMapper<S>, res: Response, scrub: (s: strin
   const base = classifyStatus(res.status);
   const retryAfterMs = parseRetryAfter(res.headers.get("retry-after"));
   const override = mapper.classify?.({ status: res.status, headers: res.headers, body: text });
+  const retryAfter = override?.retryAfterMs ?? retryAfterMs;
   const message = override?.message ?? `HTTP ${res.status}${text === "" ? "" : `: ${scrub(text).slice(0, 2000)}`}`;
   return new ProviderError({
     ...base,
     ...override,
     message: scrub(message),
     status: res.status,
-    ...(retryAfterMs === undefined && override?.retryAfterMs === undefined
-      ? {}
-      : { retryAfterMs: override?.retryAfterMs ?? (retryAfterMs as number) }),
+    ...(retryAfter === undefined ? {} : { retryAfterMs: retryAfter }),
   });
 }
 

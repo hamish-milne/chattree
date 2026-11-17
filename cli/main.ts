@@ -6,7 +6,7 @@ import { runModels } from "./models.ts";
 import { CliError, type Io } from "./io.ts";
 import { Engine } from "./engine.ts";
 import { defaultCommands } from "./commands/index.ts";
-import { PlainRenderer, type Thinking, type ToolView } from "./output.ts";
+import { parseThinking, parseToolView, PlainRenderer } from "./output.ts";
 import { findProject, openThread } from "./project.ts";
 import { SessionStore } from "./session.ts";
 import { runChat } from "./chat.ts";
@@ -119,17 +119,17 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     const registry = new Registry(defaultCommands());
     if (verb === "run") return await runRunner(where, start, { thread: values.thread ?? args[0], once: values.once === true });
     if (verb === "chat") {
-      if (values.thinking !== undefined && !["on", "off", "brief"].includes(values.thinking))
+      if (values.thinking !== undefined && parseThinking(values.thinking) === undefined)
         throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
-      if (values.tools !== undefined && !["full", "brief", "off"].includes(values.tools))
+      if (values.tools !== undefined && parseToolView(values.tools) === undefined)
         throw new CliError(`--tools takes full, brief or off, not ${values.tools}`);
       return await runChat(where, start, {
         thread: values.thread ?? args[0],
         session: values.session,
         newSession: values["new-session"] === true,
         plain: values.plain === true,
-        thinking: values.thinking as Thinking | undefined,
-        tools: values.tools as ToolView | undefined,
+        thinking: parseThinking(values.thinking),
+        tools: parseToolView(values.tools),
         yes: values.yes === true,
       });
     }
@@ -147,13 +147,14 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       values.yes === true || (ask !== undefined && /^y(es)?$/i.test(await ask(q, "n")));
     const engine = new Engine({ io: where, project, opened, sessions, confirm });
     if (values.thinking !== undefined) {
-      if (!["on", "off", "brief"].includes(values.thinking))
-        throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
-      engine.state.thinking = values.thinking as Thinking;
+      const thinking = parseThinking(values.thinking);
+      if (thinking === undefined) throw new CliError(`--thinking takes on, brief or off, not ${values.thinking}`);
+      engine.state.thinking = thinking;
     }
     if (values.tools !== undefined) {
-      if (!["full", "brief", "off"].includes(values.tools)) throw new CliError(`--tools takes full, brief or off, not ${values.tools}`);
-      engine.state.tools = values.tools as ToolView;
+      const tools = parseToolView(values.tools);
+      if (tools === undefined) throw new CliError(`--tools takes full, brief or off, not ${values.tools}`);
+      engine.state.tools = tools;
     }
 
     let line: string;

@@ -27,7 +27,7 @@ import {
   type StreamRequest,
   type Usage,
 } from "./types.ts";
-import { messageText, optString } from "./wire.ts";
+import { asJson, asString, jsonList, jsonOr, messageText, optString, parseJsonObject, type Json } from "./wire.ts";
 
 /**
  * The OpenAI Responses API (docs/providers.md), and the servers that speak it (Ollama and others). Checked against
@@ -84,7 +84,6 @@ export function parseOpenAISettings(settings: unknown): OpenAISettings {
 
 // ---- request --------------------------------------------------------------------------------------------------
 
-type Json = Record<string, unknown>;
 const OWNED = new Set([
   "model",
   "input",
@@ -129,8 +128,8 @@ export function planChain(ctx: ModelContext, setup: AgentSetup, opts: RequestOpt
   if (!opts.chain || !opts.store || setup.model === undefined) return undefined;
   const model = servedModelId(setup.model);
   for (let i = ctx.turns.length - 1; i >= 0; i--) {
-    const t = ctx.turns[i] as Turn;
-    if (t.role !== "assistant") continue;
+    const t = ctx.turns[i];
+    if (t === undefined || t.role !== "assistant") continue;
     // The latest assistant turn decides: an earlier response is not the end of the history.
     const ext = t.ext;
     if (
@@ -218,8 +217,7 @@ function toItems(turns: readonly Turn[], opts: RequestOptions): Json[][] {
 /** Compaction items go back as the provider sent them; an unreadable payload cannot be replayed. */
 function opaqueItem(payload: string): Json | undefined {
   try {
-    const item = JSON.parse(payload) as unknown;
-    return typeof item === "object" && item !== null && !Array.isArray(item) ? (item as Json) : undefined;
+    return asJson(JSON.parse(payload));
   } catch {
     return undefined;
   }
@@ -301,17 +299,17 @@ const protocol = (message: string): ProviderError => new ProviderError({ kind: "
 
 function normaliseUsage(raw: Json): Usage {
   const total = num(raw["input_tokens"]) ?? 0;
-  const details = (raw["input_tokens_details"] ?? {}) as Json;
+  const details = jsonOr(raw["input_tokens_details"]);
   const cached = num(details["cached_tokens"]) ?? 0;
   const written = num(details["cache_write_tokens"]) ?? 0;
   // On models with `prompt_cache_options` the writes are split by lifetime.
-  const split = (details["cache_write_tokens_details"] ?? {}) as Json;
+  const split = jsonOr(details["cache_write_tokens_details"]);
   const by: Record<string, number> = {};
   const t30 = num(split["ttl_30m_tokens"]);
   const t12 = num(split["ttl_12h_tokens"]);
   if (t30 !== undefined) by["30"] = t30;
   if (t12 !== undefined) by["720"] = t12;
-  const reasoning = num(((raw["output_tokens_details"] ?? {}) as Json)["reasoning_tokens"]);
+  const reasoning = num(jsonOr(raw["output_tokens_details"])["reasoning_tokens"]);
   return {
     input_tokens: Math.max(0, total - cached - written),
     output_tokens: num(raw["output_tokens"]) ?? 0,
@@ -326,18 +324,24 @@ function normaliseUsage(raw: Json): Usage {
 function toolBlock(call_id: string, name: string, args: string, item_id: string): Block {
   const ext = { item_id };
   try {
-    const parsed: unknown = args === "" ? {} : JSON.parse(args);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
-    return { type: "tool_call", call_id, name, args: parsed as Json, ext };
+    const parsed = args === "" ? {} : parseJsonObject(args, "the tool arguments");
+    return { type: "tool_call", call_id, name, args: parsed, ext };
   } catch {
     return { type: "tool_call", call_id, name, args: {}, args_raw: args, ext };
   }
 }
 
+/** The text of a reasoning summary: its parts, joined by blank lines. */
+function summaryText(summary: unknown[]): string {
+  return jsonList(summary)
+    .map((x) => (typeof x["text"] === "string" ? x["text"] : ""))
+    .join("\n\n");
+}
+
 function partsText(content: unknown): { text: string; refused: boolean } {
   let text = "";
   let refused = false;
-  for (const p of (Array.isArray(content) ? content : []) as Json[]) {
+  for (const p of jsonList(content)) {
     if (p["type"] === "output_text" && typeof p["text"] === "string") text += p["text"];
     else if (p["type"] === "refusal" && typeof p["refusal"] === "string") {
       text += p["refusal"];
@@ -364,9 +368,7 @@ function finishBlock(s: State, i: number, o: Open, item?: Json): StreamEvent[] {
       ...o.item,
       summary: o.summary === "" ? (o.item["summary"] ?? []) : [{ type: "summary_text", text: o.summary }],
     };
-    const visible = Array.isArray(original["summary"])
-      ? (original["summary"] as Json[]).map((x) => (typeof x["text"] === "string" ? x["text"] : "")).join("\n\n")
-      : o.summary;
+    const visible = Array.isArray(original["summary"]) ? summaryText(original["summary"]) : o.summary;
     block = { type: "reasoning", provider: s.provider, payload: original, ...(visible === "" ? {} : { visible }) };
   }
   s.open.delete(i);
@@ -375,7 +377,7 @@ function finishBlock(s: State, i: number, o: Open, item?: Json): StreamEvent[] {
 }
 
 function stopReason(r: Json, blocks: readonly (Block | undefined)[], refused: boolean): string {
-  const reason = ((r["incomplete_details"] ?? {}) as Json)["reason"];
+  const reason = jsonOr(r["incomplete_details"])["reason"];
   if (refused || reason === "content_filter") return "refusal";
   if (reason === "max_output_tokens" || reason === "max_tokens") return "max_tokens";
   if (blocks.some((b) => b?.type === "tool_call")) return "tool_use";
@@ -386,7 +388,7 @@ function stopReason(r: Json, blocks: readonly (Block | undefined)[], refused: bo
 function outputBlocks(output: unknown, provider: string): { blocks: Block[]; refused: boolean } {
   const blocks: Block[] = [];
   let refused = false;
-  for (const item of (Array.isArray(output) ? output : []) as Json[]) {
+  for (const item of jsonList(output)) {
     if (item["type"] === "message") {
       const p = partsText(item["content"]);
       refused ||= p.refused;
@@ -401,9 +403,7 @@ function outputBlocks(output: unknown, provider: string): { blocks: Block[]; ref
         ),
       );
     else if (item["type"] === "reasoning") {
-      const visible = Array.isArray(item["summary"])
-        ? (item["summary"] as Json[]).map((x) => (typeof x["text"] === "string" ? x["text"] : "")).join("\n\n")
-        : "";
+      const visible = Array.isArray(item["summary"]) ? summaryText(item["summary"]) : "";
       blocks.push({ type: "reasoning", provider, payload: item, ...(visible === "" ? {} : { visible }) });
     } else if (item["type"] === "compaction") blocks.push({ type: "provider_compaction", provider, payload: JSON.stringify(item) });
   }
@@ -437,18 +437,18 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
     event(sse: SseEvent, s: State): StreamEvent[] {
       let d: Json;
       try {
-        d = JSON.parse(sse.data) as Json;
+        d = parseJsonObject(sse.data, `the ${sse.event} event`);
       } catch {
         if (sse.data === "[DONE]") return [];
         throw protocol(`malformed ${sse.event} event`);
       }
-      const type = (d["type"] as string | undefined) ?? sse.event;
+      const type = asString(d["type"]) ?? sse.event;
       const index = num(d["output_index"]) ?? 0;
       switch (type) {
         case "response.created": {
-          const r = (d["response"] ?? {}) as Json;
-          s.id = r["id"] as string | undefined;
-          s.model = r["model"] as string | undefined;
+          const r = jsonOr(d["response"]);
+          s.id = asString(r["id"]);
+          s.model = asString(r["model"]);
           if (r["store"] === true) s.stored = true;
           return [
             { type: "started" },
@@ -459,7 +459,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
           ];
         }
         case "response.output_item.added": {
-          const item = (d["item"] ?? {}) as Json;
+          const item = jsonOr(d["item"]);
           if (item["type"] === "message") s.open.set(index, { kind: "message", item_id: optString(item["id"], "item.id"), text: "" });
           else if (item["type"] === "function_call") {
             const o: Open = {
@@ -516,14 +516,14 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
         case "response.output_item.done": {
           const o = s.open.get(index);
           if (o === undefined) return [];
-          return finishBlock(s, index, o, (d["item"] ?? {}) as Json);
+          return finishBlock(s, index, o, jsonOr(d["item"]));
         }
         case "response.completed":
         case "response.incomplete": {
-          const r = (d["response"] ?? {}) as Json;
+          const r = jsonOr(d["response"]);
           if (typeof r["model"] === "string") s.model = r["model"];
           if (r["store"] !== undefined) s.stored = r["store"] === true;
-          if (r["usage"] !== undefined && r["usage"] !== null) s.usage = normaliseUsage(r["usage"] as Json);
+          if (r["usage"] !== undefined && r["usage"] !== null) s.usage = normaliseUsage(jsonOr(r["usage"]));
           const events: StreamEvent[] = [];
           // Servers that do not send `output_item.done` leave blocks open: close them from what streamed.
           for (const [i, o] of [...s.open].sort((a, b) => a[0] - b[0])) events.push(...finishBlock(s, i, o));
@@ -534,7 +534,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
           return events;
         }
         case "response.failed": {
-          const e = (((d["response"] ?? {}) as Json)["error"] ?? {}) as Json;
+          const e = jsonOr(jsonOr(d["response"])["error"]);
           throw errorFrom(e["code"], e["message"]);
         }
         case "error":
@@ -545,6 +545,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
     },
     done: (s) => s.done,
     finish(s): Completed {
+      if (s.stop === undefined) throw protocol("the response ended without a stop reason");
       const observed = { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) };
       const blocks = s.out.filter((b): b is Block => b !== undefined);
       // Only what the server confirmed it kept can be continued; the digest says exactly what that response saw and produced.
@@ -554,7 +555,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
           : {};
       return {
         blocks,
-        stop_reason: s.stop as string,
+        stop_reason: s.stop,
         usage: s.usage,
         observed,
         ext: { ...(s.id === undefined ? {} : { response_id: s.id }), store: s.stored, ...digest, ...(s.chained ? { chained: true } : {}) },
@@ -562,8 +563,8 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
     },
     classify({ status, body }) {
       try {
-        const e = (JSON.parse(body) as Json)["error"] as Json | undefined;
-        if (e === undefined || typeof e !== "object") return undefined;
+        const e = asJson(parseJsonObject(body, "the error body")["error"]);
+        if (e === undefined) return undefined;
         const code = typeof e["code"] === "string" ? e["code"] : typeof e["type"] === "string" ? e["type"] : undefined;
         const known = code === undefined ? undefined : ERROR_CODES[code];
         return { ...(known === undefined ? {} : known), message: `${status} ${code ?? "error"}: ${messageText(e["message"])}` };
@@ -686,13 +687,13 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
     }
     let d: Json;
     try {
-      d = JSON.parse(body) as Json;
+      d = parseJsonObject(body, "the retrieved response");
     } catch {
       throw protocol("the retrieved response is not JSON");
     }
     const status = d["status"];
     if (status === "failed") {
-      const e = (d["error"] ?? {}) as Json;
+      const e = jsonOr(d["error"]);
       throw errorFrom(e["code"], e["message"]);
     }
     if (status === "cancelled") return undefined;
@@ -701,7 +702,7 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
     const provider = r.setup.model?.provider ?? "openai";
     const { blocks, refused } = outputBlocks(d["output"], provider);
     const usage =
-      d["usage"] === undefined || d["usage"] === null ? { input_tokens: 0, output_tokens: 0 } : normaliseUsage(d["usage"] as Json);
+      d["usage"] === undefined || d["usage"] === null ? { input_tokens: 0, output_tokens: 0 } : normaliseUsage(jsonOr(d["usage"]));
     const model = typeof d["model"] === "string" ? d["model"] : undefined;
     return {
       blocks,
@@ -722,7 +723,7 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
       http,
       { signal: r.signal, classify: mapper.classify },
     );
-    const n = (d as Json | undefined)?.["input_tokens"];
+    const n = asJson(d)?.["input_tokens"];
     if (typeof n !== "number" || !Number.isFinite(n)) throw protocol("the token count response has no input_tokens");
     return n;
   }

@@ -1,3 +1,4 @@
+import { streamChunks } from "../src/stream.ts";
 /**
  * Recorded provider responses, for tests that must not call a provider (docs/writing-an-adapter.md). A fixture is
  * one HTTP response, secrets scrubbed, stored as JSON; replaying it lets a test choose how the bytes are split
@@ -44,7 +45,7 @@ export function recordingFetch(
       const dec = new TextDecoder();
       let text = "";
       try {
-        for await (const chunk of copy as unknown as AsyncIterable<Uint8Array>) text += dec.decode(chunk, { stream: true });
+        for await (const chunk of streamChunks(copy)) text += dec.decode(chunk, { stream: true });
         text += dec.decode();
       } catch {
         // A stream that failed mid-way is still worth recording up to that point.

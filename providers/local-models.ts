@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
-import { completionMapper, DialectRegistry, serverProps, type Dialect, type DialectSettings } from "./dialect.ts";
+import { completionMapper, DialectRegistry, serverProps, type Dialect } from "./dialect.ts";
 import { builtinDialects } from "./dialects/index.ts";
 import { httpStream } from "./http.ts";
 import { localMedia } from "./media-specs.ts";
@@ -61,7 +61,7 @@ export function classifyLocal(from: AgentSetup, to: AgentSetup): Change[] {
 }
 
 /** The identity a request was served under; the part before `@` is what the server knows. */
-export const modelNameOf = (id: string): string => id.split("@")[0] as string;
+export const modelNameOf = (id: string): string => id.split("@")[0] ?? id;
 
 export interface LocalModelsExtras {
   /** The dialects available (default: the built-in ones). */
@@ -108,7 +108,8 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
               kind: "invalid_request",
               message: `invalid model settings for this provider: ${settings.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
             });
-          if (settings.data.dialect !== undefined) {
+          const dialect = settings.data.dialect;
+          if (dialect !== undefined) {
             const mapper = completionMapper(
               {
                 baseUrl: conn.baseUrl,
@@ -117,7 +118,7 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
                 modelName: (id) => runtime.resolve(modelNameOf(id)),
                 observe: (requested) => conn.ids[requested],
               },
-              () => settings.data as DialectSettings,
+              () => ({ ...settings.data, dialect }),
             );
             return yield* httpStream(mapper, req, httpOptionsFor(c));
           }

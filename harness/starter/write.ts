@@ -3,6 +3,7 @@ import type { Tool } from "../tools.ts";
 import { versionOf } from "./version.ts";
 import { PATH_ALIASES, flattenArgs } from "./args.ts";
 import { ALL } from "../approvals.ts";
+import { stringArg } from "../tool-args.ts";
 
 const enc = new TextEncoder();
 
@@ -26,7 +27,7 @@ export function writeTool(): Tool {
     allowKeys: () => [ALL],
     async execute(args, ctx) {
       const { host, workspace } = ctx;
-      const f = args as { path: string; content: string };
+      const f = { path: stringArg(args, "path"), content: stringArg(args, "content") };
       try {
         const abs = await resolveInWorkspace(host, workspace, f.path, "write");
         const name = display(host, workspace, abs);

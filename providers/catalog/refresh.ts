@@ -136,7 +136,7 @@ export function applyGeminiLimits(body: unknown, rows: readonly GeminiRow[]): { 
   };
 }
 
-const fields = (o: Record<string, unknown>): string =>
+const fields = (o: object): string =>
   Object.entries(o)
     .filter(([, v]) => v !== undefined)
     .map(
@@ -150,5 +150,5 @@ export function renderRows(
   rows: readonly (GoRow | GeminiRow)[],
   head: { comment: string; type: "GoRow" | "GeminiRow"; from: string; name: string },
 ): string {
-  return `import type { ${head.type} } from "${head.from}";\n\n${head.comment}\nexport const ${head.name}: readonly ${head.type}[] = [\n${rows.map((r) => `  { ${fields(r as unknown as Record<string, unknown>)} },`).join("\n")}\n];\n`;
+  return `import type { ${head.type} } from "${head.from}";\n\n${head.comment}\nexport const ${head.name}: readonly ${head.type}[] = [\n${rows.map((r) => `  { ${fields(r)} },`).join("\n")}\n];\n`;
 }

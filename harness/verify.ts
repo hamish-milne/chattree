@@ -2,7 +2,8 @@ import { FrameError, ParseError, decodeSpan, scan, sha256Hex, type CommitInfo } 
 import { HostBlobStore, blobRefs } from "./blob-store.ts";
 import { contextEntries } from "./context.ts";
 import { CHAT_FILE, Conversation } from "./conversation.ts";
-import { FORMAT, type ChatEntry } from "./entries.ts";
+import { FORMAT, idOf, type ChatEntry } from "./entries.ts";
+import { nth } from "../src/nth.ts";
 
 export interface Problem {
   severity: "error" | "warning";
@@ -94,7 +95,7 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
       entries.push({ ok: false, id: undefined, tag: r.tag, end: span.end });
       continue;
     }
-    const id = (r.value as { id?: string }).id;
+    const id = idOf(r.value);
     if (id !== undefined) {
       if (seen.has(id)) add("error", "duplicate-id", `entry id ${id} appears more than once`, { entry: id });
       seen.add(id);
@@ -158,7 +159,8 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
       if (idx === undefined) {
         add("error", "offset-not-boundary", `Chattree-Offset ${offset} is not the end of any entry in the transcript`, { commit: c.hash });
       } else {
-        const e = entries[idx] as (typeof entries)[number];
+        const e = entries[idx];
+        if (e === undefined) continue;
         if (covered.has(idx)) add("error", "entry-committed-twice", "two commits claim the same entry", { commit: c.hash });
         covered.add(idx);
         entryCommitFor.set(idx, c);
@@ -280,8 +282,9 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
   const blobInfo = await git.objectInfo(specs);
   const present: number[] = [];
   hashes.forEach((h, i) => {
-    const w = wanted.get(h) as { bytes: number; entry: string };
+    const w = wanted.get(h);
     const info = blobInfo[i];
+    if (w === undefined) return;
     if (info === undefined)
       add("error", "blob-missing", `blob ${h.slice(0, 12)} is referenced but not in the tree`, { commit: tipCommit, entry: w.entry });
     else if (info.size !== w.bytes)
@@ -300,14 +303,14 @@ export async function verifyHistory(convo: Conversation, opts: VerifyOptions = {
       const WINDOW = 32;
       for (let at = 0; at < present.length; at += WINDOW) {
         const chunk = present.slice(at, at + WINDOW);
-        const got = await Promise.all(chunk.map((i) => objects.read(specs[i] as string)));
+        const got = await Promise.all(chunk.map((i) => objects.read(nth(specs, i))));
         for (const [k, i] of chunk.entries()) {
-          const h = hashes[i] as string;
+          const h = nth(hashes, i);
           const bytes = got[k];
           if (bytes === undefined || (await sha256Hex(bytes)) !== h)
             add("error", "blob-corrupt", `blob ${h.slice(0, 12)} does not match its hash`, {
               commit: tipCommit,
-              entry: wanted.get(h)?.entry as string,
+              entry: wanted.get(h)?.entry ?? "",
             });
         }
       }

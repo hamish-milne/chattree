@@ -1,5 +1,6 @@
 import type { Output } from "./output.ts";
 import type { Ctx } from "./engine.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * A slash command. `busy` says whether it may run while a request is in flight ("blocked" commands answer with the
@@ -60,7 +61,7 @@ export function tokenize(line: string, opts: { escapes?: boolean } = {}): string
   let has = false;
   let quote: "'" | '"' | undefined;
   for (let i = 0; i < line.length; i++) {
-    const c = line[i] as string;
+    const c = nth(line, i);
     if (quote !== undefined) {
       if (c === quote) quote = undefined;
       else if (escapes && c === "\\" && quote === '"' && i + 1 < line.length) cur += line[++i];
@@ -86,5 +87,5 @@ export function tokenize(line: string, opts: { escapes?: boolean } = {}): string
 export function parseCommand(line: string): { name: string; rest: string } | undefined {
   if (!line.startsWith("/") || line.startsWith("//")) return undefined;
   const m = /^\/(\S*)\s*([\s\S]*)$/.exec(line);
-  return m === null ? undefined : { name: m[1] as string, rest: (m[2] as string).replace(/\s+$/, "") };
+  return m === null ? undefined : { name: nth(m, 1), rest: nth(m, 2).replace(/\s+$/, "") };
 }

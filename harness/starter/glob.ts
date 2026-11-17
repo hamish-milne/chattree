@@ -1,4 +1,5 @@
 import type { Host } from "../../src/host.ts";
+import { nth } from "../../src/nth.ts";
 
 /**
  * A small glob over the host's file system, confined to the workspace. It supports `*`, `?`, `[abc]`, `[!a-z]`, `{a,b}`
@@ -54,7 +55,7 @@ export function expandBraces(pattern: string): string[] {
 function segmentRegex(seg: string): RegExp {
   let out = "^";
   for (let i = 0; i < seg.length; i++) {
-    const c = seg[i] as string;
+    const c = nth(seg, i);
     if (c === "*") out += "[^/]*";
     else if (c === "?") out += "[^/]";
     else if (c === "[") {

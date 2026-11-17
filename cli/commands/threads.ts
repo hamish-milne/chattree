@@ -12,6 +12,7 @@ import type { Command } from "../registry.ts";
 import type { Ctx } from "../engine.ts";
 import type { Output } from "../output.ts";
 import { failure } from "../turn.ts";
+import { nth } from "../../src/nth.ts";
 
 const entriesOf = async (c: Conversation): Promise<ChatEntry[]> => (await c.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
 
@@ -175,17 +176,15 @@ const fork: Command = {
         return;
       }
       if (args.length === 2) {
-        const e = resolveEntry(entries, args[0] as string);
+        const e = resolveEntry(entries, nth(args, 0));
         if (e === undefined) {
           yield { type: "error", message: `no entry matches ${args[0]}` };
           return;
         }
         [at, name] = [e.id, args[1]];
       } else if (args.length === 1) {
-        const e =
-          /^\d+$/.test(args[0] as string) || /^[0-9A-Za-z]{8,26}$/.test(args[0] as string)
-            ? resolveEntry(entries, args[0] as string)
-            : undefined;
+        const arg = args[0];
+        const e = arg !== undefined && (/^\d+$/.test(arg) || /^[0-9A-Za-z]{8,26}$/.test(arg)) ? resolveEntry(entries, arg) : undefined;
         if (e !== undefined) at = e.id;
         else name = args[0];
       }
@@ -242,7 +241,7 @@ const merge: Command = {
       // `/merge <this thread> ...` is the same as `/merge ...`.
       let summary = (explicit || args[0] === engine.thread ? rest.replace(/^\s*\S+\s*/, "") : rest).trim();
       let parent = ctx.convo;
-      let childName = args[0] as string;
+      let childName = args[0] ?? engine.thread;
       let parentName = engine.thread;
       if (!explicit) {
         const start = (await entriesOf(ctx.convo)).filter((e) => e.$tag === "branch_start").at(-1);

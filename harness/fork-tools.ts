@@ -1,6 +1,8 @@
 import type { Conversation } from "./conversation.ts";
 import { syncTools } from "./loop.ts";
 import type { StartedJob, Tool, ToolOutput, ToolRegistry } from "./tools.ts";
+import { optStringArg, stringArg } from "./tool-args.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * The `fork` and `merge` tools (docs/tools.md, section 4.2). `fork` is for work to be picked up later with everything the model
@@ -38,7 +40,7 @@ export async function deliverForks(convo: Conversation): Promise<number> {
     if (e.$tag !== "tool_result" || typeof e.content !== "string" || done.has(e.call_id)) continue;
     const m = FORK_STARTED_RE.exec(e.content);
     if (m === null) continue;
-    const name = m[1] as string;
+    const name = nth(m, 1);
     if ((await convo.git.revParse(`refs/heads/${name}`)) === undefined) continue;
     const theirs = (await convo.readEntriesAt(`refs/heads/${name}`)).flatMap((x) => (x.ok ? [x.value] : []));
     const last = [...theirs].reverse().find((x) => x.$tag !== "agent_setup" && x.$tag !== "approval" && x.$tag !== "injection");
@@ -104,8 +106,8 @@ export function forkTool(deps: ForkDeps): Tool {
     },
     allowKeys: () => ["all"],
     execute: async (args, ctx): Promise<ToolOutput | StartedJob> => {
-      const name = args["name"] as string | undefined;
-      const message = args["message"] as string | undefined;
+      const name = optStringArg(args, "name");
+      const message = optStringArg(args, "message");
       const autoRun = args["auto_run"] === true;
       if (autoRun && (deps.auto === undefined || message === undefined || message.trim() === ""))
         return { content: "auto_run needs a message to send", is_error: true };
@@ -152,8 +154,8 @@ export function mergeTool(deps: Pick<ForkDeps, "convo">): Tool {
       },
     },
     execute: async (args, ctx) => {
-      const branch = args["branch"] as string;
-      const summary = (args["summary"] as string).trim();
+      const branch = stringArg(args, "branch");
+      const summary = stringArg(args, "summary").trim();
       if (summary === "") return { content: "summary must say what the fork settled", is_error: true };
       try {
         await deps.convo.assertMergeable(branch);

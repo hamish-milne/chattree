@@ -1,6 +1,7 @@
 import { costOf, findModel, parseTable, tableHash, ttlMinutes, type PriceTable, type Tokens } from "../providers/pricing.ts";
 import type { ChatEntry } from "./entries.ts";
 import { applyChange, emptySetup, type AgentSetup } from "./setup.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * What a conversation has cost (docs/providers.md, P9). Derived, never stored per entry: each response's usage is
@@ -57,7 +58,7 @@ export function tokensOf(usage: Record<string, number> | undefined): Tokens {
   const by: Record<string, number> = {};
   for (const [k, v] of Object.entries(usage ?? {})) {
     const m = WINDOW_KEY.exec(k);
-    if (m !== null) by[m[1] as string] = v;
+    if (m !== null) by[nth(m, 1)] = v;
   }
   return {
     input_tokens: usage?.["input_tokens"] ?? 0,

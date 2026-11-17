@@ -51,7 +51,7 @@ export async function fetchFollow(url: string, o: FollowOptions = {}): Promise<R
     }
     if (res.status >= 300 && res.status < 400 && res.headers.has("location")) {
       if (o.manual === true && hop === 0) return res;
-      at = new URL(res.headers.get("location") as string, at).toString();
+      at = new URL(res.headers.get("location") ?? "", at).toString();
       await res.body?.cancel();
       continue;
     }

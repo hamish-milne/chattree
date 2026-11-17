@@ -2,6 +2,7 @@ import { open } from "node:fs/promises";
 import { modelSource, type ModelEntry, type Sampling } from "./config.ts";
 import { listRepoFiles, pickGguf } from "./hf.ts";
 import { fetchFollow, fetchJson, type FetchFn } from "./net.ts";
+import { asJson } from "../src/json.ts";
 
 /**
  * Where a model's sampling comes from when the settings do not say (docs/local-models.md, section 5), in this order, the first that
@@ -196,8 +197,8 @@ const round = (n: number): number => Number(n.toPrecision(7));
 const asNumber = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
 export function fromGenerationConfig(json: unknown): Sampling {
-  if (typeof json !== "object" || json === null) return {};
-  const g = json as Record<string, unknown>;
+  const g = asJson(json);
+  if (g === undefined) return {};
   const out: Sampling = {};
   const t = asNumber(g["temperature"]);
   const p = asNumber(g["top_p"]);
@@ -210,12 +211,12 @@ export function fromGenerationConfig(json: unknown): Sampling {
 
 /** The repositories a Hugging Face repository says it was made from: `cardData.base_model` (a name or a list), else a `base_model:` tag. */
 export function baseModels(info: unknown): string[] {
-  if (typeof info !== "object" || info === null) return [];
-  const i = info as Record<string, unknown>;
-  const card = (i["cardData"] as Record<string, unknown> | undefined)?.["base_model"];
+  const i = asJson(info);
+  if (i === undefined) return [];
+  const card = asJson(i["cardData"])?.["base_model"];
   const fromCard = (Array.isArray(card) ? card : [card]).filter((x): x is string => typeof x === "string" && /^[\w.-]+\/[\w.-]+$/.test(x));
   if (fromCard.length > 0) return fromCard;
-  const tags = Array.isArray(i["tags"]) ? (i["tags"] as unknown[]) : [];
+  const tags: unknown[] = Array.isArray(i["tags"]) ? i["tags"] : [];
   const out: string[] = [];
   for (const t of tags) {
     const m = typeof t === "string" ? /^base_model:(?:[a-z]+:)?([\w.-]+\/[\w.-]+)$/.exec(t) : null;
@@ -291,7 +292,9 @@ export async function resolveSampling(m: ModelEntry, o: SamplingOptions = {}): P
       let path = src.kind === "hf" ? src.file : undefined;
       if (path === undefined) {
         const files = await listRepoFiles(src.repo, src.revision, { fetch: o.fetch, token: o.token, base: o.hfBase });
-        path = (pickGguf(files, src.kind === "hf-quant" ? src.quant : undefined, src.repo)[0] as { path: string }).path;
+        const picked = pickGguf(files, src.kind === "hf-quant" ? src.quant : undefined, src.repo)[0];
+        if (picked === undefined) throw new Error(`${src.repo} has no .gguf file`);
+        path = picked.path;
       }
       where = `${src.repo}/${path}`;
       read = urlReader(

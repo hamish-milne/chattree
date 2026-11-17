@@ -2,6 +2,7 @@ import { emitEntry } from "./emit.ts";
 import { EmitError, ParseError } from "./errors.ts";
 import { BARE_RE, hasBlockBadChars, isReservedWord, NUMBER_RE, scanQuoted } from "./scalar.ts";
 import { BlobRef, MAX_DEPTH, Tagged, type Entry, type Value } from "./value.ts";
+import { nth } from "../src/nth.ts";
 
 export interface ParseOptions {
   /**
@@ -34,7 +35,7 @@ function tryParseKey(text: string, line: number): { key: string; end: number } |
     return text.charCodeAt(q.end) === 0x3a ? { key: q.value, end: q.end + 1 } : null;
   }
   const m = BARE_KEY_RE.exec(text);
-  return m ? { key: m[1] as string, end: m[0].length } : null;
+  return m ? { key: nth(m, 1), end: m[0].length } : null;
 }
 
 function checkDepth(depth: number, line: number): void {
@@ -51,9 +52,9 @@ function splitTag(text: string, ln: number): { tag: string; rest: string | undef
   const m = TAG_TOKEN_RE.exec(text);
   if (!m) throw new ParseError("malformed tag", ln);
   const after = text.slice(m[0].length);
-  if (after === "") return { tag: m[1] as string, rest: undefined };
+  if (after === "") return { tag: nth(m, 1), rest: undefined };
   if (after.charCodeAt(0) !== 0x20) throw new ParseError("expected a space after the tag", ln);
-  return { tag: m[1] as string, rest: after.slice(1) };
+  return { tag: nth(m, 1), rest: after.slice(1) };
 }
 
 function makeTagged(tag: string, value: Value, ln: number): Tagged {
@@ -190,9 +191,9 @@ function parseInline(text: string, cur: Cursor, contentIndent: number, ln: numbe
     const bytes = Number(m[2]);
     if (!Number.isSafeInteger(bytes)) throw new ParseError("blob size out of range", ln);
     try {
-      return new BlobRef(m[1] as string, bytes, m[3]);
+      return new BlobRef(nth(m, 1), bytes, m[3]);
     } catch (e) {
-      throw new ParseError((e as Error).message, ln);
+      throw new ParseError(e instanceof Error ? e.message : String(e), ln);
     }
   }
   if (NUMBER_RE.test(text)) {

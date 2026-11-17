@@ -2,6 +2,7 @@ import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { LocalModels } from "./config.ts";
 import { routerArgs } from "./plan.ts";
+import { asJson, jsonList } from "../src/json.ts";
 
 /**
  * The engine seam (docs/local-models.md, section 3): a program that serves the models. The first is llama-server's router mode; the host
@@ -86,7 +87,7 @@ const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
     signal?.addEventListener("abort", () => (clearTimeout(t), resolve()), { once: true });
   });
 
-const STATES = new Set<ModelState>(["unloaded", "loading", "loaded", "sleeping"]);
+const STATES: readonly ModelState[] = ["unloaded", "loading", "loaded", "sleeping"];
 
 export interface RouterOptions {
   spawn?: SpawnFn | undefined;
@@ -179,11 +180,9 @@ async function post(get: (path: string, init?: RequestInit) => Promise<Response>
 
 /** `GET /v1/models` of the router: `data[].id` and `data[].status.value`. */
 export function parseModels(json: unknown): ModelStatus[] {
-  const data = (json as { data?: unknown })?.data;
-  if (!Array.isArray(data)) return [];
-  return data.flatMap((m: Record<string, unknown>) => {
+  return jsonList(asJson(json)?.["data"]).flatMap((m) => {
     if (typeof m["id"] !== "string") return [];
-    const v = (m["status"] as { value?: unknown } | undefined)?.value;
-    return [{ name: m["id"], state: typeof v === "string" && STATES.has(v as ModelState) ? (v as ModelState) : "unknown" }];
+    const v = asJson(m["status"])?.["value"];
+    return [{ name: m["id"], state: STATES.find((s) => s === v) ?? "unknown" }];
   });
 }

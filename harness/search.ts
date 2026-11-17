@@ -12,6 +12,9 @@ import { originOf } from "./thread-tools.ts";
  */
 
 export type Scope = "thread" | "family" | "project";
+export const SCOPES: readonly Scope[] = ["thread", "family", "project"];
+/** The scope a word names, if it names one. */
+export const parseScope = (word: unknown): Scope | undefined => SCOPES.find((s) => s === word);
 
 export interface SearchOptions {
   query: string;
@@ -332,15 +335,15 @@ export async function openEntry(convo: Conversation, ref: string): Promise<{ tex
   const tip = (await convo.listBranches()).find((b) => b.name === r.thread)?.tip;
   if (tip === undefined) return { error: `there is no thread ${r.thread}` };
   const entries = await entriesAt(convo, r.thread, tip);
-  const hits = entries.filter((e) => "id" in e && typeof e.id === "string" && e.id.startsWith(r.id));
-  if (hits.length !== 1)
+  const hits = entries.filter((e): e is ChatEntry & { id: string } => "id" in e && typeof e.id === "string" && e.id.startsWith(r.id));
+  const [e] = hits;
+  if (hits.length !== 1 || e === undefined)
     return {
       error:
         hits.length === 0
           ? `thread ${r.thread} has no entry ${r.id}`
           : `${r.id} matches ${hits.length} entries of ${r.thread}: give more of the id`,
     };
-  const e = hits[0] as ChatEntry & { id: string };
   const notes = new Set<string>();
   const parts = await partsOf(convo, e, true, notes);
   let used = 0;

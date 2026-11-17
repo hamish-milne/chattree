@@ -17,7 +17,7 @@ import {
   type StreamRequest,
   type Usage,
 } from "./types.ts";
-import { messageText } from "./wire.ts";
+import { asJson, asString, jsonOr, messageText, parseJsonObject, wireIndex, wireString, type Json } from "./wire.ts";
 
 /**
  * The Anthropic Messages API (docs/providers.md). Also what Ollama and other servers speak as their
@@ -79,7 +79,6 @@ export function parseAnthropicSettings(settings: unknown): AnthropicSettings {
 
 // ---- request --------------------------------------------------------------------------------------------------
 
-type Json = Record<string, unknown>;
 /** The cache marker for a lifetime: 5 minutes is the default and is left out, as the docs show. */
 const cacheMark = (ttl: "5m" | "1h" | undefined): Json => (ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" });
 
@@ -98,7 +97,10 @@ export function buildAnthropicBody(ctx: ModelContext, setup: AgentSetup, opts: R
   if (ctx.system !== "") system.push({ type: "text", text: ctx.system });
   if (ctx.instructions !== undefined && ctx.instructions !== "") system.push({ type: "text", text: ctx.instructions });
   if (system.length > 0) {
-    if (opts.cacheControl) (system[system.length - 1] as Json)["cache_control"] = cacheMark(settings.cache_ttl);
+    if (opts.cacheControl) {
+      const last = system[system.length - 1];
+      if (last !== undefined) last["cache_control"] = cacheMark(settings.cache_ttl);
+    }
     body["system"] = system;
   }
   if (ctx.tools.length > 0) body["tools"] = ctx.tools.map(toTool);
@@ -218,14 +220,14 @@ function mergeUsage(into: Usage, raw: Json | undefined): void {
   const out = num(raw["output_tokens"]);
   const read = num(raw["cache_read_input_tokens"]);
   const write = num(raw["cache_creation_input_tokens"]);
-  const thinking = num((raw["output_tokens_details"] as Json | undefined)?.["thinking_tokens"]);
+  const thinking = num(asJson(raw["output_tokens_details"])?.["thinking_tokens"]);
   if (input !== undefined) into.input_tokens = input;
   if (out !== undefined) into.output_tokens = Math.max(into.output_tokens, out);
   if (read !== undefined) into.cache_read_tokens = read;
   if (write !== undefined) into.cache_write_tokens = write;
   // `cache_creation` splits the writes by lifetime (from memory of the docs: ephemeral_5m_ and ephemeral_1h_input_tokens).
-  const created = raw["cache_creation"] as Json | undefined;
-  if (created !== undefined && typeof created === "object") {
+  const created = asJson(raw["cache_creation"]);
+  if (created !== undefined) {
     const by: Record<string, number> = {};
     const m5 = num(created["ephemeral_5m_input_tokens"]);
     const h1 = num(created["ephemeral_1h_input_tokens"]);
@@ -265,17 +267,17 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
       if (sse.event === "ping") return [];
       let d: Json;
       try {
-        d = JSON.parse(sse.data) as Json;
+        d = parseJsonObject(sse.data, `the ${sse.event} event`);
       } catch {
         throw protocol(`malformed ${sse.event} event`);
       }
-      const type = (d["type"] as string | undefined) ?? sse.event;
+      const type = asString(d["type"]) ?? sse.event;
       switch (type) {
         case "message_start": {
-          const m = (d["message"] ?? {}) as Json;
-          s.id = m["id"] as string | undefined;
-          s.model = m["model"] as string | undefined;
-          mergeUsage(s.usage, m["usage"] as Json | undefined);
+          const m = jsonOr(d["message"]);
+          s.id = asString(m["id"]);
+          s.model = asString(m["model"]);
+          mergeUsage(s.usage, asJson(m["usage"]));
           // The usage in message_start is provisional (Ollama revises its input count, down, in the final message_delta),
           // so it is kept for the result but not reported as an event: reported usage never decreases.
           return [
@@ -287,8 +289,8 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           ];
         }
         case "content_block_start": {
-          const i = d["index"] as number;
-          const b = (d["content_block"] ?? {}) as Json;
+          const i = wireIndex(d["index"], "the block index");
+          const b = jsonOr(d["content_block"]);
           switch (b["type"]) {
             case "text":
               s.open.set(i, { kind: "text", text: typeof b["text"] === "string" ? b["text"] : "" });
@@ -306,9 +308,12 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
             case "redacted_thinking":
               s.open.set(i, { kind: "redacted", block: b });
               return [];
-            case "tool_use":
-              s.open.set(i, { kind: "tool", id: b["id"] as string, name: b["name"] as string, args: "" });
-              return [{ type: "tool_call.start", index: i, call_id: b["id"] as string, name: b["name"] as string }];
+            case "tool_use": {
+              const id = wireString(b["id"], "the tool call id");
+              const name = wireString(b["name"], "the tool name");
+              s.open.set(i, { kind: "tool", id, name, args: "" });
+              return [{ type: "tool_call.start", index: i, call_id: id, name }];
+            }
             default:
               s.open.set(i, { kind: "skip" });
               s.skipped.add(String(b["type"]));
@@ -316,34 +321,43 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           }
         }
         case "content_block_delta": {
-          const i = d["index"] as number;
+          const i = wireIndex(d["index"], "the block index");
           const o = s.open.get(i);
-          const delta = (d["delta"] ?? {}) as Json;
+          const delta = jsonOr(d["delta"]);
           if (o === undefined) throw protocol(`a delta for block ${i}, which was never started`);
           if (o.kind === "skip") return []; // a block type we do not use
           switch (delta["type"]) {
             case "text_delta":
               if (o.kind !== "text") throw protocol(`a text delta for block ${i}, which is not text`);
-              o.text += delta["text"] as string;
-              return [{ type: "text.delta", index: i, text: delta["text"] as string }];
+              {
+                const text = wireString(delta["text"], "the text delta");
+                o.text += text;
+                return [{ type: "text.delta", index: i, text }];
+              }
             case "thinking_delta":
               if (o.kind !== "thinking") throw protocol(`a thinking delta for block ${i}, which is not thinking`);
-              o.thinking += delta["thinking"] as string;
-              return [{ type: "reasoning.delta", index: i, text: delta["thinking"] as string }];
+              {
+                const text = wireString(delta["thinking"], "the thinking delta");
+                o.thinking += text;
+                return [{ type: "reasoning.delta", index: i, text }];
+              }
             case "signature_delta":
               if (o.kind !== "thinking") throw protocol(`a signature for block ${i}, which is not thinking`);
-              o.signature += delta["signature"] as string;
+              o.signature += wireString(delta["signature"], "the signature delta");
               return [];
             case "input_json_delta":
               if (o.kind !== "tool") throw protocol(`tool input for block ${i}, which is not a tool call`);
-              o.args += delta["partial_json"] as string;
-              return [{ type: "tool_call.delta", index: i, args_delta: delta["partial_json"] as string }];
+              {
+                const args_delta = wireString(delta["partial_json"], "the tool input delta");
+                o.args += args_delta;
+                return [{ type: "tool_call.delta", index: i, args_delta }];
+              }
             default:
               return []; // citations and whatever comes next
           }
         }
         case "content_block_stop": {
-          const i = d["index"] as number;
+          const i = wireIndex(d["index"], "the block index");
           const o = s.open.get(i);
           if (o === undefined) throw protocol(`block ${i} stopped but never started`);
           s.open.delete(i);
@@ -360,9 +374,8 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           else if (o.kind === "redacted") block = { type: "reasoning", provider: s.provider, payload: o.block };
           else {
             try {
-              const parsed: unknown = o.args === "" ? {} : JSON.parse(o.args);
-              if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
-              block = { type: "tool_call", call_id: o.id, name: o.name, args: parsed as Json };
+              const parsed = o.args === "" ? {} : parseJsonObject(o.args, "the tool input");
+              block = { type: "tool_call", call_id: o.id, name: o.name, args: parsed };
             } catch {
               block = { type: "tool_call", call_id: o.id, name: o.name, args: {}, args_raw: o.args };
             }
@@ -371,9 +384,9 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           return [{ type: "block.done", index: i, block }];
         }
         case "message_delta": {
-          const delta = (d["delta"] ?? {}) as Json;
+          const delta = jsonOr(d["delta"]);
           if (typeof delta["stop_reason"] === "string") s.stop = STOP_REASONS[delta["stop_reason"]] ?? delta["stop_reason"];
-          mergeUsage(s.usage, d["usage"] as Json | undefined);
+          mergeUsage(s.usage, asJson(d["usage"]));
           return [usageEvent(s.usage)];
         }
         case "message_stop":
@@ -381,7 +394,7 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
           s.done = true;
           return [];
         case "error": {
-          const e = (d["error"] ?? {}) as Json;
+          const e = jsonOr(d["error"]);
           const known = ERROR_TYPES[String(e["type"])] ?? { kind: "server" as const, retryable: false };
           throw new ProviderError({ ...known, message: `${String(e["type"])}: ${String(e["message"])}` });
         }
@@ -391,9 +404,10 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
     },
     done: (s) => s.done,
     finish(s): Completed {
+      if (s.stop === undefined) throw protocol("the message ended without a stop reason");
       return {
         blocks: s.out.filter((b): b is Block => b !== undefined),
-        stop_reason: s.stop as string,
+        stop_reason: s.stop,
         usage: s.usage,
         observed: { ...(s.model === undefined ? {} : { model: s.model }), ...(s.id === undefined ? {} : { response_id: s.id }) },
         ...(s.skipped.size > 0 ? { ext: { skipped_block_types: [...s.skipped] } } : {}),
@@ -401,7 +415,7 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
     },
     classify({ status, body }) {
       try {
-        const e = (JSON.parse(body) as Json)["error"] as Json | undefined;
+        const e = asJson(parseJsonObject(body, "the error body")["error"]);
         if (e === undefined || typeof e["type"] !== "string") return undefined;
         const known = ERROR_TYPES[e["type"]];
         return { ...(known === undefined ? {} : known), message: `${status} ${e["type"]}: ${messageText(e["message"])}` };
@@ -464,7 +478,7 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
         { ...http, secrets: [...(http.secrets ?? []), ...secrets] },
         { signal: req.signal, classify: mapper.classify },
       );
-      const n = (d as Json | undefined)?.["input_tokens"];
+      const n = asJson(d)?.["input_tokens"];
       if (typeof n !== "number" || !Number.isFinite(n))
         throw new ProviderError({ kind: "protocol", message: "the token count response has no input_tokens" });
       return n;

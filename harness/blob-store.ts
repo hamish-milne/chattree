@@ -1,4 +1,5 @@
 import { BlobError, sha256Hex, type BlobStore, type Host } from "../src/index.ts";
+import { isJson } from "../src/json.ts";
 
 /** Where blobs live, relative to the repository root. */
 export const BLOBS_DIR = "blobs";
@@ -46,8 +47,8 @@ export class HostBlobStore implements BlobStore {
 /** Every blob a decoded entry refers to: its hash and the size the reference claims. */
 export function blobRefs(value: unknown, into: Map<string, number> = new Map()): Map<string, number> {
   if (Array.isArray(value)) for (const x of value) blobRefs(x, into);
-  else if (typeof value === "object" && value !== null) {
-    const o = value as Record<string, unknown>;
+  else if (isJson(value)) {
+    const o = value;
     if (o["$tag"] === "blob" && typeof o["sha256"] === "string" && typeof o["bytes"] === "number") into.set(o["sha256"], o["bytes"]);
     else for (const x of Object.values(o)) blobRefs(x, into);
   }

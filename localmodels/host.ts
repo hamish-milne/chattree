@@ -10,6 +10,7 @@ import { removeModelFiles } from "./inventory.ts";
 import { downloadList, presetIni, type ModelFiles } from "./plan.ts";
 import type { Arch, Platform } from "./release.ts";
 import { fetchDownloads, modelId, resolveDownloads, type Fetched, type StoreEvent } from "./store.ts";
+import { portOf } from "./typed.ts";
 
 /**
  * The local model host (docs/local-models.md, section 3): settings in, a running llama-server out. It installs the program, fetches the
@@ -84,7 +85,7 @@ export async function freePort(host: string): Promise<number> {
     const s = createServer();
     s.once("error", reject);
     s.listen(0, host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host, () => {
-      const port = (s.address() as { port: number }).port;
+      const port = portOf(s);
       s.close(() => resolvePort(port));
     });
   });
@@ -99,7 +100,7 @@ function sections(ini: string): Map<string, string> {
   const out = new Map<string, string>();
   for (const part of ini.split(/\n(?=\[)/)) {
     const m = /^\[([^\]]+)\]/.exec(part);
-    if (m !== null) out.set(m[1] as string, part.trim());
+    if (m?.[1] !== undefined) out.set(m[1], part.trim());
   }
   return out;
 }
@@ -242,7 +243,10 @@ export class LocalModelHost {
           throw new Error("stop the model host first (`chattree models stop`): a model that is loaded cannot be fetched again");
         this.#lock ??= await Lock.open(join(this.#o.data, "lock.json"));
         if (opts.force === true) for (const n of wanted) await removeModelFiles(config, this.#lock, this.#o.data, n, { shared: true });
-        const subset = { ...config, models: Object.fromEntries(wanted.map((n) => [n, config.models[n]])) } as LocalModels;
+        const subset: LocalModels = {
+          ...config,
+          models: Object.fromEntries(wanted.flatMap((n) => (config.models[n] === undefined ? [] : [[n, config.models[n]]]))),
+        };
         const prepared = await this.#prepare(subset);
         this.#set({ phase: prev.phase, ids: { ...prev.ids, ...prepared.ids } });
         this.#emit({ type: "pulled", models: wanted, error: undefined });
@@ -380,11 +384,14 @@ export class LocalModelHost {
   /** Start the engine process with what is already prepared, and watch it. */
   async #launch(): Promise<void> {
     this.#set({ phase: "starting" });
+    const binary = this.#binary;
+    const port = this.#port;
+    if (binary === undefined || port === undefined) throw new Error("the model host has not been prepared");
     const proc = await this.#engine.start({
-      binary: this.#binary as string,
+      binary: binary,
       config: this.#config,
       presetPath: join(this.#o.data, "run", "preset.ini"),
-      port: this.#port as number,
+      port: port,
       cwd: this.#o.data,
       signal: this.#abort.signal,
       onLog: (line) => {

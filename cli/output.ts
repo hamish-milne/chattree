@@ -2,6 +2,7 @@ import type { Appended, Conversation } from "../harness/conversation.ts";
 import type { ChatEntry } from "../harness/entries.ts";
 import { inlineBlobs } from "../harness/context-builder.ts";
 import { resultLines, summarizeCall } from "./tool-lines.ts";
+import { jsonOr } from "../src/json.ts";
 
 /**
  * What the engine says. Nothing here knows about terminals: a renderer turns outputs into text for a plain stream or a
@@ -38,6 +39,10 @@ export type Output =
 export type Thinking = "off" | "brief" | "on";
 /** How much of the tool calls and results is shown: none, a line each with a short preview, or everything. */
 export type ToolView = "off" | "brief" | "full";
+export const THINKING_VIEWS: readonly Thinking[] = ["on", "brief", "off"];
+export const TOOL_VIEWS: readonly ToolView[] = ["full", "brief", "off"];
+export const parseThinking = (word: unknown): Thinking | undefined => THINKING_VIEWS.find((t) => t === word);
+export const parseToolView = (word: unknown): ToolView | undefined => TOOL_VIEWS.find((t) => t === word);
 /** What earlier assistant entries asked for, by call id, so a result can say what it answers. */
 export type CallMap = Map<string, { name: string; args: Record<string, unknown> }>;
 
@@ -115,7 +120,7 @@ export async function formatEntry(
           const visible = await t(b.visible);
           parts.push(style.dim(wrap(`(thinking) ${thinking === "brief" ? clip(visible, 200) : visible}`)));
         } else if (b.$tag === "tool_call") {
-          const args = (await inlineBlobs(b.args, t)) as Record<string, unknown>;
+          const args = jsonOr(await inlineBlobs(b.args, t));
           opts.calls?.set(b.call_id, { name: b.name, args });
           if (tools === "brief") parts.push(style.dim(`→ ${summarizeCall(b.name, args)}`));
           else if (tools === "full")

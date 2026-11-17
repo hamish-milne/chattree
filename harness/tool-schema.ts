@@ -10,12 +10,14 @@
 import { Ajv, type ErrorObject } from "ajv";
 import { Ajv2020 } from "ajv/dist/2020.js";
 import addFormatsModule from "ajv-formats";
+import { nth } from "../src/nth.ts";
 
 const addFormats = addFormatsModule as unknown as (a: Ajv | Ajv2020) => void;
 
 type Schema = Record<string, unknown>;
 
 const SCALAR = new Set(["string", "number", "integer", "boolean"]);
+const isScalar = (type: unknown): boolean => typeof type === "string" && SCALAR.has(type);
 const COMMON = ["type", "description"];
 const KEYWORDS: Record<string, readonly string[]> = {
   object: [...COMMON, "properties", "required", "additionalProperties"],
@@ -57,14 +59,15 @@ export function checkSchema(schema: unknown): string[] {
         if (!Array.isArray(required) || required.some((r) => typeof r !== "string"))
           problems.push(`${where}: required must be a list of names`);
         else
-          for (const r of required as string[])
-            if (!isObject(props) || !(r in props)) problems.push(`${where}: required names ${r}, which is not a property`);
+          for (const r of required)
+            if (typeof r === "string" && (!isObject(props) || !(r in props)))
+              problems.push(`${where}: required names ${r}, which is not a property`);
       }
     } else if (type === "array") {
       if (s["items"] === undefined) problems.push(`${where}: arrays need \`items\``);
       else walk(s["items"], `${path}[]`, false);
       for (const k of ["minItems", "maxItems"])
-        if (s[k] !== undefined && !(Number.isInteger(s[k]) && (s[k] as number) >= 0))
+        if (s[k] !== undefined && !(typeof s[k] === "number" && Number.isInteger(s[k]) && s[k] >= 0))
           problems.push(`${where}: ${k} must be a whole number`);
     } else {
       const en = s["enum"];
@@ -227,7 +230,7 @@ export function flatProblems(schema: unknown): string[] {
     if (type === "object") out.push(`${k} is an object`);
     else if (type === "array") {
       const items = p["items"];
-      if (!isObject(items) || !SCALAR.has(items["type"] as string))
+      if (!isObject(items) || !isScalar(items["type"]))
         out.push(
           `${k} is a list of ${isObject(items) && typeof items["type"] === "string" ? `${items["type"]}s` : "things that are not plain values"}`,
         );
@@ -265,11 +268,12 @@ function view(raw: unknown, defs: Schema, depth = 0): Schema | undefined {
   const ref = s["$ref"];
   if (typeof ref === "string") {
     const m = /^#\/(?:\$defs|definitions)\/(.+)$/.exec(ref);
-    return m === null ? undefined : view(defs[m[1] as string], defs, depth + 1);
+    return m === null ? undefined : view(defs[nth(m, 1)], defs, depth + 1);
   }
   const choice = ["anyOf", "oneOf"].find((k) => Array.isArray(s[k]));
   if (choice !== undefined) {
-    const live = (s[choice] as unknown[]).filter((b) => !(isObject(b) && b["type"] === "null"));
+    const options: unknown[] = Array.isArray(s[choice]) ? s[choice] : [];
+    const live = options.filter((b) => !(isObject(b) && b["type"] === "null"));
     if (live.length !== 1) return undefined;
     return view(live[0], defs, depth + 1);
   }
@@ -287,12 +291,12 @@ function coerce(raw: unknown, value: unknown, defs: Schema): unknown {
   const type = schema["type"];
   if (type === "object") {
     let v = value;
-    const props = isObject(schema["properties"]) ? (schema["properties"] as Record<string, unknown>) : {};
-    const required = Array.isArray(schema["required"]) ? (schema["required"] as string[]) : [];
+    const props = isObject(schema["properties"]) ? schema["properties"] : {};
+    const required = Array.isArray(schema["required"]) ? schema["required"].filter((r): r is string => typeof r === "string") : [];
     if (typeof v === "string") {
       const parsed = parseAs(v, "object");
       // A bare string where an object with one required text property belongs (`files: ["a.txt"]` for `[{path: "a.txt"}]`).
-      const only = required.length === 1 ? (required[0] as string) : undefined;
+      const only = required.length === 1 ? nth(required, 0) : undefined;
       if (parsed !== undefined) v = parsed;
       else if (only !== undefined && isObject(props[only]) && props[only]["type"] === "string") return { [only]: v };
     }
@@ -319,13 +323,12 @@ function coerce(raw: unknown, value: unknown, defs: Schema): unknown {
       // A single object or scalar where a list of them belongs.
       if (
         isObject(items) &&
-        ((items["type"] === "object" && isObject(v)) ||
-          (SCALAR.has(items["type"] as string) && (typeof v === "number" || typeof v === "boolean")))
+        ((items["type"] === "object" && isObject(v)) || (isScalar(items["type"]) && (typeof v === "number" || typeof v === "boolean")))
       )
         return [coerce(items, v, defs)];
       return v;
     }
-    return (v as unknown[]).map((x) => coerce(schema["items"], x, defs));
+    return Array.isArray(v) ? v.map((x: unknown) => coerce(schema["items"], x, defs)) : v;
   }
   if ((type === "integer" || type === "number") && typeof value === "string" && NUMBER_RE.test(value)) return Number(value);
   if (type === "boolean" && typeof value === "string" && /^\s*(true|false)\s*$/i.test(value)) return value.trim().toLowerCase() === "true";

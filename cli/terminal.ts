@@ -224,7 +224,7 @@ export class Terminal {
         const hit = choices.findIndex((c) => c.key.toLowerCase() === name.toLowerCase());
         if (name === "up" || name === "k") index = (index + choices.length - 1) % choices.length;
         else if (name === "down" || name === "j") index = (index + 1) % choices.length;
-        else if (name === "return" || name === "enter") return finish((choices[index] as Choice).key);
+        else if (name === "return" || name === "enter") return finish(choices[index]?.key ?? fallback);
         else if (name === "escape" || (key.ctrl === true && name === "c")) return finish(fallback);
         else if (hit >= 0) index = hit;
         else return;

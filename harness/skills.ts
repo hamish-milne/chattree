@@ -250,7 +250,10 @@ export async function syncSkills(convo: Conversation, scan: SkillScan): Promise<
   const drift = await skillDrift((await convo.setup()).skills, scan);
   if (driftSize(drift) === 0) return undefined;
   const set: Record<string, PinnedDefinition> = {};
-  for (const name of [...drift.added, ...drift.changed]) set[name] = await pinSkill(scan.skills[name] as SkillValue, convo.store);
+  for (const name of [...drift.added, ...drift.changed]) {
+    const skill = scan.skills[name];
+    if (skill !== undefined) set[name] = await pinSkill(skill, convo.store);
+  }
   await convo.setupChange({
     skills: { ...(Object.keys(set).length > 0 ? { set } : {}), ...(drift.removed.length > 0 ? { remove: drift.removed } : {}) },
   });

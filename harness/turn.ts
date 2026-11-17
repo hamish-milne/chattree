@@ -227,7 +227,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
         status: "interrupted",
         by: user ? "user" : "error",
         entry,
-        ...(user ? {} : { error: failure ?? new ProviderError({ kind: "timeout", message: error as string }) }),
+        ...(user ? {} : { error: failure ?? new ProviderError({ kind: "timeout", message: error ?? "the turn failed" }) }),
         prepared,
       };
     } catch (e) {

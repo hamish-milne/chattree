@@ -1,4 +1,4 @@
-import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
+import type { AttachmentPart, Block } from "../../harness/context-builder.ts";
 import type { Dialect, Emit, Parser, RenderInput } from "../dialect.ts";
 import { audioFrameOf, resultContent, userContent } from "./media.ts";
 import { nextMarker, safeLength, Trimmer } from "./scan.ts";
@@ -112,8 +112,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
   const media: AttachmentPart[] = [];
   let open = false; // inside a model turn
   let openAfterResponse = false;
-  for (let i = 0; i < turns.length; i++) {
-    const t = turns[i] as Turn;
+  for (const [i, t] of turns.entries()) {
     if (t.role === "user") {
       out += `<|turn>user\n${userContent(t.parts, input.marker, media, undefined, audioFrameOf(input.options))}<turn|>\n`;
       open = false;
@@ -181,7 +180,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
 export function parseGemmaArgs(text: string): Record<string, unknown> | undefined {
   let i = 0;
   const ws = (): void => {
-    while (i < text.length && /\s/.test(text[i] as string)) i++;
+    while (i < text.length && /\s/.test(text.charAt(i))) i++;
   };
   const key = (): string | undefined => {
     ws();
@@ -308,7 +307,7 @@ export function gemmaParser(options: Record<string, unknown>, tools: Parameters<
             const h = /^call:([^{\s]+)\{/.exec(call);
             if (h !== null) {
               started = true;
-              out.push({ kind: "call.start", name: h[1] as string });
+              out.push({ kind: "call.start", name: h[1] ?? "" });
             }
           }
           return out;
@@ -347,10 +346,10 @@ export function gemmaParser(options: Record<string, unknown>, tools: Parameters<
       if (started) out.push({ kind: "call.end", raw: call });
       else out.push({ kind: "text", text: `<|tool_call>${call}<tool_call|>` });
     } else {
-      const name = h[1] as string;
-      const args = parseGemmaArgs(h[2] as string);
+      const [, name = "", body = ""] = h;
+      const args = parseGemmaArgs(body);
       if (!started) out.push({ kind: "call.start", name });
-      out.push(args === undefined ? { kind: "call.end", raw: h[2] as string } : { kind: "call.end", args });
+      out.push(args === undefined ? { kind: "call.end", raw: body } : { kind: "call.end", args });
     }
     mode = "text";
     started = false;

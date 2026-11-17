@@ -37,7 +37,8 @@ export function parseSchema(schema: unknown, root: unknown = schema, depth = 0):
   const ref = s["$ref"];
   if (typeof ref === "string" && depth < MAX_DEPTH) {
     const m = /^#\/(\$defs|definitions)\/(.+)$/.exec(ref);
-    const target = m === null || !isMap(root) ? undefined : (root[m[1] as string] as Json | undefined)?.[m[2] as string];
+    const defs = m === null || !isMap(root) ? undefined : root[m[1] ?? ""];
+    const target = isMap(defs) ? defs[m?.[2] ?? ""] : undefined;
     if (isMap(target)) s = { ...target, ...(typeof s["description"] === "string" ? { description: s["description"] } : {}) };
   }
   const type = s["type"];

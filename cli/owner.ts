@@ -1,5 +1,6 @@
 import { hostname } from "node:os";
 import type { LeaseOwner } from "../harness/lease.ts";
+import { hasCode } from "../src/json.ts";
 
 /** Who this process is, as it appears in run leases and request journals. */
 export function localOwner(session?: string): LeaseOwner & { pid: number; host: string } {
@@ -13,6 +14,6 @@ export function ownerIsDead(owner: LeaseOwner): boolean {
     process.kill(owner.pid, 0);
     return false;
   } catch (e) {
-    return (e as NodeJS.ErrnoException).code === "ESRCH";
+    return hasCode(e, "ESRCH");
   }
 }

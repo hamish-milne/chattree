@@ -54,6 +54,11 @@ export class Daemon implements ControlTarget {
   readonly #startedAt = Date.now();
   #host: LocalModelHost | undefined;
   #control: ControlServer | undefined;
+  /** The model host, which exists from `start` until `stop`; the control API and the timers only run in between. */
+  get #running(): LocalModelHost {
+    if (this.#host === undefined) throw new Error("the daemon is not running");
+    return this.#host;
+  }
   #consent: { plan: InstallPlan; answer: (accept: boolean) => void } | undefined;
   #yes = false;
   #settingsError: string | undefined;
@@ -105,7 +110,7 @@ export class Daemon implements ControlTarget {
     return {
       pid: process.pid,
       startedAt: this.#startedAt,
-      state: (this.#host as LocalModelHost).state,
+      state: this.#running.state,
       consent: this.#consent?.plan,
       settingsError: this.#settingsError,
     };
@@ -117,18 +122,18 @@ export class Daemon implements ControlTarget {
   }
 
   logs(lines: number): string[] {
-    return (this.#host as LocalModelHost).logs(lines);
+    return this.#running.logs(lines);
   }
 
   /** Begin starting the host; progress is in the events. A failure is in the state (`error`), not thrown here. */
   start(opts: { yes: boolean }): void {
     this.#yes = opts.yes;
-    void (this.#host as LocalModelHost).start().catch(() => undefined);
+    void this.#running.start().catch(() => undefined);
   }
 
   /** Stop the server and start it again with the settings as they are now. */
   restart(opts: { yes: boolean }): void {
-    const host = this.#host as LocalModelHost;
+    const host = this.#running;
     this.#yes = opts.yes;
     void host
       .stop()
@@ -137,11 +142,11 @@ export class Daemon implements ControlTarget {
   }
 
   pull(models: string[], force: boolean): void {
-    void (this.#host as LocalModelHost).pull(models, { force }).catch(() => undefined);
+    void this.#running.pull(models, { force }).catch(() => undefined);
   }
 
   remove(model: string): Promise<{ files: number; bytes: number; kept: number }> {
-    return (this.#host as LocalModelHost).remove(model);
+    return this.#running.remove(model);
   }
 
   /** Stop the host and the process. */
@@ -167,7 +172,7 @@ export class Daemon implements ControlTarget {
     try {
       const snap = await this.#o.loadSettings();
       this.#settingsError = undefined;
-      await (this.#host as LocalModelHost).apply(snap.config);
+      await this.#running.apply(snap.config);
     } catch (e) {
       this.#settingsError = e instanceof Error ? e.message : String(e);
     }
@@ -183,11 +188,11 @@ export class Daemon implements ControlTarget {
   }
 
   load(model: string): Promise<void> {
-    return (this.#host as LocalModelHost).load(model);
+    return this.#running.load(model);
   }
 
   unload(model: string): Promise<void> {
-    return (this.#host as LocalModelHost).unload(model);
+    return this.#running.unload(model);
   }
 
   /**
@@ -293,10 +298,10 @@ export class Daemon implements ControlTarget {
   /** `server.idle_exit_minutes`: exit when no model is in memory and nothing has used the control API, with no session attached, for that long. */
   #watchIdle(): void {
     this.#idleTimer = setInterval(() => {
-      const minutes = (this.#host as LocalModelHost).config.server.idle_exit_minutes;
-      const control = this.#control as ControlServer;
-      if (minutes === undefined || control.streams > 0 || this.#consent !== undefined) return;
-      const state = (this.#host as LocalModelHost).state;
+      const minutes = this.#running.config.server.idle_exit_minutes;
+      const control = this.#control;
+      if (minutes === undefined || control === undefined || control.streams > 0 || this.#consent !== undefined) return;
+      const state = this.#running.state;
       if (state.models.some((m) => m.state === "loaded" || m.state === "loading")) {
         control.touch();
         return;

@@ -4,12 +4,13 @@ import type { ChatEntry } from "./entries.ts";
 import type { ToolDefinition } from "./definitions.ts";
 import { elideArgs, outputLeftOut, textBytes, trimRules, type TrimRule } from "./trim.ts";
 import { chattreeEnglishV1, type Renderer, type SkillNote } from "./renderer.ts";
+import { asJson, jsonOr } from "../src/json.ts";
 
 /** Put the text back where a long string inside tool arguments was stored as a blob reference. */
 export async function inlineBlobs(v: unknown, text: (t: { sha256: string; bytes: number }) => Promise<string>): Promise<unknown> {
   if (Array.isArray(v)) return Promise.all(v.map((x) => inlineBlobs(x, text)));
-  if (v === null || typeof v !== "object") return v;
-  const o = v as Record<string, unknown>;
+  const o = asJson(v);
+  if (o === undefined) return v;
   if (o["$tag"] === "blob" && typeof o["sha256"] === "string" && typeof o["bytes"] === "number")
     return text({ sha256: o["sha256"], bytes: o["bytes"] });
   const out: Record<string, unknown> = {};
@@ -143,14 +144,14 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
         type: "tool_call",
         call_id: b.call_id,
         name: b.name,
-        args: (await inlineBlobs(elideArgs(b.args, min), text)) as Record<string, unknown>,
+        args: jsonOr(await inlineBlobs(elideArgs(b.args, min), text)),
         ...ext,
       };
     return {
       type: "tool_call",
       call_id: b.call_id,
       name: b.name,
-      args: (await inlineBlobs(b.args, text)) as Record<string, unknown>,
+      args: jsonOr(await inlineBlobs(b.args, text)),
       ...(b.args_raw === undefined ? {} : { args_raw: await text(b.args_raw) }),
       ...ext,
     };
@@ -217,7 +218,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
               text: `[Attached ${kind === "image" ? "picture" : kind === "audio" ? "sound" : "file"}${p.name === undefined ? "" : `: ${p.name}`} is empty (0 bytes), so nothing was sent to you]`,
             });
           else if (kind === "text") parts.push({ type: "text", text: render.textAttachment(p.name, decodeText(bytes, p.charset)) });
-          else parts.push({ type: "attachment", kind, name: p.name, mime: normalizeMime(mime) as string, sha256: ref.sha256, bytes });
+          else parts.push({ type: "attachment", kind, name: p.name, mime: normalizeMime(mime) ?? mime, sha256: ref.sha256, bytes });
         }
         raw.push({ role: "user", parts, ...(e.queued === true ? { queued: e.id } : {}) });
         break;
@@ -258,7 +259,7 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
               type: "attachment",
               kind,
               name: m.name,
-              mime: normalizeMime(mime) as string,
+              mime: normalizeMime(mime) ?? mime,
               sha256: m.data.sha256,
               bytes: await input.readBytes(m.data),
             });

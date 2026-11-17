@@ -1,5 +1,6 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { z } from "zod";
 
 /**
  * The record of what was fetched (docs/local-models.md, section 3): the SHA-256 and size of every program archive and model file the
@@ -20,6 +21,13 @@ interface LockData {
   quants: Record<string, string[]>;
 }
 
+/** What a lock file says, read back as written (a missing `quants` is an older file's). */
+const LOCK_FILE = z.object({
+  version: z.literal(1),
+  files: z.record(z.string(), z.object({ sha256: z.string(), size: z.number() })),
+  quants: z.record(z.string(), z.array(z.string())).default({}),
+});
+
 export class LockError extends Error {
   override name = "LockError";
 }
@@ -38,9 +46,9 @@ export class Lock {
     const text = await readFile(path, "utf8").catch(() => undefined);
     if (text !== undefined) {
       try {
-        const v = JSON.parse(text) as Partial<LockData>;
-        if (v.version !== 1 || typeof v.files !== "object" || v.files === null) throw new Error("unknown format");
-        data = { version: 1, files: v.files, quants: v.quants ?? {} };
+        const v = LOCK_FILE.safeParse(JSON.parse(text));
+        if (!v.success) throw new Error("unknown format");
+        data = v.data;
       } catch (e) {
         throw new LockError(
           `${path} is not a lock file chattree wrote (${e instanceof Error ? e.message : String(e)}); move it away to start again`,

@@ -8,6 +8,7 @@ import type { Ctx, StagedAttachment } from "../engine.ts";
 import { detectMime } from "../mime.ts";
 import type { Output } from "../output.ts";
 import { failure, runTurn } from "../turn.ts";
+import { nth } from "../../src/nth.ts";
 
 const kb = (n: number): string =>
   n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KiB` : `${(n / 1024 / 1024).toFixed(1)} MiB`;
@@ -219,7 +220,7 @@ const attach: Command = {
       yield { type: "error", message: "give the path of one file", hint: "/attach <path> [--mime T] [--charset C] [--name N]" };
       return;
     }
-    const path = resolve(ctx.io.cwd, parsed.positionals[0] as string);
+    const path = resolve(ctx.io.cwd, nth(parsed.positionals, 0));
     const st = await ctx.io.host.fs.stat(path);
     if (st === undefined || st.isDirectory) {
       yield { type: "error", message: `${path} is not a file` };

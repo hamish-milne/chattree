@@ -25,3 +25,5 @@ export function thrownText(error: unknown): string {
   if (typeof error === "string") return error;
   return JSON.stringify(error) ?? typeof error;
 }
+
+export { asJson, asString, isJson, jsonList, jsonOr, parseJsonObject, wireIndex, type Json } from "../src/json.ts";

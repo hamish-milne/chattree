@@ -3,6 +3,8 @@ import type { ChatEntry } from "./entries.ts";
 import type { StartedJob, Tool, ToolOutput } from "./tools.ts";
 import { ALL } from "./approvals.ts";
 import type { LeaseOwner } from "./lease.ts";
+import { optNumberArg, stringArg } from "./tool-args.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * Background jobs (docs/tools.md, section 3.5). A tool called with `background: true` returns a `StartedJob` at once; the
@@ -124,7 +126,7 @@ export class JobRegistry {
       if (e.$tag === "job_event") this.#next = Math.max(this.#next, jobNumber(e.job) + 1);
       else if (e.$tag === "tool_result" && typeof e.content === "string") {
         const m = JOB_STARTED.exec(e.content);
-        if (m !== null) this.#next = Math.max(this.#next, jobNumber(m[1] as string) + 1);
+        if (m !== null) this.#next = Math.max(this.#next, jobNumber(nth(m, 1)) + 1);
       }
     }
   }
@@ -215,8 +217,12 @@ export class JobRegistry {
     const run = this.#queue.then(async () => {
       const done: { job: string; status: JobStatus; summary: string }[] = [];
       while (this.#uncommitted.length > 0) {
-        const id = this.#uncommitted[0] as string;
-        const job = this.#jobs.get(id) as JobInfo & { settle?: NonNullable<StartedJob["started"]["settle"]> };
+        const id = nth(this.#uncommitted, 0);
+        const job = this.#jobs.get(id);
+        if (job === undefined) {
+          this.#uncommitted.shift();
+          continue;
+        }
         if (job.settle !== undefined && job.status === "completed") {
           try {
             const r = await job.settle({ content: job.output ?? "" });
@@ -264,7 +270,8 @@ export class JobRegistry {
     const entries = await this.#entries();
     // What came before the last point where this branch inherited a history (a fork) belongs to the branch it was copied from.
     const forkedAt = entries.findLastIndex((e) => e.$tag === "branch_start" && e.context === "inherit");
-    const from = forkedAt < 0 ? undefined : (entries[forkedAt] as Extract<ChatEntry, { $tag: "branch_start" }>).from.branch;
+    const forkStart = forkedAt < 0 ? undefined : entries[forkedAt];
+    const from = forkStart?.$tag === "branch_start" ? forkStart.from.branch : undefined;
     const started = new Map<string, { call: string; inherited: boolean }>();
     const ended = new Set<string>();
     const reported = new Set<string>();
@@ -274,7 +281,7 @@ export class JobRegistry {
       else if (e.$tag === "fork_merge" && e.call_id !== undefined) reported.add(e.call_id);
       else if (e.$tag === "tool_result" && typeof e.content === "string") {
         const m = JOB_STARTED.exec(e.content);
-        if (m !== null) started.set(m[1] as string, { call: e.call_id, inherited: i < forkedAt });
+        if (m !== null) started.set(nth(m, 1), { call: e.call_id, inherited: i < forkedAt });
       }
     }
     // A job a merge reported (a background subagent) has ended even though it has no job_event.
@@ -337,12 +344,12 @@ export function jobTools(registry: JobRegistry): Tool[] {
       },
       allowKeys: () => [ALL],
       execute: async (args) => {
-        const id = args["job"] as string;
+        const id = stringArg(args, "job");
         const found = await registry.output(id);
         if (found === undefined) return { content: `There is no job ${id}.`, is_error: true };
         if (found.output === undefined) return { content: `Job ${id} is ${found.status}: there is no output yet.` };
-        const offset = (args["offset"] as number | undefined) ?? 0;
-        const limit = (args["limit"] as number | undefined) ?? 8000;
+        const offset = optNumberArg(args, "offset") ?? 0;
+        const limit = optNumberArg(args, "limit") ?? 8000;
         const part = found.output.slice(offset, offset + limit);
         const end = offset + part.length;
         return {
@@ -358,7 +365,7 @@ export function jobTools(registry: JobRegistry): Tool[] {
       },
       allowKeys: () => [ALL],
       execute: async (args) => {
-        const id = args["job"] as string;
+        const id = stringArg(args, "job");
         const info = registry.get(id);
         if (info === undefined) return { content: `There is no job ${id}.`, is_error: true };
         return registry.stop(id)

@@ -5,7 +5,7 @@ import { servedModelId } from "../harness/setup.ts";
 import type { HttpMapper, HttpRequestSpec } from "./http.ts";
 import { ProviderError, type Completed, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
 import type { SseEvent } from "./sse.ts";
-import { messageText } from "./wire.ts";
+import { asJson, jsonOr, messageText, parseJsonObject, type Json } from "./wire.ts";
 
 /**
  * Dialects (docs/local-models.md, section 9): our own prompt rendering and output parsing for a model, in place of the server's chat
@@ -118,11 +118,14 @@ export class Assembler {
     for (const e of emits) {
       if (e.kind === "text" || e.kind === "reasoning") {
         if (e.text === "") continue;
-        if (this.#open?.kind !== e.kind) {
+        const cur = this.#open;
+        let o: Extract<Open, { text: string }>;
+        if (cur !== undefined && cur.kind !== "call" && cur.kind === e.kind) o = cur;
+        else {
           this.#close(out);
-          this.#open = { kind: e.kind, index: this.#next++, text: "" };
+          o = { kind: e.kind, index: this.#next++, text: "" };
+          this.#open = o;
         }
-        const o = this.#open as { index: number; text: string };
         o.text += e.text;
         out.push({ type: e.kind === "text" ? "text.delta" : "reasoning.delta", index: o.index, text: e.text });
       } else if (e.kind === "call.start") {
@@ -170,9 +173,8 @@ export class Assembler {
     else {
       const raw = end?.raw ?? o.args;
       try {
-        const parsed: unknown = raw.trim() === "" ? {} : JSON.parse(raw);
-        if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
-        block = { type: "tool_call", call_id: o.id, name: o.name, args: parsed as Record<string, unknown> };
+        const parsed = raw.trim() === "" ? {} : parseJsonObject(raw, "the tool arguments");
+        block = { type: "tool_call", call_id: o.id, name: o.name, args: parsed };
       } catch {
         block = { type: "tool_call", call_id: o.id, name: o.name, args: {}, args_raw: raw };
       }
@@ -184,7 +186,6 @@ export class Assembler {
 
 // ---- the /completion transport ------------------------------------------------------------------------------------
 
-type Json = Record<string, unknown>;
 const OWNED = new Set(["model", "prompt", "stream", "n_predict", "stop", "special", "return_tokens"]);
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
@@ -257,7 +258,7 @@ async function markerTokens(base: string, model: string, markers: readonly strin
             failed = true;
             return;
           }
-          const tokens = ((await res.json()) as { tokens?: unknown }).tokens;
+          const tokens = jsonOr(await res.json())["tokens"];
           if (Array.isArray(tokens) && tokens.length === 1 && typeof tokens[0] === "number") out.set(tokens[0], m);
         } catch {
           failed = true; // the marker's text is then only what the server sends
@@ -291,11 +292,12 @@ export async function serverProps(base: string, model: string, doFetch: typeof f
         signal: AbortSignal.timeout(60_000),
       });
       if (!res.ok) throw new Error(String(res.status));
-      const d = (await res.json()) as { modalities?: { vision?: unknown; audio?: unknown }; media_marker?: unknown };
+      const d = jsonOr(await res.json());
+      const modalities = jsonOr(d["modalities"]);
       return {
-        vision: typeof d.modalities?.vision === "boolean" ? d.modalities.vision : undefined,
-        audio: typeof d.modalities?.audio === "boolean" ? d.modalities.audio : undefined,
-        marker: typeof d.media_marker === "string" && d.media_marker !== "" ? d.media_marker : DEFAULT_MARKER,
+        vision: typeof modalities["vision"] === "boolean" ? modalities["vision"] : undefined,
+        audio: typeof modalities["audio"] === "boolean" ? modalities["audio"] : undefined,
+        marker: typeof d["media_marker"] === "string" && d["media_marker"] !== "" ? d["media_marker"] : DEFAULT_MARKER,
       };
     } catch {
       propsCache.delete(key); // the model may still be loading: ask again next time
@@ -369,7 +371,7 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
           kind: "invalid_request",
           message: `dialect "${s.dialect}" does not write pictures into its prompt (${sent} sent, ${media.length} written)`,
         });
-      if (media.length > 0 && r.prompt.split(marker as string).length - 1 !== media.length)
+      if (media.length > 0 && (marker === undefined || r.prompt.split(marker).length - 1 !== media.length))
         throw new ProviderError({
           kind: "invalid_request",
           message: "the text of a message contains the server's picture marker, which would be taken for a picture",
@@ -423,7 +425,7 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       if (data === "") return [];
       let d: Json;
       try {
-        d = JSON.parse(data) as Json;
+        d = parseJsonObject(data, "the chunk");
       } catch {
         throw new ProviderError({ kind: "protocol", message: "malformed chunk" });
       }
@@ -440,14 +442,15 @@ export function completionMapper(opts: CompletionOptions, settings: (req: Stream
       }
       let content = typeof d["content"] === "string" ? d["content"] : "";
       const ids = d["tokens"];
-      if (content === "" && Array.isArray(ids) && ids.length === 1) content = s.markers.get(ids[0] as number) ?? "";
+      if (content === "" && Array.isArray(ids) && ids.length === 1)
+        content = (typeof ids[0] === "number" ? s.markers.get(ids[0]) : undefined) ?? "";
       if (content !== "") events.push(...s.assembler.feed(s.parser.push(content)));
       if (d["stop"] === true) {
         s.done = true;
         s.stopType = typeof d["stop_type"] === "string" ? d["stop_type"] : undefined;
         s.prompt = num(d["tokens_evaluated"]) ?? 0;
         // `tokens_cached` is the whole of the slot's cache (the generated tokens too), so it says nothing of the prompt; the part of the prompt that was reused is `timings.cache_n`.
-        const timings = typeof d["timings"] === "object" && d["timings"] !== null ? (d["timings"] as Json) : {};
+        const timings = jsonOr(d["timings"]);
         s.cached = num(timings["cache_n"]);
         s.completion = num(d["tokens_predicted"]) ?? 0;
         events.push(...s.assembler.feed(s.parser.end(s.stopType === "limit" ? "length" : "stop")), ...s.assembler.end());
@@ -491,8 +494,10 @@ const pick = (d: Json): Record<string, unknown> => {
 };
 
 function errorOf(d: unknown): { kind: "server" | "invalid_request" | "overloaded"; retryable: boolean; message: string } {
-  const e = ((d as Json | null)?.["error"] ?? d) as Json | string;
-  if (typeof e === "string") return { kind: "server", retryable: false, message: e };
+  const root = asJson(d);
+  const inner = root === undefined ? d : (root["error"] ?? d);
+  if (typeof inner === "string") return { kind: "server", retryable: false, message: inner };
+  const e = jsonOr(inner);
   const type = typeof e["type"] === "string" ? e["type"] : "error";
   const kind =
     type === "exceed_context_size_error" || type === "invalid_request_error"

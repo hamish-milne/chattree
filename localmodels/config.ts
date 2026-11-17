@@ -252,7 +252,8 @@ export function modelSource(m: ModelEntry): ModelSource | undefined {
     const file = lastSegment(new URL(m.url).pathname);
     return file.toLowerCase().endsWith(".gguf") ? { kind: "url", url: m.url, file } : undefined;
   }
-  const hf = m.hf as string;
+  const hf = m.hf;
+  if (hf === undefined) return undefined; // the settings check gives every model a url or an hf
   const at = hf.indexOf(":");
   const repo = at < 0 ? hf : hf.slice(0, at);
   if (m.file !== undefined) return { kind: "hf", repo, revision: m.revision, file: m.file };

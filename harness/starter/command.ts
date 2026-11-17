@@ -1,3 +1,4 @@
+import { nth } from "../../src/nth.ts";
 /**
  * The command syntax of the `run` tool (docs/tools.md, 4.1): a small, safe subset of shell that we parse ourselves, so
  * that nothing runs through a shell and what a user approves is the parsed programs and arguments.
@@ -79,7 +80,7 @@ export function parseCommand(input: string, expand: (name: string) => string): P
     }
     if (next !== undefined && NAME_START.test(next)) {
       let j = i + 2;
-      while (j < src.length && NAME.test(src[j] as string)) j++;
+      while (j < src.length && NAME.test(nth(src, j))) j++;
       text += expand(src.slice(i + 1, j));
       i = j;
       return true;
@@ -88,7 +89,7 @@ export function parseCommand(input: string, expand: (name: string) => string): P
   };
 
   while (i < src.length) {
-    const c = src[i] as string;
+    const c = nth(src, i);
     if (c === " " || c === "\t") {
       flush();
       i++;
@@ -105,13 +106,13 @@ export function parseCommand(input: string, expand: (name: string) => string): P
       i++;
       for (;;) {
         if (i >= src.length) throw new CommandSyntax('a " quote is never closed');
-        const d = src[i] as string;
+        const d = nth(src, i);
         if (d === '"') {
           i++;
           break;
         }
         if (d === "`") refuse("backticks");
-        if (d === "\\" && i + 1 < src.length && ['"', "\\", "$", "`"].includes(src[i + 1] as string)) {
+        if (d === "\\" && i + 1 < src.length && ['"', "\\", "$", "`"].includes(nth(src, i + 1))) {
           text += src[i + 1];
           i += 2;
         } else if (d === "$") {
@@ -183,7 +184,7 @@ export function parseCommand(input: string, expand: (name: string) => string): P
         // `2>/dev/null` is accepted and changes nothing; any other file for stderr is refused.
         flush();
         while (src[i] === " " || src[i] === "\t") i++;
-        if (src.startsWith("/dev/null", i) && (i + 9 === src.length || /[\s|]/.test(src[i + 9] as string))) {
+        if (src.startsWith("/dev/null", i) && (i + 9 === src.length || /[\s|]/.test(nth(src, i + 9)))) {
           i += 9;
           continue;
         }
@@ -206,13 +207,18 @@ export function parseCommand(input: string, expand: (name: string) => string): P
   let stdin: Word | undefined;
   let stdout: ParsedCommand["stdout"];
   let stdinStage = -1;
+  const current = (): Word[] => {
+    const stage = stages[stages.length - 1];
+    if (stage === undefined) throw new CommandSyntax("there is no command");
+    return stage;
+  };
   let stdoutStage = -1;
   for (let k = 0; k < tokens.length; k++) {
-    const t = tokens[k] as Token;
+    const t = nth(tokens, k);
     if (t.kind === "word") {
-      (stages[stages.length - 1] as Word[]).push(t.word);
+      current().push(t.word);
     } else if (t.op === "|") {
-      if ((stages[stages.length - 1] as Word[]).length === 0) throw new CommandSyntax("a `|` needs a command before it");
+      if (current().length === 0) throw new CommandSyntax("a `|` needs a command before it");
       stages.push([]);
     } else {
       const target = tokens[k + 1];
@@ -229,8 +235,7 @@ export function parseCommand(input: string, expand: (name: string) => string): P
       }
     }
   }
-  if ((stages[stages.length - 1] as Word[]).length === 0)
-    throw new CommandSyntax(stages.length === 1 ? "the command is empty" : "a `|` needs a command after it");
+  if (current().length === 0) throw new CommandSyntax(stages.length === 1 ? "the command is empty" : "a `|` needs a command after it");
   if (stdinStage > 0) throw new CommandSyntax("`<` only works on the first command of a pipeline");
   if (stdoutStage !== -1 && stdoutStage !== stages.length - 1) throw new CommandSyntax("`>` only works on the last command of a pipeline");
   if (stdin?.text === "/dev/null") stdin = undefined;
@@ -241,6 +246,6 @@ export function parseCommand(input: string, expand: (name: string) => string): P
       `setting a variable before a command (${first.word.text.split("=")[0]}=...) is not supported by run (${SCRIPT})`,
     );
   }
-  for (const stage of stages) if ((stage[0] as Word).glob) throw new CommandSyntax("the program name cannot be a wildcard");
+  for (const stage of stages) if (nth(stage, 0).glob) throw new CommandSyntax("the program name cannot be a wildcard");
   return { stages, ...(stdin === undefined ? {} : { stdin }), ...(stdout === undefined ? {} : { stdout }) };
 }

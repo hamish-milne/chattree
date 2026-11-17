@@ -1,10 +1,11 @@
-import type { AttachmentPart, Block, Turn } from "../../harness/context-builder.ts";
+import type { AttachmentPart, Block } from "../../harness/context-builder.ts";
 import type { ToolDefinition } from "../../harness/definitions.ts";
 import type { Dialect, Emit, Parser, RenderInput, Rendered } from "../dialect.ts";
 import { audioFrameOf, resultContent, userContent } from "./media.ts";
 import { ProviderError } from "../types.ts";
 import { argNode } from "./schema-tree.ts";
 import { coerce, nextMarker, safeLength, spacedJson, Trimmer } from "./scan.ts";
+import { asJson, jsonOr } from "../wire.ts";
 
 /**
  * Template families: a dialect written as a declaration. Most chat formats are the same machine with different tokens: turns in
@@ -143,10 +144,10 @@ export function tagParams(t: { head: string; param: string; tail?: string }): Ca
     read(body, tools) {
       const h = head.exec(body);
       if (h === null) return undefined;
-      const name = h[1] as string;
+      const [, name = ""] = h;
       const args: Args = {};
-      for (const m of body.slice(h.index + h[0].length).matchAll(param))
-        args[m[1] as string] = coerce(m[2] as string, argNode(tools, name, m[1] as string));
+      for (const [, key = "", value = ""] of body.slice(h.index + h[0].length).matchAll(param))
+        args[key] = coerce(value, argNode(tools, name, key));
       return { name, args };
     },
     ...(tail === "" ? {} : { complete: (body: string) => body.includes(tail) }),
@@ -160,11 +161,10 @@ export function jsonCall(t: { lead?: string; trail?: string } = {}): CallCodec {
     peek: (partial) => /"name"\s*:\s*"([^"]+)"/.exec(partial)?.[1],
     read(body) {
       try {
-        const j = JSON.parse(body.trim()) as { name?: unknown; arguments?: unknown; parameters?: unknown };
-        const a = j.arguments ?? j.parameters;
-        const args = typeof a === "string" ? (JSON.parse(a) as unknown) : a;
-        if (typeof j.name === "string" && typeof args === "object" && args !== null && !Array.isArray(args))
-          return { name: j.name, args: args as Args };
+        const j = jsonOr(JSON.parse(body.trim()));
+        const a = j["arguments"] ?? j["parameters"];
+        const args = asJson(typeof a === "string" ? JSON.parse(a) : a);
+        if (typeof j["name"] === "string" && args !== undefined) return { name: j["name"], args };
       } catch {
         /* not JSON */
       }
@@ -192,8 +192,8 @@ export function nameThenJson(t: {
       const name = nameOf(body.slice(0, i));
       const raw = body.slice(i + t.sep.length);
       try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) return { name, args: parsed as Args };
+        const parsed = asJson(JSON.parse(raw));
+        if (parsed !== undefined) return { name, args: parsed };
       } catch {
         /* the assembler keeps it as text */
       }
@@ -213,15 +213,16 @@ export function fencedJson(t: { type: string; sep: string }): CallCodec {
     read(body) {
       const h = head.exec(body);
       if (h === null) return undefined;
+      const [, name = ""] = h;
       const fence = /^\s*```(?:json)?\s*([\s\S]*?)\s*```\s*$/.exec(body.slice(h[0].length));
-      const raw = fence === null ? body.slice(h[0].length) : (fence[1] as string);
+      const raw = fence === null ? body.slice(h[0].length) : (fence[1] ?? "");
       try {
-        const parsed = JSON.parse(raw) as unknown;
-        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) return { name: h[1] as string, args: parsed as Args };
+        const parsed = asJson(JSON.parse(raw));
+        if (parsed !== undefined) return { name, args: parsed };
       } catch {
         /* the assembler keeps it as text */
       }
-      return { name: h[1] as string, raw };
+      return { name, raw };
     },
     complete: (body) => /```\s*$/.test(body.trimEnd()) && body.includes("```json"),
     markers: [t.sep],
@@ -259,8 +260,7 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
   const lastUser = turns.map((t) => t.role).lastIndexOf("user");
   const ids = new Map<string, { id: string; name: string }>();
   let n = 0;
-  for (let i = 0; i < turns.length; i++) {
-    const t = turns[i] as Turn;
+  for (const [i, t] of turns.entries()) {
     if (t.role === "user") {
       out += `${spec.user.open}${userContent(t.parts, input.marker, media, undefined, audioFrameOf(input.options))}${spec.user.close}`;
     } else if (t.role === "tool_results") {
@@ -323,9 +323,15 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
 
 type Mode = "reasoning" | "text" | "call";
 
+/** Stands in for the call format of a family that has none: never read, since `hasCalls` is false. */
+const NO_CALLS: NonNullable<FamilySpec["call"]> = {
+  start: "",
+  codec: { write: () => "", read: () => undefined, peek: () => undefined },
+};
+
 export function familyParser(spec: FamilySpec, tools: Tools, prompt: string): Parser {
   // A family with no calls never enters call mode: `c` is only used there.
-  const c = spec.call as NonNullable<FamilySpec["call"]>;
+  const c = spec.call ?? NO_CALLS;
   const hasCalls = spec.call !== undefined;
   const open = spec.think?.open.trim();
   const close = spec.think?.close.trim();

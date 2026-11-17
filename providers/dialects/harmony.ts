@@ -171,8 +171,7 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
   const builtins = [...o.builtin].filter(([n, b]) => have.has(b.run === undefined ? n : RUN_TOOL));
   const media: AttachmentPart[] = [];
   let out = systemBlock(input, o, functions.length > 0, builtins) + developerBlock(input, o, functions, builtins);
-  for (let i = 0; i < turns.length; i++) {
-    const t = turns[i] as Turn;
+  for (const [i, t] of turns.entries()) {
     if (t.role === "user") {
       out += `${START}user${MESSAGE}${userContent(t.parts, input.marker, media, undefined, audioFrameOf(input.options))}${END}`;
     } else if (t.role === "assistant") {
@@ -274,10 +273,11 @@ export function harmonyParser(
     const spec = mode === "call" ? builtin.get(callName) : undefined;
     if (mode === "call" && spec !== undefined) {
       const m = messageOf(callName, spec, args);
-      const made = spec.run === undefined ? undefined : { builtin: { name: callName, ...("text" in m ? { message: m.text } : {}) } };
+      const made: Record<string, unknown> | undefined =
+        spec.run === undefined ? undefined : { builtin: { name: callName, ...("text" in m ? { message: m.text } : {}) } };
       if ("error" in m) out.push({ kind: "call.end", raw: args, error: m.error, ...(made === undefined ? {} : { ext: made }) });
       else if (spec.run === undefined) out.push({ kind: "call.end", args: { [spec.arg]: m.text } });
-      else out.push({ kind: "call.end", args: { command: commandFor(spec.run, m.text) }, ext: made as Record<string, unknown> });
+      else out.push({ kind: "call.end", args: { command: commandFor(spec.run, m.text) }, ...(made === undefined ? {} : { ext: made }) });
     } else if (mode === "call") {
       const key = isObjectJson(args) ? undefined : bareArgument(callName);
       out.push(key === undefined ? { kind: "call.end", raw: args } : { kind: "call.end", args: { [key]: args } });

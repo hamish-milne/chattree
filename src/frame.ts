@@ -2,6 +2,7 @@ import { emitEntry } from "./emit.ts";
 import { FrameError, ParseError } from "./errors.ts";
 import { parseEntry, type ParseOptions } from "./parse.ts";
 import { TAG_NAME, type Entry } from "./value.ts";
+import { nth } from "../src/nth.ts";
 
 const NL = 0x0a;
 const DASH = 0x2d;
@@ -50,7 +51,7 @@ export function encodeEntry(entry: Entry): Uint8Array {
 function checkTail(bytes: Uint8Array, start: number): void {
   let prev = 0;
   for (let i = start; i < bytes.length; i++) {
-    const b = bytes[i] as number;
+    const b = nth(bytes, i);
     if ((b < 0x20 && b !== NL && b !== 0x09) || b === 0x7f) {
       throw new FrameError(
         i,
@@ -109,8 +110,8 @@ export function scan(bytes: Uint8Array): ScanResult {
   let validLength = 0;
   let truncated = false;
   for (let k = 0; k < starts.length; k++) {
-    const start = starts[k] as number;
-    const end = k + 1 < starts.length ? (starts[k + 1] as number) : n;
+    const start = nth(starts, k);
+    const end = k + 1 < starts.length ? nth(starts, k + 1) : n;
     if (end - start >= 4 && bytes[end - 1] === NL && bytes[end - 2] === NL) {
       spans.push({ start, end });
       validLength = end;
@@ -166,7 +167,7 @@ export function peekTag(bytes: Uint8Array, span: Span): string | undefined {
   const from = ++i;
   while (i < span.end && bytes[i] !== NL && bytes[i] !== SP) i++;
   let name = "";
-  for (let k = from; k < i; k++) name += String.fromCharCode(bytes[k] as number);
+  for (let k = from; k < i; k++) name += String.fromCharCode(nth(bytes, k));
   return TAG_NAME.test(name) ? name : undefined;
 }
 

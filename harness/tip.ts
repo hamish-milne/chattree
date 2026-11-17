@@ -2,6 +2,7 @@ import type { ChatEntry } from "./entries.ts";
 import { permitted, untilMs, type AllowMap } from "./approvals.ts";
 import type { ApprovalContext, ToolRegistry } from "./tools.ts";
 import type { LeaseOwner, LeaseState } from "./lease.ts";
+import { nth } from "../src/nth.ts";
 
 /**
  * What a thread's tip needs (docs/tools.md, 5.4): worked out by reading its history, the way the model's context is, so it is the same
@@ -18,7 +19,7 @@ type Call = { call_id: string; name: string; args: Record<string, unknown>; args
 /** Calls of the last assistant entry that nothing answered, unless a user message has come since (the context builder covers that case). */
 export function unanswered(entries: readonly ChatEntry[]): string[] {
   for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i] as ChatEntry;
+    const e = nth(entries, i);
     if (e.$tag === "branch_start" && e.context === "fresh") return [];
     if (e.$tag === "user" && e.queued === true) continue; // sent while the call was running: not an answer to anything
     if (e.$tag === "user" || e.$tag === "interrupted" || e.$tag === "compaction") return [];

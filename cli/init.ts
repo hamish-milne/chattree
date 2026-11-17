@@ -8,6 +8,7 @@ import { cliRegistry, lookupSampling } from "./providers.ts";
 import { initSettingsFile, loadSettings } from "./settings.ts";
 import { Git } from "../src/index.ts";
 import { CliError, type Io } from "./io.ts";
+import { nth } from "../src/nth.ts";
 
 export interface InitOptions {
   dir?: string | undefined;
@@ -44,8 +45,8 @@ async function chooseProvider(io: Io, o: InitOptions): Promise<string> {
       );
     return o.provider;
   }
-  const have = ["anthropic", "openai"].filter((p) => (io.env[KEY_ENV[p] as string] ?? "") !== "");
-  if (have.length === 1) return have[0] as string;
+  const have = ["anthropic", "openai"].filter((p) => (io.env[KEY_ENV[p] ?? ""] ?? "") !== "");
+  if (have.length === 1) return nth(have, 0);
   if (io.interactive && o.yes !== true && io.ask !== undefined) {
     const a = await io.ask("Which provider (anthropic, openai, compatible)?", have[0] ?? "anthropic");
     return chooseProvider(io, { ...o, provider: a });
@@ -190,7 +191,7 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   };
   let convo: Conversation;
   try {
-    convo = o.adopt === true ? await Conversation.adopt(io.host, inRepo as string, opts) : await Conversation.create(io.host, dir, opts);
+    convo = o.adopt === true ? await Conversation.adopt(io.host, inRepo ?? dir, opts) : await Conversation.create(io.host, dir, opts);
   } catch (e) {
     if (e instanceof ConversationError) throw new CliError(e.message);
     throw e;

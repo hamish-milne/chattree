@@ -24,6 +24,7 @@ import { thisMachine } from "../localmodels/release.ts";
 import { CliError, type Io } from "./io.ts";
 import { lookupSampling } from "./providers.ts";
 import { loadSettings, settingsPath } from "./settings.ts";
+import { nth } from "../src/nth.ts";
 
 /** `chattree models ...` (docs/local-models.md, section 3): the local model host, which runs as a daemon of its own. */
 
@@ -327,7 +328,7 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
       }
       case "info": {
         need(1);
-        const name = rest[0] as string;
+        const name = nth(rest, 0);
         const m = (await readInventory(io, data)).find((x) => x.name === name);
         const cfg = localConfig(io).models[name];
         if (m === undefined || cfg === undefined)
@@ -389,7 +390,7 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
       }
       case "rm": {
         need(1);
-        const name = rest[0] as string;
+        const name = nth(rest, 0);
         const client = await running();
         let r: { files: number; bytes: number; kept: number };
         try {

@@ -1,6 +1,7 @@
 import { GitError } from "../errors.ts";
 import type { HostProcess } from "../host.ts";
 import type { ObjectInfo } from "./git.ts";
+import { nth } from "../../src/nth.ts";
 
 /** Reads git objects by name (`<rev>:<path>`, a hash, ...). Missing objects come back as undefined. */
 export interface ObjectReader {
@@ -104,7 +105,7 @@ export class CatFileSession implements ObjectReader {
   info(spec: string): Promise<ObjectInfo | undefined> {
     return this.#ask("info", spec, async (h) => {
       const m = HEADER.exec(h);
-      return m === null ? undefined : { oid: m[1] as string, type: m[2] as string, size: Number(m[3]) };
+      return m === null ? undefined : { oid: nth(m, 1), type: nth(m, 2), size: Number(m[3]) };
     });
   }
 

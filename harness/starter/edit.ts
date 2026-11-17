@@ -3,6 +3,7 @@ import { versionOf } from "./version.ts";
 import { PATH_ALIASES, flattenArgs } from "./args.ts";
 import { display, resolveInWorkspace } from "./workspace.ts";
 import { ALL } from "../approvals.ts";
+import { optNumberArg, optStringArg, stringArg } from "../tool-args.ts";
 
 const enc = new TextEncoder();
 const dec = new TextDecoder("utf-8", { fatal: true });
@@ -182,7 +183,14 @@ export function editTool(): Tool {
     allowKeys: () => [ALL],
     async execute(args, ctx) {
       const { host, workspace } = ctx;
-      const f = args as { path: string; version: string; start?: number; end?: number; after?: number; content?: string };
+      const f = {
+        path: stringArg(args, "path"),
+        version: stringArg(args, "version"),
+        start: optNumberArg(args, "start"),
+        end: optNumberArg(args, "end"),
+        after: optNumberArg(args, "after"),
+        content: optStringArg(args, "content"),
+      };
       try {
         const abs = await resolveInWorkspace(host, workspace, f.path, "write");
         const name = display(host, workspace, abs);

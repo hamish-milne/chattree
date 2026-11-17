@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, open, rename, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { FetchError, fetchFollow, type FetchFn } from "./net.ts";
+import { streamChunks } from "../src/stream.ts";
 
 /**
  * One file, downloaded to `dest` (docs/local-models.md, section 3): written to `dest.part`, continued from where it stopped with a Range
@@ -118,7 +119,7 @@ export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
       let received = offset;
       try {
         if (res.body === null) throw new FetchError(`${o.url} sent no data`);
-        for await (const chunk of res.body as unknown as AsyncIterable<Uint8Array>) {
+        for await (const chunk of streamChunks(res.body)) {
           hash.update(chunk);
           await fh.write(chunk);
           received += chunk.byteLength;

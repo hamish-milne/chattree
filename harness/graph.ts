@@ -1,6 +1,7 @@
 import type { CommitInfo } from "../src/index.ts";
 import type { Conversation } from "./conversation.ts";
 import type { ChatEntry } from "./entries.ts";
+import { nth } from "../src/nth.ts";
 
 /** One commit of a conversation repository, placed on the branch that owns it. */
 export interface GraphCommit {
@@ -126,7 +127,7 @@ export async function readCommitGraph(convo: Conversation, trunk = convo.branch)
   const visit = (c: GraphCommit): void => {
     const stack: GraphCommit[] = [c];
     while (stack.length > 0) {
-      const top = stack[stack.length - 1] as GraphCommit;
+      const top = nth(stack, stack.length - 1);
       if (placed.has(top.hash)) {
         stack.pop();
         continue;
@@ -139,7 +140,10 @@ export async function readCommitGraph(convo: Conversation, trunk = convo.branch)
       } else stack.push(...pending);
     }
   };
-  for (const b of order) visit(index.get(b.tip) as GraphCommit);
+  for (const b of order) {
+    const tip = index.get(b.tip);
+    if (tip !== undefined) visit(tip);
+  }
   return { trunk, branches: order.map((b) => ({ name: b.name, tip: b.tip })), commits: sorted };
 }
 

@@ -10,6 +10,7 @@ import type { McpPool } from "./pool.ts";
 import { toPortableSchema } from "../schema-project.ts";
 import { schemaProblems } from "../tool-schema.ts";
 import { optString } from "../../providers/wire.ts";
+import { asJson } from "../../src/json.ts";
 
 /**
  * MCP servers as the harness uses them (docs/context.md, section 2): a server's configuration is **accepted by the thread** (pinned in
@@ -52,7 +53,7 @@ export function describeServer(cfg: McpServerConfig): string {
   if (cfg.command !== undefined)
     return `run ${[cfg.command, ...cfg.args].join(" ")}${cfg.env_from === undefined ? "" : ` (passing ${cfg.env_from.join(", ")} from your environment)`}`;
   const sends = [cfg.bearer_env, ...Object.values(cfg.header_env ?? {})].filter((x): x is string => x !== undefined);
-  return `connect to ${cfg.url as string}${sends.length === 0 ? "" : ` (sending ${sends.join(", ")} from your environment)`}`;
+  return `connect to ${cfg.url ?? "(no url)"}${sends.length === 0 ? "" : ` (sending ${sends.join(", ")} from your environment)`}`;
 }
 
 // ---- names ---------------------------------------------------------------------------------------------------
@@ -178,16 +179,15 @@ function transportFor(
   const headers: Record<string, string> = { ...(cfg.headers ?? {}) };
   for (const [h, n] of Object.entries(cfg.header_env ?? {})) headers[h] = need(n);
   if (cfg.bearer_env !== undefined) headers["authorization"] = `Bearer ${need(cfg.bearer_env)}`;
-  return httpTransport({ url: cfg.url as string, headers, ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }) });
+  if (cfg.url === undefined) throw new McpError("the server names neither a command nor a url");
+  return httpTransport({ url: cfg.url, headers, ...(fetchImpl === undefined ? {} : { fetch: fetchImpl }) });
 }
 
 /** A server's schema for one tool as a definition's: no schema, or one that is not an object, is a tool with no arguments. */
 function rootSchema(input: unknown): Record<string, unknown> {
-  return typeof input === "object" &&
-    input !== null &&
-    !Array.isArray(input) &&
-    ((input as Record<string, unknown>)["type"] !== undefined || typeof (input as Record<string, unknown>)["properties"] === "object")
-    ? (input as Record<string, unknown>)
+  const schema = asJson(input);
+  return schema !== undefined && (schema["type"] !== undefined || typeof schema["properties"] === "object")
+    ? schema
     : { type: "object", properties: {} };
 }
 

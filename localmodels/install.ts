@@ -8,6 +8,7 @@ import { Lock, LockError } from "./lock.ts";
 import { fetchJson, type FetchFn } from "./net.ts";
 import { findGpu, type GpuFinding } from "./gpu.ts";
 import { isBuildTag, resolveBackend, resolveVersionTag, selectAsset, type Arch, type Platform, type ReleaseAsset } from "./release.ts";
+import { jsonList, jsonOr } from "../src/json.ts";
 
 /**
  * llama.cpp, fetched and unpacked (docs/local-models.md, section 5). Installing a program is a consent step: the caller is told the tag, the
@@ -89,13 +90,19 @@ const installDir = (data: string, tag: string, backend: string, cuda: string | u
   join(data, "llama.cpp", `${tag}-${backend}${backend === "cuda" && cuda !== undefined ? `-${cuda}` : ""}`);
 const exe = (platform: Platform): string => (platform === "windows" ? "llama-server.exe" : "llama-server");
 
+/** What a failed child process said: its stderr when it has some, else the error's message. */
+const failureText = (e: unknown): string => {
+  const err = jsonOr(e);
+  const stderr = typeof err["stderr"] === "string" ? err["stderr"] : undefined;
+  return (stderr ?? (e instanceof Error ? e.message : String(e))).trim();
+};
+
 const nodeUnpack = async (archive: string, into: string): Promise<void> => {
   try {
     await run("tar", ["-xf", archive, "-C", into]);
   } catch (e) {
-    const err = e as { stderr?: string; message: string };
     throw new InstallError(
-      `tar could not unpack ${archive}: ${(err.stderr ?? err.message).trim()}`,
+      `tar could not unpack ${archive}: ${failureText(e)}`,
       "chattree needs a tar that reads this archive format (Windows 10 and later, macOS and Linux have one)",
     );
   }
@@ -106,8 +113,7 @@ const nodeVerify = async (binary: string): Promise<string | undefined> => {
     await run(binary, ["--version"], { timeout: 30_000 });
     return undefined;
   } catch (e) {
-    const err = e as { stderr?: string; message: string };
-    return (err.stderr ?? err.message).trim().split("\n").slice(-3).join("\n");
+    return failureText(e).split("\n").slice(-3).join("\n");
   }
 };
 
@@ -142,10 +148,10 @@ async function getRelease(tag: string, d: InstallDeps, signal: AbortSignal | und
       "check the tag in local_models.llama_cpp.tag, or set llama_cpp.path to a llama-server you have",
     );
   }
-  const r = json as { body?: unknown; assets?: unknown };
-  const assets = Array.isArray(r.assets) ? (r.assets as Record<string, unknown>[]) : [];
+  const r = jsonOr(json);
+  const assets = jsonList(r["assets"]);
   return {
-    body: typeof r.body === "string" ? r.body : "",
+    body: typeof r["body"] === "string" ? r["body"] : "",
     assets: assets.flatMap((a) =>
       typeof a["name"] === "string" && typeof a["browser_download_url"] === "string"
         ? [
@@ -247,14 +253,17 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
     const into = join(work, "program");
     await mkdir(into);
     o.onEvent?.({ type: "unpack", file: program.name });
-    await unpack(fetched[0] as string, into);
+    const [main, extra] = fetched;
+    if (main === undefined) throw new InstallError(`${program.name} was not fetched`);
+    await unpack(main, into);
     const found = await find(into, exe(o.platform));
     if (found === undefined) throw new InstallError(`${program.name} has no ${exe(o.platform)} in it`);
     if (runtime !== undefined) {
       const rt = join(work, "runtime");
       await mkdir(rt);
       o.onEvent?.({ type: "unpack", file: runtime.name });
-      await unpack(fetched[1] as string, rt);
+      if (extra === undefined) throw new InstallError(`${runtime.name} was not fetched`);
+      await unpack(extra, rt);
       await cp(rt, join(found, ".."), { recursive: true });
     }
     const relative = found.slice(into.length + 1);
@@ -293,10 +302,11 @@ export async function latestTag(deps: InstallDeps = {}, signal?: AbortSignal): P
   } catch (e) {
     throw new InstallError(`could not find the newest llama.cpp release: ${e instanceof Error ? e.message : String(e)}`);
   }
-  const r = json as { tag_name?: unknown; body?: unknown };
-  if (typeof r.tag_name !== "string") throw new InstallError("GitHub did not name the newest llama.cpp release");
-  if (isBuildTag(r.tag_name)) return r.tag_name;
-  const via = resolveVersionTag(r.tag_name, typeof r.body === "string" ? r.body : "");
+  const r = jsonOr(json);
+  const tagName = r["tag_name"];
+  if (typeof tagName !== "string") throw new InstallError("GitHub did not name the newest llama.cpp release");
+  if (isBuildTag(tagName)) return tagName;
+  const via = resolveVersionTag(tagName, typeof r["body"] === "string" ? r["body"] : "");
   if (!via.ok) throw new InstallError(via.error);
   return via.tag;
 }

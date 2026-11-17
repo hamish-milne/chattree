@@ -194,7 +194,7 @@ export class LeaseStore {
             owner: f.owner,
             until,
             holding: [
-              ...Object.keys(f.holds).filter((k) => (f.holds[k] as number) > now),
+              ...Object.entries(f.holds).flatMap(([k, expires]) => (expires > now ? [k] : [])),
               ...Object.values(f.follows).map((b) => `thread ${b}`),
             ],
           },

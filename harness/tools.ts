@@ -3,6 +3,8 @@ import type { Host } from "../src/host.ts";
 import { pinDefinition, type ToolDefinition } from "./definitions.ts";
 import type { AgentSetup, PinnedDefinition } from "./setup.ts";
 import { coerceArgs, schemaProblems, validateArgs } from "./tool-schema.ts";
+import { nth } from "../src/nth.ts";
+import { asJson, jsonOr } from "../src/json.ts";
 
 /**
  * The host's tool registry (docs/tools.md, sections 3 and 4): what a tool is, how its call is checked, and how
@@ -179,7 +181,7 @@ export class ToolRegistry {
 
   /** The definitions, sorted by name (the order they are rendered in must never depend on registration order). */
   definitions(): ToolDefinition[] {
-    return this.names().map((n) => (this.#tools.get(n) as Tool).definition);
+    return this.names().flatMap((n) => this.#tools.get(n)?.definition ?? []);
   }
 
   /** The pins for an `agent_setup` change: each definition's canonical bytes go into `blobs/`. */
@@ -199,7 +201,7 @@ export class ToolRegistry {
     const tool = this.#tools.get(call.name);
     if (tool === undefined) return { error: `there is no tool called ${call.name}; the tools are: ${this.names().join(", ")}` };
     // A dialect that could not read the call without guessing says what to tell the model (`Emit` `error`, providers/dialect.ts).
-    const said = typeof call.ext === "object" && call.ext !== null ? (call.ext as Record<string, unknown>)["call_error"] : undefined;
+    const said = jsonOr(call.ext)["call_error"];
     if (typeof said === "string") return { error: said };
     if (call.args_raw !== undefined)
       return {
@@ -208,7 +210,9 @@ export class ToolRegistry {
     const args = coerceArgs(tool.definition.input_schema, tool.normalize === undefined ? call.args : tool.normalize(call.args));
     const problems = validateArgs(tool.definition.input_schema, args);
     if (problems.length > 0) return { error: `${call.name}: ${problems.join("; ")}` };
-    return { tool, args: args as Record<string, unknown> };
+    const checked = asJson(args);
+    if (checked === undefined) return { error: `${call.name}: the arguments are not an object` };
+    return { tool, args: checked };
   }
 }
 
@@ -237,12 +241,12 @@ const dec = new TextDecoder();
 
 /** Move `i` to a UTF-8 character boundary at or before it. */
 const boundaryBefore = (b: Uint8Array, i: number): number => {
-  while (i > 0 && i < b.length && ((b[i] as number) & 0xc0) === 0x80) i--;
+  while (i > 0 && i < b.length && (nth(b, i) & 0xc0) === 0x80) i--;
   return i;
 };
 /** Move `i` to a UTF-8 character boundary at or after it. */
 const boundaryAfter = (b: Uint8Array, i: number): number => {
-  while (i < b.length && ((b[i] as number) & 0xc0) === 0x80) i++;
+  while (i < b.length && (nth(b, i) & 0xc0) === 0x80) i++;
   return i;
 };
 
