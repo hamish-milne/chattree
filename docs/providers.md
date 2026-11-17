@@ -197,9 +197,9 @@ limits: { max_request_usd: 1.00, max_turn_usd: 5.00, max_conversation_usd: 50.00
   normalised to `$tag: anthropic` before validation. No rename is needed in either place. It is plain YAML
   (`$tag: anthropic` needs no quoting) and plain JSON Schema (`const`).
 - **Schemas by tag.** An adapter registers itself like an entry type: a `$tag`, a provider schema, a settings
-  schema. The loader validates each provider with its adapter's schema. Adapters describe schemas through
-  Standard Schema and must be able to emit JSON Schema (zod does natively), so a third-party adapter is not
-  tied to one library.
+  schema. The loader validates each provider with its adapter's schema. The schemas are JSON Schema, built with
+  TypeBox: the adapter hands them over, the registry runs them (`src/validate.ts`), and the editor schema is
+  made from them directly.
 - **Editor support.** `create` and `open` generate a combined JSON Schema (core plus every registered adapter)
   into the worktree (`.chattree/harness.schema.json`, gitignored; each open regenerates it, so every worktree
   has one) and `create` writes the `# yaml-language-server: $schema=` line. As far as I know the YAML language
@@ -473,8 +473,8 @@ test/providers/fixtures/        P12
    (`previous_response`). Not done: the
    standalone `/responses/compact` call.
 5. **`harness.yml` v-next, secrets, JSON Schema generation and the editor marker (P6, P7). Done**:
-   `providers/registry.ts` (`AdapterDefinition`: `$tag`, Standard Schema for the provider's keys and for the model
-   settings, `jsonSchema()`, `secrets(config)` naming the environment variables it needs, `create`; `AdapterRegistry`;
+   `providers/registry.ts` (`AdapterDefinition`: `$tag`, a TypeBox schema for the provider's keys and for the model
+   settings, `secrets(config)` naming the environment variables it needs, `create`; `AdapterRegistry`;
    `validateProviders` and `buildProviders`, which report every problem at once, including each unset variable by
    name and provider; `envName`, which refuses a pasted key; the common transport keys `max_concurrent`, `timeouts`,
    `max_attempts`), `providers/index.ts` (`defaultRegistry()` with `anthropic` and `openai`), `harness/secrets.ts`

@@ -1,6 +1,6 @@
-import { z } from "zod";
+import { Type, type Static, type StaticDecode, type TSchema } from "typebox";
 import type { Issue } from "../src/errors.ts";
-import type { StandardSchemaV1 } from "../src/standard-schema.ts";
+import { pattern, record, rules, safeParse, strictObject } from "../src/validate.ts";
 import { Limiter, type HttpOptions } from "./http.ts";
 import { effectiveTable, emptyTable, pricingConfig, type PriceTable } from "./pricing.ts";
 import type { ProviderAdapter } from "./types.ts";
@@ -8,8 +8,8 @@ import type { ProviderAdapter } from "./types.ts";
 /**
  * Adapters register by `$tag`, like entry types do (docs/providers.md, P6). A provider in `harness.yml` names its
  * adapter with `$tag` (or `!tag`); the adapter's own schema validates the rest; the loader builds it after resolving
- * the secrets it names. The schemas are Standard Schema, so a third-party adapter is not tied to one library, and
- * each adapter must be able to emit JSON Schema for the editor.
+ * the secrets it names. The schemas are JSON Schema (TypeBox builds them), which is also what the editor is given: an adapter
+ * hands over its schemas and the registry runs them.
  */
 
 /**
@@ -47,30 +47,29 @@ export interface ModelInfo {
   tool_schema?: ToolSchemaLevel | undefined;
 }
 
-export interface AdapterDefinition<C extends { $tag: string } = { $tag: string }> {
+export interface AdapterDefinition<C extends TSchema = TSchema, S extends TSchema = TSchema> {
   readonly $tag: string;
   /** The provider's keys in `harness.yml`, `$tag` included. Strict: a misspelt key is an error. */
-  readonly config: StandardSchemaV1<unknown, C>;
+  readonly config: C;
   /** The model settings this adapter accepts (`agent_setup.model.settings`). */
-  readonly settings: StandardSchemaV1;
-  jsonSchema(): { config: object; settings: object };
+  readonly settings: S;
   /** The names of the environment variables this provider needs. Each must resolve, or `open` fails naming it. */
-  secrets(config: C): readonly string[];
-  create(config: C, secrets: { get(name: string): string | undefined }): ProviderAdapter;
+  secrets(config: StaticDecode<C>): readonly string[];
+  create(config: StaticDecode<C>, secrets: { get(name: string): string | undefined }): ProviderAdapter;
   /** The prices this provider is costed under: the bundled table with the config's overrides on top. Without it every price is unknown. */
-  prices?(config: C): PriceTable;
+  prices?(config: StaticDecode<C>): PriceTable;
   /** The models it knows about, with the config's overrides on top. */
-  models?(config: C): Record<string, ModelInfo>;
+  models?(config: StaticDecode<C>): Record<string, ModelInfo>;
 }
 
-export function defineAdapter<C extends { $tag: string }>(def: AdapterDefinition<C>): AdapterDefinition<C> {
+export function defineAdapter<C extends TSchema, S extends TSchema>(def: AdapterDefinition<C, S>): AdapterDefinition<C, S> {
   return def;
 }
 
 export class AdapterRegistry {
   readonly #defs = new Map<string, AdapterDefinition>();
 
-  register<C extends { $tag: string }>(def: AdapterDefinition<C>): this {
+  register<C extends TSchema, S extends TSchema>(def: AdapterDefinition<C, S>): this {
     if (this.#defs.has(def.$tag)) throw new Error(`an adapter for $tag ${def.$tag} is already registered`);
     if (!/^[a-z][a-z0-9-]*$/.test(def.$tag)) throw new Error(`invalid adapter $tag ${JSON.stringify(def.$tag)}`);
     this.#defs.set(def.$tag, def);
@@ -87,52 +86,56 @@ export class AdapterRegistry {
 // ---- what every HTTP provider config shares -------------------------------------------------------------------------
 
 /** The name of an environment variable. A key pasted here by mistake is refused, never stored. */
-export const envName = z
-  .string()
-  .regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "must be the NAME of an environment variable (letters, digits and _), not the key itself");
+export const envName = pattern(
+  /^[A-Za-z_][A-Za-z0-9_]*$/,
+  "must be the NAME of an environment variable (letters, digits and _), not the key itself",
+);
+
+const opt = Type.Optional;
+const positive = Type.Integer({ minimum: 1 });
+const nonEmpty = Type.String({ minLength: 1 });
 
 /** What `providers.<name>.models.<id>` may say about a model. */
-const modelInfoConfig = z
-  .strictObject({
-    context_window: z.number().int().positive().optional(),
-    max_output_tokens: z.number().int().positive().optional(),
-    tool_convention: z.enum(TOOL_CONVENTIONS).optional(),
-    tool_schema: z.enum(TOOL_SCHEMAS).optional(),
-    description: z.string().min(1).optional(),
-    cost_tier: z.enum(COST_TIERS).optional(),
+const modelInfoConfig = rules(
+  strictObject({
+    context_window: opt(positive),
+    max_output_tokens: opt(positive),
+    tool_convention: opt(Type.Enum(TOOL_CONVENTIONS)),
+    tool_schema: opt(Type.Enum(TOOL_SCHEMAS)),
+    description: opt(nonEmpty),
+    cost_tier: opt(Type.Enum(COST_TIERS)),
     /** Level name (`low`, `high`, `off`, ...) to the settings that produce it, written as the provider's own `settings`. */
-    reasoning: z
-      .record(z.string().regex(/^[a-z][a-z0-9_-]*$/, "lowercase letters, digits, _ and - only"), z.record(z.string(), z.unknown()))
-      .optional(),
-    default_reasoning: z.string().optional(),
-  })
-  .refine(
-    (m) => m.default_reasoning === undefined || (m.reasoning !== undefined && m.default_reasoning in m.reasoning),
-    "default_reasoning must be one of the reasoning levels",
-  );
+    reasoning: opt(record(pattern(/^[a-z][a-z0-9_-]*$/, "lowercase letters, digits, _ and - only"), record(Type.String(), Type.Unknown()))),
+    default_reasoning: opt(Type.String()),
+  }),
+  [
+    (m) =>
+      m.default_reasoning === undefined || (m.reasoning !== undefined && m.default_reasoning in m.reasoning)
+        ? undefined
+        : "default_reasoning must be one of the reasoning levels",
+  ],
+);
 
-const headerName = z.string().regex(/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/, "not a valid header name");
+const headerName = pattern(/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/, "not a valid header name");
 
 export const commonProviderFields = {
   /** At most this many requests at once for the provider. */
-  max_concurrent: z.number().int().positive().optional(),
-  timeouts: z
-    .strictObject({ idle_ms: z.number().int().positive().optional(), total_ms: z.number().int().positive().optional() })
-    .optional(),
+  max_concurrent: opt(positive),
+  timeouts: opt(strictObject({ idle_ms: opt(positive), total_ms: opt(positive) })),
   /** Attempts per request, retries included (only before any content has arrived). */
-  max_attempts: z.number().int().positive().optional(),
+  max_attempts: opt(positive),
   /** Extra request headers. A `null` removes one; for our default `User-Agent` (`chattree/<version>`) the runtime's own is then sent: some providers' terms require a true client identity, so that is the user's call. */
-  headers: z.record(headerName, z.union([z.string(), z.null()])).optional(),
+  headers: opt(record(headerName, Type.Union([Type.String(), Type.Null()]))),
   /** The name of a header to send the conversation's stable id in (OpenCode Go wants `x-opencode-session`). */
-  session_header: headerName.optional(),
+  session_header: opt(headerName),
   /** Price overrides, or `free: true` for a local server. Without either, a model with no bundled price has an unknown price. */
-  pricing: pricingConfig.optional(),
+  pricing: opt(pricingConfig),
   /** What you know about models the adapter does not (context window, maximum output, how tools must be written: `tool_convention` `full` or `flat`). */
-  models: z.record(z.string(), modelInfoConfig).optional(),
+  models: opt(record(Type.String(), modelInfoConfig)),
 };
 
 export interface CommonProviderConfig {
-  pricing?: z.infer<typeof pricingConfig> | undefined;
+  pricing?: Static<typeof pricingConfig> | undefined;
   models?: Record<string, ModelInfo> | undefined;
   max_concurrent?: number | undefined;
   timeouts?: { idle_ms?: number | undefined; total_ms?: number | undefined } | undefined;
@@ -169,16 +172,15 @@ export const modelsFor = (bundled: Record<string, ModelInfo> | undefined, c: Com
 
 // ---- validating and building ---------------------------------------------------------------------------------------
 
-const where = (name: string, path: ReadonlyArray<PropertyKey | { key: PropertyKey }> | undefined): string =>
-  ["providers", name, ...(path ?? []).map((p) => String(typeof p === "object" ? p.key : p))].join(".");
+const where = (name: string, path: readonly (string | number)[]): string => ["providers", name, ...path.map(String)].join(".");
 
 /** Validate every provider against its adapter's schema. The values are the parsed `providers` of the config. */
 export async function validateProviders(
   providers: Record<string, { $tag: string }>,
   registry: AdapterRegistry,
-): Promise<{ issues: Issue[]; configs: Map<string, { def: AdapterDefinition; config: { $tag: string } }> }> {
+): Promise<{ issues: Issue[]; configs: Map<string, { def: AdapterDefinition; config: unknown }> }> {
   const issues: Issue[] = [];
-  const configs = new Map<string, { def: AdapterDefinition; config: { $tag: string } }>();
+  const configs = new Map<string, { def: AdapterDefinition; config: unknown }>();
   for (const [name, p] of Object.entries(providers)) {
     const def = registry.get(p.$tag);
     if (def === undefined) {
@@ -188,11 +190,17 @@ export async function validateProviders(
       });
       continue;
     }
-    const r = await def.config["~standard"].validate(p);
-    if (r.issues !== undefined) for (const i of r.issues) issues.push({ path: where(name, i.path), message: i.message });
+    const r = safeParse(def.config, p);
+    if (!r.ok) for (const i of r.issues) issues.push({ path: where(name, i.path), message: i.message });
     else configs.set(name, { def, config: r.value });
   }
   return { issues, configs };
+}
+
+/** What is wrong with a model-settings object for this adapter: one sentence per problem, none when it is fine. */
+export function settingsProblems(def: AdapterDefinition, settings: unknown): string[] {
+  const r = safeParse(def.settings, settings);
+  return r.ok ? [] : r.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`);
 }
 
 export class ProviderSetupError extends Error {

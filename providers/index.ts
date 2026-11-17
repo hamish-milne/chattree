@@ -20,6 +20,7 @@ export {
   ProviderSetupError,
   buildProviders,
   defineAdapter,
+  settingsProblems,
   validateProviders,
   type AdapterDefinition,
   type BuiltProviders,

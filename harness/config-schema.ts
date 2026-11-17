@@ -1,7 +1,5 @@
 import type { AdapterRegistry } from "../providers/registry.ts";
 import { harnessConfig } from "./config.ts";
-import { jsonOr } from "../src/json.ts";
-import { jsonSchema } from "../src/validate.ts";
 
 /** Where `create` and `open` write the generated schema (inside the ignored `.chattree/` directory). */
 export const SCHEMA_PATH = ".chattree/harness.schema.json";
@@ -14,17 +12,16 @@ export const SCHEMA_COMMENT = `# yaml-language-server: $schema=./${SCHEMA_PATH}`
  * setting), so editors are pointed at the plain `$tag: name` form; both are accepted by the loader.
  */
 export function configJsonSchema(registry: AdapterRegistry): object {
-  const core = jsonSchema(harnessConfig.schema);
-  const coreProperties = jsonOr(core["properties"]);
+  const core = harnessConfig.schema;
   const variants = registry.tags().map((tag) => {
     const def = registry.get(tag);
-    return { title: tag, ...jsonOr(def?.jsonSchema().config) };
+    return { title: tag, ...def?.config };
   });
   return {
     ...core,
     title: "chattree harness.yml",
     properties: {
-      ...coreProperties,
+      ...core.properties,
       providers: {
         type: "object",
         description: "Providers by name; the name is what an agent's model setting refers to. `$tag` picks the adapter.",
@@ -37,5 +34,5 @@ export function configJsonSchema(registry: AdapterRegistry): object {
 
 /** The JSON Schema for one adapter's model settings (for editor tooling on `agent_setup`). */
 export function settingsJsonSchema(registry: AdapterRegistry, tag: string): object | undefined {
-  return registry.get(tag)?.jsonSchema().settings;
+  return registry.get(tag)?.settings;
 }

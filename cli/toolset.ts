@@ -10,6 +10,7 @@ import { subagentTool } from "../harness/subagent.ts";
 import { searchTool } from "../harness/search-tool.ts";
 import { threadTools } from "../harness/thread-tools.ts";
 import { resolveSubagentModels } from "../harness/subagent-models.ts";
+import { settingsProblems } from "../providers/index.ts";
 import { cliRegistry } from "./providers.ts";
 import type { McpPool } from "../harness/mcp/pool.ts";
 import { McpServers, type McpDeps } from "../harness/mcp/servers.ts";
@@ -179,10 +180,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
     const tag = (config?.providers[provider] as { $tag?: string } | undefined)?.$tag;
     const def = tag === undefined ? undefined : adapters.get(tag);
     if (def === undefined) return [`no adapter for provider ${provider}`];
-    const r = await def.settings["~standard"].validate(settings);
-    return r.issues === undefined
-      ? []
-      : r.issues.map((i) => `${(i.path ?? []).map((q) => (typeof q === "object" ? q.key : q)).join(".") || "settings"}: ${i.message}`);
+    return settingsProblems(def, settings);
   };
   const meta =
     hooks.pumped !== true

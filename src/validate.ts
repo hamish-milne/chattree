@@ -1,17 +1,20 @@
-import { Type, type Static, type StaticDecode, type TObject, type TProperties, type TSchema } from "typebox";
+import { IsObject, Type, type Static, type StaticDecode, type TObject, type TProperties, type TSchema, type TUnsafe } from "typebox";
 import { Compile, type Validator } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
+import { Guard } from "typebox/guard";
+import { Pointer } from "typebox/schema";
 import { Clone, Default, DecodeUnsafe } from "typebox/value";
 import type { StandardSchemaV1 } from "./standard-schema.ts";
 
 /**
  * Validation of data that arrives from outside (settings files, provider replies, stored records). The schemas are JSON Schema, built with
- * TypeBox, so they are also what a model is shown and what other tools can read; this file is the one place that runs them.
+ * TypeBox, so they are also what a model is shown, what an editor reads and what other tools take; this file is the one place that runs
+ * them.
  *
- * A schema describes the value *after* defaults are filled in: a field with a `default` is required in the schema (and in the type that
- * comes out), and `parse` fills it first. Unknown fields are rejected only where the schema says `additionalProperties: false` (see
- * `strictObject`). A `Codec` in a schema is run after the value has checked (a string that stands for an object, a hash folded to lower
- * case); a `Refine` is a check JSON Schema cannot say (a rule between fields) and is not part of the exported schema.
+ * A field with a default is not required by the schema (`withDefault`), so the schema says what a person may write. The type that comes out
+ * has it present: defaults are filled in before the check, so a rule between fields sees them too. Unknown fields are rejected only where
+ * the schema says `additionalProperties: false` (see `strictObject`). A `Codec` in a schema is run after the value has checked (a string that
+ * stands for an object, a hash folded to lower case); a rule is a check JSON Schema cannot say (see `rules`) and is not in the schema's JSON.
  *
  * `errorMessage` on a node is the sentence to show when that node's own keyword fails (a pattern, a range): an annotation for people
  * that the validator itself ignores.
@@ -34,6 +37,7 @@ export class ValidationError extends Error {
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; issues: Issue[] };
 
+/** A schema with the parse functions bound to it, and a Standard Schema face for the library code that still asks for one. */
 export interface Parser<S extends TSchema, T = StaticDecode<S>> extends StandardSchemaV1<unknown, T> {
   /** The JSON Schema this parses with. */
   readonly schema: S;
@@ -47,10 +51,31 @@ export function strictObject<P extends TProperties>(properties: P, options: Para
   return Type.Object(properties, { ...options, additionalProperties: false });
 }
 
+/** A copy of the schema with more keywords. The copy keeps the hidden properties TypeBox puts on a type (`~kind`, `~optional`, `~refine`), which a spread would lose. */
+function annotate<S extends TSchema>(schema: S, extra: Record<string, unknown>, hidden: Record<string, unknown> = {}): S {
+  const copy = Object.assign(Object.defineProperties({}, Object.getOwnPropertyDescriptors(schema)), extra);
+  for (const [key, value] of Object.entries(hidden))
+    Object.defineProperty(copy, key, { value, enumerable: false, writable: true, configurable: true });
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a copy of S with extra keywords is still an S
+  return copy as S;
+}
+
+/**
+ * A field that may be left out and then has this value. The schema marks it optional with the `default` keyword (so an editor does not demand
+ * it); the type has it present, since `parse` fills it in. `value` is what is filled in: for an object, `{}` is enough when its own fields
+ * have defaults. `T` is for a type TypeBox cannot infer from the schema.
+ */
+export function withDefault<S extends TSchema, T = StaticDecode<S>>(schema: S, value: unknown): TUnsafe<T> {
+  return Type.Unsafe<T>(annotate(Type.Optional(schema), { default: value }));
+}
+
+/** An object whose fields all have defaults, so it may be left out whole. */
+export const section = <P extends TProperties>(properties: P) => withDefault(strictObject(properties), {});
+
 /**
  * Rules between fields, which JSON Schema cannot say. Each check returns the sentence to report when it is broken, or undefined. They
  * are reported where the schema is, not at a field inside it, so a sentence should say which field it is about. They run on the value as
- * written (a `Codec` field is still in its written form) and are not part of the JSON Schema this exports.
+ * written, defaults filled in (a `Codec` field is still in its written form), and are not part of the JSON Schema this exports.
  */
 export function rules<S extends TSchema>(schema: S, checks: ((value: Static<S>) => string | undefined)[]): S {
   return checks.reduce<S>(
@@ -67,51 +92,33 @@ export function rules<S extends TSchema>(schema: S, checks: ((value: Static<S>) 
 /** Attach the sentence that explains this node's constraint when it fails (a pattern or range that is not obvious from the keyword). */
 export const said = <S extends TSchema>(message: string, schema: S): S => annotate(schema, { errorMessage: message });
 
-/** A copy of the schema with more keywords. The copy keeps the hidden properties TypeBox puts on a type (`~kind`, `~optional`, `~refine`), which a spread would lose. */
-function annotate<S extends TSchema>(schema: S, extra: Record<string, unknown>, hidden: Record<string, unknown> = {}): S {
-  const copy = Object.assign(Object.defineProperties({}, Object.getOwnPropertyDescriptors(schema)), extra);
-  for (const [key, value] of Object.entries(hidden))
-    Object.defineProperty(copy, key, { value, enumerable: false, writable: true, configurable: true });
-  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a copy of S with extra keywords is still an S
-  return copy as S;
-}
-
 /** A string that must match a pattern, with the sentence to show when it does not. */
 export const pattern = (re: RegExp, message: string) => said(message, Type.String({ pattern: re.source }));
 
 /**
  * A record (an object with any keys, all values the same shape). `Value.Default` only looks inside a record's values when their schema has a
- * `default`, so an object value is given an empty one (not written to the exported schema): it is never used (a value that is there is not
- * undefined), it only lets the defaults of the fields inside be filled. The key schema is `propertyNames`, so a key that does not match is an error (JSON Schema's own way, which also avoids
- * `additionalProperties: false`, on which `Value.Default` fails for a record).
+ * `default`, so an object value is given an empty one (not written to the schema's JSON): it is never used (a value that is there is not
+ * undefined), it only lets the defaults of the fields inside be filled. The key schema is `propertyNames`, so a key that does not match is an
+ * error (JSON Schema's own way, which also avoids `additionalProperties: false`, on which `Value.Default` fails for a record).
  */
 export function record<V extends TSchema>(key: TSchema, value: V, options: Parameters<typeof Type.Record>[2] = {}) {
-  const inner = isRecord(value) && value["type"] === "object" && !("default" in value) ? annotate(value, {}, { default: {} }) : value;
+  const inner = IsObject(value) && !("default" in value) ? annotate(value, {}, { default: {} }) : value;
   return Type.Record(Type.String(), inner, { propertyNames: key, ...options });
 }
 
-const isRecord = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null;
-
-const decodePointer = (p: string): string[] =>
-  (p === "" ? [] : p.slice(1).split("/")).map((s) => s.replace(/~1/g, "/").replace(/~0/g, "~"));
-
 /** The node of the schema a `schemaPath` (`#/properties/a/anyOf/0`) names. */
-function nodeAt(schema: unknown, schemaPath: string): Record<string, unknown> | undefined {
-  let node: unknown = schema;
-  for (const key of decodePointer(schemaPath.replace(/^#/, ""))) {
-    if (!isRecord(node)) return undefined;
-    node = node[key];
-  }
-  return isRecord(node) ? node : undefined;
+function nodeAt(schema: TSchema, schemaPath: string): Record<string, unknown> | undefined {
+  const node = Pointer.Get(schema, schemaPath.replace(/^#/, ""));
+  return Guard.IsObject(node) ? node : undefined;
 }
 
 /** Path segments of an `instancePath`, with array positions as numbers (read off the value, since a pointer does not say). */
 function pathOf(instancePath: string, root: unknown): (string | number)[] {
   const out: (string | number)[] = [];
   let at: unknown = root;
-  for (const key of decodePointer(instancePath)) {
+  for (const key of Pointer.Fragments(instancePath)) {
     out.push(Array.isArray(at) ? Number(key) : key);
-    at = isRecord(at) ? at[key] : undefined;
+    at = Guard.IsObject(at) ? at[key] : undefined;
   }
   return out;
 }
@@ -144,11 +151,11 @@ function collapseUnions(errors: TLocalizedValidationError[]): TLocalizedValidati
 }
 
 /** The validator's errors as issues a person can act on: a path and a sentence each, one per missing or unknown key. */
-function issuesOf(errors: TLocalizedValidationError[], schema: unknown, value: unknown): Issue[] {
+function issuesOf(errors: TLocalizedValidationError[], schema: TSchema, value: unknown): Issue[] {
   const out: Issue[] = [];
   for (const e of collapseUnions(errors.filter((x) => x.keyword !== "boolean" && x.keyword !== "propertyNames"))) {
     const path = pathOf(e.instancePath, value);
-    const params: Record<string, unknown> = isRecord(e.params) ? e.params : {};
+    const params: Record<string, unknown> = Guard.IsObject(e.params) ? e.params : {};
     if (e.keyword === "required" && Array.isArray(params["requiredProperties"])) {
       for (const k of params["requiredProperties"]) out.push({ path: [...path, String(k)], message: "is required" });
     } else if (e.keyword === "additionalProperties" && Array.isArray(params["additionalProperties"])) {
@@ -203,29 +210,3 @@ export function parser<S extends TSchema>(schema: S): Parser<S> {
 
 /** Whether this schema's checks run as generated code (false where the environment does not allow it, or `useAcceleration` is off). */
 export const accelerated = (schema: TSchema): boolean => validatorFor(schema).IsAccelerated();
-
-/**
- * The JSON Schema for editors and tools: what a person may write, so a field with a default is not required (the schema itself describes the
- * value after defaults). Rules and codecs are not in it; what they say is in the sentences of the errors.
- */
-export function jsonSchema(schema: TSchema): Record<string, unknown> {
-  const walk = (node: unknown): unknown => {
-    if (Array.isArray(node)) return node.map(walk);
-    if (!isRecord(node)) return node;
-    const out: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(node)) out[key] = walk(value);
-    const props = out["properties"];
-    if (isRecord(props) && Array.isArray(out["required"])) {
-      const hasDefault = (k: unknown): boolean => {
-        const v = props[String(k)];
-        return isRecord(v) && "default" in v;
-      };
-      const required = out["required"].filter((k) => !hasDefault(k));
-      if (required.length > 0) out["required"] = required;
-      else delete out["required"];
-    }
-    return out;
-  };
-  const plain = walk(JSON.parse(JSON.stringify(schema)));
-  return isRecord(plain) ? plain : {};
-}

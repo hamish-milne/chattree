@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { Type, type Static, type StaticDecode } from "typebox";
 import { stable } from "../harness/setup.ts";
+import { parser, pattern, record, strictObject } from "../src/validate.ts";
 
 /**
  * Prices (docs/providers.md, P9). A price table is plain data: per model, dollars per million tokens for each meter
@@ -9,48 +10,52 @@ import { stable } from "../harness/setup.ts";
  * of history never changes under it. An unknown price is unknown, never zero: a local server says `free: true`.
  */
 
-const rate = z.number().nonnegative();
+const rate = Type.Number({ minimum: 0 });
+const nonEmpty = Type.String({ minLength: 1 });
+const opt = Type.Optional;
 /** A cache lifetime in minutes, as a key (`"30"`, `"720"`). */
-const minutes = z.string().regex(/^[1-9]\d*$/, "a whole number of minutes");
+const minutes = pattern(/^[1-9]\d*$/, "a whole number of minutes");
 
 /** Dollars per million tokens for each meter of one service tier. A meter that is absent is unknown. */
-const rates = z.strictObject({
-  input: rate.optional(),
-  output: rate.optional(),
-  cache_read: rate.optional(),
+const rates = strictObject({
+  input: opt(rate),
+  output: opt(rate),
+  cache_read: opt(rate),
   /**
    * A single rate, or one rate per cache lifetime keyed by minutes (`{ 30: 12.5, 720: 25 }`): writing to a cache
    * that lasts longer costs more. Tokens whose lifetime the usage does not say are priced at the lifetime the request
    * asked for (the `cache_ttl` setting), or at the shortest one if it asked for none.
    */
-  cache_write: z.union([rate, z.record(minutes, rate)]).optional(),
+  cache_write: opt(Type.Union([rate, record(minutes, rate)])),
 });
-export type Rates = z.infer<typeof rates>;
+export type Rates = Static<typeof rates>;
 
 /** Rates by service tier, named as the provider's `service_tier` setting names them. Use `standard` when there is only one. */
-const ratesByTier = z.record(z.string().min(1), rates);
-export type RatesByTier = z.infer<typeof ratesByTier>;
+const ratesByTier = record(nonEmpty, rates);
+export type RatesByTier = Static<typeof ratesByTier>;
 
-export const modelPrice = z.strictObject({
+export const modelPrice = strictObject({
   /** Explicitly free (a local server). Overrides everything else. */
-  free: z.literal(true).optional(),
+  free: opt(Type.Literal(true)),
   /** By tier. `standard` is the default; `default` and `auto` in a request's settings mean `standard`. */
-  rates: ratesByTier.optional(),
+  rates: opt(ratesByTier),
   /** Requests whose prompt (input, cache read and write together) is longer than `above_tokens` use these rates instead. */
-  long_context: z.strictObject({ above_tokens: z.number().int().positive(), rates: ratesByTier }).optional(),
+  long_context: opt(strictObject({ above_tokens: Type.Integer({ minimum: 1 }), rates: ratesByTier })),
 });
-export type ModelPrice = z.infer<typeof modelPrice>;
+export type ModelPrice = Static<typeof modelPrice>;
 
-export const priceTable = z.strictObject({
-  version: z.literal(1),
-  /** When these prices were read, `YYYY-MM-DD`. */
-  as_of: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  /** Where they came from (a URL, or "override"). */
-  source: z.string().min(1),
-  currency: z.literal("USD"),
-  models: z.record(z.string(), modelPrice),
-});
-export type PriceTable = z.infer<typeof priceTable>;
+export const priceTable = parser(
+  strictObject({
+    version: Type.Literal(1),
+    /** When these prices were read, `YYYY-MM-DD`. */
+    as_of: Type.String({ pattern: String.raw`^\d{4}-\d{2}-\d{2}$` }),
+    /** Where they came from (a URL, or "override"). */
+    source: nonEmpty,
+    currency: Type.Literal("USD"),
+    models: record(Type.String(), modelPrice),
+  }),
+);
+export type PriceTable = StaticDecode<typeof priceTable.schema>;
 
 export const emptyTable = (): PriceTable => ({ version: 1, as_of: "1970-01-01", source: "none", currency: "USD", models: {} });
 
@@ -61,19 +66,19 @@ export const tableHash = (t: PriceTable): string => createHash("sha256").update(
 export function parseTable(bytes: Uint8Array): PriceTable | undefined {
   try {
     const r = priceTable.safeParse(JSON.parse(new TextDecoder().decode(bytes)));
-    return r.success ? r.data : undefined;
+    return r.ok ? r.value : undefined;
   } catch {
     return undefined;
   }
 }
 
 /** Overrides in a provider's config: replace single models (or all of them, `free`). Merged over the bundled table. */
-export const pricingConfig = z.strictObject({
+export const pricingConfig = strictObject({
   /** Every model of this provider is free (a local server). */
-  free: z.boolean().optional(),
-  models: z.record(z.string(), modelPrice).optional(),
+  free: opt(Type.Boolean()),
+  models: opt(record(Type.String(), modelPrice)),
 });
-export type PricingConfig = z.infer<typeof pricingConfig>;
+export type PricingConfig = Static<typeof pricingConfig>;
 
 /** The bundled table with the provider's overrides on top. A model override replaces the whole entry. */
 export function effectiveTable(bundled: PriceTable | undefined, overrides: PricingConfig | undefined): PriceTable {

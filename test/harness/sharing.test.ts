@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { appendFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../../src/validate.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { Conversation, ConversationError, type ConversationEvent, type NewEntry } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
@@ -23,9 +24,8 @@ let hanging = false;
 const registry = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
-    config: z.strictObject({ $tag: z.literal("fake") }),
-    settings: z.strictObject({}),
-    jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+    config: strictObject({ $tag: Type.Literal("fake") }),
+    settings: strictObject({}),
     secrets: () => [],
     create: () => ({
       $tag: "fake",

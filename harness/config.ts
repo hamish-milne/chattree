@@ -1,5 +1,5 @@
-import { Type, type Static, type StaticDecode } from "typebox";
-import { parser, pattern, record, rules, said, strictObject } from "../src/validate.ts";
+import { Type, type Static, type StaticDecode, type TSchema } from "typebox";
+import { parser, pattern, record, rules, said, section, strictObject, withDefault } from "../src/validate.ts";
 
 /**
  * The harness configuration file (`harness.yml`): the outside world only. Machine setup (which providers, the
@@ -37,7 +37,7 @@ export const untilTimestamp = rules(
 /** One tool's approvals (docs/tools.md, section 5): the keys the user has granted, each with the time it ends. */
 const toolEntry = strictObject({
   /** Key to expiry. `all` covers every call; other keys are the tool's own (for `run`, argv patterns such as `grep **`). */
-  allow: record(nonEmpty, untilTimestamp, { default: {} }),
+  allow: withDefault(record(nonEmpty, untilTimestamp), {}),
   /** `run` only: programs known to be read-only, which may be granted as `<program> **`. */
   safe: opt(Type.Array(nonEmpty)),
   /**
@@ -56,8 +56,9 @@ const toolEntry = strictObject({
  * TypeBox's inferred type leaves the additional ones out, so the type is given here, as it was for the old schema.
  */
 type ToolsSection = { env?: string[] } & Record<string, Static<typeof toolEntry>>;
-const toolsSection = Type.Unsafe<ToolsSection>(
-  Type.Object({ env: opt(Type.Array(nonEmpty)) }, { additionalProperties: toolEntry, default: {} }),
+const toolsSection = withDefault<TSchema, ToolsSection>(
+  Type.Object({ env: opt(Type.Array(nonEmpty)) }, { additionalProperties: toolEntry }),
+  {},
 );
 
 const envName = pattern(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
@@ -70,7 +71,7 @@ const envName = pattern(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable nam
 const mcpServer = rules(
   strictObject({
     command: opt(nonEmpty),
-    args: Type.Array(Type.String(), { default: [] }),
+    args: withDefault(Type.Array(Type.String()), []),
     /** Environment values for the program that are not secret. */
     env: opt(record(envName, Type.String())),
     /** Host environment variables passed to the program unchanged (a token): the value never enters the transcript. */
@@ -86,7 +87,7 @@ const mcpServer = rules(
     only: opt(Type.Array(nonEmpty)),
     skip: opt(Type.Array(nonEmpty)),
     /** Approvals for every tool of this server, as for `tools`: `all` covers any call until its date. */
-    allow: record(nonEmpty, untilTimestamp, { default: {} }),
+    allow: withDefault(record(nonEmpty, untilTimestamp), {}),
     /**
      * Where a program is run. `thread` (the default): in the worktree of the thread that uses it, so a server that works on files sees that
      * thread's files, and a subagent has a process of its own. `project`: in the project's main directory, one process for every thread (a
@@ -111,7 +112,7 @@ const mcpServer = rules(
 const injectionRule = rules(
   strictObject({
     every: positive,
-    first: Type.Boolean({ default: false }),
+    first: withDefault(Type.Boolean(), false),
     text: opt(nonEmpty),
     file: opt(nonEmpty),
   }),
@@ -120,125 +121,112 @@ const injectionRule = rules(
 
 const harness = strictObject({
   /** Providers by name (the name is what an agent's model setting refers to). */
-  providers: record(name, provider, { default: {} }),
+  providers: withDefault(record(name, provider), {}),
   /**
    * Per-tool approvals, by tool name. A call runs without asking only when the tool's `allow` map holds an unexpired
    * key that covers it; a tool without an entry asks. `env` is not a tool: the environment variables `run` may expand.
    */
   tools: toolsSection,
   /** MCP servers by name (lowercase letters, digits and single hyphens). Their tools are offered as `mcp__<name>__<tool>`. */
-  mcp: record(
-    said(
-      "lowercase letters, digits and single hyphens, at most 24 characters",
-      Type.String({ pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", maxLength: 24 }),
+  mcp: withDefault(
+    record(
+      said(
+        "lowercase letters, digits and single hyphens, at most 24 characters",
+        Type.String({ pattern: "^[a-z0-9]+(-[a-z0-9]+)*$", maxLength: 24 }),
+      ),
+      mcpServer,
     ),
-    mcpServer,
-    { default: {} },
+    {},
   ),
   /** Background jobs (docs/tools.md, 3.5). */
-  background: strictObject(
-    {
-      /** When a job ends while the conversation is idle, also send a request so the model can react. Off by default: it spends money unattended. */
-      resume: Type.Boolean({ default: false }),
-    },
-    { default: {} },
-  ),
+  background: section({
+    /** When a job ends while the conversation is idle, also send a request so the model can react. Off by default: it spends money unattended. */
+    resume: withDefault(Type.Boolean(), false),
+  }),
   /**
    * Who is running a thread (docs/tools.md, 5.3). By default a file in this repository's git directory, which is enough for every
    * session on this machine. With `remote`, a ref on that remote instead, so clones that share it but not a git directory agree too.
    */
   leases: opt(strictObject({ remote: nonEmpty })),
   /** Threads talking to each other (docs/tools.md, 4.3). A parent and its children always may, if the tools are listed; siblings only with `siblings`. */
-  threads: strictObject({ siblings: Type.Boolean({ default: false }) }, { default: {} }),
+  threads: section({ siblings: withDefault(Type.Boolean(), false) }),
   /** Subagents (docs/tools.md, 4.2). */
-  subagent: strictObject(
-    {
-      /** `auto`: a subagent hands its work back without asking. `review`: you are asked first, and see its report. */
-      merge: Type.Enum(["auto", "review"], { default: "auto" }),
-      /**
-       * The MCP servers a subagent gets: `inherit` (the default) every one the thread has, `none`, or only the named ones. What it
-       * inherits it uses with the approvals the thread had when it started.
-       */
-      mcp: Type.Union([Type.Enum(["inherit", "none"]), Type.Array(nonEmpty, { minItems: 1 })], { default: "inherit" }),
-      /**
-       * The models the parent may choose for a subagent, as `provider/model` (the provider is a name from `providers`). Without this
-       * the subagent always uses the parent's own model and the tool has no `model` argument. What each is good at, its cost tier
-       * and its reasoning levels come from the provider's `models` catalog; the entry here can narrow the levels or reword the description.
-       */
-      models: opt(
-        record(
-          pattern(/^[^\s/@]+\/[^\s@]+$/, "provider/model, without spaces or @"),
-          strictObject({
-            description: opt(nonEmpty),
-            /** Only these reasoning levels are offered for the model (default: every level the catalog has). */
-            reasoning: opt(Type.Array(nonEmpty, { minItems: 1 })),
-          }),
-        ),
+  subagent: section({
+    /** `auto`: a subagent hands its work back without asking. `review`: you are asked first, and see its report. */
+    merge: withDefault(Type.Enum(["auto", "review"]), "auto"),
+    /**
+     * The MCP servers a subagent gets: `inherit` (the default) every one the thread has, `none`, or only the named ones. What it
+     * inherits it uses with the approvals the thread had when it started.
+     */
+    mcp: withDefault(Type.Union([Type.Enum(["inherit", "none"]), Type.Array(nonEmpty, { minItems: 1 })]), "inherit"),
+    /**
+     * The models the parent may choose for a subagent, as `provider/model` (the provider is a name from `providers`). Without this
+     * the subagent always uses the parent's own model and the tool has no `model` argument. What each is good at, its cost tier
+     * and its reasoning levels come from the provider's `models` catalog; the entry here can narrow the levels or reword the description.
+     */
+    models: opt(
+      record(
+        pattern(/^[^\s/@]+\/[^\s@]+$/, "provider/model, without spaces or @"),
+        strictObject({
+          description: opt(nonEmpty),
+          /** Only these reasoning levels are offered for the model (default: every level the catalog has). */
+          reasoning: opt(Type.Array(nonEmpty, { minItems: 1 })),
+        }),
       ),
-    },
-    { default: {} },
-  ),
+    ),
+  }),
   /** Hard limits: a request that would exceed one is not sent. To go past one, change it here. */
-  limits: strictObject(
-    {
-      max_request_usd: opt(usd),
-      max_turn_usd: opt(usd),
-      max_conversation_usd: opt(usd),
-      /** Requests (assistant responses) allowed since the last user message, tool loops included. */
-      max_requests_per_turn: opt(positive),
-      /** Wall-clock seconds for one turn. Enforced by the turn runner. */
-      max_turn_seconds: opt(positiveNumber),
-      /** Seconds one tool call may take unless the tool says otherwise (default 600): the loop stops it then, and the thread's run lease is held that long. */
-      max_tool_seconds: opt(positiveNumber),
-      /** Seconds one model request may take (default 600, the provider layer's own total limit): how long the run lease is held for it. */
-      max_request_seconds: opt(positiveNumber),
-      /** Raise a warning when spend reaches this fraction of a limit. */
-      warn_at: opt(fraction),
-      /** What to do when a request's price is unknown (no table entry): `warn` (default) or `block`. */
-      unknown_price: opt(Type.Enum(["warn", "block"])),
-    },
-    { default: {} },
-  ),
+  limits: section({
+    max_request_usd: opt(usd),
+    max_turn_usd: opt(usd),
+    max_conversation_usd: opt(usd),
+    /** Requests (assistant responses) allowed since the last user message, tool loops included. */
+    max_requests_per_turn: opt(positive),
+    /** Wall-clock seconds for one turn. Enforced by the turn runner. */
+    max_turn_seconds: opt(positiveNumber),
+    /** Seconds one tool call may take unless the tool says otherwise (default 600): the loop stops it then, and the thread's run lease is held that long. */
+    max_tool_seconds: opt(positiveNumber),
+    /** Seconds one model request may take (default 600, the provider layer's own total limit): how long the run lease is held for it. */
+    max_request_seconds: opt(positiveNumber),
+    /** Raise a warning when spend reaches this fraction of a limit. */
+    warn_at: opt(fraction),
+    /** What to do when a request's price is unknown (no table entry): `warn` (default) or `block`. */
+    unknown_price: opt(Type.Enum(["warn", "block"])),
+  }),
   /**
    * Keeping the repository small. Git's own `gc.auto` is off so nothing rewrites the repository behind a running
    * conversation; instead the harness packs loose objects itself (`git repack -d`, which never deletes anything
    * reachable or unreachable-but-new) when the repository grows past these figures, checked when a conversation
    * is opened and every `check_every` transactions after.
    */
-  maintenance: strictObject(
-    {
-      auto: Type.Boolean({ default: true }),
-      /** Pack loose objects once there are more than this many. */
-      loose_objects: Type.Integer({ minimum: 1, default: 1000 }),
-      /** Merge packs into one (`repack -a -d`) once there are more than this many. */
-      packs: Type.Integer({ minimum: 1, default: 20 }),
-      /** Look again after this many appends, snapshots and the like. */
-      check_every: Type.Integer({ minimum: 1, default: 200 }),
-    },
-    { default: {} },
-  ),
+  maintenance: section({
+    auto: withDefault(Type.Boolean(), true),
+    /** Pack loose objects once there are more than this many. */
+    loose_objects: withDefault(Type.Integer({ minimum: 1 }), 1000),
+    /** Merge packs into one (`repack -a -d`) once there are more than this many. */
+    packs: withDefault(Type.Integer({ minimum: 1 }), 20),
+    /** Look again after this many appends, snapshots and the like. */
+    check_every: withDefault(Type.Integer({ minimum: 1 }), 200),
+  }),
   /** Files added to messages (`Conversation.attach`). */
-  attachments: strictObject({ max_bytes: Type.Integer({ minimum: 1, default: 20 * 1024 * 1024 }) }, { default: {} }),
+  attachments: section({ max_bytes: withDefault(Type.Integer({ minimum: 1 }), 20 * 1024 * 1024) }),
   /**
    * Skills (docs/context.md, section 2). `follow` says what happens when a `SKILL.md` changes, appears or disappears on disk while a thread
    * runs: `ask` (default) reports it and `/skills sync` takes it, `auto` pins it at the start of the next request (the model is told where
    * it happened, the cached prefix is untouched), `off` never looks.
    */
-  skills: strictObject({ follow: Type.Enum(["auto", "ask", "off"], { default: "ask" }) }, { default: {} }),
+  skills: section({ follow: withDefault(Type.Enum(["auto", "ask", "off"]), "ask") }),
   /**
    * Text the harness puts in front of the model before a request (docs/context.md, section 2); each is recorded in the transcript.
    * `usage`: tell the model when a request nears a limit or the context window (default on). `rules`: reminders by key (the key is what the rule is recorded under), each with a
    * `text` or a `file` (read from the thread's workspace when the rule fires), and `every` N responses since the last time (`first`: also on the first request).
    */
-  injections: strictObject(
-    {
-      usage: Type.Boolean({ default: true }),
-      /** Tell the model where it is (system, thread, date; docs/context.md, section 2). Default on. */
-      environment: Type.Boolean({ default: true }),
-      rules: record(pattern(/^[a-z0-9][a-z0-9_.-]*$/, "lowercase letters, digits, and . _ -"), injectionRule, { default: {} }),
-    },
-    { default: {} },
-  ),
+  injections: section({
+    usage: withDefault(Type.Boolean(), true),
+    /** Tell the model where it is (system, thread, date; docs/context.md, section 2). Default on. */
+    environment: withDefault(Type.Boolean(), true),
+    rules: withDefault(record(pattern(/^[a-z0-9][a-z0-9_.-]*$/, "lowercase letters, digits, and . _ -"), injectionRule), {}),
+  }),
   /**
    * Keeping the context within the window (docs/context.md, sections 5 and 6). With `auto` on, a request that would reach `threshold_tokens` (default:
    * 70% of the model's context window, which leaves room to finish a long tool loop) is trimmed first; `auto: full` then writes a summary if the trim
@@ -247,23 +235,20 @@ const harness = strictObject({
   compaction: opt(
     strictObject({
       threshold_tokens: opt(positive),
-      keep_recent: Type.Integer({ minimum: 0, default: 12 }),
-      auto: Type.Enum(["off", "trim", "full"], { default: "off" }),
+      keep_recent: withDefault(Type.Integer({ minimum: 0 }), 12),
+      auto: withDefault(Type.Enum(["off", "trim", "full"]), "off"),
       /** What a trim leaves out, as sizes in bytes (`reasoning`: all of it). */
-      trim: strictObject(
-        {
-          tool_results: Type.Integer({ minimum: 0, default: 2048 }),
-          tool_args: Type.Integer({ minimum: 0, default: 2048 }),
-          reasoning: Type.Boolean({ default: true }),
-        },
-        { default: {} },
-      ),
+      trim: section({
+        tool_results: withDefault(Type.Integer({ minimum: 0 }), 2048),
+        tool_args: withDefault(Type.Integer({ minimum: 0 }), 2048),
+        reasoning: withDefault(Type.Boolean(), true),
+      }),
       /** The model that writes summaries, of the thread's provider. Default: the thread's own model. */
       summary_model: opt(nonEmpty),
       /** What the summarizer reads: `seen`, what the main model sees (past summaries and trimmed entries); or `raw`, the entries since the last summary untrimmed (falls back to `seen` if that does not fit). */
-      summary_input: Type.Enum(["seen", "raw"], { default: "seen" }),
+      summary_input: withDefault(Type.Enum(["seen", "raw"]), "seen"),
       /** The share of the threshold (at 3 bytes to a token) that the summaries in the context may take. While they fit, a new summary covers only what came after them and they stay as they are (cache-friendly); beyond it, the new one takes them in and covers everything. */
-      summary_budget: Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1, default: 0.15 }),
+      summary_budget: withDefault(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1 }), 0.15),
     }),
   ),
 });

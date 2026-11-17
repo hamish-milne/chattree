@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../../src/validate.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { syncTools, type LoopEvent } from "../../harness/loop.ts";
@@ -31,9 +32,8 @@ const hang = (signal: AbortSignal): Promise<Completed> =>
 const adapters = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
-    config: z.strictObject({ $tag: z.literal("fake") }),
-    settings: z.strictObject({}),
-    jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+    config: strictObject({ $tag: Type.Literal("fake") }),
+    settings: strictObject({}),
     secrets: () => [],
     models: () => ({}),
     create: () => ({

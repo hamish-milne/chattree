@@ -3,6 +3,8 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
 import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../../src/validate.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
@@ -54,9 +56,8 @@ const call = (id: string, name: string, args: unknown = {}) => ({ id, name, args
 const adapters = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
-    config: z.strictObject({ $tag: z.literal("fake") }),
+    config: strictObject({ $tag: Type.Literal("fake") }),
     settings: z.strictObject({ max_output_tokens: z.number().optional(), effort: z.string().optional() }),
-    jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
     secrets: () => [],
     models: () => ({
       m1: {

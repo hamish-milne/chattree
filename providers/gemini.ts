@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../src/validate.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor, type ModelInfo } from "./registry.ts";
 import { compatibleSettings, openaiCompatibleAdapter } from "./openai-compatible.ts";
 import type { ModelPrice, PriceTable } from "./pricing.ts";
@@ -62,14 +63,16 @@ export function geminiCatalogFrom(rows: readonly GeminiRow[], asOf: string): { m
 
 export const GEMINI_CATALOG = geminiCatalogFrom(GEMINI_ROWS, "2026-10-30");
 
-const geminiConfig = z.strictObject({
-  $tag: z.literal("gemini"),
+const opt = Type.Optional;
+
+const geminiConfig = strictObject({
+  $tag: Type.Literal("gemini"),
   /** The NAME of the environment variable holding the Google AI Studio API key. */
   api_key_env: envName,
   /** Default `https://generativelanguage.googleapis.com/v1beta/openai`. */
-  base_url: z.string().url().optional(),
-  max_tokens_param: z.enum(["max_tokens", "max_completion_tokens"]).optional(),
-  include_usage: z.boolean().optional(),
+  base_url: opt(Type.String({ format: "url" })),
+  max_tokens_param: opt(Type.Enum(["max_tokens", "max_completion_tokens"])),
+  include_usage: opt(Type.Boolean()),
   ...commonProviderFields,
 });
 
@@ -77,10 +80,6 @@ export const geminiDefinition = defineAdapter({
   $tag: "gemini",
   config: geminiConfig,
   settings: compatibleSettings,
-  jsonSchema: () => ({
-    config: z.toJSONSchema(geminiConfig, { io: "input" }),
-    settings: z.toJSONSchema(compatibleSettings, { io: "input" }),
-  }),
   secrets: (c) => [c.api_key_env],
   prices: (c) => pricesFor(GEMINI_CATALOG.prices, c),
   models: (c) => modelsFor(GEMINI_CATALOG.models, c),

@@ -1,9 +1,10 @@
 import { audioFormat, base64, dataUrl } from "../harness/attachments.ts";
 import { CHAT_MEDIA } from "./media-specs.ts";
-import { z } from "zod";
+import { Type, type Static } from "typebox";
 import type { Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
+import { record, safeParse, strictObject } from "../src/validate.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
 import { httpStream, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
 import type { SseEvent } from "./sse.ts";
@@ -34,22 +35,26 @@ import { asJson, asString, jsonList, jsonOr, messageText, parseJsonObject, type 
 
 // ---- settings -------------------------------------------------------------------------------------------------
 
-export const compatibleSettings = z.strictObject({
+const opt = Type.Optional;
+const positive = Type.Integer({ minimum: 1 });
+const nonEmpty = Type.String({ minLength: 1 });
+
+export const compatibleSettings = strictObject({
   /** Per-request cap on output, reasoning included (sent as `max_tokens`, or the parameter the provider config names). Required: the cost limit is computed from it. */
-  max_output_tokens: z.number().int().positive(),
-  temperature: z.number().min(0).max(2).optional(),
-  top_p: z.number().min(0).max(1).optional(),
-  stop: z.array(z.string().min(1)).max(4).optional(),
-  seed: z.number().int().optional(),
+  max_output_tokens: positive,
+  temperature: opt(Type.Number({ minimum: 0, maximum: 2 })),
+  top_p: opt(Type.Number({ minimum: 0, maximum: 1 })),
+  stop: opt(Type.Array(nonEmpty, { maxItems: 4 })),
+  seed: opt(Type.Integer()),
   /** `reasoning_effort`, for servers and models that take it. Changing it changes what the server computes, so it counts as a cache break. */
-  reasoning_effort: z.string().min(1).optional(),
+  reasoning_effort: opt(nonEmpty),
   /**
    * Send the model's earlier reasoning back (as `reasoning_content`) with the assistant messages. `"turn"`: only what the same model
    * wrote since the last user message, which is where it matters (between tool calls) and what model makers say to send; `true`: all of
    * it, for the template to sort out; `false` (the default): none, as most chat templates drop it and a few (those that expect it next
    * to tool calls) need it.
    */
-  replay_reasoning: z.union([z.boolean(), z.literal("turn")]).optional(),
+  replay_reasoning: opt(Type.Union([Type.Boolean(), Type.Literal("turn")])),
   /**
    * Reasoning that a server leaves inline in the text as `<think>…</think>`. `auto` (the default) looks only at the very start
    * of each response and costs nothing when there is no tag; `off` never splits (use it if answers may begin with a literal
@@ -57,16 +62,16 @@ export const compatibleSettings = z.strictObject({
    * tag in the prompt, so the output starts mid-thought and only `</think>` appears (a response that skips thinking is then all
    * reasoning); an object names other tags.
    */
-  think_tags: z
-    .union([
-      z.enum(["auto", "off", "implicit"]),
-      z.strictObject({ open: z.string().min(1), close: z.string().min(1), implicit_open: z.boolean().optional() }),
-    ])
-    .optional(),
+  think_tags: opt(
+    Type.Union([
+      Type.Enum(["auto", "off", "implicit"]),
+      strictObject({ open: nonEmpty, close: nonEmpty, implicit_open: opt(Type.Boolean()) }),
+    ]),
+  ),
   /** Extra top-level request fields for server extensions (`top_k`, `min_p`, `chat_template_kwargs`, Ollama's `think`). Cannot override the fields the adapter owns. */
-  extra: z.record(z.string(), z.unknown()).optional(),
+  extra: opt(record(Type.String(), Type.Unknown())),
 });
-export type CompatibleSettings = z.infer<typeof compatibleSettings>;
+export type CompatibleSettings = Static<typeof compatibleSettings>;
 
 /** The splitter a response needs, from the setting: none when it is `off`. */
 function thinkOptions(setting: CompatibleSettings["think_tags"]): ThinkOptions | undefined {
@@ -77,13 +82,13 @@ function thinkOptions(setting: CompatibleSettings["think_tags"]): ThinkOptions |
 }
 
 export function parseCompatibleSettings(settings: unknown): CompatibleSettings {
-  const r = compatibleSettings.safeParse(settings ?? {});
-  if (!r.success)
+  const r = safeParse(compatibleSettings, settings ?? {});
+  if (!r.ok)
     throw new ProviderError({
       kind: "invalid_request",
-      message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
+      message: `invalid model settings for this provider: ${r.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
     });
-  return r.data;
+  return r.value;
 }
 
 // ---- request --------------------------------------------------------------------------------------------------
@@ -545,15 +550,15 @@ export function openaiCompatibleAdapter(opts: CompatibleOptions & { tag?: string
 
 // ---- registration -----------------------------------------------------------------------------------------------
 
-const compatibleProviderConfig = z.strictObject({
-  $tag: z.literal("openai-compatible"),
+const compatibleProviderConfig = strictObject({
+  $tag: Type.Literal("openai-compatible"),
   /** Where the server is, including `/v1`. Required: there is no sensible default, and guessing could send a conversation to the wrong place. */
-  base_url: z.string().url(),
+  base_url: Type.String({ format: "url" }),
   /** The NAME of the environment variable holding the key. Omit for a server that needs none. */
-  api_key_env: envName.optional(),
-  max_tokens_param: z.enum(["max_tokens", "max_completion_tokens"]).optional(),
+  api_key_env: opt(envName),
+  max_tokens_param: opt(Type.Enum(["max_tokens", "max_completion_tokens"])),
   /** `false` for a server that rejects `stream_options` (usage is then not reported, and costs show as unknown unless the provider is marked `pricing: {free: true}`). */
-  include_usage: z.boolean().optional(),
+  include_usage: opt(Type.Boolean()),
   ...commonProviderFields,
 });
 
@@ -561,10 +566,6 @@ export const openaiCompatibleDefinition = defineAdapter({
   $tag: "openai-compatible",
   config: compatibleProviderConfig,
   settings: compatibleSettings,
-  jsonSchema: () => ({
-    config: z.toJSONSchema(compatibleProviderConfig, { io: "input" }),
-    settings: z.toJSONSchema(compatibleSettings, { io: "input" }),
-  }),
   secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
   prices: (c) => pricesFor(undefined, c),
   models: (c) => modelsFor(undefined, c),

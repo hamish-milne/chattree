@@ -5,7 +5,8 @@
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../src/validate.ts";
 import { BusyboxError, ensureBusybox } from "../hosts/busybox.ts";
 import { nodeHost } from "../hosts/node.ts";
 import type { ModelContext } from "../harness/context-builder.ts";
@@ -115,9 +116,8 @@ export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult
   const live = new AdapterRegistry().register(
     defineAdapter({
       $tag: "live",
-      config: z.strictObject({ $tag: z.literal("live") }),
-      settings: z.looseObject({}),
-      jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+      config: strictObject({ $tag: Type.Literal("live") }),
+      settings: Type.Object({}),
       secrets: () => [],
       create: () => (o.onRequest === undefined ? o.adapter : recording(o.adapter, o.onRequest)),
     }),

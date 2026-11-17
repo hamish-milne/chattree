@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Type } from "typebox";
-import { parser } from "../src/validate.ts";
+import { parser, withDefault } from "../src/validate.ts";
 
 /**
  * The record of what was fetched (docs/local-models.md, section 3): the SHA-256 and size of every program archive and model file the
@@ -27,7 +27,7 @@ const LOCK_FILE = parser(
   Type.Object({
     version: Type.Literal(1),
     files: Type.Record(Type.String(), Type.Object({ sha256: Type.String(), size: Type.Number() })),
-    quants: Type.Record(Type.String(), Type.Array(Type.String()), { default: {} }),
+    quants: withDefault(Type.Record(Type.String(), Type.Array(Type.String())), {}),
   }),
 );
 

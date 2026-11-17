@@ -9,7 +9,8 @@ import { envSource, layered, parseDotenv, redactionPatterns, repoSecretSource, S
 import { defaultRegistry } from "../../providers/index.ts";
 import { AdapterRegistry, buildProviders, defineAdapter, ProviderSetupError, validateProviders } from "../../providers/registry.ts";
 import { tempDir } from "../support/tmp.ts";
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../../src/validate.ts";
 import { approve } from "../support/trust.ts";
 
 const host = nodeHost();
@@ -121,10 +122,7 @@ describe("registry and providers", () => {
       /no adapter for "nope" \(known: anthropic, gemini, openai, openai-compatible, opencode-go\)/,
     );
     assert.match(by["providers.b.api_key_env"] ?? "", /NAME of an environment variable/);
-    assert.ok(
-      Object.keys(by).some((k) => k.startsWith("providers.b") && /nrecognized|extra/.test(by[k] ?? "")),
-      JSON.stringify(by),
-    );
+    assert.equal(by["providers.b.extra"], "unknown field (not in the schema)");
     assert.ok("providers.c.max_concurrent" in by);
   });
 
@@ -157,13 +155,12 @@ describe("registry and providers", () => {
     assert.deepEqual(b.secretValues, []);
   });
 
-  test("a third-party adapter registers with its own schema library", async () => {
+  test("an adapter registers with its own schema", async () => {
     const reg = new AdapterRegistry().register(
       defineAdapter({
         $tag: "toy",
-        config: z.strictObject({ $tag: z.literal("toy"), token_env: z.string() }),
-        settings: z.strictObject({ n: z.number() }),
-        jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+        config: strictObject({ $tag: Type.Literal("toy"), token_env: Type.String() }),
+        settings: strictObject({ n: Type.Number() }),
         secrets: (c) => [c.token_env],
         create: (_c, s) => ({
           $tag: "toy",

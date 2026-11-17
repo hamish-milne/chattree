@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 import { Type } from "typebox";
 import { Settings } from "typebox/system";
-import { accelerated, parser, record, rules, said, strictObject, ValidationError } from "../src/validate.ts";
+import { accelerated, parser, record, rules, said, section, strictObject, withDefault, ValidationError } from "../src/validate.ts";
 
 const modes = [true, false] as const;
 
@@ -17,7 +17,7 @@ for (const accel of modes) {
     ]);
     const Entry = rules(
       strictObject({
-        rev: Type.String({ default: "main" }),
+        rev: withDefault(Type.String(), "main"),
         x: Type.Optional(Type.Integer()),
         y: Type.Optional(Type.Integer()),
         hash: Type.Optional(
@@ -26,14 +26,14 @@ for (const accel of modes) {
             .Encode((s) => s),
         ),
         spec: Type.Optional(Spec),
-        tags: Type.Optional(Type.Array(strictObject({ k: Type.String({ default: "dflt" }) }))),
+        tags: Type.Optional(Type.Array(strictObject({ k: withDefault(Type.String(), "dflt") }))),
       }),
       [(v) => ((v.x === undefined) === (v.y === undefined) ? "give x or y, not both and not neither" : undefined)],
     );
     const Root = strictObject({
-      version: Type.Literal(1, { default: 1 }),
-      sub: strictObject({ a: Type.Integer({ default: 3 }) }, { default: {} }),
-      items: record(said("lower case letters", Type.String({ pattern: "^[a-z]+$" })), Entry, { default: {} }),
+      version: withDefault(Type.Literal(1), 1),
+      sub: section({ a: withDefault(Type.Integer(), 3) }),
+      items: withDefault(record(said("lower case letters", Type.String({ pattern: "^[a-z]+$" })), Entry), {}),
     });
     const p = parser(Root);
     const bad = (v: unknown): string[] => {

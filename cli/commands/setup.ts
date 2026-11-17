@@ -2,7 +2,8 @@ import type { Conversation } from "../../harness/conversation.ts";
 import { pinDefinition, loadDefinitions } from "../../harness/definitions.ts";
 import { prefixLags, type AgentSetup, type ModelSetup } from "../../harness/setup.ts";
 import { tableHash } from "../../providers/pricing.ts";
-import type { AdapterRegistry } from "../../providers/index.ts";
+import { IsObject } from "typebox";
+import { settingsProblems, type AdapterRegistry } from "../../providers/index.ts";
 import { cliRegistry } from "../providers.ts";
 import { withConfirmation } from "../changes.ts";
 import { openThread } from "../project.ts";
@@ -19,15 +20,12 @@ const providersOf = async (convo: Conversation): Promise<Record<string, { $tag: 
 async function settingsIssues(registry: AdapterRegistry, tag: string, settings: unknown): Promise<string[]> {
   const def = registry.get(tag);
   if (def === undefined) return [`no adapter for ${tag}`];
-  const r = await def.settings["~standard"].validate(settings);
-  return r.issues === undefined
-    ? []
-    : r.issues.map((i) => `${(i.path ?? []).map((p) => (typeof p === "object" ? p.key : p)).join(".") || "settings"}: ${i.message}`);
+  return settingsProblems(def, settings);
 }
 
 const settingKeys = (registry: AdapterRegistry, tag: string): string[] => {
-  const schema: { properties?: Record<string, unknown> } | undefined = registry.get(tag)?.jsonSchema().settings;
-  return Object.keys(schema?.properties ?? {});
+  const schema = registry.get(tag)?.settings;
+  return schema !== undefined && IsObject(schema) ? Object.keys(schema.properties) : [];
 };
 
 const pretty = (v: unknown): string => JSON.stringify(v, null, 2);

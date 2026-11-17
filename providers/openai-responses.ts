@@ -1,10 +1,11 @@
 import { dataUrl } from "../harness/attachments.ts";
 import { RESPONSES_MEDIA } from "./media-specs.ts";
 import { createHash } from "node:crypto";
-import { z } from "zod";
+import { Type, type Static } from "typebox";
 import type { AttachmentPart, Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
+import { record, safeParse, strictObject } from "../src/validate.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
 import { OPENAI_MODELS, OPENAI_PRICES } from "./pricing-data.ts";
 import {
@@ -48,38 +49,42 @@ import { asJson, asString, jsonList, jsonOr, messageText, optString, parseJsonOb
 
 // ---- settings -------------------------------------------------------------------------------------------------
 
-export const openaiSettings = z.strictObject({
+const opt = Type.Optional;
+const positive = Type.Integer({ minimum: 1 });
+const nonEmpty = Type.String({ minLength: 1 });
+
+export const openaiSettings = strictObject({
   /** Per-request cap on output, reasoning included. Required: the cost limit is computed from it. */
-  max_output_tokens: z.number().int().positive(),
+  max_output_tokens: positive,
   /** Request reasoning (summaries, and the encrypted items that make replay possible). Set false for models that do not reason. Default true. */
-  reasoning: z.boolean().optional(),
+  reasoning: opt(Type.Boolean()),
   /** `reasoning.effort`; the accepted names depend on the model. Changing it changes the cached prefix. */
-  effort: z.string().min(1).optional(),
+  effort: opt(nonEmpty),
   /** `reasoning.summary`. Default `auto`. */
-  reasoning_summary: z.enum(["auto", "concise", "detailed"]).optional(),
-  temperature: z.number().min(0).max(2).optional(),
-  top_p: z.number().min(0).max(1).optional(),
-  service_tier: z.string().min(1).optional(),
+  reasoning_summary: opt(Type.Enum(["auto", "concise", "detailed"])),
+  temperature: opt(Type.Number({ minimum: 0, maximum: 2 })),
+  top_p: opt(Type.Number({ minimum: 0, maximum: 1 })),
+  service_tier: opt(nonEmpty),
   /**
    * How long the prompt cache lives (`prompt_cache_options.ttl`): `30m` (the default; writes cost 1.25x input) or
    * `12h` (2.5x). For GPT-5.6 and later; earlier models use `prompt_cache_retention`, which you can pass in `extra`.
    */
-  cache_ttl: z.enum(["30m", "12h"]).optional(),
+  cache_ttl: opt(Type.Enum(["30m", "12h"])),
   /** Let the server compact the conversation once it passes this many tokens (`context_management`). The compaction item is kept and replayed. */
-  compact_threshold: z.number().int().positive().optional(),
+  compact_threshold: opt(positive),
   /** Extra top-level request fields for servers with extensions (Ollama's `think`). Cannot override the fields the adapter owns. */
-  extra: z.record(z.string(), z.unknown()).optional(),
+  extra: opt(record(Type.String(), Type.Unknown())),
 });
-export type OpenAISettings = z.infer<typeof openaiSettings>;
+export type OpenAISettings = Static<typeof openaiSettings>;
 
 export function parseOpenAISettings(settings: unknown): OpenAISettings {
-  const r = openaiSettings.safeParse(settings ?? {});
-  if (!r.success)
+  const r = safeParse(openaiSettings, settings ?? {});
+  if (!r.ok)
     throw new ProviderError({
       kind: "invalid_request",
-      message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
+      message: `invalid model settings for this provider: ${r.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
     });
-  return r.data;
+  return r.value;
 }
 
 // ---- request --------------------------------------------------------------------------------------------------
@@ -733,16 +738,16 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
 
 // ---- registration -----------------------------------------------------------------------------------------------
 
-const openaiProviderConfig = z.strictObject({
-  $tag: z.literal("openai"),
+const openaiProviderConfig = strictObject({
+  $tag: Type.Literal("openai"),
   /** The NAME of the environment variable holding the key. Omit for a server that needs none. */
-  api_key_env: envName.optional(),
-  base_url: z.string().url().optional(),
+  api_key_env: opt(envName),
+  base_url: opt(Type.String({ format: "url" })),
   /** `false` opts out of server-side storage of responses (no chaining, no retrieval). */
-  store: z.boolean().optional(),
-  chain: z.boolean().optional(),
-  replay_item_ids: z.boolean().optional(),
-  prune_at_compaction: z.boolean().optional(),
+  store: opt(Type.Boolean()),
+  chain: opt(Type.Boolean()),
+  replay_item_ids: opt(Type.Boolean()),
+  prune_at_compaction: opt(Type.Boolean()),
   ...commonProviderFields,
 });
 
@@ -750,10 +755,6 @@ export const openaiDefinition = defineAdapter({
   $tag: "openai",
   config: openaiProviderConfig,
   settings: openaiSettings,
-  jsonSchema: () => ({
-    config: z.toJSONSchema(openaiProviderConfig, { io: "input" }),
-    settings: z.toJSONSchema(openaiSettings, { io: "input" }),
-  }),
   secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
   prices: (c) => pricesFor(OPENAI_PRICES, c),
   models: (c) => modelsFor(OPENAI_MODELS, c),

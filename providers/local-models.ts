@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { Type } from "typebox";
+import { record, safeParse, strictObject } from "../src/validate.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
 import { completionMapper, DialectRegistry, serverProps, type Dialect } from "./dialect.ts";
 import { builtinDialects } from "./dialects/index.ts";
@@ -31,17 +32,20 @@ export interface LocalModelsRuntime {
   resolve(id: string): string;
 }
 
-const providerConfig = z.strictObject({
-  $tag: z.literal("local-models"),
-  include_usage: z.boolean().optional(),
+const opt = Type.Optional;
+
+const providerConfig = strictObject({
+  $tag: Type.Literal("local-models"),
+  include_usage: opt(Type.Boolean()),
   ...commonProviderFields,
 });
 
 /** The settings of a local model: those of any Chat Completions server, and the dialect that renders the prompt itself (docs/local-models.md, section 9). */
-export const localModelsSettings = compatibleSettings.extend({
+export const localModelsSettings = strictObject({
+  ...compatibleSettings.properties,
   /** Render the prompt and read the output ourselves, through `/completion`, instead of the server's chat template. Absent: the server's template. */
-  dialect: z.string().min(1).optional(),
-  dialect_options: z.record(z.string(), z.unknown()).optional(),
+  dialect: opt(Type.String({ minLength: 1 })),
+  dialect_options: opt(record(Type.String(), Type.Unknown())),
 });
 
 /** What a setup change does: as for any server, and the dialect and its options change the prompt the server sees. */
@@ -77,10 +81,6 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
     $tag: "local-models",
     config: providerConfig,
     settings: localModelsSettings,
-    jsonSchema: () => ({
-      config: z.toJSONSchema(providerConfig, { io: "input" }),
-      settings: z.toJSONSchema(localModelsSettings, { io: "input" }),
-    }),
     secrets: () => [],
     // Everything a local server costs is nothing, unless the config says otherwise.
     prices: (c) => pricesFor(undefined, { ...c, pricing: c.pricing ?? { free: true } }),
@@ -102,13 +102,13 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
           } catch (e) {
             throw new ProviderError({ kind: "network", message: e instanceof Error ? e.message : String(e), retryable: false, cause: e });
           }
-          const settings = localModelsSettings.safeParse(req.setup.model?.settings ?? {});
-          if (!settings.success)
+          const settings = safeParse(localModelsSettings, req.setup.model?.settings ?? {});
+          if (!settings.ok)
             throw new ProviderError({
               kind: "invalid_request",
-              message: `invalid model settings for this provider: ${settings.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
+              message: `invalid model settings for this provider: ${settings.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
             });
-          const dialect = settings.data.dialect;
+          const dialect = settings.value.dialect;
           if (dialect !== undefined) {
             const mapper = completionMapper(
               {
@@ -118,7 +118,7 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
                 modelName: (id) => runtime.resolve(modelNameOf(id)),
                 observe: (requested) => conn.ids[requested],
               },
-              () => ({ ...settings.data, dialect }),
+              () => ({ ...settings.value, dialect }),
             );
             return yield* httpStream(mapper, req, httpOptionsFor(c));
           }

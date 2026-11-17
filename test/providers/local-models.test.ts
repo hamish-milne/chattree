@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { safeParse } from "../../src/validate.ts";
 import { describe, test } from "node:test";
 import { emptySetup, type AgentSetup } from "../../harness/setup.ts";
 import { collectStream } from "../../providers/conformance.ts";
@@ -161,9 +162,9 @@ describe("the local-models adapter", () => {
     assert.deepEqual(def.secrets(config), []);
   });
 
-  test("the config takes no address and no unknown keys", async () => {
+  test("the config takes no address and no unknown keys", () => {
     const { def } = adapterFor(runtime(undefined));
-    assert.equal((await def.config["~standard"].validate({ $tag: "local-models" })).issues, undefined);
-    assert.notEqual((await def.config["~standard"].validate({ $tag: "local-models", base_url: "http://x" })).issues, undefined);
+    assert.equal(safeParse(def.config, { $tag: "local-models" }).ok, true);
+    assert.equal(safeParse(def.config, { $tag: "local-models", base_url: "http://x" }).ok, false);
   });
 });

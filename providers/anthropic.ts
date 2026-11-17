@@ -1,9 +1,10 @@
 import { base64 } from "../harness/attachments.ts";
 import { ANTHROPIC_MEDIA } from "./media-specs.ts";
-import { z } from "zod";
+import { Type, type Static } from "typebox";
 import type { AttachmentPart, Block, ModelContext, Turn } from "../harness/context-builder.ts";
 import type { ToolDefinition } from "../harness/definitions.ts";
 import { servedModelId, stable, type AgentSetup, type Change } from "../harness/setup.ts";
+import { safeParse, strictObject } from "../src/validate.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor } from "./registry.ts";
 import { ANTHROPIC_MODELS, ANTHROPIC_PRICES } from "./pricing-data.ts";
 import { httpStream, jsonRequest, type HttpMapper, type HttpOptions, type HttpRequestSpec } from "./http.ts";
@@ -30,31 +31,35 @@ import { asJson, asString, jsonOr, messageText, parseJsonObject, wireIndex, wire
 
 // ---- settings -------------------------------------------------------------------------------------------------
 
-const display = z.enum(["summarized", "omitted"]).optional();
+const opt = Type.Optional;
+const positive = Type.Integer({ minimum: 1 });
+const nonEmpty = Type.String({ minLength: 1 });
+
+const display = opt(Type.Enum(["summarized", "omitted"]));
 /** What an agent's `model.settings` may hold for this provider. Unknown keys are refused: a typo here costs money. */
-export const anthropicSettings = z.strictObject({
+export const anthropicSettings = strictObject({
   /** Per-request cap on output, thinking included. Required: the cost limit is computed from it. */
-  max_output_tokens: z.number().int().positive(),
-  thinking: z
-    .discriminatedUnion("type", [
-      z.strictObject({ type: z.literal("adaptive"), display }),
-      z.strictObject({ type: z.literal("enabled"), budget_tokens: z.number().int().positive(), display }),
-      z.strictObject({ type: z.literal("disabled") }),
-    ])
-    .optional(),
+  max_output_tokens: positive,
+  thinking: opt(
+    Type.Union([
+      strictObject({ type: Type.Literal("adaptive"), display }),
+      strictObject({ type: Type.Literal("enabled"), budget_tokens: positive, display }),
+      strictObject({ type: Type.Literal("disabled") }),
+    ]),
+  ),
   /** `output_config.effort`; the accepted names depend on the model. Changing it invalidates the prompt cache. */
-  effort: z.string().min(1).optional(),
-  temperature: z.number().min(0).max(1).optional(),
-  top_p: z.number().min(0).max(1).optional(),
-  top_k: z.number().int().positive().optional(),
-  stop_sequences: z.array(z.string().min(1)).optional(),
+  effort: opt(nonEmpty),
+  temperature: opt(Type.Number({ minimum: 0, maximum: 1 })),
+  top_p: opt(Type.Number({ minimum: 0, maximum: 1 })),
+  top_k: opt(positive),
+  stop_sequences: opt(Type.Array(nonEmpty)),
   /**
    * How long the prompt cache lives after each use: `5m` (the default, writes cost 1.25x input) or `1h` (writes cost 2x).
    * Reads cost the same either way. Use `1h` when the gaps between requests are longer than five minutes.
    */
-  cache_ttl: z.enum(["5m", "1h"]).optional(),
+  cache_ttl: opt(Type.Enum(["5m", "1h"])),
 });
-export type AnthropicSettings = z.infer<typeof anthropicSettings>;
+export type AnthropicSettings = Static<typeof anthropicSettings>;
 
 /** A picture or a document as the API takes it, in a user turn or in a tool result; the API takes no audio. */
 function mediaBlock(p: AttachmentPart): Json {
@@ -68,13 +73,13 @@ function mediaBlock(p: AttachmentPart): Json {
 }
 
 export function parseAnthropicSettings(settings: unknown): AnthropicSettings {
-  const r = anthropicSettings.safeParse(settings ?? {});
-  if (!r.success)
+  const r = safeParse(anthropicSettings, settings ?? {});
+  if (!r.ok)
     throw new ProviderError({
       kind: "invalid_request",
-      message: `invalid model settings for this provider: ${r.error.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
+      message: `invalid model settings for this provider: ${r.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
     });
-  return r.data;
+  return r.value;
 }
 
 // ---- request --------------------------------------------------------------------------------------------------
@@ -490,15 +495,15 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
 /** What a setup change does to the prompt cache and the request, beyond what the harness can tell. */
 // ---- registration -----------------------------------------------------------------------------------------------
 
-const anthropicProviderConfig = z.strictObject({
-  $tag: z.literal("anthropic"),
+const anthropicProviderConfig = strictObject({
+  $tag: Type.Literal("anthropic"),
   /** The NAME of the environment variable holding the key. Omit for a server that needs none. */
-  api_key_env: envName.optional(),
-  base_url: z.string().url().optional(),
-  authorization: z.enum(["x-api-key", "bearer"]).optional(),
-  version: z.string().min(1).optional(),
-  betas: z.array(z.string().min(1)).optional(),
-  cache_control: z.boolean().optional(),
+  api_key_env: opt(envName),
+  base_url: opt(Type.String({ format: "url" })),
+  authorization: opt(Type.Enum(["x-api-key", "bearer"])),
+  version: opt(nonEmpty),
+  betas: opt(Type.Array(nonEmpty)),
+  cache_control: opt(Type.Boolean()),
   ...commonProviderFields,
 });
 
@@ -506,10 +511,6 @@ export const anthropicDefinition = defineAdapter({
   $tag: "anthropic",
   config: anthropicProviderConfig,
   settings: anthropicSettings,
-  jsonSchema: () => ({
-    config: z.toJSONSchema(anthropicProviderConfig, { io: "input" }),
-    settings: z.toJSONSchema(anthropicSettings, { io: "input" }),
-  }),
   secrets: (c) => (c.api_key_env === undefined ? [] : [c.api_key_env]),
   prices: (c) => pricesFor(ANTHROPIC_PRICES, c),
   models: (c) => modelsFor(ANTHROPIC_MODELS, c),

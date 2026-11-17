@@ -3,7 +3,8 @@ import { execFileSync } from "node:child_process";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../../src/validate.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { runLoop, syncTools } from "../../harness/loop.ts";
@@ -20,9 +21,8 @@ let queue: Completed[] = [];
 const adapters = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
-    config: z.strictObject({ $tag: z.literal("fake") }),
-    settings: z.strictObject({}),
-    jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+    config: strictObject({ $tag: Type.Literal("fake") }),
+    settings: strictObject({}),
     secrets: () => [],
     models: () => ({}),
     create: () => ({

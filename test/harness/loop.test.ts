@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../../src/validate.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
@@ -52,9 +53,8 @@ let convention: ToolConvention | undefined;
 const adapters = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
-    config: z.strictObject({ $tag: z.literal("fake") }),
-    settings: z.strictObject({}),
-    jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+    config: strictObject({ $tag: Type.Literal("fake") }),
+    settings: strictObject({}),
     secrets: () => [],
     models: () => (convention === undefined ? {} : { m1: { tool_convention: convention } }),
     create: () => ({

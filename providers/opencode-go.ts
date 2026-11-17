@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../src/validate.ts";
 import { defineAdapter, commonProviderFields, envName, httpOptionsFor, modelsFor, pricesFor, type ModelInfo } from "./registry.ts";
 import { compatibleSettings, openaiCompatibleAdapter } from "./openai-compatible.ts";
 import type { ModelPrice, PriceTable } from "./pricing.ts";
@@ -98,14 +99,16 @@ export function catalogFrom(
 
 export const OPENCODE_GO_CATALOG = catalogFrom(OPENCODE_GO_ROWS, "2026-10-30");
 
-const opencodeGoConfig = z.strictObject({
-  $tag: z.literal("opencode-go"),
+const opt = Type.Optional;
+
+const opencodeGoConfig = strictObject({
+  $tag: Type.Literal("opencode-go"),
   /** The NAME of the environment variable holding the key from the OpenCode console. */
   api_key_env: envName,
   /** Default `https://opencode.ai/inference/go/openai/v1`. */
-  base_url: z.string().url().optional(),
-  max_tokens_param: z.enum(["max_tokens", "max_completion_tokens"]).optional(),
-  include_usage: z.boolean().optional(),
+  base_url: opt(Type.String({ format: "url" })),
+  max_tokens_param: opt(Type.Enum(["max_tokens", "max_completion_tokens"])),
+  include_usage: opt(Type.Boolean()),
   ...commonProviderFields,
 });
 
@@ -113,10 +116,6 @@ export const opencodeGoDefinition = defineAdapter({
   $tag: "opencode-go",
   config: opencodeGoConfig,
   settings: compatibleSettings,
-  jsonSchema: () => ({
-    config: z.toJSONSchema(opencodeGoConfig, { io: "input" }),
-    settings: z.toJSONSchema(compatibleSettings, { io: "input" }),
-  }),
   secrets: (c) => [c.api_key_env],
   prices: (c) => pricesFor(OPENCODE_GO_CATALOG.prices, c),
   models: (c) => modelsFor(OPENCODE_GO_CATALOG.models, c),

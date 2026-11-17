@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { safeParse } from "../../src/validate.ts";
 import { describe, test } from "node:test";
 import { buildContext, type ModelContext } from "../../harness/context-builder.ts";
 import { emptySetup, type AgentSetup } from "../../harness/setup.ts";
@@ -648,18 +649,10 @@ describe("registration and classify", () => {
     const reg = defaultRegistry();
     const def = reg.get("openai-compatible");
     assert.ok(def !== undefined);
-    const ok = await def.config["~standard"].validate({
-      $tag: "openai-compatible",
-      base_url: "http://localhost:8080/v1",
-      pricing: { free: true },
-    });
-    assert.equal(ok.issues, undefined);
-    assert.notEqual((await def.config["~standard"].validate({ $tag: "openai-compatible" })).issues, undefined, "base_url is required");
-    assert.notEqual(
-      (await def.config["~standard"].validate({ $tag: "openai-compatible", base_url: "http://x/v1", api_key_env: "sk-pasted-key-123" }))
-        .issues,
-      undefined,
-    );
+    const ok = safeParse(def.config, { $tag: "openai-compatible", base_url: "http://localhost:8080/v1", pricing: { free: true } });
+    assert.equal(ok.ok, true);
+    assert.equal(safeParse(def.config, { $tag: "openai-compatible" }).ok, false, "base_url is required");
+    assert.equal(safeParse(def.config, { $tag: "openai-compatible", base_url: "http://x/v1", api_key_env: "sk-pasted-key-123" }).ok, false);
   });
 
   const m = (settings: Record<string, unknown>, id = "qwen3:4b"): AgentSetup => ({

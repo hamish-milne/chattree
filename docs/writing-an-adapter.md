@@ -98,11 +98,11 @@ directly and ignores all this. The conformance checks below apply to it all the 
 An adapter becomes usable from `harness.yml` by registering a definition (`defineAdapter` in `providers/registry.ts`):
 
 - `$tag`: what a provider's `$tag` (or `!tag`) says. Lowercase letters, digits, `-`.
-- `config`: a Standard Schema for the provider's keys, `$tag` included. Make it strict so a misspelt key is an error.
-  Use `envName` for any key that names an environment variable (it refuses a pasted key), and spread
-  `commonProviderFields` / `httpOptionsFor` for `max_concurrent`, `timeouts` and `max_attempts`.
-- `settings`: a Standard Schema for the model settings stored in `agent_setup`.
-- `jsonSchema()`: JSON Schema for both (zod's `z.toJSONSchema` does it), used for the editor schema.
+- `config`: a TypeBox schema (JSON Schema) for the provider's keys, `$tag` included. Build it with `strictObject` (from
+  `src/validate.ts`) so a misspelt key is an error. Use `envName` for any key that names an environment variable (it
+  refuses a pasted key), and spread `commonProviderFields` / `httpOptionsFor` for `max_concurrent`, `timeouts` and
+  `max_attempts`. The registry runs it with `safeParse`, and it is also what the editor schema shows.
+- `settings`: a TypeBox schema for the model settings stored in `agent_setup`.
 - `secrets(config)`: the environment variable names it needs; `open` fails naming each one that is unset.
 - `create(config, secrets)`: build the adapter. Never put a key in the config, a log, an error or an entry.
 

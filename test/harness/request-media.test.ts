@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { z } from "zod";
+import { Type } from "typebox";
+import { strictObject } from "../../src/validate.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import type { AttachmentPart } from "../../harness/context-builder.ts";
 import { ConversionError, type Converter } from "../../harness/converter.ts";
@@ -63,9 +64,8 @@ const PNG = Uint8Array.from([
 const registry = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
-    config: z.strictObject({ $tag: z.literal("fake") }),
-    settings: z.strictObject({}),
-    jsonSchema: () => ({ config: { type: "object" }, settings: { type: "object" } }),
+    config: strictObject({ $tag: Type.Literal("fake") }),
+    settings: strictObject({}),
     secrets: () => [],
     create: () => ({
       $tag: "fake",

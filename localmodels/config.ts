@@ -1,5 +1,5 @@
 import { Type, type Static, type StaticDecode } from "typebox";
-import { parser, record, rules, said, strictObject } from "../src/validate.ts";
+import { parser, record, rules, said, section, strictObject, withDefault } from "../src/validate.ts";
 
 /**
  * The `local_models` section of the user's settings file (docs/local-models.md, section 4): the models to download and run, the
@@ -153,7 +153,7 @@ const modelBase = strictObject({
   /** ... a Hugging Face repository (`org/repo:Q4_K_M`; a `file` names the exact file instead of a quantisation). */
   hf: opt(hfRef),
   file: opt(nonEmpty),
-  revision: Type.String({ minLength: 1, default: "main" }),
+  revision: withDefault(Type.String({ minLength: 1 }), "main"),
   /** The SHA-256 the file must have. Hugging Face tells it, so it is optional there. */
   sha256: opt(sha256),
   /** The multimodal projector for a vision model: a URL, or a file of the same Hugging Face repository. */
@@ -184,42 +184,36 @@ const modelEntry = rules(modelBase, [
 ]);
 export type ModelEntry = StaticDecode<typeof modelEntry>;
 
-const llamaCpp = strictObject(
-  {
-    /** The release to run: a build (`b12110`) or a release that points at one (`v0.9.0`). No tag, no download: `chattree models update` picks the newest and writes it here. */
-    tag: opt(said("a build such as b12110, or a version such as v0.9.0", Type.String({ pattern: LLAMA_TAG.source }))),
-    backend: Type.Enum(BACKENDS, { default: "auto" }),
-    /** With the cuda backend, the CUDA version to prefer (`12.8`); default the newest the release has. */
-    cuda: opt(Type.String({ pattern: "^\\d+(\\.\\d+)?$" })),
-    /** Use this llama-server instead of fetching one. */
-    path: opt(nonEmpty),
-  },
-  { default: {} },
-);
+const llamaCpp = section({
+  /** The release to run: a build (`b12110`) or a release that points at one (`v0.9.0`). No tag, no download: `chattree models update` picks the newest and writes it here. */
+  tag: opt(said("a build such as b12110, or a version such as v0.9.0", Type.String({ pattern: LLAMA_TAG.source }))),
+  backend: withDefault(Type.Enum(BACKENDS), "auto"),
+  /** With the cuda backend, the CUDA version to prefer (`12.8`); default the newest the release has. */
+  cuda: opt(Type.String({ pattern: "^\\d+(\\.\\d+)?$" })),
+  /** Use this llama-server instead of fetching one. */
+  path: opt(nonEmpty),
+});
 
-const server = strictObject(
-  {
-    host: Type.String({ minLength: 1, default: "127.0.0.1" }),
-    /** `auto` lets the host choose a free port and record it. */
-    port: Type.Union([Type.Literal("auto"), Type.Integer({ minimum: 1, maximum: 65535 })], { default: "auto" }),
-    /** How many models stay in memory at once; the least recently used is unloaded for the next. 0 is no limit. */
-    models_max: Type.Integer({ minimum: 0, default: 1 }),
-    /** Stop the host when it has had no request for this many minutes. Default: never. */
-    idle_exit_minutes: opt(positive),
-    /** How long to wait, in seconds, for llama-server to answer after it starts. */
-    health_timeout: Type.Integer({ minimum: 1, default: 60 }),
-    /** Serve llama-server's own web page. */
-    webui: Type.Boolean({ default: false }),
-  },
-  { default: {} },
-);
+const server = section({
+  host: withDefault(Type.String({ minLength: 1 }), "127.0.0.1"),
+  /** `auto` lets the host choose a free port and record it. */
+  port: withDefault(Type.Union([Type.Literal("auto"), Type.Integer({ minimum: 1, maximum: 65535 })]), "auto"),
+  /** How many models stay in memory at once; the least recently used is unloaded for the next. 0 is no limit. */
+  models_max: withDefault(Type.Integer({ minimum: 0 }), 1),
+  /** Stop the host when it has had no request for this many minutes. Default: never. */
+  idle_exit_minutes: opt(positive),
+  /** How long to wait, in seconds, for llama-server to answer after it starts. */
+  health_timeout: withDefault(Type.Integer({ minimum: 1 }), 60),
+  /** Serve llama-server's own web page. */
+  webui: withDefault(Type.Boolean(), false),
+});
 
 const localModels = strictObject({
   /** The engine that runs the models. Only `router` (llama-server's own router mode) exists so far; the host is written against an interface so another can be added. */
-  engine: Type.Literal("router", { default: "router" }),
+  engine: withDefault(Type.Literal("router"), "router"),
   llama_cpp: llamaCpp,
   server,
-  defaults: rules(strictObject(params, { default: {} }), [
+  defaults: rules(section(params), [
     (d) =>
       specOf(d.speculative)?.draft !== undefined
         ? "speculative.draft: a draft model belongs to one model: set speculative on the model"
@@ -227,7 +221,7 @@ const localModels = strictObject({
   ]),
   /** The environment variable that holds a Hugging Face token, for repositories that need one. */
   hf_token_env: opt(envName),
-  models: rules(record(name, modelEntry, { default: {} }), [
+  models: rules(withDefault(record(name, modelEntry), {}), [
     (models) => {
       const seen = new Map<string, string>();
       for (const [model, m] of Object.entries(models)) {
