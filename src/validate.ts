@@ -1,8 +1,20 @@
-import { IsObject, Type, type Static, type StaticDecode, type TObject, type TProperties, type TSchema, type TUnsafe } from "typebox";
+import {
+  IsArray,
+  IsObject,
+  IsUnion,
+  Type,
+  type Static,
+  type StaticDecode,
+  type TObject,
+  type TProperties,
+  type TSchema,
+  type TUnsafe,
+} from "typebox";
 import { Compile, type Validator } from "typebox/compile";
 import type { TLocalizedValidationError } from "typebox/error";
 import { Guard } from "typebox/guard";
 import { Pointer } from "typebox/schema";
+import { Settings } from "typebox/system";
 import { Clone, Default, DecodeUnsafe } from "typebox/value";
 import type { StandardSchemaV1 } from "./standard-schema.ts";
 
@@ -19,6 +31,9 @@ import type { StandardSchemaV1 } from "./standard-schema.ts";
  * `errorMessage` on a node is the sentence to show when that node's own keyword fails (a pattern, a range): an annotation for people
  * that the validator itself ignores.
  */
+
+// The default of 8 errors can stop short of the error that names a failed choice, which is what lets the complaints of the other forms be set aside.
+Settings.Set({ maxErrors: 64 });
 
 export interface Issue {
   /** Keys and array indices from the root to the value. Empty for the root. */
@@ -123,22 +138,54 @@ function pathOf(instancePath: string, root: unknown): (string | number)[] {
   return out;
 }
 
+/** Keywords that judge a value as a whole (its kind, or which scalar it is) rather than something inside an object. */
+const WHOLE_VALUE = new Set([
+  "type",
+  "enum",
+  "const",
+  "pattern",
+  "format",
+  "minLength",
+  "maxLength",
+  "minimum",
+  "maximum",
+  "exclusiveMinimum",
+  "exclusiveMaximum",
+  "multipleOf",
+]);
+
 const within = (e: TLocalizedValidationError, union: TLocalizedValidationError): boolean =>
   e !== union && e.schemaPath.startsWith(`${union.schemaPath}/`);
 
-/** A choice between forms that failed reports every form's complaint; show the one that got furthest, or say what was wanted. */
+/**
+ * A choice between forms that failed reports every form's complaint. A form the value was the right kind for (none of its complaints is about the value as a whole) is the one meant, so show that form's complaints, the form with the fewest if several fit (for a tagged choice, the
+ * form of its tag); if none fits, say what was wanted.
+ */
 function collapseUnions(errors: TLocalizedValidationError[]): TLocalizedValidationError[] {
   const drop = new Set<TLocalizedValidationError>();
   const reword = new Map<TLocalizedValidationError, string>();
   for (const union of errors) {
     if (union.keyword !== "anyOf" && union.keyword !== "oneOf") continue;
     const inner = errors.filter((e) => within(e, union));
-    const deeper = inner.filter((e) => e.instancePath !== union.instancePath);
-    if (deeper.length > 0) {
-      drop.add(union);
-      for (const e of inner) if (e.instancePath === union.instancePath) drop.add(e);
+    const branches = new Map<string, TLocalizedValidationError[]>();
+    for (const e of inner) {
+      const branch = e.schemaPath
+        .slice(union.schemaPath.length + 1)
+        .split("/")
+        .slice(0, 2)
+        .join("/");
+      branches.set(branch, [...(branches.get(branch) ?? []), e]);
+    }
+    const fits = [...branches.values()].filter(
+      (es) => !es.some((e) => WHOLE_VALUE.has(e.keyword) && e.instancePath === union.instancePath),
+    );
+    drop.add(union);
+    for (const e of inner) drop.add(e);
+    const best = fits.sort((x, y) => x.length - y.length)[0];
+    if (best !== undefined) {
+      for (const e of best) drop.delete(e);
     } else {
-      for (const e of inner) drop.add(e);
+      drop.delete(union);
       reword.set(union, `must be ${[...new Set(inner.map((e) => e.message.replace(/^must be /, "")))].join(" or ")}`);
     }
   }
@@ -210,3 +257,23 @@ export function parser<S extends TSchema>(schema: S): Parser<S> {
 
 /** Whether this schema's checks run as generated code (false where the environment does not allow it, or `useAcceleration` is off). */
 export const accelerated = (schema: TSchema): boolean => validatorFor(schema).IsAccelerated();
+
+/**
+ * The value with the keys of every object in the order the schema lists them (keys the schema does not name follow). Written entries then read
+ * the same whatever order the code that built them used. For a choice, the first form the value checks against gives the order.
+ */
+export function orderBySchema(schema: TSchema, value: unknown): unknown {
+  if (IsUnion(schema)) {
+    const form = schema.anyOf.find((s) => validatorFor(s).Check(value));
+    return form === undefined ? value : orderBySchema(form, value);
+  }
+  if (IsArray(schema) && Array.isArray(value)) return value.map((v) => orderBySchema(schema.items, v));
+  if (IsObject(schema) && Guard.IsObject(value)) {
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(schema.properties))
+      if (Object.hasOwn(value, key)) out[key] = orderBySchema(schema.properties[key] ?? {}, value[key]);
+    for (const key of Object.keys(value)) if (!Object.hasOwn(out, key)) out[key] = value[key];
+    return out;
+  }
+  return value;
+}

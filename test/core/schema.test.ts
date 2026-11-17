@@ -11,7 +11,6 @@ import {
   defineEntry,
   emitEntry,
   externalizeLarge,
-  findDropped,
   fromPlain,
   hashValue,
   mapStrings,
@@ -24,12 +23,12 @@ import {
   valueEquals,
   valueToObject,
   wellFormed,
-  type Entry,
   type Transform,
   type Value,
 } from "../../src/index.ts";
 import { Rng, randomEntry } from "../support/gen.ts";
-import { any, arr, bool, either, lit, num, obj, opt, schema, str } from "../support/mini.ts";
+import { Type } from "typebox";
+import { strictObject } from "../../src/validate.ts";
 
 const H = "cd".repeat(32);
 const m = (o: unknown) => fromPlain(o) as Map<string, Value>;
@@ -102,36 +101,32 @@ describe("plain-object bridge", () => {
     ["unstored binary on the way out", () => valueToObject(new BlobData(new Uint8Array(1)))],
   ];
   for (const [name, fn] of bad) test(`rejects ${name}`, () => assert.throws(fn, SchemaError));
-
-  test("findDropped lists fields a stripping validator would discard", () => {
-    const input = { a: 1, extra: 2, nested: { keep: 1, drop: 2 }, list: [{ x: 1, y: 2 }], gone: undefined };
-    const output = { a: 1, nested: { keep: 1 }, list: [{ x: 1 }] };
-    assert.deepEqual(findDropped(input, output), ["extra", "nested.drop", "list[0].y"]);
-  });
 });
 
 // A small entry vocabulary: note (text + optional tags) and event (count + payload of tagged parts).
+const blob = strictObject({ $tag: Type.Literal("blob"), sha256: Type.String(), bytes: Type.Number(), mime: Type.Optional(Type.String()) });
 const noteType = defineEntry(
   "note",
-  schema(
-    obj({
-      $tag: lit("note"),
-      id: str,
-      text: either(str, obj({ $tag: lit("blob"), sha256: str, bytes: num, mime: opt(str) })),
-      tags: opt(arr(str)),
-    }),
-  ),
+  strictObject({
+    $tag: Type.Literal("note"),
+    id: Type.String(),
+    text: Type.Union([Type.String(), blob]),
+    tags: Type.Optional(Type.Array(Type.String())),
+  }),
 );
 const eventType = defineEntry(
   "event",
-  schema(
-    obj({
-      $tag: lit("event"),
-      id: str,
-      ok: bool,
-      parts: arr(either(obj({ $tag: lit("text"), text: str }), obj({ $tag: lit("data"), value: any }))),
-    }),
-  ),
+  strictObject({
+    $tag: Type.Literal("event"),
+    id: Type.String(),
+    ok: Type.Boolean(),
+    parts: Type.Array(
+      Type.Union([
+        strictObject({ $tag: Type.Literal("text"), text: Type.String() }),
+        strictObject({ $tag: Type.Literal("data"), value: Type.Unknown() }),
+      ]),
+    ),
+  }),
 );
 
 describe("Pipeline", () => {
@@ -160,23 +155,22 @@ describe("Pipeline", () => {
     assert.equal(emitEntry(entry), "- !note\n  id: n1\n  text: t\n  tags:\n  - x\n\n");
   });
 
-  test("writes are strict: fields the schema would drop are an error, with paths", async () => {
+  test("writes are strict: a field the schema does not name is an error, with its path", async () => {
     await assert.rejects(
       plain.encode({ $tag: "event", id: "e", ok: true, parts: [{ $tag: "text", text: "x", surprise: 1 }], extra: 1 }),
-      (e) => e instanceof SchemaError && e.issues.map((i) => i.path).join() === "parts[0].surprise,extra",
+      (e) =>
+        e instanceof SchemaError &&
+        e.issues
+          .map((i) => i.path)
+          .sort()
+          .join() === "extra,parts[0].surprise",
     );
-  });
-
-  test("strict can be turned off, and then extras are dropped", async () => {
-    const lax = new Pipeline({ types: [noteType], strict: false });
-    const entry = await lax.encode({ $tag: "note", id: "n1", text: "t", extra: 1 });
-    assert.equal(emitEntry(entry), "- !note\n  id: n1\n  text: t\n\n");
   });
 
   test("validation issues carry readable paths", async () => {
     await assert.rejects(
       plain.encode({ $tag: "event", id: "e", ok: "yes", parts: [{ $tag: "text", text: 5 }] }),
-      (e) => e instanceof SchemaError && e.issues.some((i) => i.path === "ok") && /ok: expected boolean/.test(e.message),
+      (e) => e instanceof SchemaError && e.issues.some((i) => i.path === "ok") && /ok: must be boolean/.test(e.message),
     );
   });
 
@@ -188,11 +182,6 @@ describe("Pipeline", () => {
     ["null", null],
   ];
   for (const [name, input] of refusals) test(`encode refuses ${name}`, async () => assert.rejects(plain.encode(input), SchemaError));
-
-  test("a schema that loses the $tag is caught", async () => {
-    const p = new Pipeline({ types: [defineEntry("loose", schema(obj({ id: str })))] });
-    await assert.rejects(p.encode({ $tag: "loose", id: "x" }), /must keep the \$tag/);
-  });
 
   test("duplicate entry types are a configuration error", () => {
     assert.throws(() => new Pipeline({ types: [noteType, noteType] }), /duplicate entry type/);
@@ -232,11 +221,14 @@ describe("Pipeline", () => {
       assert.ok(!r.ok && r.reason === "invalid");
     });
 
-    test("unknown fields from a newer minor version are ignored", async () => {
-      const entry = parseEntry("- !note\n  id: n1\n  text: t\n  added_later: 1\n  nested_later: !whatever\n    x: 1\n\n");
+    test("a field the schema does not name is invalid when read, as it is when written", async () => {
+      const entry = parseEntry("- !note\n  id: n1\n  text: t\n  added_later: 1\n\n");
       const r = await plain.decode(entry);
-      assert.ok(r.ok);
-      assert.deepEqual(r.value, { $tag: "note", id: "n1", text: "t" });
+      assert.ok(!r.ok && r.reason === "invalid");
+      assert.deepEqual(
+        r.issues.map((i) => i.path),
+        ["added_later"],
+      );
     });
   });
 
@@ -337,6 +329,3 @@ describe("hashing", () => {
     assert.deepEqual([...v.keys()], ["b", "B", "a"]);
   });
 });
-
-// keep the generic helpers referenced so a failing import is a loud type error rather than silently unused
-void [bool, num, opt, any] as unknown as Entry[];

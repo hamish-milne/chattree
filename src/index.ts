@@ -33,7 +33,6 @@ export {
   TAG_KEY,
   VALUE_KEY,
   defineEntry,
-  findDropped,
   objectToValue,
   valueToObject,
   type DecodeResult,

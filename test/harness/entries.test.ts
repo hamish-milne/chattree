@@ -330,7 +330,7 @@ describe("writes are validated", () => {
   });
 });
 
-describe("reading is forgiving and never throws", () => {
+describe("reading never throws", () => {
   test("an entry type this build does not know is reported and can be written back unchanged", async () => {
     const text = '- !telemetry\n  id: "01K8ZQ3M0A5G2W7Y9C4T1R6B8D"\n  fps: 59.9\n  samples: !series\n  - 1\n  - 2\n\n';
     const r = await pipeline.decode(parseEntry(text));
@@ -346,12 +346,12 @@ describe("reading is forgiving and never throws", () => {
     assert.equal(emitEntry(r.raw), text);
   });
 
-  test("fields added by a newer minor version are ignored, not fatal", async () => {
+  test("a field the schema does not name makes the entry invalid, as it would on a write", async () => {
     const text =
       '- !user\n  id: "01K8ZQ3M0A5G2W7Y9C4T1R6B8D"\n  locale: en-GB\n  content:\n  - !text\n    text: hi\n    emphasis: !style\n      bold: true\n\n';
     const r = await pipeline.decode(parseEntry(text));
-    assert.ok(r.ok);
-    assert.deepEqual(r.value, { $tag: "user", id: "01K8ZQ3M0A5G2W7Y9C4T1R6B8D", content: [{ $tag: "text", text: "hi" }] });
+    assert.ok(!r.ok && r.reason === "invalid");
+    assert.deepEqual(r.issues.map((i) => i.path).sort(), ["content[0].emphasis", "locale"]);
   });
 
   test("an unknown block type inside a known entry makes the entry invalid, not the file unreadable", async () => {

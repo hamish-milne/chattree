@@ -248,7 +248,7 @@ describe("the tool loop", () => {
       blocks: [{ $tag: "tool_call", call_id: "c1", name: "echo", args: {} }],
     };
     const q: ChatEntry = { $tag: "user", id: id(2), queued: true, content: [{ $tag: "text", text: "hey" }] };
-    const plain: ChatEntry = { ...q, queued: undefined };
+    const plain: ChatEntry = { $tag: "user", id: id(2), content: [{ $tag: "text", text: "hey" }] };
     assert.deepEqual(unanswered([a, q]), ["c1"]);
     assert.deepEqual(unanswered([a, plain]), [], "an ordinary message after the calls leaves them to the context builder");
   });

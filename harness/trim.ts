@@ -1,6 +1,6 @@
 import { idOf, type ChatEntry } from "./entries.ts";
 import { contextEntries } from "./context.ts";
-import type { z } from "zod";
+import type { Static } from "typebox";
 import type { trimRule } from "./entries.ts";
 import { nth } from "../src/nth.ts";
 import { asJson } from "../src/json.ts";
@@ -13,7 +13,7 @@ import { asJson } from "../src/json.ts";
  * The two markers below are frozen like a renderer's text: changing them would change what an old thread shows the model.
  */
 
-export type TrimRule = z.infer<typeof trimRule>;
+export type TrimRule = Static<typeof trimRule>;
 
 /** What stands in place of a tool's output. */
 export const outputLeftOut = (bytes: number): string =>

@@ -1,4 +1,5 @@
-import { z } from "zod";
+import { Type, type StaticDecode } from "typebox";
+import { pattern, strictObject, withDefault } from "../src/validate.ts";
 import type { Settings } from "./settings.ts";
 import { Pipeline, acquireLock, defineEntry, emitEntry, parseEntry, LockHeldError, type Lock, type Git, type Host } from "../src/index.ts";
 import { createUlid, ULID_RE } from "../harness/ulid.ts";
@@ -14,32 +15,34 @@ import { jsonOr } from "../src/json.ts";
  * points at the wanted thread.
  */
 
-const attachment = z.object({
-  path: z.string().min(1),
-  name: z.string().min(1),
-  mime: z.string().min(1),
-  charset: z.string().min(1).optional(),
-  size: z.number().int().nonnegative(),
-  mtimeMs: z.number().nonnegative(),
+const nonEmpty = Type.String({ minLength: 1 });
+
+const attachment = strictObject({
+  path: nonEmpty,
+  name: nonEmpty,
+  mime: nonEmpty,
+  charset: Type.Optional(nonEmpty),
+  size: Type.Integer({ minimum: 0 }),
+  mtimeMs: Type.Number({ minimum: 0 }),
 });
 
-const sessionFile = z.object({
-  $tag: z.literal("session"),
-  format: z.literal(1),
-  id: z.string().regex(ULID_RE),
-  thread: z.string().min(1),
-  created: z.string().min(1),
-  updated: z.string().min(1),
-  draft: z.string(),
-  drafts: z.array(z.object({ name: z.string().min(1), text: z.string() })).default([]),
-  history: z.array(z.string()),
-  thinking: z.enum(["off", "brief", "on"]),
-  tools: z.enum(["off", "brief", "full"]).default("brief"),
-  attachments: z.array(attachment),
+const sessionFile = strictObject({
+  $tag: Type.Literal("session"),
+  format: Type.Literal(1),
+  id: pattern(ULID_RE, "not a ULID"),
+  thread: nonEmpty,
+  created: nonEmpty,
+  updated: nonEmpty,
+  draft: Type.String(),
+  drafts: withDefault(Type.Array(strictObject({ name: nonEmpty, text: Type.String() })), []),
+  history: Type.Array(Type.String()),
+  thinking: Type.Enum(["off", "brief", "on"]),
+  tools: withDefault(Type.Enum(["off", "brief", "full"]), "brief"),
+  attachments: Type.Array(attachment),
 });
-type SessionFile = z.infer<typeof sessionFile>;
+type SessionFile = StaticDecode<typeof sessionFile>;
 
-const pipeline = new Pipeline<SessionFile>({ types: [defineEntry("session", sessionFile as never)] });
+const pipeline = new Pipeline<SessionFile>({ types: [defineEntry("session", sessionFile)] });
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
