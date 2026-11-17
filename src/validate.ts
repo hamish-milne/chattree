@@ -16,7 +16,6 @@ import { Guard } from "typebox/guard";
 import { Pointer } from "typebox/schema";
 import { Settings } from "typebox/system";
 import { Clone, Default, DecodeUnsafe } from "typebox/value";
-import type { StandardSchemaV1 } from "./standard-schema.ts";
 
 /**
  * Validation of data that arrives from outside (settings files, provider replies, stored records). The schemas are JSON Schema, built with
@@ -52,8 +51,8 @@ export class ValidationError extends Error {
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; issues: Issue[] };
 
-/** A schema with the parse functions bound to it, and a Standard Schema face for the library code that still asks for one. */
-export interface Parser<S extends TSchema, T = StaticDecode<S>> extends StandardSchemaV1<unknown, T> {
+/** A schema with the parse functions bound to it. */
+export interface Parser<S extends TSchema, T = StaticDecode<S>> {
   /** The JSON Schema this parses with. */
   readonly schema: S;
   /** The value with defaults filled in and codecs run; throws a `ValidationError` naming every problem. */
@@ -243,14 +242,6 @@ export function parser<S extends TSchema>(schema: S): Parser<S> {
       const r = safeParse(schema, raw);
       if (!r.ok) throw new ValidationError(r.issues);
       return r.value;
-    },
-    "~standard": {
-      version: 1,
-      vendor: "chattree",
-      validate(raw) {
-        const r = safeParse(schema, raw);
-        return r.ok ? { value: r.value } : { issues: r.issues };
-      },
     },
   };
 }

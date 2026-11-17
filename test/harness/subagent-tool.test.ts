@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { afterEach, describe, test } from "node:test";
-import { z } from "zod";
 import { Type } from "typebox";
 import { strictObject } from "../../src/validate.ts";
 import { nodeHost } from "../../hosts/node.ts";
@@ -57,7 +56,7 @@ const adapters = new AdapterRegistry().register(
   defineAdapter({
     $tag: "fake",
     config: strictObject({ $tag: Type.Literal("fake") }),
-    settings: z.strictObject({ max_output_tokens: z.number().optional(), effort: z.string().optional() }),
+    settings: strictObject({ max_output_tokens: Type.Optional(Type.Number()), effort: Type.Optional(Type.String()) }),
     secrets: () => [],
     models: () => ({
       m1: {

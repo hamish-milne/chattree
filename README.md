@@ -29,7 +29,7 @@ developed on 22.23 because that is what the sandbox had.
 | `src/parse.ts` | Line-structured parser, then a re-emit-and-compare canonical check |
 | `src/frame.ts` | Byte-level framing, truncation detection, tail checks, safe append |
 | `src/blobs.ts` | `externalize` / `resolve` over a `BlobStore` interface (+ in-memory store) |
-| `src/standard-schema.ts` | The Standard Schema v1 types (types only, no validator dependency) |
+| `src/validate.ts` | Validation with TypeBox: strict objects, defaults, rules, codecs, readable issues (JSON Schema is the one description of data) |
 | `src/schema.ts` | Plain-object bridge (`$tag`, `$value`), `defineEntry`, `Pipeline` |
 | `src/transforms.ts` | `mapStrings`, `wellFormed`, `redact`, `externalizeLarge` |
 | `src/hash.ts` | Canonical, key-sorted hashing of values |
@@ -38,7 +38,7 @@ developed on 22.23 because that is what the sandbox had.
 | `src/git/` | `Git`: a typed wrapper over the git command line with fixed safety settings (see docs/git-integration.md) |
 | `src/lock.ts` | Lock files with stale takeover, over `Fs.createExclusive` |
 | `hosts/node.ts` | The local-machine `Host`; the only code that imports Node |
-| `harness/` | The harness schemas (zod): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork, subagents, fork merge, compact, interrupt, `agent_setup` changes and provider-observed model changes), the context view (`contextEntries`), `appendMany`, `onEvent` events, the entry-index cache, `gcBlobs`, `pruneWorktrees`, `close`, the turn runner (`requestStream`/`runRequest`: one model request, journaled beside the repository and committed as `assistant` or `interrupted`; `open` recovers a request the process died in), `verifyHistory`, `readCommitGraph`/`toMermaid` (see `docs/lifecycle-graph.md`), and the file-backed blob store |
+| `harness/` | The harness schemas (TypeBox): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork, subagents, fork merge, compact, interrupt, `agent_setup` changes and provider-observed model changes), the context view (`contextEntries`), `appendMany`, `onEvent` events, the entry-index cache, `gcBlobs`, `pruneWorktrees`, `close`, the turn runner (`requestStream`/`runRequest`: one model request, journaled beside the repository and committed as `assistant` or `interrupted`; `open` recovers a request the process died in), `verifyHistory`, `readCommitGraph`/`toMermaid` (see `docs/lifecycle-graph.md`), and the file-backed blob store |
 | `providers/` | The provider seam: neutral stream events and errors, an SSE parser, the shared HTTP transport (retry, timeouts, limits, scrubbing), conformance checks, fixture record and replay; the Anthropic, OpenAI Responses and OpenAI-compatible (Chat Completions) adapters and the registry that `harness.yml` providers are checked against (see `docs/providers.md`, `docs/writing-an-adapter.md`). `tools/live-check.ts` validates an adapter against a real or local server |
 | `cli/` | The CLI host (`chattree`; see `docs/cli.md`): project detection, `init`, the engine and command registry, the plain renderer, and the non-interactive verbs (`say`, `show`, `status`, `history`, `threads`, `usage`, `verify`, ...). Session files (`cli/session.ts`), the prompt rules (`cli/prompt.ts`), the readline terminal layer (`cli/terminal.ts`) `chat` (`cli/chat.ts`) and the slash commands (`cli/commands/`) are done; the tool loop is the next big piece |
 
@@ -48,19 +48,18 @@ unchanged on Node, Deno, Bun and browsers. `tsconfig.src.json` has `types: []` t
 ## Tags and the schema pipeline
 
 Entry types are YAML tags (`- !assistant`), the same mechanism as `!blob`. A `Pipeline` is built from entry
-types (a tag plus any Standard Schema validator: zod, valibot, arktype, or a hand-written one; the library
-imports none of them) and a list of transforms.
+types (a tag plus a TypeBox schema, which is JSON Schema) and a list of transforms.
 
-- **Writing is strict.** `encode(obj)` validates, rejects fields the schema would silently drop, converts to
+- **Writing is strict.** `encode(obj)` validates (entry schemas are written with `strictObject`, so a field they do not name is an error), converts to
   the value model in schema-defined field order, runs the transforms (redaction before externalization),
   then decodes the result again so nothing undecodable is ever written.
-- **Reading is lenient and never throws.** `decode(entry)` returns the value, or an `unknown-tag` / `invalid` /
-  `untagged` result with issue paths and the raw entry, which can be written back unchanged. Fields added by a
-  newer minor version are ignored; unknown entry types survive a rewrite.
+- **Reading is as strict as writing, and never throws.** `decode(entry)` returns the value, or an `unknown-tag` / `invalid` /
+  `untagged` / `version` result with issue paths and the raw entry, which can be written back unchanged. A file's format
+  version is the state of the read (`docs/git-integration.md`, D9): a newer minor is refused, not skipped.
 - **Plain-object form.** Validators see `{ $tag: "user", ...fields }`, tagged lists and strings as
   `{ $tag, $value }`, blob references as `{ $tag: "blob", ... }`, so discriminated unions on `$tag` just work.
   JavaScript orders integer-like keys first, so such keys are reordered in this form.
-- zod is a dev dependency, used only by `harness/` and `cli/session.ts`.
+- `typebox` is the one schema library (JSON Schema, with its validator); `src/` uses it only through `src/validate.ts`.
 
 ## Config files
 

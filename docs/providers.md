@@ -88,8 +88,8 @@ interface ModelContext {
 ```ts
 interface ProviderAdapter {
   readonly $tag: string;                                   // "anthropic", "openai", "openai-compatible", ...
-  readonly providerSchema: StandardSchema;                 // connection, auth, transport, pricing overrides (P6)
-  settingsSchema(model: string): StandardSchema;           // per-request knobs for that model (P8)
+  readonly providerSchema: TSchema;                       // connection, auth, transport, pricing overrides (P6)
+  settingsSchema(model: string): TSchema;                 // per-request knobs for that model (P8)
   catalog(): Promise<ModelInfo[]>;                         // from an API or a bundled table: the adapter's choice
   pricing(model: string): Promise<PriceTable>;             // normalised dimension tables (P9)
   classify(from: AgentSetup, to: AgentSetup, at: Position): Change[];   // what a change would do (P8)

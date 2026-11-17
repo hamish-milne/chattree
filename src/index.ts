@@ -27,7 +27,6 @@ export {
   type ExternalizeOptions,
   type ResolveOptions,
 } from "./blobs.ts";
-export type { StandardIssue, StandardResult, StandardSchemaV1 } from "./standard-schema.ts";
 export {
   Pipeline,
   TAG_KEY,

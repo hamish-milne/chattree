@@ -104,12 +104,6 @@ for (const accel of modes) {
       );
     });
 
-    test("is usable as a Standard Schema until the library stops asking for one", () => {
-      assert.deepEqual(p["~standard"].validate({}), { value: { version: 1, sub: { a: 3 }, items: {} } });
-      const r = p["~standard"].validate({ nope: 1 });
-      assert.deepEqual(r instanceof Promise ? undefined : r.issues?.map((i) => i.message), ["unknown field (not in the schema)"]);
-    });
-
     test("exports plain JSON Schema: no refinements, codecs or hidden keys", () => {
       const json = JSON.parse(JSON.stringify(Root)) as Record<string, unknown>;
       assert.equal(json["type"], "object");

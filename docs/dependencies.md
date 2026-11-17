@@ -6,7 +6,7 @@ What the project depends on, why, and the policy for keeping it current. Reviewe
 
 | Package | Kind | Why it is here | Decision |
 |---|---|---|---|
-| `zod` | runtime | Schemas for the config, the transcript entries, every provider's wire format and the CLI session; the codecs speak Standard Schema | Keep. Was misfiled under `devDependencies`; fixed |
+| `zod` | runtime | Nothing imports it any more (the config, entries, session files and every adapter moved to `typebox`) | Remove with the tool-argument step, together with the lockfile change |
 | `typebox` | runtime | JSON Schema builder with type inference and a validator (`src/validate.ts`): settings, `harness.yml`, price tables, every provider's config and settings | Added 2026-11-17. Replaces zod where it is used; zod stays for transcript entries until they move |
 | `ajv`, `ajv-formats` | runtime | Validates tool arguments against the full JSON Schema a tool declares (`harness/tool-schema.ts`) | Keep. Zod cannot take an arbitrary schema from an MCP server |
 | `yaml` | runtime | Reads `harness.yml` and edits it with comments kept (`src/config.ts`) | Keep. No other YAML library keeps comments on edit |

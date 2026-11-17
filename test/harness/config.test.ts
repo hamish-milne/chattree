@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { harnessConfig } from "../../harness/config.ts";
 import { editConfig, parseConfig } from "../../src/config.ts";
-import { schema as miniSchema, obj, str, num, opt, arr } from "../support/mini.ts";
+import { Type } from "typebox";
+import { parser } from "../../src/validate.ts";
 
 const BASE = `# Harness config
 providers:
@@ -93,13 +94,13 @@ describe("reading", () => {
   }
 
   test("rejects non-finite numbers", async () => {
-    const s = miniSchema(obj({ x: num }));
+    const s = parser(Type.Object({ x: Type.Number() }));
     assert.ok(!(await parseConfig("x: .inf\n", s)).ok);
     assert.ok(!(await parseConfig("x: .nan\n", s)).ok);
   });
 
-  test("works with any Standard Schema validator", async () => {
-    const s = miniSchema(obj({ name: str, tags: opt(arr(str)) }));
+  test("works with any schema that can check a plain value", async () => {
+    const s = parser(Type.Object({ name: Type.String(), tags: Type.Optional(Type.Array(Type.String())) }));
     const r = await parseConfig("name: x # c\ntags: [a, b]\n", s);
     assert.ok(r.ok && r.value["name"] === "x");
   });
@@ -130,7 +131,7 @@ providers:
   });
 
   test("a string and a number never collide", async () => {
-    const s = miniSchema(obj({ v: (v) => ({ value: v }) }));
+    const s = parser(Type.Object({ v: Type.Unknown() }));
     const a = await parseConfig("v: 1\n", s);
     const b = await parseConfig('v: "1"\n', s);
     assert.ok(a.ok && b.ok && a.hash !== b.hash);
