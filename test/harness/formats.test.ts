@@ -100,6 +100,7 @@ describe("real files made by ffmpeg", () => {
       spawnSync(exe, ["-hide_banner", "-loglevel", "error", "-y", ...args], { cwd: dir }).status === 0;
     const sine = ["-f", "lavfi", "-i", "sine=frequency=440:duration=0.2"];
     const red = ["-f", "lavfi", "-i", "color=c=red:s=32x32:d=1", "-frames:v", "1"];
+    const clip = ["-f", "lavfi", "-i", "color=c=blue:s=64x64:d=0.2:r=10", "-c:v", "libvpx"];
     const cases: [string[], string, string][] = [
       [[...sine, "-ar", "16000", "a.wav"], "a.wav", "audio/wav"],
       [[...sine, "a.mp3"], "a.mp3", "audio/mpeg"],
@@ -109,6 +110,11 @@ describe("real files made by ffmpeg", () => {
       [[...sine, "-c:a", "aac", "a.m4a"], "a.m4a", "audio/mp4"],
       [[...sine, "a.aiff"], "a.aiff", "audio/aiff"],
       [[...sine, "-c:a", "aac", "a.aac"], "a.aac", "audio/aac"],
+      [[...sine, "-c:a", "libopus", "a.webm"], "a.webm", "audio/webm"],
+      [[...sine, "-c:a", "libopus", "a.mka"], "a.mka", "audio/matroska"],
+      [[...clip, "v.webm"], "v.webm", "video/webm"],
+      [[...clip, "-i", "a.webm", "-c:a", "copy", "-shortest", "va.webm"], "va.webm", "video/webm"],
+      [[...clip, "v.mkv"], "v.mkv", "video/matroska"],
       [[...red, "i.png"], "i.png", "image/png"],
       [[...red, "i.jpg"], "i.jpg", "image/jpeg"],
       [[...red, "i.gif"], "i.gif", "image/gif"],

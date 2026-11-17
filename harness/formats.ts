@@ -1,4 +1,5 @@
 import { fileTypeFromBuffer } from "file-type";
+import { trackKinds } from "./ebml.ts";
 
 /**
  * The media formats chattree knows by name, and how to tell which one a file is. Detection is by content (magic numbers), done by the
@@ -41,7 +42,9 @@ export const FORMATS: readonly Format[] = [
   { mime: "audio/x-ms-asf", kind: "audio", label: "a WMA/ASF sound" },
   { mime: "video/mp4", kind: "video", label: "an MP4 video" },
   { mime: "video/webm", kind: "video", label: "a WebM video" },
+  { mime: "audio/webm", kind: "audio", label: "a WebM sound" },
   { mime: "video/matroska", kind: "video", label: "a Matroska file" },
+  { mime: "audio/matroska", kind: "audio", label: "a Matroska sound" },
   { mime: "video/quicktime", kind: "video", label: "a QuickTime video" },
   { mime: "video/ogg", kind: "video", label: "an Ogg video" },
   { mime: "video/vnd.avi", kind: "video", label: "an AVI video" },
@@ -72,10 +75,9 @@ const ALIASES: Readonly<Record<string, string>> = {
   "image/heic-sequence": "image/heic",
   "image/heif-sequence": "image/heif",
   "video/x-matroska": "video/matroska",
+  "audio/x-matroska": "audio/matroska",
   "video/x-msvideo": "video/vnd.avi",
   "video/avi": "video/vnd.avi",
-  "audio/x-matroska": "video/matroska",
-  "audio/webm": "video/webm",
   "application/x-pdf": "application/pdf",
 };
 
@@ -109,5 +111,13 @@ export async function sniffFormat(bytes: Uint8Array): Promise<Format | undefined
   } catch {
     return undefined; // a truncated or malformed file: the detector gives up, and so do we
   }
-  return found === undefined ? undefined : formatOf(found.mime);
+  if (found === undefined) return undefined;
+  const format = formatOf(found.mime);
+  // WebM and Matroska are one container for sound and for video, and the detector says video for both. A file whose track list holds
+  // sound and no video is a sound (a browser recorder's output), so it can be given to a model that takes sound.
+  if (format?.mime === "video/webm" || format?.mime === "video/matroska") {
+    const tracks = trackKinds(bytes.length > SNIFF_BYTES ? bytes.subarray(0, SNIFF_BYTES) : bytes);
+    if (tracks?.audio === true && !tracks.video) return formatOf(format.mime === "video/webm" ? "audio/webm" : "audio/matroska");
+  }
+  return format;
 }

@@ -59,7 +59,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 
 | File | Role |
 |---|---|
-| `attachments.ts`, `formats.ts` | Attachments (the host names the type; the harness never guesses) and the formats known by content (`file-type`). |
+| `attachments.ts`, `formats.ts`, `ebml.ts` | Attachments (the host names the type; the harness never guesses) and the formats known by content (`file-type`). A WebM or Matroska file with sound and no picture is read as audio: `ebml.ts` walks its track list for that. |
 | `media-spec.ts`, `prepare-media.ts` | What a sink accepts and the request-time step that converts anything it does not. The transcript keeps the original. |
 | `converter.ts`, `ffmpeg-converter.ts`, `convert-cache.ts` | Converters (stateless bytes in, bytes out), the ffmpeg one, and a cache under the git directory. |
 
