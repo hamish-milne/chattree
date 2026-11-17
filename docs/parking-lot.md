@@ -115,16 +115,30 @@ Each entry says what it is and what a first step would be. Within a group, the o
 
 ## Found in the comment audit (2026-11-17)
 
-Reported while the module comments were written; each was read in the code and described, not changed. Check each before acting.
+Reported while the module comments were written, then each read in the code on the same day. Nothing here is fixed yet.
 
-- **Lock file creation is not atomic without hard links** (`hosts/node.ts` `createExclusive`). On a filesystem with no hard links the fallback creates the file before its content is written; `src/lock.ts` treats an unreadable lock as stale, so a concurrent reader can wrongly take a lock over. Confirmed in the code. First step: write the content to a temporary file and rename with a no-replace check where the platform has one, or make an unreadable lock wait for a short grace period before it counts as stale.
-- **`streamChunks` does not cancel its stream on early exit** (`src/stream.ts`). It releases the reader lock only, so a consumer that breaks out leaves the response body unread (the connection is held until it is drained or garbage collected). Confirmed. First step: `reader.cancel()` in the `finally` when the stream did not end.
-- **`copySetupTo` passes `tools` as a plain name-to-pin map** (`harness/conversation.ts`) where the setup change expects `{set, remove}`, so the tools are ignored; the comment beside it says tools are left to the host, which pins its own registry. Either remove the dead line or wrap it like skills and MCP. First step: a test that a fork and a subagent start with the parent's tool pins.
-- **`ensureLlamaServer` records a program's hash before it is verified** (`localmodels/install.ts`). If the program then fails to start, the recorded entry stays and a later release with the same file name and a different hash is refused. First step: record after the verify step, or roll the entry back on failure.
-- **Dead or odd code:** `deliverSubagents` accepts a `review` option it never reads; `cli/chat.ts` has a ternary whose two branches return the same value; the `ChangeNotAllowed` retry block in `cli/turn.ts` exists twice (the attempt loop and the stream catch); `fetchJson` (`localmodels/hf.ts`) and `DownloadError` (`localmodels/store.ts`) are re-exported with no importer; `renderQwen` and `qwenParser` are used only by a test.
-- **Numbers to reconcile:** a lease's headroom is 30 s in `lease-ref.ts` but `JOB_HEADROOM_MS` is 35 s in `jobs.ts`; `jsonRequest` and the Responses `retrieve` default to a 60 s total timeout while `httpStream` defaults to 10 min; the trim worth-check assumes 4 bytes a token and the summary budget 3 (the config comment says 3).
-- **Fragile or unexplained:** the Responses chained-request fallback keys on the error message matching `/previous_response/`; `audio/webm` and `audio/x-matroska` are aliased to video formats so `attachmentKind` refuses them as sound; `src/config.ts` rejects NUL bytes with no recorded reason; `/merge` reports its summary cost as "not in the ledger" while `/compact` records it once accepted; `/undo n` restores only the first dropped message as a draft; `/fork 3` is read as entry 3 whenever entry 3 exists, so a fork cannot be named "3"; a commit reachable only through a merge's second parent is labelled "(unreachable)" in `graph.ts`; `describeCall` cuts arguments at 1,500 characters in the approval prompt although its doc says "exactly what will run".
-- **Price data is close to due:** the bundled tables are dated 2026-10-25 and the Gemini and OpenCode Go snapshots 2026-10-30, and some listed price changes take effect on 2026-12-01.
+**Real defects**
+
+- **Lock file creation is not atomic without hard links** (`hosts/node.ts` `createExclusive`). On a filesystem with no hard links the fallback creates the file before its content is written; `src/lock.ts` treats an unreadable lock as stale, so a concurrent reader can wrongly take a lock over. First step: write to a temporary file and rename with a no-replace check where the platform has one, or give an unreadable lock a short grace period before it counts as stale.
+- **`streamChunks` does not cancel its stream on early exit** (`src/stream.ts`). It releases the reader lock only, so a consumer that breaks out leaves the response body unread. First step: `reader.cancel()` in the `finally` when the stream did not end.
+- **`audio/webm` and `audio/x-matroska` are aliased to video formats** (`harness/formats.ts`), so an audio-only WebM, which is what a browser recorder produces, is refused as sound by `attachmentKind`. First step: decide by content (does it have a video track?) or keep audio-only WebM as audio.
+- **`copySetupTo` ignores tools** (`harness/conversation.ts`). It passes `tools` as a name-to-pin map where a change expects `{set, remove}`, and `minimizeChange` reads only those keys, so a new thread or subagent starts with no tool pins from its parent. This is masked today because the CLI pins its own registry when the loop starts, but another host would get no tools, and the comment beside the line says tools are left to the host. First step: wrap it as skills and MCP are, with a test that a fork and a subagent start with the parent's pins, or delete the line and say so.
+- **`ensureLlamaServer` records a program's hash in memory before it is verified** (`localmodels/install.ts`). If the program then fails to start, the entry stays and the next `lock.save()` writes it; a later release file of the same name with a different hash is then refused. Low impact (the hash is of a download that was itself checked), but wrong. First step: set the entry after the verify step.
+- **The Responses chained-request fallback keys on the error message** matching `/previous_response/` (`providers/openai-responses.ts`), which breaks if the provider rewords it. First step: key on the error's code or status where the API gives one.
+- **A trim's worth-check assumes 4 bytes a token** while the summary budget and the estimator assume 3 (`harness/compaction.ts`; the config comment says 3). Pick one constant.
+
+**Inconsistent or misleading, harmless today**
+
+- `deliverSubagents` accepts a `review` option it never reads (documented in the code); `cli/chat.ts` has a ternary whose two branches return the same string; the `ChangeNotAllowed` retry block in `cli/turn.ts` exists twice; `fetchJson` (`localmodels/hf.ts`) and `DownloadError` (`localmodels/store.ts`) are re-exported with no importer; `renderQwen` and `qwenParser` are used only by a test.
+- `/merge` reports its summary cost as "not in the ledger" while `/compact` records it once accepted. `/undo n` restores only the first dropped user message as a draft (by design, documented). A fork cannot be named with a number while an entry with that number exists.
+- `describeCall` cuts arguments at 1,500 characters in the approval prompt, which the text beside it should say, since the doc says "exactly what will run".
+- A lease's headroom is 30 s in the loop and `lease-ref.ts` but `JOB_HEADROOM_MS` is 35 s in `jobs.ts`; confirm it is deliberate and say why.
+- `graph.ts` labels a commit "(unreachable)" when only a merge's second parent reaches it, which happens once the child's branch is gone.
+- `src/config.ts` rejects NUL bytes without a recorded reason.
+
+**Checked and fine:** `jsonRequest` and the Responses `retrieve` default to a 60 s total timeout where `httpStream` allows 10 minutes. That is a non-streaming request against a streaming one, so the difference is reasonable; a comment saying so would help.
+
+**Price data is close to due:** the bundled tables are dated 2026-10-25 and the Gemini and OpenCode Go snapshots 2026-10-30, and some listed price changes take effect on 2026-12-01.
 
 ## Deferred: pricing data
 
