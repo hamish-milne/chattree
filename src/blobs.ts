@@ -1,7 +1,7 @@
 import { BlobError, EmitError } from "./errors.ts";
 import { decodeStrict } from "./frame.ts";
 import { assertWellFormed } from "./scalar.ts";
-import { BlobData, BlobRef, MAX_DEPTH, Tagged, type Entry, type Value } from "./value.ts";
+import { BlobData, BlobRef, MAX_DEPTH, Tagged, isEntry, type Entry, type Value } from "./value.ts";
 
 /** Content-addressed storage for large or binary values. Implementations decide where bytes live. */
 export interface BlobStore {
@@ -11,6 +11,8 @@ export interface BlobStore {
 }
 
 export async function sha256Hex(data: Uint8Array): Promise<string> {
+  // The lib types of `digest` take a view on an `ArrayBuffer` only; a `Uint8Array` may be on a shared one, which `digest` also reads.
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- same bytes, only the lib's buffer type is narrower
   const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", data as Uint8Array<ArrayBuffer>));
   let hex = "";
   for (const b of digest) hex += b.toString(16).padStart(2, "0");
@@ -76,7 +78,9 @@ export async function externalizeValue(value: Value, store: BlobStore, opts?: Ex
 
 /** externalizeValue for a whole entry (the result is still an entry of the same kind). */
 export async function externalize(entry: Entry, store: BlobStore, opts?: ExternalizeOptions): Promise<Entry> {
-  return (await externalizeValue(entry, store, opts)) as Entry;
+  const out = await externalizeValue(entry, store, opts);
+  if (!isEntry(out)) throw new BlobError("externalizing changed the entry into something other than an entry");
+  return out;
 }
 
 export interface ResolveOptions {
@@ -98,6 +102,8 @@ export async function resolve(v: Value, store: BlobStore, opts?: ResolveOptions)
       if (verify && (await sha256Hex(data)) !== x.sha256) throw new BlobError(`blob ${x.sha256} failed hash verification`);
       return x.mime === TEXT_MIME ? decodeStrict(data) : data;
     }
+    // The Tagged constructor only looks at the kind of container; what is in it is what the walk made of it (text and bytes for blob references).
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- resolved contents are not the model's Value type on purpose
     if (x instanceof Tagged) return typeof x.value === "string" ? x : new Tagged(x.tag, (await walk(x.value)) as Value);
     if (Array.isArray(x)) return Promise.all(x.map(walk));
     if (x instanceof Map) {

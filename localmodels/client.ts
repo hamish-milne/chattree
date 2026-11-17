@@ -5,6 +5,8 @@ import type { DaemonEvent, DaemonStatus } from "./control.ts";
 import { logFile, pidAlive, readInfo, removeInfo, runDir, type DaemonInfo } from "./daemon-files.ts";
 import { streamChunks } from "../src/stream.ts";
 import { asString, jsonOr } from "../src/json.ts";
+import { Type, type StaticDecode, type TSchema } from "typebox";
+import { safeParse } from "../src/validate.ts";
 
 /** Talking to the daemon (docs/local-models.md, section 3): finding it, starting it when it is not there, and its control API. */
 
@@ -13,6 +15,19 @@ export class DaemonError extends Error {
 }
 
 export type ClientEvent = DaemonEvent | { type: "status"; status: DaemonStatus };
+
+// What comes over the control API. The daemon outlives the sessions that start it, so it may be an older or newer build than this client:
+// what the client reads is checked, and what a response is missing is said, not read as undefined. The depth of the host's state, of an
+// install plan and of the events is the daemon's own contract (`control.ts`), so those are checked as far as the client acts on them (the
+// kind of event, the fields it shows) and are typed as that contract.
+const record = Type.Record(Type.String(), Type.Unknown());
+const status = Type.Unsafe<DaemonStatus>(Type.Object({ pid: Type.Number(), startedAt: Type.Number(), state: record }));
+const logs = Type.Object({ lines: Type.Array(Type.String()) });
+const removed = Type.Object({ files: Type.Number(), bytes: Type.Number(), kept: Type.Number() });
+const EVENT_KINDS = ["state", "install", "store", "models", "pulled", "log", "consent", "settings", "status"];
+const clientEvent = Type.Unsafe<ClientEvent>(
+  Type.Object({ type: Type.Union(EVENT_KINDS.map((k) => Type.Literal(k))) }, { additionalProperties: true }),
+);
 
 export class DaemonClient {
   readonly info: DaemonInfo;
@@ -23,7 +38,7 @@ export class DaemonClient {
     this.#fetch = f;
   }
 
-  async #call<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
+  async #call<S extends TSchema>(schema: S, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<StaticDecode<S>> {
     let res: Response;
     try {
       res = await this.#fetch(`http://127.0.0.1:${this.info.port}${path}`, {
@@ -42,42 +57,47 @@ export class DaemonClient {
       throw new DaemonError(
         `the model host answered ${res.status}: ${asString(jsonOr(await res.json().catch(() => ({})))["error"]) ?? res.statusText}`,
       );
-    return (await res.json()) as T;
+    const r = safeParse(schema, await res.json().catch(() => undefined));
+    if (!r.ok)
+      throw new DaemonError(
+        `the model host answered something this version of chattree does not understand (${r.issues.map((i) => `${i.path.join(".") || "answer"}: ${i.message}`).join("; ")}); it may be another version, so \`chattree models stop\` and try again`,
+      );
+    return r.value;
   }
 
   status(): Promise<DaemonStatus> {
-    return this.#call("GET", "/status");
+    return this.#call(status, "GET", "/status");
   }
   async logs(lines = 200): Promise<string[]> {
-    return (await this.#call<{ lines: string[] }>("GET", `/logs?lines=${lines}`)).lines;
+    return (await this.#call(logs, "GET", `/logs?lines=${lines}`)).lines;
   }
   start(opts: { yes?: boolean } = {}): Promise<DaemonStatus> {
-    return this.#call("POST", "/start", { yes: opts.yes === true });
+    return this.#call(status, "POST", "/start", { yes: opts.yes === true });
   }
   restart(opts: { yes?: boolean } = {}): Promise<DaemonStatus> {
-    return this.#call("POST", "/restart", { yes: opts.yes === true });
+    return this.#call(status, "POST", "/restart", { yes: opts.yes === true });
   }
   /** Begin fetching models (all when none are named); the `pulled` event ends it. */
   pull(models: string[] = [], opts: { force?: boolean } = {}): Promise<DaemonStatus> {
-    return this.#call("POST", "/pull", { models, force: opts.force === true });
+    return this.#call(status, "POST", "/pull", { models, force: opts.force === true });
   }
   remove(model: string): Promise<{ files: number; bytes: number; kept: number }> {
-    return this.#call("POST", "/rm", { model });
+    return this.#call(removed, "POST", "/rm", { model });
   }
   async stop(): Promise<void> {
-    await this.#call("POST", "/stop", {});
+    await this.#call(Type.Unknown(), "POST", "/stop", {});
   }
   reload(): Promise<DaemonStatus> {
-    return this.#call("POST", "/reload", {});
+    return this.#call(status, "POST", "/reload", {});
   }
   async consent(accept: boolean): Promise<void> {
-    await this.#call("POST", "/consent", { accept });
+    await this.#call(Type.Unknown(), "POST", "/consent", { accept });
   }
   async load(model: string): Promise<void> {
-    await this.#call("POST", "/models/load", { model });
+    await this.#call(Type.Unknown(), "POST", "/models/load", { model });
   }
   async unload(model: string): Promise<void> {
-    await this.#call("POST", "/models/unload", { model });
+    await this.#call(Type.Unknown(), "POST", "/models/unload", { model });
   }
 
   /** Follow the event stream until it ends (the daemon stopped) or `signal` aborts. The first event is the current status. */
@@ -101,7 +121,10 @@ export class DaemonClient {
             .filter((l) => l.startsWith("data: "))
             .map((l) => l.slice(6))
             .join("\n");
-          if (data !== "") onEvent(JSON.parse(data) as ClientEvent);
+          if (data === "") continue;
+          // An event this client does not know (a newer daemon's) or cannot read is skipped; the stream goes on.
+          const event = safeParse(clientEvent, JSON.parse(data));
+          if (event.ok) onEvent(event.value);
         }
       }
     } catch {

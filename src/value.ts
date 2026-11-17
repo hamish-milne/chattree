@@ -72,6 +72,11 @@ export type Value = null | boolean | number | string | BlobRef | BlobData | Tagg
 /** One transcript entry: a map, optionally tagged. */
 export type Entry = Map<string, Value> | (Tagged & { readonly value: Map<string, Value> });
 
+/** Whether a value is an entry: a map, or a map under a tag. */
+export function isEntry(v: unknown): v is Entry {
+  return v instanceof Map || (v instanceof Tagged && v.value instanceof Map);
+}
+
 /** Order-sensitive deep equality (Object.is for numbers, so -0 and NaN are distinguished/equal). */
 export function valueEquals(a: Value, b: Value): boolean {
   if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return Object.is(a, b);

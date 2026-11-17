@@ -1,4 +1,6 @@
+import { Type, type Static } from "typebox";
 import { sha256Hex, type BlobStore } from "../src/index.ts";
+import { safeParse } from "../src/validate.ts";
 import { ChangeNotAllowed, stable, type AgentSetup, type Change, type PinnedDefinition } from "./setup.ts";
 import type { ChangeKind } from "./entries.ts";
 
@@ -11,14 +13,15 @@ import type { ChangeKind } from "./entries.ts";
  */
 
 /** The canonical, provider-independent form of a tool. Adapters translate it; its hash is what is pinned. */
-export interface ToolDefinition {
-  name: string;
-  description: string;
+const toolDefinition = Type.Object({
+  name: Type.String(),
+  description: Type.String(),
   /** JSON Schema for the arguments. */
-  input_schema: Record<string, unknown>;
+  input_schema: Type.Record(Type.String(), Type.Unknown()),
   /** Behavioural flags that matter to the harness (read-only, needs approval, ...); part of the hash. */
-  flags?: Record<string, unknown>;
-}
+  flags: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+});
+export type ToolDefinition = Static<typeof toolDefinition>;
 
 export type DefinitionKind = "tool" | "instructions" | "skill" | "mcp";
 export type DefinitionSection = "tools" | "instructions" | "skills" | "mcp";
@@ -45,6 +48,22 @@ export function decodeDefinition(kind: DefinitionKind, bytes: Uint8Array): unkno
 
 export class DefinitionError extends Error {
   override name = "DefinitionError";
+}
+
+/** A pinned tool as the harness reads it back: what is stored is checked, since it was written by whatever build pinned it. */
+export function toolOf(value: unknown, name: string): ToolDefinition {
+  const r = safeParse(toolDefinition, value);
+  if (!r.ok)
+    throw new DefinitionError(
+      `tool ${name}: the pinned definition is not one (${r.issues.map((i) => `${i.path.join(".") || "definition"}: ${i.message}`).join("; ")})`,
+    );
+  return r.value;
+}
+
+/** Pinned instructions as the harness reads them back: text. */
+export function instructionsOf(value: unknown): string {
+  if (typeof value !== "string") throw new DefinitionError("the pinned instructions are not text");
+  return value;
 }
 
 /** The hash a definition is pinned under. */
@@ -163,7 +182,7 @@ export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): 
   };
   for (const { section, kind, name, pin } of pinnedOf(setup)) {
     const value = await loadPinned(kind, name, pin, from);
-    if (section === "tools") out.tools.push(value as ToolDefinition);
+    if (section === "tools") out.tools.push(toolOf(value, name));
     else if (section === "instructions") {
       if (typeof value === "string") out.instructions = value;
     } else out[section][name] = value;
@@ -175,7 +194,7 @@ export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): 
       ? undefined
       : stable(shown) === stable(setup.instructions ?? null)
         ? out.instructions
-        : ((await loadPinned("instructions", INSTRUCTIONS_NAME, shown, from)) as string);
+        : instructionsOf(await loadPinned("instructions", INSTRUCTIONS_NAME, shown, from));
   for (const [name, pin] of Object.entries(setup.prefix.skills)) {
     out.prefixSkills[name] =
       stable(pin) === stable(setup.skills[name] ?? null) ? out.skills[name] : await loadPinned("skill", name, pin, from);

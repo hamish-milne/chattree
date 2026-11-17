@@ -1,7 +1,7 @@
 import { emitEntry } from "./emit.ts";
 import { EmitError, ParseError } from "./errors.ts";
 import { BARE_RE, hasBlockBadChars, isReservedWord, NUMBER_RE, scanQuoted } from "./scalar.ts";
-import { BlobRef, MAX_DEPTH, Tagged, type Entry, type Value } from "./value.ts";
+import { BlobRef, MAX_DEPTH, Tagged, isEntry, type Entry, type Value } from "./value.ts";
 import { nth } from "../src/nth.ts";
 
 export interface ParseOptions {
@@ -250,7 +250,9 @@ export function parseEntry(text: string, opts?: ParseOptions): Entry {
     if (after === undefined) body = parseEntryBody(cur, lines);
     else if (after === "{}") body = new Map();
     else throw new ParseError("a tagged entry must be a map", 1);
-    entry = makeTagged(tag, body, 1) as Entry;
+    const tagged = makeTagged(tag, body, 1);
+    if (!isEntry(tagged)) throw new ParseError("a tagged entry must be a map", 1);
+    entry = tagged;
   } else if (rest === "{}") {
     entry = new Map();
   } else {

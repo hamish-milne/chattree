@@ -652,6 +652,7 @@ export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): Provi
         return yield* httpStream(replayOnly, req, http);
       throw e;
     } finally {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `return` wants the stream's result, and a stream stopped from outside has none
       await first.return(undefined as never);
     }
   }

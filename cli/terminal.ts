@@ -18,7 +18,9 @@ class Gate extends Writable {
   constructor(real: Tty["output"]) {
     super();
     this.#real = real;
-    (real as unknown as NodeJS.EventEmitter).on?.("resize", () => this.emit("resize"));
+    // The real output is a terminal stream that tells of a resize; one that cannot (a pipe, a test double) has no `on`.
+    const on: unknown = Reflect.get(real, "on");
+    if (typeof on === "function") Reflect.apply(on, real, ["resize", () => this.emit("resize")]);
   }
   get columns(): number | undefined {
     return this.#real.columns;
@@ -346,7 +348,8 @@ export class Terminal {
     if (text.trim() !== "") {
       const h = this.#engine.state.history;
       if (h.at(-1) !== text) h.push(text);
-      (this.#rl as unknown as { history: string[] }).history = [...h].reverse();
+      // readline keeps the lines it offers on up-arrow in `history`, which it documents but does not let be assigned through its types.
+      Reflect.set(this.#rl, "history", [...h].reverse());
     }
     const cmd = parseCommand(submission);
     const known = cmd === undefined ? this.#engine.registry.find("say") : this.#engine.registry.find(cmd.name);

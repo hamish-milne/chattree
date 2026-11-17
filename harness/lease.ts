@@ -1,4 +1,6 @@
+import { Type, type Static } from "typebox";
 import type { Fs } from "../src/host.ts";
+import { safeParse, strictObject } from "../src/validate.ts";
 
 /**
  * The run lease (docs/tools.md, 5.3): who is running a thread, and until when. It is separate from the append lock (`lock.ts`), which is
@@ -69,18 +71,28 @@ interface LeaseFile {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+/** What a lease file holds. `owner` may be missing (an older writer's), and fields a newer writer adds are not read. */
+const leaseFile = Type.Object({
+  v: Type.Literal(1),
+  id: Type.String(),
+  owner: Type.Optional(
+    strictObject(
+      { pid: Type.Optional(Type.Number()), host: Type.Optional(Type.String()), session: Type.Optional(Type.String()) },
+      { additionalProperties: true },
+    ),
+  ),
+  since: Type.Number(),
+  holds: Type.Record(Type.String(), Type.Number()),
+  follows: Type.Record(Type.String(), Type.String()),
+});
+
+const isFs = (x: LeaseBackend | Fs): x is Fs => "stat" in x;
+
 function parse(bytes: Uint8Array): LeaseFile | undefined {
   try {
-    const v = JSON.parse(dec.decode(bytes)) as Partial<LeaseFile>;
-    if (
-      v.v === 1 &&
-      typeof v.id === "string" &&
-      typeof v.since === "number" &&
-      typeof v.holds === "object" &&
-      v.holds !== null &&
-      typeof v.follows === "object" &&
-      v.follows !== null
-    ) {
+    const r = safeParse(leaseFile, JSON.parse(dec.decode(bytes)));
+    if (r.ok) {
+      const v: Static<typeof leaseFile> = r.value;
       return { v: 1, id: v.id, owner: v.owner ?? {}, since: v.since, holds: v.holds, follows: v.follows };
     }
   } catch {
@@ -153,7 +165,10 @@ export class LeaseStore {
   constructor(backend: LeaseBackend);
   constructor(fs: Fs, file: (branch: string) => string);
   constructor(a: LeaseBackend | Fs, file?: (branch: string) => string) {
-    this.#backend = file === undefined ? (a as LeaseBackend) : fileLeaseBackend(a as Fs, file);
+    if (isFs(a)) {
+      if (file === undefined) throw new TypeError("a lease store on a file system needs the function that names the lease file");
+      this.#backend = fileLeaseBackend(a, file);
+    } else this.#backend = a;
   }
 
   /** Run `fn` after the earlier operations on the same thread, so this process never interleaves its own writes. */

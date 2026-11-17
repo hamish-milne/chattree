@@ -1,4 +1,6 @@
+import { Type } from "typebox";
 import type { Host } from "../src/host.ts";
+import { safeParse } from "../src/validate.ts";
 import type { Completed, StreamEvent } from "../providers/types.ts";
 
 /**
@@ -37,6 +39,25 @@ export type JournalRecord =
   | { t: "event"; e: StreamEvent }
   | { t: "beat"; at: number }
   | { t: "done"; completed: Completed };
+
+/**
+ * What a journal line holds, as far as reading it needs: the kind of record and the fields the reader acts on. The events and the response
+ * inside are this code's own types (`providers/types.ts`), written by the same build; a line that is not one of these is as good as torn.
+ */
+const journalRecord = Type.Unsafe<JournalRecord>(
+  Type.Union([
+    Type.Object({
+      t: Type.Literal("start"),
+      v: Type.Literal(1),
+      setup_digest: Type.String(),
+      context_digest: Type.String(),
+      at: Type.Number(),
+    }),
+    Type.Object({ t: Type.Literal("event"), e: Type.Object({ type: Type.String() }) }),
+    Type.Object({ t: Type.Literal("beat"), at: Type.Number() }),
+    Type.Object({ t: Type.Literal("done"), completed: Type.Object({}) }),
+  ]),
+);
 
 export interface JournalOptions {
   /** Default 250 ms. */
@@ -249,7 +270,9 @@ export async function readJournal(host: Host, path: string): Promise<JournalCont
   for (const [i, line] of lines.entries()) {
     let rec: JournalRecord;
     try {
-      rec = JSON.parse(line) as JournalRecord;
+      const r = safeParse(journalRecord, JSON.parse(line));
+      if (!r.ok) throw new SyntaxError("not a journal record");
+      rec = r.value;
     } catch {
       torn = true;
       break; // only the last line can be torn; anything after a bad line is not trusted

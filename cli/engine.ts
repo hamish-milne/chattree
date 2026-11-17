@@ -215,9 +215,10 @@ export class Engine {
   toolset(): Promise<ToolSet> | undefined {
     if (!this.tools) return undefined;
     const convo = this.convo;
-    let p = this.#toolsets.get(convo);
-    if (p === undefined) {
-      p = buildToolSet(this.io, convo, {
+    const existing = this.#toolsets.get(convo);
+    if (existing !== undefined) return existing;
+    {
+      const p = buildToolSet(this.io, convo, {
         busy: () => this.running,
         mcpPool: this.#mcpPool,
         projectDir: this.project.mainRoot,
@@ -256,13 +257,13 @@ export class Engine {
       // A set that could not be built (no busybox) is built again next time, once the user has dealt with it.
       p.catch(() => {
         if (this.#toolsets.get(convo) === p) this.#toolsets.delete(convo);
-        const i = this.#sets.indexOf(p as Promise<ToolSet>);
+        const i = this.#sets.indexOf(p);
         if (i >= 0) void this.#sets.splice(i, 1);
       });
       this.#toolsets.set(convo, p);
       this.#sets.push(p);
+      return p;
     }
-    return p;
   }
 
   /** The pump for this project (docs/tools.md, 5.4): subagents' loops run in it, and the questions of every thread it looks at wait in it. */

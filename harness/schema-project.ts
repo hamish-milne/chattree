@@ -129,7 +129,8 @@ export function projectSchema(input: unknown, level: SchemaLevel): Converted {
   const problems = schemaProblems(input);
   if (problems.length > 0) return { ok: false, problems };
   // `$schema` and `$id` name the document, not the arguments; some endpoints refuse them.
-  const { $schema: _s, $id: _i, ...rest } = input as Schema;
+  if (!isObject(input)) return { ok: false, problems: ["the schema is not an object"] };
+  const { $schema: _s, $id: _i, ...rest } = input;
   return { ok: true, schema: rest, notes: [] };
 }
 

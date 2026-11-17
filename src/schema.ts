@@ -2,7 +2,7 @@ import { EmitError, SchemaError, type Issue } from "./errors.ts";
 import type { TSchema } from "typebox";
 import { orderBySchema, safeParse } from "./validate.ts";
 import type { Transform } from "./transforms.ts";
-import { BlobData, BlobRef, MAX_DEPTH, Tagged, type Entry, type Value } from "./value.ts";
+import { BlobData, BlobRef, MAX_DEPTH, Tagged, isEntry, type Entry, type Value } from "./value.ts";
 
 /** Key that carries a tag in the plain-object form: `{ $tag: "user", id: ... }`. */
 export const TAG_KEY = "$tag";
@@ -176,13 +176,13 @@ export class Pipeline<T = unknown> {
     if ("issues" in r) throw new SchemaError(r.issues, `invalid ${tag} entry`);
     let v = objectToValue(orderBySchema(type.schema, r.value));
     for (const t of this.#transforms) v = await t(v);
-    if (!(v instanceof Tagged) || !(v.value instanceof Map))
+    if (!isEntry(v) || v instanceof Map)
       throw new SchemaError([issue("", "a transform changed the entry into something other than a tagged map")]);
     if (this.#verify) {
-      const back = await this.decode(v as Entry);
+      const back = await this.decode(v);
       if (!back.ok) throw new SchemaError(back.issues, `${tag} entry no longer valid after transforms`);
     }
-    return v as Entry;
+    return v;
   }
 
   /** Validate an entry read from a file. Never throws. */

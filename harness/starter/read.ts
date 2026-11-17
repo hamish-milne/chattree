@@ -3,6 +3,7 @@ import type { Tool, ToolContext } from "../tools.ts";
 import { versionOf } from "./version.ts";
 import { PATH_ALIASES, flattenArgs } from "./args.ts";
 import { ALL } from "../approvals.ts";
+import { optNumberArg, stringArg, type ToolArgs } from "../tool-args.ts";
 
 const MAX_FILE_BYTES = 10 * 1024 * 1024;
 const DEFAULT_LINES = 2000;
@@ -12,6 +13,12 @@ const dec = new TextDecoder("utf-8", { fatal: true });
 const lineNumbered = (lines: string[], first: number): string => {
   const width = String(first + lines.length - 1).length;
   return lines.map((l, i) => `${String(first + i).padStart(width)}\t${l}`).join("\n");
+};
+
+const optItem = (args: ToolArgs): Omit<Item, "path"> => {
+  const offset = optNumberArg(args, "offset");
+  const limit = optNumberArg(args, "limit");
+  return { ...(offset === undefined ? {} : { offset }), ...(limit === undefined ? {} : { limit }) };
 };
 
 interface Item {
@@ -104,7 +111,7 @@ export function readTool(opts: { mmRead?: boolean } = {}): Tool {
     },
     allowKeys: () => [ALL],
     async execute(args, ctx) {
-      const r = await readOne(ctx, args as unknown as Item, opts.mmRead === true);
+      const r = await readOne(ctx, { path: stringArg(args, "path"), ...optItem(args) }, opts.mmRead === true);
       return { content: r.text, is_error: !r.ok };
     },
   };

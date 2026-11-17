@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Conversation } from "./conversation.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
 import type { ToolDefinition } from "./definitions.ts";
-import { assertDefinitions, INSTRUCTIONS_NAME, loadDefinitions, loadPinned, type DefinitionSource } from "./definitions.ts";
+import { assertDefinitions, INSTRUCTIONS_NAME, instructionsOf, loadDefinitions, loadPinned, type DefinitionSource } from "./definitions.ts";
 import type { ChangeKind } from "./entries.ts";
 import { DEFAULT_RENDERER, findRenderer, type Renderers } from "./renderer.ts";
 import { contextJson, estimateRequest, type Estimate } from "./estimate.ts";
@@ -90,10 +90,12 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
     if (e.instructions !== undefined)
       instructionUpdates.set(
         e.id,
-        (await loadPinned("instructions", INSTRUCTIONS_NAME, e.instructions, {
-          blobs: convo.store,
-          ...(opts.source === undefined ? {} : { source: opts.source }),
-        })) as string,
+        instructionsOf(
+          await loadPinned("instructions", INSTRUCTIONS_NAME, e.instructions, {
+            blobs: convo.store,
+            ...(opts.source === undefined ? {} : { source: opts.source }),
+          }),
+        ),
       );
   }
   const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);

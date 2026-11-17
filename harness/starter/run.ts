@@ -7,6 +7,7 @@ import { isStarted, type Tool, type ToolContext, type ToolOutput } from "../tool
 import { batchProblem, batchStage, findProgram, isBatch, localAllowed } from "./batch.ts";
 import { runAllowKeys, runCovers, validateRunKey } from "./run-keys.ts";
 import { optNumberArg, stringArg } from "../tool-args.ts";
+import { isJson } from "../../src/json.ts";
 import { nth } from "../../src/nth.ts";
 
 /**
@@ -157,7 +158,8 @@ const backgroundProp = {
 /** Let a tool be started as a background job (`background: true`): the same execution, not tied to the turn, with a long default timeout. */
 function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => string, defaultSeconds: number | undefined): Tool {
   const inner = tool.execute;
-  const schema = tool.definition.input_schema as { properties: Record<string, unknown> };
+  const schema = tool.definition.input_schema;
+  const properties: Record<string, unknown> = isJson(schema["properties"]) ? schema["properties"] : {};
   return {
     ...tool,
     background: true,
@@ -166,7 +168,7 @@ function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => st
       args["background"] === true ? 60 : Math.min(optNumberArg(args, "timeout_seconds") ?? defaultSeconds ?? 120, MAX_TIMEOUT),
     definition: {
       ...tool.definition,
-      input_schema: { ...schema, properties: { ...schema.properties, background: backgroundProp } },
+      input_schema: { ...schema, properties: { ...properties, background: backgroundProp } },
     },
     async execute(args, ctx) {
       if (args["background"] !== true) return inner(args, ctx);

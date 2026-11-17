@@ -50,7 +50,10 @@ export function nodeIo(): Io {
     interactive: process.stdin.isTTY && process.stdout.isTTY,
     async readStdin() {
       const chunks: Uint8Array[] = [];
-      for await (const c of process.stdin) chunks.push(c as Uint8Array);
+      for await (const c of process.stdin) {
+        if (c instanceof Uint8Array) chunks.push(c);
+        else if (typeof c === "string") chunks.push(new TextEncoder().encode(c));
+      }
       return Buffer.concat(chunks);
     },
     now: Date.now,

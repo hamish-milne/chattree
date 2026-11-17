@@ -1,4 +1,6 @@
+import { Type } from "typebox";
 import type { Fs } from "./host.ts";
+import { safeParse } from "./validate.ts";
 
 /** Who holds a lock, as stored in the lock file. */
 export interface LockInfo {
@@ -44,11 +46,13 @@ const enc = new TextEncoder();
 const dec = new TextDecoder();
 const defaultSleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
+/** What a lock file holds (other fields a newer writer adds are not read). */
+const lockInfo = Type.Object({ token: Type.String(), owner: Type.String(), createdAt: Type.Number() });
+
 function parseInfo(bytes: Uint8Array): LockInfo | undefined {
   try {
-    const v = JSON.parse(dec.decode(bytes)) as Partial<LockInfo>;
-    if (typeof v.token === "string" && typeof v.owner === "string" && typeof v.createdAt === "number")
-      return { token: v.token, owner: v.owner, createdAt: v.createdAt };
+    const r = safeParse(lockInfo, JSON.parse(dec.decode(bytes)));
+    if (r.ok) return { token: r.value.token, owner: r.value.owner, createdAt: r.value.createdAt };
   } catch {
     /* unreadable */
   }

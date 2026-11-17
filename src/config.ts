@@ -1,4 +1,4 @@
-import { Document, isAlias, isMap, isScalar, parseDocument, visit } from "yaml";
+import { Document, isAlias, isCollection, isMap, isNode, isScalar, parseDocument, visit } from "yaml";
 import { SchemaError, type Issue } from "./errors.ts";
 import { hashValue } from "./hash.ts";
 import { TAG_KEY, VALUE_KEY, objectToValue } from "./schema.ts";
@@ -38,8 +38,8 @@ const TAG_SUGAR = /^![A-Za-z][\w.-]*$/;
 const unresolvedTag = (message: string): boolean => /^Unresolved tag: /.test(message);
 
 /** Turn `!name {...}` into `{$tag: name, ...}` in a copy of the document. */
-function normaliseTags(doc: Document.Parsed): Document.Parsed {
-  const copy = doc.clone() as Document.Parsed;
+function normaliseTags(doc: Document.Parsed): Document {
+  const copy = doc.clone();
   visit(copy, {
     Map(_k, node) {
       const tag = node.tag;
@@ -55,12 +55,12 @@ function normaliseTags(doc: Document.Parsed): Document.Parsed {
 function structural(doc: Document.Parsed): Issue[] {
   const issues: Issue[] = [];
   const line = (node: unknown): string => {
-    const range = (node as { range?: [number, number, number] } | null)?.range;
-    if (range === undefined) return "";
+    const range = isNode(node) ? node.range : undefined;
+    if (range === undefined || range === null) return "";
     return ` (offset ${range[0]})`;
   };
   const notOnMap = (node: unknown): void => {
-    const tag = (node as { tag?: string }).tag;
+    const tag = isScalar(node) || isCollection(node) ? node.tag : undefined;
     if (tag !== undefined && TAG_SUGAR.test(tag))
       issues.push({ path: "", message: `the tag ${tag} is only allowed on a map${line(node)}` });
   };

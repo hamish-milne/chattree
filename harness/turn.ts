@@ -256,6 +256,7 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
     if (poll !== undefined) clearInterval(poll);
     opts.signal?.removeEventListener("abort", onAbort);
     if (!finished) {
+      // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- `return` wants the stream's result, and a stream stopped from outside has none
       await gen.return(undefined as never).catch(() => undefined);
       await settle(); // iteration was stopped from outside: record what arrived (the caller never sees this result)
     }

@@ -243,7 +243,8 @@ export class JobRegistry {
           $tag: "job_event",
           job: id,
           call_id: job.call_id,
-          status: job.status as "completed",
+          // A job that is written up has ended; "running" cannot be here, and "lost" is what a job of unknown end is called.
+          status: job.status === "running" ? "lost" : job.status,
           summary,
           ...(job.output === undefined ? {} : { output: job.output }),
         });

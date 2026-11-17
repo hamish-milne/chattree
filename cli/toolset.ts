@@ -246,7 +246,8 @@ export function parseAnswer(answer: string, request: Pick<ApprovalRequest, "keys
 /** Ask the user about a call. `ask` is the terminal's question; without one nothing is asked and the call is declined. */
 export function makeApprover(ask: AskFn, label?: string): (request: Pick<ApprovalRequest, "name" | "args" | "keys">) => Promise<Approval> {
   return async (request) => {
-    const grant = request.keys !== null && request.keys.length > 0;
+    const keys = request.keys ?? [];
+    const grant = keys.length > 0;
     const choices: Choice[] = grant
       ? [
           { key: "y", label: "yes, once" },
@@ -260,7 +261,7 @@ export function makeApprover(ask: AskFn, label?: string): (request: Pick<Approva
           { key: "n", label: "no" },
         ];
     const answer = await ask(
-      `\nAllow this${label === undefined ? "" : ` (asked by ${label})`}?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${(request.keys as string[]).join("; ")})` : ""}`,
+      `\nAllow this${label === undefined ? "" : ` (asked by ${label})`}?\n  ${describeCall(request.name, request.args).replace(/\n/g, "\n  ")}${grant ? `\n  (5, h and f allow: ${keys.join("; ")})` : ""}`,
       "n",
       choices,
     );

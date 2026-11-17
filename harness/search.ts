@@ -284,8 +284,7 @@ export async function search(convo: Conversation, asker: string, opts: SearchOpt
     for (const [n, e] of mine.entries())
       candidates.push({ thread: "id" in e && typeof e.id === "string" ? (owner.get(e.id) ?? asker) : asker, n, e });
   } else {
-    for (const name of covered)
-      for (const [n, e] of (own.get(name) as ChatEntry[]).entries()) candidates.push({ thread: name, n: n + 1, e });
+    for (const name of covered) for (const [n, e] of (own.get(name) ?? []).entries()) candidates.push({ thread: name, n: n + 1, e });
   }
   const hits: Hit[] = [];
   const claimed = new Set<string>();

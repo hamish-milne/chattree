@@ -1,5 +1,17 @@
 export { BlobError, EmitError, FrameError, GitError, ParseError, SchemaError, type Issue } from "./errors.ts";
-export { BlobData, BlobRef, MAX_DEPTH, TAG_NAME, Tagged, fromPlain, toPlain, valueEquals, type Entry, type Value } from "./value.ts";
+export {
+  BlobData,
+  BlobRef,
+  MAX_DEPTH,
+  TAG_NAME,
+  Tagged,
+  fromPlain,
+  isEntry,
+  toPlain,
+  valueEquals,
+  type Entry,
+  type Value,
+} from "./value.ts";
 export { emitEntry } from "./emit.ts";
 export { parseEntry, type ParseOptions } from "./parse.ts";
 export {
