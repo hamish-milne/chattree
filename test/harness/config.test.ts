@@ -68,11 +68,10 @@ describe("reading", () => {
     );
   });
 
-  test("unknown fields are rejected by default and allowed when not strict", async () => {
+  test("unknown fields are rejected", async () => {
     const text = BASE + "colour: blue\n";
     const issues = await bad(text);
     assert.ok(issues.some((i) => i.path === "colour"));
-    assert.ok((await parseConfig(text, harnessConfig, { strict: false })).ok);
   });
 
   const rejected: [string, string][] = [

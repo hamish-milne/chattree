@@ -35,9 +35,9 @@ describe("the model catalog", () => {
         },
       },
     });
-    assert.ok(ok.success);
-    assert.ok(harnessConfig.safeParse({ subagent: { models: { "p/m": { reasoning: ["low"] } } } }).success);
-    assert.ok(!harnessConfig.safeParse({ subagent: { models: { "no-slash": {} } } }).success);
+    assert.ok(ok.ok);
+    assert.ok(harnessConfig.safeParse({ subagent: { models: { "p/m": { reasoning: ["low"] } } } }).ok);
+    assert.ok(!harnessConfig.safeParse({ subagent: { models: { "no-slash": {} } } }).ok);
   });
 });
 

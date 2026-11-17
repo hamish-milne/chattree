@@ -1,7 +1,7 @@
 import { Document, isAlias, isMap, isScalar, parseDocument, visit } from "yaml";
 import { SchemaError, type Issue } from "./errors.ts";
 import { hashValue } from "./hash.ts";
-import { TAG_KEY, VALUE_KEY, findDropped, objectToValue } from "./schema.ts";
+import { TAG_KEY, VALUE_KEY, objectToValue } from "./schema.ts";
 import type { StandardSchemaV1 } from "./standard-schema.ts";
 
 /**
@@ -20,11 +20,6 @@ import type { StandardSchemaV1 } from "./standard-schema.ts";
  */
 
 export type ConfigResult<T> = { ok: true; value: T; hash: string } | { ok: false; issues: Issue[] };
-
-export interface ConfigOptions {
-  /** Reject fields the schema would drop (typos in a config are bugs). Default true. */
-  strict?: boolean;
-}
 
 const fail = (message: string, path = ""): { ok: false; issues: Issue[] } => ({ ok: false, issues: [{ path, message }] });
 
@@ -117,17 +112,13 @@ function checkRoot(doc: Document.Parsed): Issue | undefined {
   return undefined;
 }
 
-async function validate<T>(schema: StandardSchemaV1<unknown, T>, plain: unknown, strict: boolean): Promise<ConfigResult<T>> {
+async function validate<T>(schema: StandardSchemaV1<unknown, T>, plain: unknown): Promise<ConfigResult<T>> {
   const r = await schema["~standard"].validate(plain);
   if (r.issues !== undefined) {
     return {
       ok: false,
       issues: r.issues.map((i) => ({ path: pathOf((i.path ?? []).map((s) => (typeof s === "object" ? s.key : s))), message: i.message })),
     };
-  }
-  if (strict) {
-    const dropped = findDropped(plain, r.value);
-    if (dropped.length > 0) return { ok: false, issues: dropped.map((path) => ({ path, message: "unknown field (not in the schema)" })) };
   }
   try {
     return { ok: true, value: r.value, hash: await hashValue(objectToValue(r.value)) };
@@ -141,11 +132,7 @@ async function validate<T>(schema: StandardSchemaV1<unknown, T>, plain: unknown,
  * Parse and validate a config file. The hash is of the validated data, in canonical form with sorted keys:
  * comments, spacing, quoting, flow versus block style and key order do not affect it; values and list order do.
  */
-export async function parseConfig<T>(
-  text: string,
-  schema: StandardSchemaV1<unknown, T>,
-  opts: ConfigOptions = {},
-): Promise<ConfigResult<T>> {
+export async function parseConfig<T>(text: string, schema: StandardSchemaV1<unknown, T>): Promise<ConfigResult<T>> {
   if (/\u0000/.test(text)) return fail("config files may not contain NUL bytes");
   const { doc, issues } = loadConfigDocument(text);
   if (issues.length > 0) return { ok: false, issues };
@@ -157,7 +144,7 @@ export async function parseConfig<T>(
   } catch (e) {
     return fail(e instanceof Error ? e.message : String(e));
   }
-  return validate(schema, plain, opts.strict !== false);
+  return validate(schema, plain);
 }
 
 /**
@@ -168,12 +155,11 @@ export async function editConfig<T>(
   text: string,
   schema: StandardSchemaV1<unknown, T>,
   edit: (doc: Document.Parsed) => void,
-  opts: ConfigOptions = {},
 ): Promise<{ ok: true; text: string; value: T; hash: string } | { ok: false; issues: Issue[] }> {
   const { doc, issues } = loadConfigDocument(text);
   if (issues.length > 0) return { ok: false, issues };
   edit(doc);
   const out = doc.toString({ flowCollectionPadding: false });
-  const r = await parseConfig(out, schema, opts);
+  const r = await parseConfig(out, schema);
   return r.ok ? { ok: true, text: out, value: r.value, hash: r.hash } : r;
 }

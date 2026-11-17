@@ -68,19 +68,25 @@ export function rules<S extends TSchema>(schema: S, checks: ((value: Static<S>) 
 export const said = <S extends TSchema>(message: string, schema: S): S => annotate(schema, { errorMessage: message });
 
 /** A copy of the schema with more keywords. The copy keeps the hidden properties TypeBox puts on a type (`~kind`, `~optional`, `~refine`), which a spread would lose. */
-function annotate<S extends TSchema>(schema: S, extra: Record<string, unknown>): S {
+function annotate<S extends TSchema>(schema: S, extra: Record<string, unknown>, hidden: Record<string, unknown> = {}): S {
+  const copy = Object.assign(Object.defineProperties({}, Object.getOwnPropertyDescriptors(schema)), extra);
+  for (const [key, value] of Object.entries(hidden))
+    Object.defineProperty(copy, key, { value, enumerable: false, writable: true, configurable: true });
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a copy of S with extra keywords is still an S
-  return Object.assign(Object.defineProperties({}, Object.getOwnPropertyDescriptors(schema)), extra) as S;
+  return copy as S;
 }
+
+/** A string that must match a pattern, with the sentence to show when it does not. */
+export const pattern = (re: RegExp, message: string) => said(message, Type.String({ pattern: re.source }));
 
 /**
  * A record (an object with any keys, all values the same shape). `Value.Default` only looks inside a record's values when their schema has a
- * `default`, so an object value is given an empty one: it is never used (a value that is there is not undefined), it only lets the defaults
- * of the fields inside be filled. The key schema is `propertyNames`, so a key that does not match is an error (JSON Schema's own way, which also avoids
+ * `default`, so an object value is given an empty one (not written to the exported schema): it is never used (a value that is there is not
+ * undefined), it only lets the defaults of the fields inside be filled. The key schema is `propertyNames`, so a key that does not match is an error (JSON Schema's own way, which also avoids
  * `additionalProperties: false`, on which `Value.Default` fails for a record).
  */
 export function record<V extends TSchema>(key: TSchema, value: V, options: Parameters<typeof Type.Record>[2] = {}) {
-  const inner = isRecord(value) && value["type"] === "object" && !("default" in value) ? annotate(value, { default: {} }) : value;
+  const inner = isRecord(value) && value["type"] === "object" && !("default" in value) ? annotate(value, {}, { default: {} }) : value;
   return Type.Record(Type.String(), inner, { propertyNames: key, ...options });
 }
 
@@ -197,3 +203,29 @@ export function parser<S extends TSchema>(schema: S): Parser<S> {
 
 /** Whether this schema's checks run as generated code (false where the environment does not allow it, or `useAcceleration` is off). */
 export const accelerated = (schema: TSchema): boolean => validatorFor(schema).IsAccelerated();
+
+/**
+ * The JSON Schema for editors and tools: what a person may write, so a field with a default is not required (the schema itself describes the
+ * value after defaults). Rules and codecs are not in it; what they say is in the sentences of the errors.
+ */
+export function jsonSchema(schema: TSchema): Record<string, unknown> {
+  const walk = (node: unknown): unknown => {
+    if (Array.isArray(node)) return node.map(walk);
+    if (!isRecord(node)) return node;
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(node)) out[key] = walk(value);
+    const props = out["properties"];
+    if (isRecord(props) && Array.isArray(out["required"])) {
+      const hasDefault = (k: unknown): boolean => {
+        const v = props[String(k)];
+        return isRecord(v) && "default" in v;
+      };
+      const required = out["required"].filter((k) => !hasDefault(k));
+      if (required.length > 0) out["required"] = required;
+      else delete out["required"];
+    }
+    return out;
+  };
+  const plain = walk(JSON.parse(JSON.stringify(schema)));
+  return isRecord(plain) ? plain : {};
+}
