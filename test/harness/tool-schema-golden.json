@@ -1,0 +1,648 @@
+{
+ "closed object with required": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "a is required (the arguments are: a, b)"
+   ],
+   [
+    "a is required (the arguments are: a, b)"
+   ],
+   [
+    "a must be text"
+   ],
+   [
+    "c is not a known argument (known: a, b)"
+   ],
+   [
+    "b must be a whole number"
+   ],
+   [
+    "b must be a number"
+   ],
+   [
+    "the arguments must be an object"
+   ],
+   [
+    "the arguments must be an object"
+   ],
+   [
+    "the arguments must be an object"
+   ],
+   [
+    "the arguments must be an object"
+   ]
+  ]
+ },
+ "open object": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "a must be text"
+   ],
+   []
+  ]
+ },
+ "no type but properties": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must be text"
+   ]
+  ]
+ },
+ "several missing and unknown": {
+  "schema": [],
+  "values": [
+   [
+    "a is required (the arguments are: a, b, c)",
+    "b is required (the arguments are: a, b, c)",
+    "c is required (the arguments are: a, b, c)"
+   ],
+   [
+    "b is required (the arguments are: a, b, c)",
+    "c is required (the arguments are: a, b, c)",
+    "z is not a known argument (known: a, b, c)",
+    "y is not a known argument (known: a, b, c)"
+   ],
+   [
+    "a must be text",
+    "b must be text",
+    "c must be text"
+   ]
+  ]
+ },
+ "no properties": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a is not a known argument"
+   ]
+  ]
+ },
+ "enum": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "mode must be one of \"a\", \"b\""
+   ],
+   [
+    "mode must be one of \"a\", \"b\""
+   ],
+   []
+  ]
+ },
+ "typed enum": {
+  "schema": [],
+  "values": [
+   [
+    "mode must be one of \"a\", \"b\""
+   ],
+   [
+    "mode must be text",
+    "mode must be one of \"a\", \"b\""
+   ]
+  ]
+ },
+ "const": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "v must be 1"
+   ],
+   [
+    "v must be 1"
+   ]
+  ]
+ },
+ "number range": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "n must be at least 1"
+   ],
+   [
+    "n must be at most 5"
+   ],
+   [
+    "n must be a number"
+   ],
+   [
+    "n must be a number"
+   ]
+  ]
+ },
+ "integer range": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "n must be a whole number"
+   ],
+   [
+    "n must be at least 0"
+   ],
+   [
+    "n must be at most 10"
+   ],
+   [
+    "n must be a number"
+   ],
+   [
+    "n must be a number"
+   ]
+  ]
+ },
+ "exclusive range": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "n must be more than 0"
+   ],
+   [
+    "n must be less than 1"
+   ]
+  ]
+ },
+ "multipleOf": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "n must be multiple of 0.5"
+   ]
+  ]
+ },
+ "string length": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "s needs at least 2 characters"
+   ],
+   [
+    "s takes at most 4 characters"
+   ],
+   [
+    "s must be text"
+   ]
+  ]
+ },
+ "string pattern": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "s must match the pattern ^[a-z]+$"
+   ],
+   [
+    "s must match the pattern ^[a-z]+$"
+   ]
+  ]
+ },
+ "string formats": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "d must be a valid date-time"
+   ],
+   [],
+   [
+    "e must be a valid email"
+   ],
+   [],
+   [
+    "u must be a valid uri"
+   ],
+   [],
+   [
+    "i must be a valid uuid"
+   ]
+  ]
+ },
+ "date and time formats": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "d must be a valid date"
+   ],
+   [],
+   [
+    "t must be a valid time"
+   ]
+  ]
+ },
+ "array of strings": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "xs[0] must be text"
+   ],
+   [
+    "xs[1] must be text",
+    "xs[3] must be text"
+   ],
+   [
+    "xs must be a list"
+   ],
+   [
+    "xs must be a list"
+   ]
+  ]
+ },
+ "array bounds": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "xs needs at least 1 item"
+   ],
+   [
+    "xs takes at most 2 items"
+   ]
+  ]
+ },
+ "unique items": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "xs must not repeat an item"
+   ]
+  ]
+ },
+ "array of objects": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "files[0].path is required (files[0] takes: path, mode)"
+   ],
+   [
+    "files[0].path must be text",
+    "files[1].path is required (files[1] takes: path, mode)",
+    "files[1].mode must be one of \"a\", \"b\"",
+    "files[2].x is not a known argument (known: path, mode)"
+   ],
+   [
+    "files needs at least 1 item"
+   ],
+   [
+    "files[0] must be an object"
+   ]
+  ]
+ },
+ "nested objects": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a.b is required (a takes: b)"
+   ],
+   [
+    "a.b.c is required (a.b takes: c)"
+   ],
+   [
+    "a.b.c must be a number"
+   ],
+   [
+    "a.b.d is not a known argument (known: c)"
+   ]
+  ]
+ },
+ "nullable by anyOf": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "a does not match any of the shapes it may have"
+   ],
+   []
+  ]
+ },
+ "type list": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "a must be string or null"
+   ]
+  ]
+ },
+ "type list of three": {
+  "schema": [],
+  "values": [
+   [
+    "a must be string or number or null"
+   ],
+   []
+  ]
+ },
+ "oneOf of scalars": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "a does not match any of the shapes it may have"
+   ]
+  ]
+ },
+ "oneOf both match": {
+  "schema": [],
+  "values": [
+   [
+    "a does not match any of the shapes it may have"
+   ],
+   []
+  ]
+ },
+ "anyOf with patterns": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "a does not match any of the shapes it may have"
+   ],
+   [
+    "a does not match any of the shapes it may have"
+   ]
+  ]
+ },
+ "choice of objects": {
+  "schema": [],
+  "values": [
+   [],
+   [],
+   [
+    "a does not match any of the shapes it may have"
+   ],
+   [
+    "a does not match any of the shapes it may have"
+   ],
+   [
+    "a does not match any of the shapes it may have"
+   ]
+  ]
+ },
+ "allOf": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a is required"
+   ],
+   [
+    "a must be text"
+   ]
+  ]
+ },
+ "not": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must not be valid"
+   ]
+  ]
+ },
+ "if then else": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "the arguments must match \"then\" schema"
+   ],
+   []
+  ]
+ },
+ "$defs reference": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a needs at least 1 character"
+   ],
+   [
+    "a must be text"
+   ],
+   [
+    "b[0] must be text"
+   ]
+  ]
+ },
+ "definitions reference": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must be a number"
+   ]
+  ]
+ },
+ "recursive reference": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "tree.kids[0].v must be a number"
+   ],
+   [
+    "tree.v is required (tree takes: v, kids)"
+   ]
+  ]
+ },
+ "draft-07 schema keyword": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must be text"
+   ],
+   [
+    "b is not a known argument (known: a)"
+   ]
+  ]
+ },
+ "2020-12 schema keyword": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a[1] must be a number"
+   ],
+   [
+    "a[2] is not allowed here"
+   ]
+  ]
+ },
+ "2019-09 schema keyword": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must be at least 1"
+   ]
+  ]
+ },
+ "$id present": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must be text"
+   ]
+  ]
+ },
+ "annotations only": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must be text"
+   ]
+  ]
+ },
+ "unknown keywords": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must be text"
+   ]
+  ]
+ },
+ "propertyNames": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "AB must match the pattern ^[a-z]+$",
+    "the arguments property names AB are invalid"
+   ]
+  ]
+ },
+ "additionalProperties schema": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "a must be a number"
+   ]
+  ]
+ },
+ "patternProperties": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "x_a must be a number"
+   ],
+   [
+    "y is not a known argument"
+   ]
+  ]
+ },
+ "dependentRequired": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "the arguments must have properties b when property a is present"
+   ],
+   []
+  ]
+ },
+ "minProperties": {
+  "schema": [],
+  "values": [
+   [
+    "the arguments must not have fewer than 1 properties"
+   ],
+   [],
+   [
+    "the arguments must not have more than 2 properties"
+   ]
+  ]
+ },
+ "contains": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "xs must contain at least 1 valid item"
+   ]
+  ]
+ },
+ "boolean and null values": {
+  "schema": [],
+  "values": [
+   [],
+   [
+    "b must be true or false"
+   ],
+   [
+    "n must be null"
+   ]
+  ]
+ },
+ "empty schema members": {
+  "schema": [],
+  "values": [
+   [],
+   []
+  ]
+ },
+ "huge number of errors": {
+  "schema": [],
+  "values": [
+   [
+    "p0 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p1 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p2 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p3 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p4 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p5 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p6 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p7 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p8 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p9 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p10 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)",
+    "p11 is required (the arguments are: p0, p1, p2, p3, p4, p5, p6, p7, p8, p9, p10, p11)"
+   ],
+   [
+    "p0 must be text",
+    "p1 must be text",
+    "p2 must be text",
+    "p3 must be text",
+    "p4 must be text",
+    "p5 must be text",
+    "p6 must be text",
+    "p7 must be text",
+    "p8 must be text",
+    "p9 must be text",
+    "p10 must be text",
+    "p11 must be text"
+   ]
+  ]
+ }
+}

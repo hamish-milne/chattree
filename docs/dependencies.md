@@ -6,9 +6,7 @@ What the project depends on, why, and the policy for keeping it current. Reviewe
 
 | Package | Kind | Why it is here | Decision |
 |---|---|---|---|
-| `zod` | runtime | Nothing imports it any more (the config, entries, session files and every adapter moved to `typebox`) | Remove with the tool-argument step, together with the lockfile change |
-| `typebox` | runtime | JSON Schema builder with type inference and a validator (`src/validate.ts`): settings, `harness.yml`, price tables, every provider's config and settings | Added 2026-11-17. Replaces zod where it is used; zod stays for transcript entries until they move |
-| `ajv`, `ajv-formats` | runtime | Validates tool arguments against the full JSON Schema a tool declares (`harness/tool-schema.ts`) | Keep. Zod cannot take an arbitrary schema from an MCP server |
+| `typebox` | runtime | The one schema library: JSON Schema builder with type inference, and the validator (`typebox/compile`) behind `src/validate.ts` (settings, `harness.yml`, price tables, provider config and settings, transcript entries, session files) and `harness/tool-schema.ts` (the arguments of any tool, against the JSON Schema it declares) | Added 2026-11-17. Replaced `zod` and `ajv` (with `ajv-formats`), removed the same day |
 | `yaml` | runtime | Reads `harness.yml` and edits it with comments kept (`src/config.ts`) | Keep. No other YAML library keeps comments on edit |
 | `file-type` | runtime | Tells which media format a file is by its content (`harness/formats.ts`): png, jpeg, webp, wav, mp3, flac, ogg, m4a, bmp, tiff and the rest of the table. Pinned to an exact version; only its result for formats in our table is used, and only the first 8 MiB of a file is given to it | Added 2026-11-14. The platform has nothing; a hand-kept signature table would need the RIFF, `ftyp`, Ogg-codec and MP3-sync refinements it already has. It brings `strtok3`, `token-types`, `uint8array-extras`, `ieee754`, `debug` and `ms` |
 | `typescript` | dev | Typecheck only; Node runs the `.ts` files directly | Keep |

@@ -7,12 +7,12 @@
  * `pattern`, or a list of types. The same module validates a call's arguments against such a schema.
  */
 
-import { Ajv, type ErrorObject } from "ajv";
-import { Ajv2020 } from "ajv/dist/2020.js";
-import addFormatsModule from "ajv-formats";
+import { Compile, type Validator } from "typebox/compile";
+import type { TLocalizedValidationError } from "typebox/error";
+import { Guard } from "typebox/guard";
+import { Pointer } from "typebox/schema";
 import { nth } from "../src/nth.ts";
-
-const addFormats = addFormatsModule as unknown as (a: Ajv | Ajv2020) => void;
+import { nodeAt } from "../src/validate.ts";
 
 type Schema = Record<string, unknown>;
 
@@ -28,7 +28,7 @@ const KEYWORDS: Record<string, readonly string[]> = {
   boolean: [...COMMON, "default"],
 };
 
-const isObject = (v: unknown): v is Schema => typeof v === "object" && v !== null && !Array.isArray(v);
+const isObject = (v: unknown): v is Schema => Guard.IsObjectNotArray(v);
 const at = (path: string, key: string): string => (path === "" ? key : `${path}.${key}`);
 
 /** What is wrong with a schema, as readable lines (empty: it is in the subset). The root must be an object. */
@@ -82,33 +82,77 @@ export function checkSchema(schema: unknown): string[] {
 
 // ---- full JSON Schema: validation ---------------------------------------------------------------------------------
 
-type Check = ((v: unknown) => boolean) & { errors?: ErrorObject[] | null };
-const compiled = new WeakMap<object, Check | string>();
-let draft07: Ajv | undefined;
-let draft2020: Ajv2020 | undefined;
+const JSON_TYPES = new Set(["string", "number", "integer", "boolean", "object", "array", "null"]);
+/** Keywords whose values are data, not schemas: a `$ref` or `type` inside them is not one. */
+const DATA_KEYWORDS = new Set(["enum", "const", "default", "examples", "required", "dependentRequired"]);
 
-function engine(schema: Schema): Ajv | Ajv2020 {
-  const uri = typeof schema["$schema"] === "string" ? schema["$schema"] : "";
-  const options = { allErrors: true, verbose: true, strict: false, logger: false, validateSchema: false } as const;
-  if (/2019-09|2020-12/.test(uri)) {
-    if (draft2020 === undefined) addFormats((draft2020 = new Ajv2020(options)));
-    return draft2020;
-  }
-  if (draft07 === undefined) addFormats((draft07 = new Ajv(options)));
-  return draft07;
+/** What stops a schema being used, as one line: a reference to anything outside the schema, or a keyword that is not what it must be. */
+function unusable(root: Schema): string | undefined {
+  let problem: string | undefined;
+  const walk = (node: unknown, depth: number): void => {
+    if (problem !== undefined || depth > 64) return;
+    if (Array.isArray(node)) {
+      for (const n of node) walk(n, depth + 1);
+      return;
+    }
+    if (!isObject(node)) return;
+    const ref = node["$ref"];
+    if (typeof ref === "string") {
+      const where = ref.startsWith("#") ? Pointer.Get(root, ref.slice(1)) : undefined;
+      if (where === undefined) {
+        problem = `the reference ${ref} cannot be resolved (only references inside the schema itself, like #/$defs/name, can)`;
+        return;
+      }
+    }
+    const type = node["type"];
+    for (const t of Array.isArray(type) ? type : type === undefined ? [] : [type]) {
+      if (typeof t !== "string" || !JSON_TYPES.has(t)) {
+        problem = `type must be one of ${[...JSON_TYPES].join(", ")}, not ${JSON.stringify(t)}`;
+        return;
+      }
+    }
+    const pattern = node["pattern"];
+    if (typeof pattern === "string") {
+      try {
+        RegExp(pattern, "u");
+      } catch {
+        problem = `the pattern ${JSON.stringify(pattern)} is not a regular expression`;
+        return;
+      }
+    }
+    const required = node["required"];
+    if (required !== undefined && !Array.isArray(required) && typeof required !== "boolean") {
+      problem = "required must be a list of names";
+      return;
+    }
+    const properties = node["properties"];
+    if (properties !== undefined && !isObject(properties)) {
+      problem = "properties must be an object";
+      return;
+    }
+    for (const [k, v] of Object.entries(node)) if (!DATA_KEYWORDS.has(k)) walk(v, depth + 1);
+  };
+  walk(root, 0);
+  return problem;
 }
 
+const compiled = new WeakMap<object, Validator | string>();
+
 /** The validator for a schema (kept per schema object), or why it cannot be one: not JSON Schema, or a reference to something outside it. */
-function checker(schema: Schema): Check | string {
+function checker(schema: Schema): Validator | string {
   const known = compiled.get(schema);
   if (known !== undefined) return known;
-  let made: Check | string;
-  try {
-    // `$schema` picks the engine and `$id` would make a second compile of the same schema a clash, so neither goes in.
-    const { $schema: _s, $id: _i, ...rest } = schema;
-    made = engine(schema).compile(rest) as Check;
-  } catch (e) {
-    made = `the schema cannot be used: ${e instanceof Error ? e.message : String(e)}`;
+  let made: Validator | string;
+  const problem = unusable(schema);
+  if (problem !== undefined) made = `the schema cannot be used: ${problem}`;
+  else {
+    try {
+      // `$schema` names a draft (all are read the same way) and `$id` would make a second compile of the same schema a clash, so neither goes in.
+      const { $schema: _s, $id: _i, ...rest } = schema;
+      made = Compile(rest);
+    } catch (e) {
+      made = `the schema cannot be used: ${e instanceof Error ? e.message : String(e)}`;
+    }
   }
   compiled.set(schema, made);
   return made;
@@ -134,27 +178,54 @@ const pointer = (instancePath: string): string =>
     .map((p) => p.replace(/~1/g, "/").replace(/~0/g, "~"))
     .reduce((out, p) => (/^\d+$/.test(p) ? `${out}[${p}]` : out === "" ? p : `${out}.${p}`), "");
 
-function sentence(e: ErrorObject): string {
+/** The value an error is about. */
+function dataAt(value: unknown, instancePath: string): unknown {
+  let here = value;
+  for (const key of instancePath.split("/").slice(1)) {
+    const k = key.replace(/~1/g, "/").replace(/~0/g, "~");
+    here = Array.isArray(here) ? here[Number(k)] : isObject(here) ? here[k] : undefined;
+  }
+  return here;
+}
+
+/** The schema a node stands for: a local `$ref` followed to what it names. */
+function resolved(root: Schema, node: unknown): unknown {
+  let here = node;
+  for (let hops = 0; hops < 8 && isObject(here) && typeof here["$ref"] === "string" && here["$ref"].startsWith("#"); hops++)
+    here = Pointer.Get(root, here["$ref"].slice(1));
+  return here;
+}
+
+/** The names of the properties an object schema lists. */
+const known = (node: unknown): string[] => (isObject(node) && isObject(node["properties"]) ? Object.keys(node["properties"]) : []);
+const names = (xs: unknown): string[] => (Array.isArray(xs) ? xs.map(String) : []);
+
+/** The readable lines for one error (a `required` or `additionalProperties` error names several properties, one line each). */
+function sentences(e: TLocalizedValidationError, schema: Schema, value: unknown): string[] {
   const path = pointer(e.instancePath);
   const where = path === "" ? "the arguments" : path;
-  const p = e.params as Record<string, unknown>;
+  const p: Record<string, unknown> = isObject(e.params) ? e.params : {};
   const list = (xs: unknown): string => (Array.isArray(xs) ? xs.map((x) => JSON.stringify(x)).join(", ") : String(xs));
+  const node = resolved(schema, nodeAt(schema, e.schemaPath));
+  const props = known(node);
   switch (e.keyword) {
-    case "required": {
-      const props = isObject(e.parentSchema) && isObject(e.parentSchema["properties"]) ? Object.keys(e.parentSchema["properties"]) : [];
-      const name = String(p["missingProperty"]);
-      return `${at(path, name)} is required${props.length === 0 ? "" : ` (${path === "" ? "the arguments are" : `${path} takes`}: ${props.join(", ")})`}`;
-    }
-    case "additionalProperties": {
-      const props = isObject(e.parentSchema) && isObject(e.parentSchema["properties"]) ? Object.keys(e.parentSchema["properties"]) : [];
-      return `${at(path, String(p["additionalProperty"]))} is not a known argument${props.length === 0 ? "" : ` (known: ${props.join(", ")})`}`;
-    }
+    case "required":
+      return names(p["requiredProperties"]).map(
+        (name) =>
+          `${at(path, name)} is required${props.length === 0 ? "" : ` (${path === "" ? "the arguments are" : `${path} takes`}: ${props.join(", ")})`}`,
+      );
+    case "additionalProperties":
+      // Where extra properties must fit a schema (not none at all), the error for the property itself says what is wrong with it.
+      if (!isObject(node) || node["additionalProperties"] !== false) return [];
+      return names(p["additionalProperties"]).map(
+        (name) => `${at(path, name)} is not a known argument${props.length === 0 ? "" : ` (known: ${props.join(", ")})`}`,
+      );
     case "type": {
       const t = p["type"];
       const kinds = Array.isArray(t) ? t : [t];
-      if (kinds.length > 1) return `${where} must be ${kinds.join(" or ")}`;
-      if (kinds[0] === "integer" && typeof e.data !== "number") return `${where} must be a number`;
-      return (
+      if (kinds.length > 1) return [`${where} must be ${kinds.join(" or ")}`];
+      if (kinds[0] === "integer" && typeof dataAt(value, e.instancePath) !== "number") return [`${where} must be a number`];
+      return [
         {
           object: `${where} must be an object`,
           array: `${where} must be a list`,
@@ -163,40 +234,42 @@ function sentence(e: ErrorObject): string {
           number: `${where} must be a number`,
           integer: `${where} must be a whole number`,
           null: `${where} must be null`,
-        }[String(kinds[0])] ?? `${where} has the wrong type`
-      );
+        }[String(kinds[0])] ?? `${where} has the wrong type`,
+      ];
     }
     case "enum":
-      return `${where} must be one of ${list(p["allowedValues"])}`;
+      return [`${where} must be one of ${list(p["allowedValues"])}`];
     case "const":
-      return `${where} must be ${JSON.stringify(p["allowedValue"])}`;
+      return [`${where} must be ${JSON.stringify(p["allowedValue"])}`];
     case "minimum":
-      return `${where} must be at least ${String(p["limit"])}`;
+      return [`${where} must be at least ${String(p["limit"])}`];
     case "maximum":
-      return `${where} must be at most ${String(p["limit"])}`;
+      return [`${where} must be at most ${String(p["limit"])}`];
     case "exclusiveMinimum":
-      return `${where} must be more than ${String(p["limit"])}`;
+      return [`${where} must be more than ${String(p["limit"])}`];
     case "exclusiveMaximum":
-      return `${where} must be less than ${String(p["limit"])}`;
+      return [`${where} must be less than ${String(p["limit"])}`];
     case "minItems":
-      return `${where} needs at least ${String(p["limit"])} item${p["limit"] === 1 ? "" : "s"}`;
+      return [`${where} needs at least ${String(p["limit"])} item${p["limit"] === 1 ? "" : "s"}`];
     case "maxItems":
-      return `${where} takes at most ${String(p["limit"])} item${p["limit"] === 1 ? "" : "s"}`;
+      return [`${where} takes at most ${String(p["limit"])} item${p["limit"] === 1 ? "" : "s"}`];
     case "minLength":
-      return `${where} needs at least ${String(p["limit"])} character${p["limit"] === 1 ? "" : "s"}`;
+      return [`${where} needs at least ${String(p["limit"])} character${p["limit"] === 1 ? "" : "s"}`];
     case "maxLength":
-      return `${where} takes at most ${String(p["limit"])} character${p["limit"] === 1 ? "" : "s"}`;
+      return [`${where} takes at most ${String(p["limit"])} character${p["limit"] === 1 ? "" : "s"}`];
     case "pattern":
-      return `${where} must match the pattern ${String(p["pattern"])}`;
+      return [`${where} must match the pattern ${String(p["pattern"])}`];
     case "format":
-      return `${where} must be a valid ${String(p["format"])}`;
+      return [`${where} must be a valid ${String(p["format"])}`];
     case "uniqueItems":
-      return `${where} must not repeat an item`;
+      return [`${where} must not repeat an item`];
     case "anyOf":
     case "oneOf":
-      return `${where} does not match any of the shapes it may have`;
+      return [`${where} does not match any of the shapes it may have`];
+    case "boolean":
+      return [`${where} is not allowed here`];
     default:
-      return `${where} ${e.message ?? "is not valid"}`;
+      return [`${where} ${e.message || "is not valid"}`];
   }
 }
 
@@ -209,11 +282,25 @@ export function validateArgs(schema: unknown, value: unknown): string[] {
   if (!isObject(schema)) return ["the schema is not an object"];
   const c = checker(schema);
   if (typeof c === "string") return [c];
-  if (c(value)) return [];
-  const errors = c.errors ?? [];
+  if (c.Check(value)) return [];
+  const errors = c.Errors(value);
   // A choice reports every branch's trouble too; the one line about the choice says it better.
-  const choices = errors.filter((e) => e.keyword === "anyOf" || e.keyword === "oneOf").map((e) => e.schemaPath);
-  const lines = errors.filter((e) => !choices.some((sp) => e.schemaPath.startsWith(`${sp}/`))).map(sentence);
+  const choices = errors.filter((e) => e.keyword === "anyOf" || e.keyword === "oneOf");
+  const inChoice = (e: TLocalizedValidationError): boolean =>
+    choices.some(
+      (ch) =>
+        e.schemaPath.startsWith(`${ch.schemaPath}/${ch.keyword}/`) ||
+        (ch.schemaPath.endsWith(`/${ch.keyword}`) && e.schemaPath.startsWith(`${ch.schemaPath}/`)),
+    );
+  // The extra properties of a closed object are named by one error; the "no such schema" error for each of them says nothing more.
+  const extras = new Set(
+    errors
+      .filter((e) => e.keyword === "additionalProperties")
+      .flatMap((e) => names(isObject(e.params) ? e.params["additionalProperties"] : []).map((n) => `${e.instancePath}/${n}`)),
+  );
+  const lines = errors
+    .filter((e) => !inChoice(e) && !(e.keyword === "boolean" && extras.has(e.instancePath)))
+    .flatMap((e) => sentences(e, schema, value));
   return [...new Set(lines)];
 }
 
