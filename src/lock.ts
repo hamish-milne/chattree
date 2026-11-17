@@ -24,6 +24,12 @@ export interface LockOptions {
   timeoutMs?: number;
   /** Delay between attempts. Default 25 ms. */
   retryMs?: number;
+  /**
+   * How long a lock file we cannot parse is given to finish being written before it counts as stale. Where
+   * the file system has no hard links a lock is visible before its content is, so this stops us taking over a
+   * lock that is being created. Default 250 ms.
+   */
+  unreadableGraceMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
 }
@@ -87,7 +93,9 @@ export async function acquireLock(fs: Fs, path: string, opts: LockOptions = {}):
   const staleAfter = opts.staleAfterMs ?? 30_000;
   const deadline = now() + (opts.timeoutMs ?? 10_000);
   const retry = opts.retryMs ?? 25;
+  const grace = opts.unreadableGraceMs ?? 250;
   const token = crypto.randomUUID();
+  let waitedForUnreadable = false;
 
   for (;;) {
     const info: LockInfo = { token, owner: opts.owner ?? `chattree-${token.slice(0, 8)}`, createdAt: now() };
@@ -109,7 +117,14 @@ export async function acquireLock(fs: Fs, path: string, opts: LockOptions = {}):
     }
     const held = await readInfo(fs, path);
     if (!held.present) continue; // released between our attempt and the read
-    // A lock file we cannot parse was not written by us (content is published atomically), so it is stale too.
+    if (held.info === undefined && !waitedForUnreadable) {
+      // Either a lock still being written (see `unreadableGraceMs`) or one that is corrupt. Wait once, then
+      // look again: a lock that is readable by then is judged as any other; one that is not is stale.
+      waitedForUnreadable = true;
+      await sleep(grace);
+      continue;
+    }
+    if (held.info !== undefined) waitedForUnreadable = false;
     // A stale lock is renamed aside, then removed. The rename moves whatever is at `path` at that moment,
     // which is the window the doc above describes.
     if (held.info === undefined || now() - held.info.createdAt > staleAfter) {
@@ -120,6 +135,7 @@ export async function acquireLock(fs: Fs, path: string, opts: LockOptions = {}):
       } catch {
         /* someone else took it over first */
       }
+      waitedForUnreadable = false;
       continue;
     }
     if (now() >= deadline) throw new LockHeldError(path, held.info, now());

@@ -36,7 +36,7 @@ A transcript is an append-only file of tagged entries in a strict YAML subset wi
 | File | Role |
 |---|---|
 | `host.ts` | `Host`: `exec(argv, ...)`, optional streaming `spawn`, an `Fs`, path helpers. Git commands and file changes must use the same host. ADR 2. |
-| `lock.ts` | Cross-process lock files over `Fs.createExclusive`, with heartbeat and stale takeover. Advisory: only helps where every writer takes it. |
+| `lock.ts` | Cross-process lock files over `Fs.createExclusive`, with heartbeat and stale takeover (a lock file that cannot be parsed is given a short grace to finish being written before it counts as stale). Advisory: only helps where every writer takes it. |
 | `git/git.ts` | `Git`: a typed wrapper over the git command line (`-z`, porcelain v2, `LC_ALL=C`; prompts, hooks, signing, auto-gc and autocrlf off). ADR 1. |
 | `git/cat-file.ts` | A long-running `git cat-file --batch-command` session that answers many object questions with one process. |
 | `git/version.ts` | Parsing `git version`; the minimum is 2.38 (ADR 7). |

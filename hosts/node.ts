@@ -473,8 +473,8 @@ const nodeFs: Fs = {
       await fsp.rm(tmp, { force: true });
     }
     // The file system has no hard links, so this fallback is not atomic: the file exists before its content is
-    // written, and a concurrent reader can see it empty. lock.ts treats an unreadable lock as stale, so on such file
-    // systems a lock taken at the same moment as a read can be wrongly taken over.
+    // written, and a concurrent reader can see it empty. lock.ts gives an unreadable lock a short grace before it
+    // counts as stale, which covers this window.
     let direct: fsp.FileHandle;
     try {
       direct = await fsp.open(path, "wx");

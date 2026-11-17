@@ -278,6 +278,19 @@ describe("locking", () => {
     await convo.append(user("ok"));
   });
 
+  test("a lock still being written is waited for, not taken over", async () => {
+    const { dir } = await fresh();
+    const path = join(dir, "z.lock");
+    await writeFile(path, ""); // visible before its content: what a file system without hard links shows
+    const info = { token: "other", owner: "writer", createdAt: Date.now() };
+    const sleep = () => writeFile(path, JSON.stringify(info));
+    await assert.rejects(
+      acquireLock(host.fs, path, { owner: "late", timeoutMs: 0, sleep }),
+      (e) => e instanceof LockHeldError && /writer/.test(e.message),
+    );
+    assert.match(await readFile(path, "utf8"), /writer/, "the lock was left alone");
+  });
+
   test("release does nothing if the lock was taken over meanwhile", async () => {
     let now = 0;
     const { dir } = await fresh();
