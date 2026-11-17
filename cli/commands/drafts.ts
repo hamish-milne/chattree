@@ -1,3 +1,8 @@
+/**
+ * Named drafts and the prompt draft: `/draft`, `/drafts`, `/paste`, `/discard` and `/send`. A draft is text the user is writing ahead of
+ * sending it, kept with the session when the session ends. The prompt draft is `ctx.state.draft`; named drafts are `ctx.state.drafts`,
+ * each with a name that is a word or, by default, the smallest unused number.
+ */
 import type { Ctx, NamedDraft } from "../engine.ts";
 import type { Output } from "../output.ts";
 import type { Command } from "../registry.ts";

@@ -1,11 +1,6 @@
-import type { ApprovalContext } from "../tools.ts";
-import { CommandSyntax, parseCommand } from "./command.ts";
-import { expandGlob } from "./glob.ts";
-import { PathRefused, resolveInWorkspace } from "./workspace.ts";
-import { nth } from "../../src/nth.ts";
-
 /**
- * Approval keys for `run` (docs/tools.md, section 5). A key is one pipeline stage written as a command line with
+ * Approval keys for `run`: the patterns a user can grant so that matching calls run without asking again. A key is one
+ * pipeline stage written as a command line with
  * patterns, optionally with redirects: `grep **`, `git status **`, `node ./tools/*.ts`, `grep ** > ./**`.
  *
  * - `*` as a whole word is any one argument; `**` as the last word is any number of arguments (including none).
@@ -19,6 +14,11 @@ import { nth } from "../../src/nth.ts";
  * - A key with a wildcard never covers a program that runs other programs (`xargs`, `env`, `sh`...), nor an argument that
  *   writes (`sed -i`, `sort -o`, `find -delete`, `--output`...). A key with no wildcard is exactly what the user saw.
  */
+import type { ApprovalContext } from "../tools.ts";
+import { CommandSyntax, parseCommand } from "./command.ts";
+import { expandGlob } from "./glob.ts";
+import { PathRefused, resolveInWorkspace } from "./workspace.ts";
+import { nth } from "../../src/nth.ts";
 
 /** Programs that run other programs or write files whatever their arguments: never grantable with a wildcard. */
 export const RUNNERS = new Set([

@@ -1,3 +1,9 @@
+/**
+ * A conversation's Git history as a graph: which branch owns each commit, and what each entry says, rendered as a
+ * Mermaid `gitGraph` for inspection. Read-only; it changes no branch or commit. Built on `Conversation`'s git log and
+ * transcript reads, and on the entry types from `entries.ts`.
+ */
+
 import type { CommitInfo } from "../src/index.ts";
 import type { Conversation } from "./conversation.ts";
 import type { ChatEntry } from "./entries.ts";
@@ -77,8 +83,8 @@ export async function readCommitGraph(convo: Conversation, trunk = convo.branch)
   const byHash = new Map<string, CommitInfo>();
   for (const b of branches) for (const c of await convo.git.log(b.name)) byHash.set(c.hash, c);
 
-  // Branches in the order they were created: by the date of the first commit that is theirs alone is not
-  // known yet, so use the tip's author date, which is when they were last touched, then name.
+  // The trunk comes first, then the other branches by the author date of their tip (when each was last touched; the
+  // creation time is not recorded), with the name breaking ties.
   const order = [...branches].sort((a, b) => {
     if (a.name === trunk) return -1;
     if (b.name === trunk) return 1;
@@ -87,6 +93,9 @@ export async function readCommitGraph(convo: Conversation, trunk = convo.branch)
     return da === db ? a.name.localeCompare(b.name) : da < db ? -1 : 1;
   });
 
+  // A commit belongs to the first branch in that order whose first-parent walk reaches it, so a commit on several
+  // first-parent lines goes to the earliest of them. Commits reached only through a merge's second parent get no owner
+  // from this walk and show as "(unreachable)" unless another branch reaches them.
   const owner = new Map<string, string>();
   for (const b of order) {
     for (let h: string | undefined = b.tip; h !== undefined && !owner.has(h); h = byHash.get(h)?.parents[0]) owner.set(h, b.name);

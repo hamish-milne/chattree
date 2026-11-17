@@ -1,3 +1,9 @@
+/**
+ * Reader for the canonical transcript format. It is deliberately stricter than YAML: it accepts only the
+ * shapes emit.ts writes, and by default it re-emits the parsed entry and requires the same bytes. So a
+ * file either reads back to exactly what was written or is rejected with a ParseError, and never silently
+ * means something else. Nesting is checked against MAX_DEPTH, so hostile input cannot exhaust the stack.
+ */
 import { emitEntry } from "./emit.ts";
 import { EmitError, ParseError } from "./errors.ts";
 import { BARE_RE, hasBlockBadChars, isReservedWord, NUMBER_RE, scanQuoted } from "./scalar.ts";
@@ -197,6 +203,7 @@ function parseInline(text: string, cur: Cursor, contentIndent: number, ln: numbe
     }
   }
   if (NUMBER_RE.test(text)) {
+    // Only the spelling String() produces is accepted, so each number has exactly one written form.
     const n = Number(text);
     if (String(n) !== text) throw new ParseError(`non-canonical number ${text}`, ln);
     return n;
@@ -236,6 +243,7 @@ function parseEntryBody(cur: Cursor, lines: string[]): Map<string, Value> {
  */
 export function parseEntry(text: string, opts?: ParseOptions): Entry {
   if (!text.endsWith("\n\n")) throw new ParseError("entry must end with a blank line (incomplete write?)");
+  // Canonical text uses LF only; a CR would be a second spelling of the same entry.
   if (text.includes("\r")) throw new ParseError("carriage returns are not allowed");
   const lines = text.slice(0, -2).split("\n");
   const first = lines[0];

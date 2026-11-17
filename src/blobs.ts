@@ -1,3 +1,8 @@
+/**
+ * Content-addressed blob storage. Large strings and binary values are moved out of entries into a
+ * `BlobStore`, keyed by SHA-256, so entries stay small and identical content is stored once. This module
+ * owns the externalize and resolve transformations; where the bytes live is the store's concern.
+ */
 import { BlobError, EmitError } from "./errors.ts";
 import { decodeStrict } from "./frame.ts";
 import { assertWellFormed } from "./scalar.ts";
@@ -24,6 +29,7 @@ export class MemoryBlobStore implements BlobStore {
   readonly blobs = new Map<string, Uint8Array>();
   async put(data: Uint8Array): Promise<string> {
     const h = await sha256Hex(data);
+    // Copied, so later changes to the caller's buffer cannot alter what is stored under this hash.
     if (!this.blobs.has(h)) this.blobs.set(h, data.slice());
     return h;
   }

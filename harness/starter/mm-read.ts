@@ -1,3 +1,8 @@
+/**
+ * The `mm_read` tool: lets the model look at a picture, listen to a sound or read a PDF in the workspace. Unlike `read`,
+ * the file's bytes are attached to the tool result as media rather than returned as text. Format checks use the file's
+ * leading bytes, not its name, and a file is refused rather than truncated when it is too large to send whole.
+ */
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool } from "../tools.ts";
 import { PATH_ALIASES, flattenArgs } from "./args.ts";
@@ -45,7 +50,8 @@ export function mmReadTool(): Tool {
       const found = await sniffFormat(bytes);
       if (found === undefined) return fail(`${name} is not a picture, sound or PDF that mm_read knows; for text use read`);
       if (found.kind === "video") return fail(`${name} is ${found.label}; video is not supported yet`);
-      // Whether this model takes the format, and converting it when it does not, is decided when the request is built (harness/prepare-media.ts).
+      // Whether this model takes the format, and converting it when it does not, is decided when the request is built
+      // (harness/prepare-media.ts).
       return {
         content: `${name}: ${found.kind === "image" ? "picture" : found.kind === "audio" ? "sound" : "document"} (${found.mime}, ${bytes.length} bytes), shown below`,
         media: [{ name, mime: found.mime, bytes }],

@@ -1,3 +1,8 @@
+/**
+ * Error classes, one per layer (emit, parse, framing, blobs, schema, git). Each has its own `name` so a
+ * caller can tell which layer rejected the input without matching on message text.
+ */
+
 /** Thrown when a value cannot be written in the canonical format. */
 export class EmitError extends Error {
   override name = "EmitError";

@@ -1,4 +1,7 @@
-/** How tool calls and results look in a session (docs/tools.md, section 6): one start line, one result line, a short preview. */
+/**
+ * How tool calls and results look in a session and in the approval prompt: one start line, one result line, and a short
+ * preview of the output. Pure string formatting, shared by the terminal renderer and `chattree run`.
+ */
 
 const clip = (s: string, n: number): string => {
   const t = s.replace(/\s+/g, " ").trim();
@@ -33,7 +36,10 @@ export function summarizeCall(name: string, args: Record<string, unknown>): stri
   return `${name}${rest}`;
 }
 
-/** What the user is shown before deciding: exactly what will run, in full for a script. */
+/**
+ * What the user is shown before deciding: exactly what will run, in full for a script or a subagent brief. Other tools show
+ * their arguments as JSON, cut at 1,500 characters, so a very long argument is not shown whole.
+ */
 export function describeCall(name: string, args: Record<string, unknown>): string {
   const brief = str(args["brief"]);
   if (name === "subagent" && brief !== undefined)
@@ -62,6 +68,7 @@ export function resultLines(o: { is_error: boolean; content: string; ms?: number
   const bytes = new TextEncoder().encode(o.content).length;
   const size = bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KiB`;
   const lines = o.content.split("\n");
+  // The preview width is clamped so an unknown or tiny terminal still shows something, and a wide one keeps lines short.
   const preview = lines
     .slice(0, 3)
     .map((l) => clip(l, Math.max(20, Math.min(120, o.width ?? 120))))

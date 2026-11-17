@@ -2,7 +2,7 @@ import type { Git } from "../src/git/git.ts";
 import type { LeaseBackend } from "./lease.ts";
 
 /**
- * Run leases kept as refs on a shared remote (docs/tools.md, 5.3), for clones of one conversation that do not share a git directory.
+ * Run leases kept as refs on a shared remote, for clones of one conversation that do not share a git directory.
  * The lease is a ref, `refs/chattree/leases/<thread>`, that points at a commit with an empty tree whose message is the lease (the
  * same JSON the file holds). The remote serializes ref updates, so `git push --force-with-lease=<ref>:<expected>` is the
  * compare-and-swap: creating a lease says "expected: absent", renewing or taking one over says which commit it was, and of two clones that
@@ -27,9 +27,15 @@ const WHO = { name: "chattree", email: "chattree@localhost" };
 
 /** The ref a thread's lease is in: the thread name with everything a ref name may not contain written as %XX. */
 export function leaseRef(branch: string): string {
+  // encodeURIComponent leaves some characters that git ref names handle badly (`.`, `~`, `*`, ...), so those are escaped too.
   return `refs/chattree/leases/${encodeURIComponent(branch).replace(/[*'()!~.]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase().padStart(2, "0")}`)}`;
 }
 
+/**
+ * A `LeaseBackend` whose state lives in `leaseRef(branch)` on `o.remote`. Lease commits are created locally and pushed, so
+ * a commit another clone wrote is fetched before its message can be read. Commits never change, which is why the bodies
+ * are cached by commit id without a time limit.
+ */
 export function refLeaseBackend(git: Git, o: RefLeaseOptions): LeaseBackend {
   const now = o.now ?? Date.now;
   const cacheMs = o.cacheMs ?? 1000;
@@ -75,6 +81,7 @@ export function refLeaseBackend(git: Git, o: RefLeaseOptions): LeaseBackend {
   const push = async (branch: string, source: string, expected: string): Promise<boolean> => {
     const ref = leaseRef(branch);
     looked.delete(ref);
+    // A ref the remote refuses (the compare-and-swap lost) makes git exit 1; that is the answer `false`, not a failure.
     const r = await git.run(["push", "--porcelain", "--quiet", o.remote, `${source}:${ref}`, `--force-with-lease=${ref}:${expected}`], {
       ok: [1],
     });

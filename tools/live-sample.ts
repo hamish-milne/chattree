@@ -6,7 +6,7 @@
  *   node tools/live-sample.ts ... --group edit --repeat 20 --out edit-run.json --record ./samples/
  *   node tools/live-sample.ts --flavor local-models --model gpt-oss-20b --repeat 10 --yes
  *
- * `--flavor local-models` runs the model through chattree's own model host (docs/local-models.md): --model is a name from `local_models`
+ * `--flavor local-models` runs the model through chattree's own model host: --model is a name from `local_models`
  * in the settings file, --base-url is not used. The host is started (and the model downloaded) first, with the progress `chattree models
  * start` shows; --yes agrees to installing llama.cpp without asking. The model's sampling is looked up as `chattree models info` does
  * (settings, then the GGUF header, then the base model's generation_config.json), sent with every request, and printed with the report.

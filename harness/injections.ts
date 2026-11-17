@@ -6,10 +6,10 @@ import type { Prepared } from "./request.ts";
 import { thresholdOf, type CompactionSettings } from "./compaction.ts";
 
 /**
- * Injections (docs/context.md, section 2): text the harness puts in front of the model before a request. A rule is a pure function of what the
- * request is about to be built from; whatever it returns is **recorded** as an `injection` entry and the context is built again, so the
- * context is the same on every later request and a replay shows what the model saw. A rule keeps no state of its own: "every N turns" is
- * answered from the history, by finding the last entry written under its key.
+ * Injections: text the harness puts in front of the model before a request. A rule is a pure function of what the
+ * request is about to be built from; whatever it returns is **recorded** as an `injection` entry and the context is
+ * built again, so the context is the same on every later request and a replay shows what the model saw. A rule keeps
+ * no state of its own: "every N turns" is answered from the history, by finding the last entry written under its key.
  */
 
 export interface InjectionItem {
@@ -64,7 +64,10 @@ const USAGE_KINDS: readonly CostWarning["kind"][] = ["near_limit", "context_wind
 /** While a warning stands, it is repeated this many responses after the last time, so a long task does not lose it. */
 const USAGE_REPEAT = 5;
 
-/** Tell the model what the user is told when a request nears a limit or the context window, so it can plan (wrap up, summarise). */
+/**
+ * Tell the model what the user is told when a request nears a limit or the context window, so it can plan (wrap up,
+ * summarise).
+ */
 export const usageRule: InjectionRule = (ctx) => {
   const out: InjectionItem[] = [];
   for (const kind of USAGE_KINDS) {
@@ -79,7 +82,10 @@ export const usageRule: InjectionRule = (ctx) => {
 
 // ---- built-in: compaction is near -------------------------------------------------------------------------------
 
-/** Tell the model, from this share of the compaction threshold, that its context will be reduced, so it writes down what it needs before that. */
+/**
+ * Tell the model, from this share of the compaction threshold, that its context will be reduced, so it writes down what
+ * it needs before that.
+ */
 export const SOON_SHARE = 0.85;
 
 export function compactionRule(s: CompactionSettings): InjectionRule {
@@ -104,9 +110,13 @@ export function compactionRule(s: CompactionSettings): InjectionRule {
 
 type ConfigRule = HarnessConfig["injections"]["rules"][string] & {};
 
-/** A reminder from `harness.yml`: its text (or the file's) every N responses, and on the first request if `first` is set. */
+/**
+ * A reminder from `harness.yml`: its text (or the file's) every N responses, and on the first request if `first` is set.
+ */
 export function configRule(key: string, rule: ConfigRule, readFile: (path: string) => Promise<string>): InjectionRule {
   return async (ctx) => {
+    // A key never written is due once the flow has `every` responses (at once with `first`); after that, every `every`
+    // responses since its last entry.
     const since = ctx.since(key);
     const due = since === undefined ? (rule.first ? true : ctx.turns >= rule.every) : since >= rule.every;
     if (!due) return undefined;

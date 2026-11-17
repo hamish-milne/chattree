@@ -21,7 +21,7 @@ import {
 import { asJson, asString, jsonOr, messageText, parseJsonObject, wireIndex, wireString, type Json } from "./wire.ts";
 
 /**
- * The Anthropic Messages API (docs/providers.md). Also what Ollama and other servers speak as their
+ * The Anthropic Messages API. Also what Ollama and other servers speak as their
  * "Anthropic-compatible" API; `cacheControl` and `authorization` adapt to them. Wire facts that were checked
  * against Anthropic's streaming documentation: the event flow and shapes, cumulative `message_delta` usage,
  * `signature_delta` before a thinking block's stop, tool input as concatenated `input_json_delta` parsed at the
@@ -84,7 +84,7 @@ export function parseAnthropicSettings(settings: unknown): AnthropicSettings {
 
 // ---- request --------------------------------------------------------------------------------------------------
 
-/** The cache marker for a lifetime: 5 minutes is the default and is left out, as the docs show. */
+/** The cache marker for a lifetime. Five minutes is the API's default lifetime, so that marker is sent without a `ttl`. */
 const cacheMark = (ttl: "5m" | "1h" | undefined): Json => (ttl === "1h" ? { type: "ephemeral", ttl: "1h" } : { type: "ephemeral" });
 
 export interface RequestOptions {
@@ -391,6 +391,7 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
         case "message_delta": {
           const delta = jsonOr(d["delta"]);
           if (typeof delta["stop_reason"] === "string") s.stop = STOP_REASONS[delta["stop_reason"]] ?? delta["stop_reason"];
+          // The usage here is cumulative, so it updates the counts from message_start rather than adding to them.
           mergeUsage(s.usage, asJson(d["usage"]));
           return [usageEvent(s.usage)];
         }
@@ -449,6 +450,10 @@ export interface AnthropicOptions {
   http?: HttpOptions;
 }
 
+/**
+ * An adapter for the Messages API. `cacheControl` defaults on only for api.anthropic.com: compatible servers may reject the
+ * markers or ignore them, so they get none unless the config asks for them.
+ */
 export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
   const baseUrl = opts.baseUrl ?? "https://api.anthropic.com";
   const cacheControl = opts.cacheControl ?? new URL(baseUrl).hostname === "api.anthropic.com";
@@ -492,7 +497,6 @@ export function anthropicAdapter(opts: AnthropicOptions = {}): ProviderAdapter {
   };
 }
 
-/** What a setup change does to the prompt cache and the request, beyond what the harness can tell. */
 // ---- registration -----------------------------------------------------------------------------------------------
 
 const anthropicProviderConfig = strictObject({
@@ -528,6 +532,7 @@ export const anthropicDefinition = defineAdapter({
   },
 });
 
+/** What a setup change does to the prompt cache and the request, beyond what the harness can tell. */
 export function classifyAnthropic(from: AgentSetup, to: AgentSetup): Change[] {
   const out: Change[] = [];
   const f = from.model;

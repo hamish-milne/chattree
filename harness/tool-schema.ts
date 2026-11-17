@@ -1,5 +1,5 @@
 /**
- * The portable subset of JSON Schema that tool definitions may use (docs/tools.md, 3.6).
+ * The portable subset of JSON Schema that tool definitions may use.
  *
  * Providers differ on what they accept, and local servers compile schemas to grammars, so the canonical format is
  * the intersection: objects (always closed with `additionalProperties: false`), arrays, strings, numbers, integers,
@@ -306,7 +306,7 @@ export function validateArgs(schema: unknown, value: unknown): string[] {
 
 /**
  * Why a schema is not flat (empty: it is). A flat schema is an object whose properties are strings, numbers, integers or
- * booleans, or lists of those: nothing nested, because some servers show a model only the top-level types (docs/tools.md, 3.7).
+ * booleans, or lists of those: nothing nested, because some servers show a model only the top-level types.
  */
 export function flatProblems(schema: unknown): string[] {
   const out: string[] = [];
@@ -330,7 +330,7 @@ const NUMBER_RE = /^\s*-?\d+(\.\d+)?\s*$/;
 
 /**
  * Repair the slips small models make that have only one possible meaning, guided by the schema, before the arguments are
- * validated (docs/tools.md, 3.6): a lone item where a list belongs (`files: {path: "a"}`, `argv: "ls"`), a bare string
+ * validated: a lone item where a list belongs (`files: {path: "a"}`, `argv: "ls"`), a bare string
  * where an object with one required text property belongs (`files: ["a.txt"]`), a list or object sent as a JSON string,
  * numbers and booleans sent as text, text sent as a number or boolean, and an optional argument sent as null or "". Anything that could mean
  * more than one thing is left alone for `validateArgs` to report. Returns a new value; the input is not changed.

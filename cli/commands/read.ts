@@ -1,3 +1,8 @@
+/**
+ * Commands that look at a thread without adding to it: `/history`, `/show`, `/display`, `/usage`, `/status`, `/threads`, `/verify`, and
+ * `/maintain`, which repacks the repository's objects and touches nothing in the transcript. `/display` settings live in engine state and
+ * apply to the live view and to what is shown when a thread opens. `ago` is shared with `/sessions`.
+ */
 import type { ChatEntry } from "../../harness/entries.ts";
 import { openEntry, parseRef } from "../../harness/search.ts";
 import { formatEntry, parseThinking, parseToolView, THINKING_VIEWS, TOOL_VIEWS } from "../output.ts";
@@ -167,6 +172,8 @@ const threads: Command = {
       return;
     }
     const branches = await ctx.convo.listBranches();
+    // A branch whose tip has no chat.yml is not a chattree thread, so it is left out of every listing
+    // (the filter below lines up with info).
     const info = await ctx.convo.git.objectInfo(branches.map((b) => `${b.tip}:chat.yml`));
     const merged = filter === "merged" || filter === "all" ? await ctx.convo.mergedBranches() : new Set<string>();
     const rows = branches

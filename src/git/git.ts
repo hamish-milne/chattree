@@ -1,3 +1,8 @@
+/**
+ * A typed wrapper over the git command line. Commands go through a `Host`, so they work wherever the host
+ * does. Object reads prefer a long-running `cat-file` process (see `#objects`) and fall back to one process per
+ * question when the host cannot keep one.
+ */
 import { GitError } from "../errors.ts";
 import type { ExecResult, Host } from "../host.ts";
 import { CatFileSession, assertObjectName, type ObjectReader } from "./cat-file.ts";
@@ -135,13 +140,14 @@ function assertSafeArg(what: string, value: string): void {
   if (value === "" || value.startsWith("-") || value.includes("\u0000")) throw new GitError(`invalid ${what}: ${JSON.stringify(value)}`);
 }
 
-/**
- * A typed wrapper over the git command line. It runs through a `Host`, so it works wherever the host does,
- * and it fixes the settings that would otherwise let a user's configuration change behaviour: no prompts,
- * no pager or editor, no hooks, no signing, no auto-gc, no line-ending conversion, C locale.
- */
+// The git version per host and program, so the version is asked for once per host (see `Git.open`).
 const knownVersions = new WeakMap<Host, Map<string, GitVersion>>();
 
+/**
+ * One repository (or worktree, via `cwd`) as seen through git. Every command also fixes the settings that
+ * would otherwise let a user's configuration change behaviour: no prompts, no pager or editor, no hooks, no
+ * signing, no auto-gc, no line-ending conversion, C locale.
+ */
 export class Git {
   readonly #sessions = new Set<CatFileSession>();
   #known: Promise<{ git: string; common: string }> | undefined;
@@ -180,9 +186,7 @@ export class Git {
     }
     const min = opts.minVersion ?? MIN_GIT_VERSION;
     if (compareVersions(version, min) < 0) {
-      throw new GitError(
-        `git ${formatVersion(version)} is too old: ${formatVersion(min)} or newer is required (see docs/git-integration.md, D7)`,
-      );
+      throw new GitError(`git ${formatVersion(version)} is too old: ${formatVersion(min)} or newer is required`);
     }
     return new Git(host, opts, version);
   }
@@ -203,6 +207,9 @@ export class Git {
     return new Git(this.host, { ...this.#opts, cwd }, this.version);
   }
 
+  // Per-command settings that stop git from starting background work (auto-gc, maintenance, fsmonitor), from
+  // reformatting files (autocrlf) or from asking for a signature. The hooks path is cleared unless hooks are
+  // enabled explicitly, so a user's hooks cannot change what the harness writes.
   #base(): string[] {
     const args = [
       "-c",
@@ -230,6 +237,7 @@ export class Git {
 
   /** Run a git command. Throws `GitError` on any exit code other than 0 or those in `opts.ok`. */
   async run(args: readonly string[], opts: RunOptions = {}): Promise<ExecResult> {
+    // Nothing may wait for a human: no credential prompt, editor or pager. The output must be parseable, hence C locale.
     const env: Record<string, string> = {
       LC_ALL: "C",
       GIT_TERMINAL_PROMPT: "0",
@@ -366,6 +374,8 @@ export class Git {
   async status(): Promise<StatusEntry[]> {
     const r = await this.run(["status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames"], { readOnly: true });
     const out: StatusEntry[] = [];
+    // Porcelain v2 records: the path is the last field and follows a fixed number of space-separated fields,
+    // and it may contain spaces itself, so the rest of the line is rejoined.
     for (const rec of dec.decode(r.stdout).split("\u0000")) {
       if (rec === "") continue;
       const kind = rec[0];
@@ -512,7 +522,7 @@ export class Git {
       }
       const size = Number(m[1]);
       results.push(out.subarray(nl + 1, nl + 1 + size));
-      at = nl + 1 + size + 1;
+      at = nl + 1 + size + 1; // the content is followed by one newline, which is skipped
     }
     return results;
   }
@@ -553,6 +563,7 @@ export class Git {
       this.#shared ??= Promise.all([this.commonDir(), this.gitDir()]).then(([common, dir]) => this.#catFile(common, { GIT_DIR: dir }));
       return { value: await ask(await this.#shared) };
     } catch (e) {
+      // Only a failure of the process itself means "not available"; other errors come from the caller's question.
       if (!(e instanceof GitError)) throw e;
       const dead = this.#shared;
       this.#shared = undefined;
@@ -609,6 +620,8 @@ export class Git {
       text("\n");
     };
     const ident = (kind: string, who: Identity, when: string): void => {
+      // Name and email go raw into fast-import's line format, so anything that could end the line or start
+      // another field is refused.
       if (!/^[^<>\n\u0000]+$/.test(who.name) || !/^[^<>\n\u0000 ]+$/.test(who.email)) throw new GitError(`invalid ${kind} identity`);
       text(`${kind} ${who.name} <${who.email}> ${when}\n`);
     };
@@ -622,6 +635,7 @@ export class Git {
       data(enc.encode(Git.#message(c)));
       if (i === 0 && parent !== undefined) text(`from ${parent}\n`);
       for (const f of c.files) {
+        // Paths are limited to a plain allowlist, so a name cannot carry a newline or a space into the fast-import stream.
         if (!/^[A-Za-z0-9._][A-Za-z0-9._/-]*$/.test(f.path) || f.path.includes("//") || f.path.includes(".."))
           throw new GitError(`unsupported path for import: ${JSON.stringify(f.path)}`);
         text(`M 100644 inline ${f.path}\n`);
@@ -691,6 +705,7 @@ export class Git {
   async rewriteTree(tree: string, edits: readonly TreeEdit[]): Promise<string> {
     assertSafeArg("tree", tree);
     return this.#withTempIndex(tree, async (env) => {
+      // Literal pathspecs: a file name containing `*` or `[` must match itself, not act as a pattern.
       const literal = { ...env, GIT_LITERAL_PATHSPECS: "1" };
       const initial = new Map<string, string>(); // path -> "mode sha"
       for (const rec of dec.decode((await this.run(["ls-files", "-s", "-z"], { env: literal })).stdout).split("\u0000")) {
@@ -751,6 +766,10 @@ export class Git {
     await this.run(["merge", "--ff-only", "--quiet", commit]);
   }
 
+  /**
+   * Run `fn` with a fresh index file loaded from `tree`, then delete the file. The index lives under the common git
+   * directory so it never touches the real index, and a per-call random name lets concurrent edits run side by side.
+   */
   async #withTempIndex<T>(tree: string, fn: (env: Record<string, string>) => Promise<T>): Promise<T> {
     const dir = this.host.path.join(await this.commonDir(), "chattree", "tmp");
     await this.host.fs.mkdir(dir);
@@ -764,7 +783,7 @@ export class Git {
     }
   }
 
-  /** Discard uncommitted changes to the given paths (restore them from HEAD). */
+  /** Discard uncommitted changes to the given paths (restore them from HEAD). Staged and worktree changes are both discarded. */
   async restore(paths: readonly string[]): Promise<void> {
     if (paths.length === 0) return;
     await this.run(["restore", "--source=HEAD", "--staged", "--worktree", "--", ...paths]);
@@ -775,6 +794,7 @@ export class Git {
   /** Commits reachable from `rev` (newest first), with their trailers. */
   async log(rev: string, opts: { maxCount?: number; firstParent?: boolean; paths?: readonly string[] } = {}): Promise<CommitInfo[]> {
     assertSafeArg("revision", rev);
+    // Fields are separated by unit separators and records by NUL (-z): control characters that are unlikely in commit text.
     const fmt = "%H%x1f%P%x1f%an%x1f%ae%x1f%aI%x1f%cn%x1f%ce%x1f%s%x1f%(trailers:only,unfold)";
     const args = ["log", "-z", `--format=${fmt}`];
     if (opts.maxCount !== undefined) args.push(`--max-count=${opts.maxCount}`);

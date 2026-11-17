@@ -1,3 +1,9 @@
+/**
+ * Builds what one request sends, from the transcript and the agent's setup: the context the model is shown, with media
+ * converted where the sink needs it, and the cost checks. Used before every request, by the loop and by compaction. The
+ * transcript is never changed here; a request that differs from it (a converted file, a note in place of a file) says so
+ * in `converted` and `warnings`.
+ */
 import { createHash } from "node:crypto";
 import type { Conversation } from "./conversation.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
@@ -64,17 +70,19 @@ export interface Prepared {
   converted?: MediaConversion[];
 }
 
-/**
- * Everything a request needs, checked: the setup (refusing if a provider-observed change is unacknowledged),
- * definitions that still match their pins, and the context built for the model the setup names (the dated model
- * once the provider has reported it). Throws `ChangeNotAllowed` for anything the host has not accepted, and
- * `ConversationError` if the agent has no model yet.
- */
 /** The tools as this model is shown them. A tool it cannot be shown is a failure of the loop's own check (`toolConventionProblems`), so it is dropped here only if that was bypassed. */
 function projectedTools(convo: Conversation, model: AgentSetup["model"], tools: ToolDefinition[]): ToolDefinition[] {
   return projectDefinitions(tools, toolSchemaLevel(convo, model)).tools;
 }
 
+/**
+ * Everything a request needs, checked: the setup (refusing if a provider-observed change is unacknowledged),
+ * definitions that still match their pins, and the context built for the model the setup names (the dated model
+ * once the provider has reported it). Throws `ChangeNotAllowed` for anything the host has not accepted, and
+ * `ConversationError` if the agent has no model yet. The cost checks (price pin, token count, limits) run last and
+ * throw `LimitExceeded` or `ChangeNotAllowed` before anything is sent; they are skipped when `cost` is false or the
+ * conversation has no providers.
+ */
 export async function prepareContext(convo: Conversation, opts: PrepareOptions): Promise<Prepared> {
   const setup = await convo.checkRequest(opts.standing);
   if (setup.model === undefined) throw new Error("this agent has no model: set one with setupChange first");
@@ -84,7 +92,7 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const lastWithId = entries.findLast((e) => "id" in e && typeof e.id === "string" && e.$tag !== "approval");
   const tip = lastWithId !== undefined && "id" in lastWithId ? lastWithId.id : undefined;
   const dec = new TextDecoder();
-  // Instructions changed since the prefix was last rebuilt are shown where they were changed (docs/context.md).
+  // Instructions changed since the prefix was last rebuilt are shown where they were changed, not rewritten into the prefix.
   const instructionUpdates = new Map<string, string>();
   for (const e of pendingAppends(entries)) {
     if (e.instructions !== undefined)

@@ -1,3 +1,7 @@
+/**
+ * Media-type detection for files the user attaches (`/attach`, `say --attach`). The harness requires the host to name each
+ * attachment's type; this module makes that guess, and is the only place that knows about file extensions.
+ */
 import { decodeText, normalizeMime, TextAttachmentError } from "../harness/attachments.ts";
 import { sniffFormat } from "../harness/formats.ts";
 
@@ -69,12 +73,14 @@ export async function detectMime(name: string, bytes: Uint8Array, override?: { m
   const ext = /\.([A-Za-z0-9]+)$/.exec(name)?.[1]?.toLowerCase();
   const byExt = ext === undefined ? undefined : BY_EXTENSION[ext];
   const mime = sniffed ?? byExt;
+  // Non-text types such as images are taken from the name or the bytes as they are. A sniffed binary format (a PDF, say)
+  // beats the extension. Anything left is treated as text, which must decode in UTF-8 or the charset the user names.
   if (mime !== undefined && !mime.startsWith("text/") && !mime.startsWith("application/")) return { mime };
   if (sniffed !== undefined) return { mime: sniffed };
-  // Text (by extension or by looking like it): it has to decode, in UTF-8 or the charset the user names.
   try {
     decodeText(bytes, override?.charset);
   } catch (e) {
+    // A NUL byte in a file with no known extension is taken as binary, so the message asks for --mime instead of a decode error.
     if (e instanceof TextAttachmentError && byExt === undefined && bytes.includes(0))
       throw new Error(`cannot tell what ${name} is (it looks binary); pass --mime if a model can read it`, { cause: e });
     throw e instanceof Error ? e : new Error(String(e));

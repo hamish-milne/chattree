@@ -10,8 +10,9 @@ import { planTrim, byteLength, textBytes, type TrimRule } from "./trim.ts";
 import { nth } from "../src/nth.ts";
 
 /**
- * Keeping a thread inside the model's window (docs/context.md, sections 5 and 6). `compactionSettings` reads the policy from `harness.yml`;
- * `autoCompact` applies it to a request about to be sent; `summariseRange` is the summary itself, also used by `/compact`.
+ * Keeping a thread inside the model's window. `compactionSettings` reads the policy from `harness.yml`; `autoCompact`
+ * applies it to a request about to be sent; `summariseRange` writes the summary itself, and `/compact` uses it too.
+ * Trims and summaries are recorded through `Conversation`, so they are entries in the transcript, not edits to it.
  */
 
 export interface CompactionSettings {
@@ -40,13 +41,23 @@ export async function compactionSettings(convo: Conversation): Promise<Compactio
   };
 }
 
-/** With no `threshold_tokens`: this share of the context window. The rest is what lets a long tool loop finish its turn after a trim. */
+/**
+ * With no `threshold_tokens`: this share of the context window. The rest is what lets a long tool loop finish its turn
+ * after a trim.
+ */
 export const DEFAULT_SHARE = 0.7;
-/** Above this share of the window a request is not sent (when `auto` is on): a model that cannot see its own recent output misbehaves. */
+/**
+ * Above this share of the window a request is not sent (when `auto` is on): a model that cannot see its own recent
+ * output misbehaves.
+ */
 export const HARD_SHARE = 0.9;
-/** A trim loses the cache once, so (without `auto: full`) it is only worth it when it takes out at least this share of the threshold, at 4 bytes to a token. */
+// A trim invalidates the provider's cache once, so without `auto: full` a trim must free at least this share of the
+// threshold (estimated at 4 bytes to a token) to be worth it.
 const WORTH = 0.1;
-/** After an automatic summary, no other until this many entries have been added (a summary that did not help is not repeated on every request). */
+/**
+ * After an automatic summary, no other until this many entries have been added (a summary that did not help is not
+ * repeated on every request).
+ */
 export const COOLDOWN = 6;
 
 /** The token count at which `auto` acts: the setting, else a share of the model's window; `undefined` when neither is known. */
@@ -66,6 +77,11 @@ export class CompactionInsufficient extends Error {
   override name = "CompactionInsufficient";
 }
 
+/**
+ * The entries that count as content for `keepRecent`, cooldowns and "entries added" tallies: messages, model output,
+ * tool results, compactions, interruptions, and subagent, fork and job results. Any other entry does not count, so
+ * recording one does not move where a range ends.
+ */
 const carries = (e: ChatEntry): boolean =>
   e.$tag === "user" ||
   e.$tag === "assistant" ||
@@ -76,7 +92,10 @@ const carries = (e: ChatEntry): boolean =>
   e.$tag === "job_event" ||
   e.$tag === "interrupted";
 
-/** Whether the next request starts a turn: the last entry that carries content is a user message or a finished job, not the middle of a tool loop. */
+/**
+ * Whether the next request starts a turn: the last entry that carries content is a user message or a finished job, not
+ * the middle of a tool loop.
+ */
 export function atTurnStart(entries: readonly ChatEntry[]): boolean {
   const last = contextEntries(entries).findLast(carries);
   return last !== undefined && ((last.$tag === "user" && last.queued !== true) || last.$tag === "job_event");
@@ -118,6 +137,7 @@ export function summaryRange(
       break;
     }
   }
+  // A compaction names its range by entry ids, so the range must end on a content entry that has one.
   while (end >= 0 && !(carriesAt(end) && idAt(end) !== undefined)) end--;
   if (end < 0) return undefined;
   const pick = (first: number, merges: boolean): { from: string; to: string; entries: number; merges: boolean } | undefined => {
@@ -128,8 +148,9 @@ export function summaryRange(
     return count < 2 || from === undefined || to === undefined ? undefined : { from, to, entries: count, merges };
   };
   const firstOf = (from: number): number => visible.findIndex((e, i) => i >= from && carries(e) && idOf(e) !== undefined);
-  // Summaries already in the context stay as they are (their text, and so the cached prefix, does not change) while they are small: the new one covers
-  // only what came after the last of them. Once they exceed the budget, the new one takes them in and covers everything (summary of summaries).
+  // Summaries already in the context stay as they are (their text, and so the cached prefix, does not change) while
+  // they are small: the new one covers only what came after the last of them. Once they exceed the budget, the new one
+  // takes them in and covers everything (a summary of summaries).
   const lastSummary = visible.findLastIndex((e, i) => e.$tag === "compaction" && i <= end);
   const summaryBytes = visible.reduce((n, e) => n + (e.$tag === "compaction" ? textBytes(e.summary) : 0), 0);
   const merged = pick(firstOf(0), true);
@@ -159,9 +180,10 @@ const SUMMARY_PROMPT = (transcript: string): string =>
   `Summarise this part of a conversation so that the summary can replace it in the model's context and the work can go on from it. Keep: what the user asked for, in nearly their own words; decisions and the reasons for them; facts, names, file paths, numbers and errors that later steps depend on; what was done, what is still to do, and open questions. Drop pleasantries and anything that no longer matters. Plain text, no preamble.\n\n${transcript}`;
 
 /**
- * Ask a model for a summary of `from`..`to` and record it as a compaction. What the summarizer reads is `input`: what the main model sees
- * (`seen`, always smaller than the context that triggered this), or the entries untrimmed (`raw`, when it fits the summarizer's window). The request
- * counts against the limits and its usage goes into the entry, so the ledger has it. An empty summary, or one as long as its source, is refused.
+ * Ask a model for a summary of `from`..`to` and record it as a compaction. The summarizer reads what the main model
+ * sees (`seen`, always smaller than the context that triggered this), or the entries untrimmed (`raw`, used only when
+ * it fits the summarizer's window; otherwise `seen` is read). The request counts against the limits and its usage goes
+ * into the entry, so the ledger has it. An empty summary, or one as long as its source, is refused.
  */
 export async function summariseRange(
   convo: Conversation,
@@ -215,12 +237,14 @@ export async function summariseRange(
 }
 
 /**
- * Apply `compaction.auto` to a request that is about to be built into `prepared`. Returns the request to send (built again if the thread changed).
+ * Apply `compaction.auto` to a request that is about to be built into `prepared`. Returns the request to send (built
+ * again if the thread changed).
  *
- * At the threshold: trim everything before the last `keep_recent` entries (with `auto: trim`, only if that is worth losing the cache for). With
- * `auto: full`, if that was not enough and this request starts a turn, write a summary of the older entries (a summary in the middle of a tool loop
- * would hide the work the model is in the middle of). A summary that does not bring the request under the threshold is an error, and is not tried
- * again until `COOLDOWN` entries have been added. Past `HARD_SHARE` of the window the request is not sent.
+ * At the threshold: trim everything before the last `keep_recent` entries (with `auto: trim`, only if that is worth
+ * losing the cache for). With `auto: full`, if that was not enough and this request starts a turn, write a summary of
+ * the older entries (a summary in the middle of a tool loop would hide the work the model is in the middle of). A
+ * summary that does not bring the request under the threshold is an error, and is not tried again until `COOLDOWN`
+ * entries have been added. Past `HARD_SHARE` of the window the request is not sent.
  */
 export async function autoCompact(convo: Conversation, opts: PrepareOptions, prepared: Prepared): Promise<Prepared> {
   const s = await compactionSettings(convo);

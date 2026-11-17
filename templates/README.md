@@ -6,7 +6,7 @@ Patched copies of a model's own chat template, for `local_models.models.<name>.c
   rendered as `<|start|>assistant<|channel|>commentary to=functions.x <|constrain|>json<|message|>{…}<|call|>`, the form harmony defines and the model
   writes, instead of `<|start|>assistant to=functions.x<|channel|>commentary json<|message|>`. With the stock form the model's first tokens after a
   tool result are junk (`<|channel|>comment?commentary?`) and llama-server answers 500 "does not match the expected peg-native format"
-  (docs/local-models.md, 8.2). Checked by rendering both with Jinja2 against a recorded request and comparing with the prompt that gave clean
+ . Checked by rendering both with Jinja2 against a recorded request and comparing with the prompt that gave clean
   output; not yet checked against llama.cpp's own Jinja engine, which is what the live run is for.
 
 Use an absolute path, or one relative to the settings file:

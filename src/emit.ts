@@ -1,3 +1,9 @@
+/**
+ * Writer for the canonical transcript format: each entry is one block-sequence item, written in a fixed
+ * layout so the same value always produces the same bytes (the hash in hash.ts depends on this). It
+ * never sees raw binary or nested tags; those must be replaced by blob refs and flattened earlier.
+ * Scalar quoting and block strings are delegated to scalar.ts; parsing back is parse.ts.
+ */
 import { EmitError } from "./errors.ts";
 import { assertWellFormed, blockChomp, formatNumber, isBare, quote } from "./scalar.ts";
 import { BlobData, BlobRef, MAX_DEPTH, Tagged, type Entry, type Value } from "./value.ts";
@@ -64,7 +70,11 @@ function pushBlock(out: string[], head: string, f: Form & { kind: "block" }, ind
   for (const line of lines) out.push(pad + line);
 }
 
-/** `lead` replaces the indentation of the first key line (used for the "- " of a sequence item). */
+/**
+ * Writes one map. `lead` replaces the indentation of the first key line (used for the "- " of a sequence
+ * item), so a map inside a list starts on the dash line. Depth is checked so an over-deep value fails
+ * with EmitError rather than exhausting the stack.
+ */
 function emitMap(out: string[], m: Map<string, Value>, col: number, lead: string, depth: number): void {
   if (depth > MAX_DEPTH) throw new EmitError(`nesting deeper than ${MAX_DEPTH}`);
   const pad = " ".repeat(col);

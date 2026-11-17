@@ -1,10 +1,17 @@
+/**
+ * The entry point of the dialects folder: the built-in dialects that the local-model provider registers (providers/local-models.ts), and
+ * the rule that maps a model's name to one of them. Each dialect's own file says which format it writes; this file only names them.
+ */
 import type { Dialect } from "../dialect.ts";
 import { familyDialects } from "./families.ts";
 import { gemma } from "./gemma.ts";
 import { harmony } from "./harmony.ts";
 import { qwenXml } from "./qwen-xml.ts";
 
-/** The dialects that ship with chattree, by id (docs/local-models.md, section 9). */
+/**
+ * The dialects that ship with chattree. Ids must be unique (`DialectRegistry.register` throws on a repeat), so the order of the list
+ * does not matter.
+ */
 export function builtinDialects(): Dialect[] {
   return [gemma, harmony, qwenXml, ...familyDialects()];
 }
@@ -14,10 +21,11 @@ export function builtinDialects(): Dialect[] {
  * Qwen3 and Qwen2.5 write the `hermes` format, which has to be asked for.
  */
 export function dialectForModel(name: string): string | undefined {
-  // The start of the model's own name (after any `org/`), never a part of it: `my-qwen-tune` is nobody's guess, and a base model's name inside a
-  // fine-tune's (DeepSeek-R1-Distill-Qwen) does not make it that base model.
+  // The start of the model's own name (after any `org/`), never a part of it: `my-qwen-tune` is nobody's guess, and a base model's name
+  // inside a fine-tune's (DeepSeek-R1-Distill-Qwen) does not make it that base model.
   const m = (name.toLowerCase().split("/").at(-1) ?? "").replace(/^[-_.\s]+/, "");
-  // Only the generations whose format a dialect reproduces: older models of the same makers (DeepSeek-MoE-16B, ChatGLM, Mistral 7B) were not trained for these calls.
+  // Only the generations whose format a dialect reproduces: older models of the same makers (DeepSeek-MoE-16B, ChatGLM, Mistral 7B) were
+  // not trained for these calls.
   const by: [RegExp, string][] = [
     [/^gpt-oss/, "harmony"],
     [/^qwen/, "qwen-xml"],

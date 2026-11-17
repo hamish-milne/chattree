@@ -4,6 +4,11 @@ import { usageRecord } from "./ledger.ts";
 import { checkLimits, LimitExceeded } from "./limits.ts";
 import { servedModelId, type ModelSetup } from "./setup.ts";
 
+/**
+ * A question to a model outside the transcript: the summary of a side conversation, or of a range about to be compacted.
+ * Nothing is written here. The caller decides what to keep, and passes `record` to the ledger so that the spend still counts.
+ */
+
 export interface OneShot {
   text: string;
   /** The model that answered (as the provider reported it). */
@@ -39,6 +44,7 @@ export async function askModel(convo: Conversation, prompt: string, opts: OneSho
     cacheHints: [],
   };
   if (opts.limits === true) {
+    // The estimate uses the table the thread pinned, when it has one, as the ledger does, so the check and the spend that is counted agree.
     const config = await convo.readConfig();
     const current = convo.priceTable(model.provider);
     const pinned = setup.pricing === undefined ? undefined : await convo.priceResolver().table(setup.pricing.table);

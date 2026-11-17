@@ -7,8 +7,8 @@ import { planMedia, type MediaSpec, type MediaTarget } from "./media-spec.ts";
 import type { CostWarning } from "./limits.ts";
 
 /**
- * The step between the context builder and the adapter that makes every picture, sound and PDF something the sink takes
- * (docs/tools.md, media formats). The transcript keeps what came in; only the request is changed. A file the sink takes passes
+ * The step between the context builder and the adapter that makes every picture, sound and PDF something the sink takes.
+ * The transcript keeps what came in; only the request is changed. A file the sink takes passes
  * untouched; one it does not is converted (through the cache, when there is one); one that cannot be becomes a note to the model
  * saying it was not shown and why, plus a warning for the user, and the request still goes. Estimates are taken from the result.
  */
@@ -55,6 +55,7 @@ export async function prepareMedia(context: ModelContext, o: PrepareMediaOptions
   }
   if (parts.length === 0) return { context, converted: [], warnings: [] };
 
+  // The format is read from the bytes first, and the declared type is used only when they are not recognised.
   const formats = new Map<AttachmentPart, Format | undefined>();
   for (const p of parts) formats.set(p, await formatFor(p));
   const needs = parts.some((p) => planMedia(formats.get(p), p.bytes.length, o.spec).action === "convert");

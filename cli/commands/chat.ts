@@ -1,3 +1,8 @@
+/**
+ * The chat commands: `/say` (and bare text), `/retry`, `/continue`, `/abort`, and staging files for the next message (`/attach`,
+ * `/attachments`, `/detach`). `sendMessage` is the one path that appends a user message and starts a turn; drafts and skills send
+ * through it too, so the checks in it apply to every message.
+ */
 import { basename, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { decodeText, attachmentKind } from "../../harness/attachments.ts";
@@ -51,6 +56,7 @@ export async function* sendMessage(ctx: Ctx, text: string, sent: () => void): As
     yield failure(e);
     return;
   }
+  // Cleared only once the message is in the transcript: a failure above leaves the files staged for another try.
   ctx.state.attachments = [];
   sent();
   const turn = runTurn(ctx);
@@ -167,6 +173,8 @@ const abort: Command = {
       yield { type: "notice", message: "stopping the request" };
       return;
     }
+    // The request may be running in another process (another session on this thread). That process is asked to stop; if it is gone,
+    // the request is recorded as it stands.
     const r = await ctx.convo.requestAbort();
     if (r === "requested") yield { type: "notice", message: "asked the session that owns the request to stop it" };
     else if (r === "stale") {
@@ -235,6 +243,7 @@ const attach: Command = {
       });
       if (attachmentKind(found.mime) === undefined)
         throw new Error(`${found.mime} files cannot be given to a model (pictures, sound, PDFs and text)`);
+      // Text is decoded now, so a wrong charset is reported when the file is staged rather than when the message is sent.
       if (attachmentKind(found.mime) === "text") decodeText(bytes, found.charset);
       const staged: StagedAttachment = {
         path,

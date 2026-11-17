@@ -1,7 +1,6 @@
-import { nth } from "../../src/nth.ts";
 /**
- * The command syntax of the `run` tool (docs/tools.md, 4.1): a small, safe subset of shell that we parse ourselves, so
- * that nothing runs through a shell and what a user approves is the parsed programs and arguments.
+ * The command syntax of the `run` tool: a small subset of shell that is parsed here, so that nothing runs through a shell
+ * and what a user approves is the parsed programs and arguments. Anything outside the subset is refused, not guessed at.
  *
  * Supported: words with `'single'` and `"double"` quotes and backslash escapes; `|` pipes; `<` from, `>` to and `>>` append
  * to a workspace file (`/dev/null` discards); unquoted `*` `?` `[...]` `{a,b}` globs (expanded by the caller against the
@@ -10,6 +9,7 @@ import { nth } from "../../src/nth.ts";
  * `||`, `&`, backticks, `$(...)`, subshells, heredocs, `VAR=x cmd`, `~`, redirecting stderr to a file) is refused with
  * a message that points to the `script` tool, never guessed at.
  */
+import { nth } from "../../src/nth.ts";
 
 export interface Word {
   text: string;
@@ -241,6 +241,7 @@ export function parseCommand(input: string, expand: (name: string) => string): P
   if (stdin?.text === "/dev/null") stdin = undefined;
 
   const first = tokens.find((t): t is Extract<Token, { kind: "word" }> => t.kind === "word");
+  // `VAR=x cmd` would otherwise start a program named `VAR=x`, so the assignment form is refused rather than run.
   if (first !== undefined && !first.quoted && /^[A-Za-z_][A-Za-z0-9_]*=/.test(first.word.text) && stages[0]?.[0] === first.word) {
     throw new CommandSyntax(
       `setting a variable before a command (${first.word.text.split("=")[0]}=...) is not supported by run (${SCRIPT})`,

@@ -8,7 +8,7 @@ import { decisionsIn, foldTip, unanswered, type CallNeed, type TipState } from "
 import { thrownText } from "../providers/wire.ts";
 
 /**
- * The pump (docs/tools.md, 5.4). It looks at the threads of a project, works out from each tip what is needed next (`foldTip`) and does
+ * The pump. It looks at the threads of a project, works out from each tip what is needed next (`foldTip`) and does
  * what needs no person: it runs a thread whose calls are decided, and runs the parent again when the subagent it waited for has handed
  * back. What does need a person is a question, and the pump only collects those (`questions`); `answer` is the whole of answering one. A
  * pump is not tied to a screen: a terminal drives one and shows its events, a headless host drives one and has nobody to ask.
@@ -69,6 +69,11 @@ export type AnswerResult =
   | { status: "recorded"; granted?: { keys: string[]; until: string }; grantError?: string }
   | { status: "already_decided" | "gone" };
 
+/**
+ * Looks at every thread and starts the loops that can run without a person. The state it keeps is only a cache of what
+ * the transcripts say; its one piece of memory that a transcript does not hold is `held`, the threads it has stopped
+ * restarting, so a thread whose loop failed is not run again in a circle.
+ */
 export class Pump {
   readonly runs = new ThreadRuns();
   readonly #hooks: PumpHooks;

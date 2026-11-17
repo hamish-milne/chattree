@@ -1,3 +1,8 @@
+/**
+ * The host for the local machine, over `node:child_process` and `node:fs`. Everything Node-specific lives in this
+ * file; the rest of the code reaches the machine only through the `Host` interface (src/host.ts), so a remote or
+ * test host can replace it. Programs are never run through a shell.
+ */
 import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, constants, statSync, watch as fsWatch } from "node:fs";
 import * as fsp from "node:fs/promises";
@@ -79,6 +84,7 @@ function logSpawn(program: string, args: readonly string[]): void {
   appendFileSync(file, `${nodePath.basename(program)} ${sub}\n`);
 }
 
+// null means not looked up yet; the lookup runs once per process.
 let realGit: string | undefined | null = null;
 /** `git` on a Windows PATH becomes the real git.exe when one can be found (see findRealGit); every other program is left alone. */
 function resolveProgram(program: string): string {
@@ -105,6 +111,7 @@ function exec(program: string, args: readonly string[], opts: ExecOptions): Prom
     let outBytes = 0;
     let errBytes = 0;
     let failure: Error | undefined;
+    // Over the output limit the process is killed and the promise rejects, rather than returning truncated output.
     const fail = (e: Error): void => {
       if (failure === undefined) failure = e;
       child.kill("SIGKILL");
@@ -144,6 +151,7 @@ function spawnProcess(program: string, args: readonly string[], opts: Pick<ExecO
     });
     const err: Uint8Array[] = [];
     let errBytes = 0;
+    // Only the first 64 KiB of stderr is kept, for diagnostics; a long-running process must not grow memory without limit.
     child.stderr.on("data", (c: Uint8Array) => {
       if (errBytes < 64 * 1024) {
         err.push(c);
@@ -157,6 +165,8 @@ function spawnProcess(program: string, args: readonly string[], opts: Pick<ExecO
       child.on("close", (code, signal) => done({ exitCode: code ?? (signal === null ? 1 : 128), stderr: concat(err, errBytes) }));
     });
     child.once("error", reject);
+    // Before "spawn" an error means the program could not start, which rejects. After it, errors are swallowed:
+    // the exit promise reports how the process ended, and an unhandled "error" event would crash the host.
     child.once("spawn", () => {
       child.removeListener("error", reject);
       child.on("error", () => undefined);
@@ -203,6 +213,7 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
     const limit = spec.maxOutput ?? DEFAULT_RUN_OUTPUT;
     const env: Record<string, string | undefined> = { ...process.env, ...(spec.env ?? {}) };
     const pattern = spec.unsetEnvPattern === undefined ? undefined : new RegExp(spec.unsetEnvPattern, "i");
+    // Names the caller sets in spec.env are kept, even when the pattern matches them.
     for (const name of Object.keys(env))
       if ((spec.unsetEnv ?? []).includes(name) || (pattern?.test(name) === true && !(name in (spec.env ?? {})))) delete env[name];
 
@@ -252,6 +263,7 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
     };
     const stopped = (): void => {
       // After a kill, wait a moment for the pipes to drain, then give up on any that something else holds open.
+      // Stages still without an exit code are reported as 137 (128 + SIGKILL).
       fallback ??= setTimeout(() => {
         for (let i = 0; i < codes.length; i++) if (codes[i] === -1) codes[i] = 137;
         finish();
@@ -327,6 +339,7 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
         );
         end(127);
       });
+      // A signal death is reported as 128 + the signal number, the convention a shell uses.
       child.on("close", (code, signal) =>
         end(code ?? (signal === null ? 1 : 128 + ((signal === "SIGKILL" && 9) || (signal === "SIGTERM" && 15) || 1))),
       );
@@ -395,6 +408,8 @@ const nodeFs: Fs = {
   async writeAtomic(path, data, opts) {
     const dir = nodePath.dirname(path);
     await fsp.mkdir(dir, { recursive: true });
+    // The new content is written and synced under a temporary name, then renamed over the old file: a crash
+    // leaves either the old content or the new, never a mix.
     const tmp = `${path}.tmp-${randomBytes(6).toString("hex")}`;
     const mode =
       opts?.keepMode === true
@@ -457,7 +472,9 @@ const nodeFs: Fs = {
     } finally {
       await fsp.rm(tmp, { force: true });
     }
-    // The file system has no hard links: fall back to exclusive creation.
+    // The file system has no hard links, so this fallback is not atomic: the file exists before its content is
+    // written, and a concurrent reader can see it empty. lock.ts treats an unreadable lock as stale, so on such file
+    // systems a lock taken at the same moment as a read can be wrongly taken over.
     let direct: fsp.FileHandle;
     try {
       direct = await fsp.open(path, "wx");

@@ -2,7 +2,7 @@
 
 An adapter turns one request context into a stream of neutral events. It is stateless: it knows nothing about
 git, the transcript, journals or budgets. This page is the contract and the workflow; the plan and the reasons
-are in `docs/providers.md` (P2, P3, P12). The types are in `providers/types.ts`.
+are in the architecture decision records (ADRs 15 to 17 in `docs/adr/`). The types are in `providers/types.ts`.
 
 ## The contract
 

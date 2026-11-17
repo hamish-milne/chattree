@@ -1,5 +1,5 @@
 /**
- * Does `builtin_tools` teach gpt-oss the convention over a chain of calls? (docs/local-models.md, 9.5.) The real harmony dialect with
+ * Does `builtin_tools` teach gpt-oss the convention over a chain of calls? The real harmony dialect with
  * `builtin_tools: {python, bash}`, a contrived task that needs five calls, alternating the two tools, and a count, for each call in order, of
  * whether the model wrote it exactly in the convention (`analysis to=NAME`, a bare message), in a way the dialect healed (another channel,
  * a `functions.` prefix, JSON with one key), or in a way that was refused with an error. If the convention takes, the later calls should be

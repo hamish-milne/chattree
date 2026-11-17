@@ -1,3 +1,7 @@
+/**
+ * From settings to what the host has to do: the files to have, the preset file and the arguments that start llama-server in router mode.
+ * Pure and deterministic, so the same settings always give the same preset, which is how the host knows whether a change needs a restart.
+ */
 import { createHash } from "node:crypto";
 import type { Host } from "../src/host.ts";
 import {
@@ -12,12 +16,6 @@ import {
   type Speculative,
 } from "./config.ts";
 import { typedKeys } from "./typed.ts";
-
-/**
- * From settings to what the host has to do (docs/local-models.md, section 6): the files to have, the preset file and the arguments
- * that start llama-server in router mode. Pure and deterministic, so the same settings always give the same preset, which is how
- * the host knows whether a change needs a restart.
- */
 
 type PathApi = Pick<Host["path"], "join">;
 
@@ -38,7 +36,9 @@ export function dataDir(
   return base === undefined || base === "" ? undefined : host.path.join(base, "chattree");
 }
 
-/** What is asked of Hugging Face to find a file: the quantisation of a model, or (with `pick`) the projector or draft model of a repository. */
+/**
+ * What is asked of Hugging Face to find a file: the quantisation of a model, or (with `pick`) the projector or draft model of a repository.
+ */
 export interface Resolve {
   repo: string;
   revision: string;
@@ -71,7 +71,10 @@ export interface PlanIssue {
   message: string;
 }
 
-/** Where every downloaded file is kept: `files/<16 hex digits of the SHA-256 of its address>/<file name>`, so models that name the same file share it. */
+/**
+ * Where every downloaded file is kept: `files/<16 hex digits of the SHA-256 of its address>/<file name>`, so models that name the same file
+ * share it.
+ */
 export const filesDir = (path: PathApi, data: string): string => path.join(data, "files");
 export const sourceHash = (url: string): string => createHash("sha256").update(url).digest("hex").slice(0, 16);
 export const fileDest = (path: PathApi, data: string, url: string, file: string): string =>
@@ -85,7 +88,10 @@ export const modelsByName = (config: LocalModels): [string, ModelEntry][] =>
 
 const baseName = (file: string): string => file.split("/").at(-1) ?? file;
 
-/** The files the settings call for, in model order. A model that cannot be fetched (a URL that is not a GGUF file) is an issue, not a download. */
+/**
+ * The files the settings call for, in model order. A model that cannot be fetched (a URL that is not a GGUF file) is an issue, not a
+ * download.
+ */
 export function downloadList(config: LocalModels, path: PathApi, data: string): { downloads: Download[]; issues: PlanIssue[] } {
   const downloads: Download[] = [];
   const issues: PlanIssue[] = [];
@@ -268,6 +274,7 @@ export interface ModelFiles {
   template?: string;
 }
 
+/** One preset value. A line break would end the key early, so it is refused rather than written. */
 const ini = (v: string | number | boolean): string => {
   const s = String(v);
   if (/[\r\n]/.test(s)) throw new Error("a preset value cannot contain a line break");
@@ -276,8 +283,8 @@ const ini = (v: string | number | boolean): string => {
 
 /**
  * The router's preset file. `version = 1`, `[*]` for what every model shares, then one section per model by name. Sampling goes in as
- * the server's defaults for that model; the agent setup pins them again per call (docs/local-models.md, section 7). A model's aliases are
- * not written: the provider resolves them before it asks the server.
+ * the server's defaults for that model; the agent setup pins them again per call. A model's aliases are not written: the provider
+ * resolves them before it asks the server.
  */
 export function presetIni(config: LocalModels, files: Readonly<Record<string, ModelFiles>>): string {
   const lines: string[] = ["version = 1", ""];

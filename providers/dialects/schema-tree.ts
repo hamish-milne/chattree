@@ -29,9 +29,13 @@ export interface SchemaNode {
   raw: Json;
 }
 
+// A recursive schema would never end: past this depth a `$ref` is not followed, and the node it stands for has no types (an `any` node).
 const MAX_DEPTH = 12;
 
-/** The tree for a schema; `root` is the schema that `$ref`s are resolved against (by default the schema itself). */
+/**
+ * The tree for a schema; `root` is the schema that `$ref`s are resolved against (by default the schema itself). Only local `$ref`s
+ * (`#/$defs/...` or `#/definitions/...`) are followed; any other reference is left unresolved.
+ */
 export function parseSchema(schema: unknown, root: unknown = schema, depth = 0): SchemaNode {
   let s: Json = isMap(schema) ? schema : {};
   const ref = s["$ref"];

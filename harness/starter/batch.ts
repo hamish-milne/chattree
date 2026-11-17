@@ -1,6 +1,3 @@
-import type { Host } from "../../src/host.ts";
-import { globRegex } from "./run-keys.ts";
-
 /**
  * Windows batch programs (`npm.cmd`, `pnpm.cmd`, `build.bat`) for `run`, behind `tools.run.batch` in harness.yml.
  *
@@ -14,6 +11,8 @@ import { globRegex } from "./run-keys.ts";
  * directory), and one that resolves inside the workspace (a planted or built `.cmd`) must also be listed in `tools.run.local`,
  * for example `./node_modules/.bin/*.cmd`, or it is refused. Without the flag the lookup is only made to say what to set.
  */
+import type { Host } from "../../src/host.ts";
+import { globRegex } from "./run-keys.ts";
 
 const UNSAFE = /[%^&|<>"!\r\n\0]/;
 const EXTENSIONS = [".com", ".exe", ".bat", ".cmd"] as const;
@@ -26,6 +25,7 @@ export function batchProblem(file: string, args: readonly string[]): string | un
   for (const a of args) {
     if (UNSAFE.test(a))
       return `the argument ${JSON.stringify(a)} contains one of % ^ & | < > " ! or a line break, which cmd.exe would interpret when it starts a batch file; pass it another way (a file, or a program that is not a batch file)`;
+    // batchStage wraps an argument with spaces in quotes, and a trailing backslash would escape that closing quote.
     if (/[\s]/.test(a) && a.endsWith("\\")) return `the argument ${JSON.stringify(a)} ends with a backslash inside quotes`;
   }
   return undefined;
@@ -68,6 +68,7 @@ export async function findProgram(
   if (/[\\/]/.test(name) || isBatch(name)) {
     const abs = host.path.resolve(workspace, name);
     if (await isFile(abs)) return found(abs);
+    // A name that already has an extension is tried as written only, so `build.cmd` is not looked up as `build.cmd.exe`.
     if (!/\.[A-Za-z]+$/.test(name)) for (const ext of EXTENSIONS) if (await isFile(abs + ext)) return found(abs + ext);
     return undefined;
   }

@@ -6,12 +6,11 @@ import type { ModelContext } from "./context-builder.ts";
 import { jsonOr } from "../src/json.ts";
 
 /**
- * A pre-flight estimate of one request (docs/providers.md, P9). Deliberately pessimistic, because it guards a
- * spending limit: input tokens are guessed from the size of the context (about 3 bytes a token, more than most
- * text needs), priced at the plain input rate or, if dearer, the cache-write rate for the requested `cache_ttl` (a write
- * replaces the plain rate), never at the cache-read discount, and the output is priced as if all of
- * `max_output_tokens` is used. Real counts come back in the response's usage; an adapter with a token-counting
- * endpoint can improve on this later.
+ * A pre-flight estimate of one request. Deliberately pessimistic, because it guards a spending limit: input tokens are
+ * guessed from the size of the context (about 3 bytes a token, more than most text needs), priced at the plain input
+ * rate or, if dearer, the cache-write rate for the requested `cache_ttl` (a write replaces the plain rate), never at the
+ * cache-read discount, and the output is priced as if all of `max_output_tokens` is used. Real counts come back in the
+ * response's usage; an adapter with a token-counting endpoint can improve on this later.
  */
 
 export interface Estimate {
@@ -41,6 +40,10 @@ export function contextJson(value: unknown): string {
   return JSON.stringify(value, (_k, v: unknown) => (v instanceof Uint8Array ? `bytes:${v.length}` : v));
 }
 
+/**
+ * Input tokens for a context: its JSON at 3 bytes a token, plus a per-kind guess for each attachment. In the JSON an
+ * attachment's bytes appear only as their length (see `contextJson`), so the attachment is counted once, by the guess.
+ */
 export function estimateInputTokens(ctx: ModelContext): number {
   const text = contextJson({ system: ctx.system, instructions: ctx.instructions, tools: ctx.tools, turns: ctx.turns });
   let attached = 0;

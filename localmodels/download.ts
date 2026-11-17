@@ -1,14 +1,14 @@
+/**
+ * One file, downloaded to `dest`: written to `dest.part`, continued from where it stopped with a Range request, checked against its size
+ * and SHA-256, and renamed into place only when it is right. Nothing half-written is ever at `dest`. Used by the model store (store.ts)
+ * for each model file and by the installer (install.ts) for each program archive; the redirects and the errors come from net.ts.
+ */
 import { createHash, type Hash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, open, rename, rm, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { FetchError, fetchFollow, type FetchFn } from "./net.ts";
 import { streamChunks } from "../src/stream.ts";
-
-/**
- * One file, downloaded to `dest` (docs/local-models.md, section 3): written to `dest.part`, continued from where it stopped with a Range
- * request, checked against its size and SHA-256, and renamed into place only when it is right. Nothing half-written is ever at `dest`.
- */
 
 export interface Progress {
   received: number;
@@ -70,6 +70,12 @@ const totalFromRange = (v: string | null): number | undefined => {
   return m === null ? undefined : Number(m[1]);
 };
 
+/**
+ * Makes `o.dest` the file `o` describes, fetching it only when needed. Returns `fetched: false` without any network access when `dest` is
+ * already the right file (its size, when known, and its hash, when known, match). Throws a `DownloadError` when the bytes are not the
+ * expected file; a bad file is deleted, so a retry starts clean. A download cut short keeps its `.part` file, and running it again
+ * continues from there.
+ */
 export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
   const want = o.sha256?.toLowerCase();
   const have = await sizeOf(o.dest);
@@ -82,9 +88,11 @@ export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
   }
   await mkdir(dirname(o.dest), { recursive: true });
   const part = `${o.dest}.part`;
+  // The loop runs at most twice: a part that the server will not continue is discarded once, and a second refusal is an error.
   let restarted = false;
   for (;;) {
     const offset = (await sizeOf(part)) ?? 0;
+    // The hash starts from the bytes already in the part, so at the end it covers the whole file and not only the new bytes.
     const hash = createHash("sha256");
     if (offset > 0) await feed(part, hash);
     const res = await fetchFollow(o.url, {
@@ -102,6 +110,7 @@ export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
       restarted = true;
       return true;
     };
+    // 416 with the part's own size as the total means the part is already the whole file; any other 416 starts over.
     if (res.status === 416) {
       if (totalFromRange(res.headers.get("content-range")) === offset && offset > 0) await res.body?.cancel();
       else {
@@ -112,6 +121,7 @@ export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
       await start(); // the server ignored the range
       continue;
     } else {
+      // A 206 gives the total in its Content-Range; a 200 (no range asked for) gives it as the Content-Length.
       const len = res.headers.get("content-length");
       const total = res.status === 206 ? totalFromRange(res.headers.get("content-range")) : len === null ? undefined : Number(len);
       const expected = total ?? o.size;
@@ -134,6 +144,7 @@ export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
         );
       }
       await fh.close();
+      // A stream that ends before the total is a dropped connection, not the end of the file: the part is kept for a retry to continue.
       if (expected !== undefined && received < expected)
         throw new DownloadError(
           `the download of ${o.url} ended early (${received} of ${expected} bytes); running it again continues from there`,
@@ -141,6 +152,7 @@ export async function downloadFile(o: DownloadOptions): Promise<Downloaded> {
         );
     }
 
+    // Size before hash: a wrong size is reported as such, and the hash of a file that is the wrong length is not worth computing.
     const size = (await sizeOf(part)) ?? 0;
     if (o.size !== undefined && size !== o.size) {
       await rm(part, { force: true });

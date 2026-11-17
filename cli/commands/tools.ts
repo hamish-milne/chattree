@@ -1,3 +1,8 @@
+/**
+ * `/tools`, `/jobs`, `/expand`, `/more`, `/runs` and `/questions`: the model's tools and what the user has allowed without being asked
+ * (grants, kept per thread), the background jobs and runs the model started, and the views onto output that did not fit: a tool result
+ * in full and the next page of text.
+ */
 import { keyProblem, liveKeys, untilAfter } from "../../harness/approvals.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import type { Ctx } from "../engine.ts";
@@ -46,6 +51,8 @@ const tools: Command = {
       return;
     }
     if (verb === "allow") {
+      // The key and the duration are both optional. A lone word is the duration if it parses as one, so `allow 5m` grants everything
+      // for five minutes; otherwise it is the key.
       const last = more.at(-1);
       const durationText = last !== undefined && parseDuration(last) !== undefined ? last : "forever";
       const key = more[0] !== undefined && more[0] !== durationText ? more[0] : "all";
@@ -59,6 +66,7 @@ const tools: Command = {
         yield { type: "error", message: problem };
         return;
       }
+      // Only a grant with no end (forever) is committed to the thread's history; a timed grant is not written there.
       const until = untilAfter(now, seconds);
       await store.grant(name, [key], until, { commit: !Number.isFinite(seconds) });
       yield { type: "notice", message: `${name}: ${key === "all" ? "everything" : key} allowed until ${until}` };
@@ -133,6 +141,7 @@ const expand: Command = {
       };
       return;
     }
+    // The transcript may hold only a preview of a tool result; the whole text is in the store, under `full` or as the content itself.
     const ref = e.full ?? (typeof e.content === "string" ? undefined : e.content);
     const text =
       ref === undefined

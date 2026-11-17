@@ -1,3 +1,7 @@
+/**
+ * Public entry point of the package. It re-exports the codec, blob store, schema pipeline, transforms,
+ * hashing, host interface, git layer and lock. Modules not re-exported here are internal.
+ */
 export { BlobError, EmitError, FrameError, GitError, ParseError, SchemaError, type Issue } from "./errors.ts";
 export {
   BlobData,

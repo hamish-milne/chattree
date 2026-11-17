@@ -1,3 +1,8 @@
+/**
+ * Builds the tools a session offers its model. The set is assembled from the built-in tools, the thread and job tools, and
+ * the MCP servers the thread has accepted; `harness.yml` decides which of them are offered at all. The module also holds
+ * the approval prompt's answer parsing and the helpers that find busybox and ffmpeg for the host.
+ */
 import type { Conversation } from "../harness/conversation.ts";
 import { localOwner } from "./owner.ts";
 import { JobRegistry, jobTools } from "../harness/jobs.ts";
@@ -51,7 +56,6 @@ export interface ToolSetHooks {
   busy(this: void): boolean;
   /** This session's id, named as the holder of the run lease a background job takes. */
   session?: string;
-  /** How a subagent's loop is run: the system prompt, and approvals that name the subagent when they ask the user. */
   /** What a subagent's loop does, for showing the user. */
   onChildEvent?(name: string, event: LoopEvent): void;
   /** A fork of this thread, made where the project keeps worktrees. */
@@ -150,6 +154,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   const safe = config?.tools["run"]?.safe ?? [];
   // Only tools listed under `tools` in harness.yml are offered; leaving one out turns it off.
   const listed = (name: string): boolean => config?.tools[name] !== undefined;
+  // busybox is fetched only when a shell tool is offered, so a thread without one never downloads it.
   const busybox = listed("run") || listed("script") ? await resolveBusybox(io, io.settings?.busybox) : undefined;
   const runs = new ThreadRuns();
   const leaf = [
@@ -182,6 +187,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
     if (def === undefined) return [`no adapter for provider ${provider}`];
     return settingsProblems(def, settings);
   };
+  // The subagent tool needs the pump to run its loops, so it is offered only when the thread is pumped.
   const meta =
     hooks.pumped !== true
       ? []
@@ -236,6 +242,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
 export function parseAnswer(answer: string, request: Pick<ApprovalRequest, "keys">): "no" | Approval {
   const c = answer.trim().toLowerCase()[0] ?? "n";
   if (c === "y") return { allow: true };
+  // The timed and forever answers only mean something when the request names keys to grant; otherwise they are a plain no.
   const grant = request.keys !== null && request.keys.length > 0;
   if (grant && c === "5") return { allow: true, grant: { seconds: 300 } };
   if (grant && c === "h") return { allow: true, grant: { seconds: 3600 } };
@@ -272,6 +279,7 @@ export function makeApprover(ask: AskFn, label?: string): (request: Pick<Approva
   };
 }
 
+// Keyed by the Io, so each session shares one converter. A failed build is forgotten, so the next conversion tries again.
 const converters = new WeakMap<Io, Promise<Converter | undefined>>();
 
 /**

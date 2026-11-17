@@ -1,3 +1,9 @@
+/**
+ * llama.cpp, fetched and unpacked. The release for the configured tag is read from GitHub, the file for this machine is chosen
+ * (release.ts), and then downloaded, unpacked and checked by starting it. When a `confirm` is given, the caller is told the tag, the
+ * files, their sizes and hashes before anything is downloaded: installing a program is a consent step. There is no implicit "latest":
+ * the settings name a tag.
+ */
 import { execFile } from "node:child_process";
 import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -9,11 +15,6 @@ import { fetchJson, type FetchFn } from "./net.ts";
 import { findGpu, type GpuFinding } from "./gpu.ts";
 import { isBuildTag, resolveBackend, resolveVersionTag, selectAsset, type Arch, type Platform, type ReleaseAsset } from "./release.ts";
 import { jsonList, jsonOr } from "../src/json.ts";
-
-/**
- * llama.cpp, fetched and unpacked (docs/local-models.md, section 5). Installing a program is a consent step: the caller is told the tag, the
- * files, their sizes and hashes before anything is downloaded. There is no implicit "latest": the settings name a tag.
- */
 
 export class InstallError extends Error {
   override name = "InstallError";
@@ -67,7 +68,10 @@ export interface InstallOptions {
   platform: Platform;
   arch: Arch;
   lock: Lock;
-  /** Asked before anything is downloaded; false is `InstallDeclined`. Without it the install goes ahead (the caller has already agreed, `-y`). */
+  /**
+   * Asked before anything is downloaded; false is `InstallDeclined`. Without it the install goes ahead (the caller has already agreed,
+   * `-y`).
+   */
   confirm?: ((plan: InstallPlan) => Promise<boolean>) | undefined;
   onEvent?: ((e: InstallEvent) => void) | undefined;
   signal?: AbortSignal | undefined;
@@ -117,6 +121,7 @@ const nodeVerify = async (binary: string): Promise<string | undefined> => {
   }
 };
 
+/** The first file called `name` under `dir`, depth first; undefined when there is none. */
 async function find(dir: string, name: string): Promise<string | undefined> {
   for (const e of await readdir(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
@@ -133,6 +138,7 @@ interface Release {
   assets: ReleaseAsset[];
 }
 
+/** A GitHub release by its tag, with its description and its files. A failure names the setting to check. */
 async function getRelease(tag: string, d: InstallDeps, signal: AbortSignal | undefined): Promise<Release> {
   const base = d.apiBase ?? "https://api.github.com";
   let json: unknown;
@@ -169,7 +175,11 @@ async function getRelease(tag: string, d: InstallDeps, signal: AbortSignal | und
 
 const planned = (a: ReleaseAsset): PlannedFile => ({ name: a.name, url: a.url, size: a.size, sha256: a.sha256 });
 
-/** The llama-server to run: the configured `path`, one already installed for this tag and backend, or the release's, downloaded and unpacked. */
+/**
+ * The llama-server to run: the configured `path`, one already installed for this tag and backend, or the release's, downloaded and
+ * unpacked. Nothing is downloaded before `confirm` agrees to the install plan, and an install that does not start is removed again. The
+ * hash of each release file is recorded in the lock, and a release file whose stated hash later differs from the recorded one is refused.
+ */
 export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
   const c = o.config;
   const deps = o.deps ?? {};
@@ -219,6 +229,7 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
   const { program, runtime } = sel.selection;
   const dir = installDir(o.data, tag, backend, c.cuda);
 
+  // Checked before the install plan is shown, so a changed file is reported rather than offered for installation.
   for (const f of [program, runtime]) {
     if (f === undefined) continue;
     const locked = o.lock.file(`llama/${f.name}`);
@@ -230,6 +241,7 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
   const plan: InstallPlan = { tag, backend, program: planned(program), runtime: runtime === undefined ? undefined : planned(runtime), dir };
   if (o.confirm !== undefined && !(await o.confirm(plan))) throw new InstallDeclined(`llama.cpp ${tag} was not installed`);
 
+  // Unpacked in a scratch directory, which is removed in every case; the install is moved to its place only after it has unpacked.
   await mkdir(join(o.data, "downloads"), { recursive: true });
   const work = await mkdtemp(join(o.data, "downloads", "unpack-"));
   try {
@@ -266,12 +278,15 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
       await unpack(extra, rt);
       await cp(rt, join(found, ".."), { recursive: true });
     }
+    // The whole folder the program was unpacked into is kept, so files beside it (the CUDA runtime, for one) stay beside it; `binary.txt`
+    // says where it is.
     const relative = found.slice(into.length + 1);
     await rm(dir, { recursive: true, force: true });
     await mkdir(join(dir, ".."), { recursive: true });
     await rename(into, dir);
     await writeFile(join(dir, "binary.txt"), `${relative}\n`);
     const binary = join(dir, relative);
+    // An install that does not start is removed, so the next start tries the download again instead of finding a broken program.
     const problem = await (deps.verify ?? nodeVerify)(binary);
     if (problem !== undefined) {
       await rm(dir, { recursive: true, force: true });

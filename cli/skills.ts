@@ -9,6 +9,10 @@ import {
   type SkillDrift,
   type SkillScan,
 } from "../harness/skills.ts";
+/**
+ * How the CLI keeps a thread's skills in step with the skill files on disk. The harness does the scanning and syncing; this
+ * module decides when to do it, from the `skills.follow` policy, and words the result for the user.
+ */
 import type { Io } from "./io.ts";
 import type { Project } from "./project.ts";
 
@@ -18,6 +22,7 @@ export const scanProjectSkills = (io: Io, project: Project): Promise<SkillScan> 
 
 /** `skills.follow` from harness.yml (default `ask`). */
 export async function skillPolicy(convo: Conversation): Promise<"auto" | "ask" | "off"> {
+  // An unreadable config falls back to `ask`, the policy that changes nothing without the user.
   const cfg = await convo.readConfig();
   return cfg?.ok === true ? cfg.value.skills.follow : "ask";
 }

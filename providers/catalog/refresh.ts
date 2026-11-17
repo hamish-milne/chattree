@@ -5,9 +5,9 @@ import type { GoApi, GoRow } from "../opencode-go.ts";
  * The pure half of `npm run catalog` (scripts/catalog.ts): turning what a provider's model list says into the snapshot rows, and the
  * rows into source text. Nothing here touches the network.
  *
- * The OpenCode Go parser was written from a description of the list's fields (the sandbox it was written in could not fetch the JSON
- * itself), so it looks for each field under the names and nestings that were described and fails loudly, naming the field and the keys
- * it did find, when one is missing. If it does, run `npm run catalog -- opencode-go --dump`, and fix `FIELDS` or send the output.
+ * The OpenCode Go field paths are not checked against the live JSON, only against a description of it, so the parser looks for each
+ * field under every name and nesting that the description gave, and fails loudly, naming the field and the keys it did find, when one
+ * is missing. When that happens, `npm run catalog -- opencode-go --dump` shows the real shape; fix `FIELDS` to match it.
  */
 
 type Json = Record<string, unknown>;
@@ -51,7 +51,11 @@ export class CatalogShapeError extends Error {
   override name = "CatalogShapeError";
 }
 
-/** Rows from the body of `GET /inference/go/v1/models`. `previous` supplies what the list does not give in a form this reads (the long-context bands). */
+/**
+ * Rows from the body of `GET /inference/go/v1/models`. `previous` supplies what the list does not give in a form this reads (the
+ * long-context bands), matched by id. Throws `CatalogShapeError` at the first entry with a missing or unusable field, rather than
+ * writing a partial snapshot.
+ */
 export function parseOpencodeList(body: unknown, previous: readonly GoRow[] = []): GoRow[] {
   const data = dig(body, "data");
   if (!Array.isArray(data))
@@ -108,7 +112,11 @@ export function parseOpencodeList(body: unknown, previous: readonly GoRow[] = []
   return rows;
 }
 
-/** Fill the token limits of known Gemini models from `GET /v1beta/models`, and say which chat models the list has that the rows do not. */
+/**
+ * Fill the token limits of known Gemini models from `GET /v1beta/models`, and say which chat models the list has that the rows do not.
+ * A row whose model the list does not mention keeps its existing limits. `unknown` lists only `gemini-*` models that offer
+ * `generateContent`, so new chat models are reported for a person to price rather than added with guessed prices.
+ */
 export function applyGeminiLimits(body: unknown, rows: readonly GeminiRow[]): { rows: GeminiRow[]; unknown: string[] } {
   const models = dig(body, "models");
   if (!Array.isArray(models))

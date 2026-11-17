@@ -10,7 +10,7 @@ import { commonProviderFields, defineAdapter, httpOptionsFor, modelsFor, pricesF
 import { ProviderError, type ModelStream, type StreamRequest } from "./types.ts";
 
 /**
- * The models chattree runs itself (docs/local-models.md, section 6). The provider has no address in `harness.yml`: the host chooses its
+ * The models chattree runs itself. The provider has no address in `harness.yml`: the host chooses its
  * port when it starts, so the address, the catalog and the model identities all come from a runtime that the application provides
  * (the CLI builds it from the settings file and the running host). Requests are the OpenAI-compatible ones of llama-server; the model
  * recorded as having served a request is `name@hash8`, so the history says exactly which file answered.
@@ -40,7 +40,7 @@ const providerConfig = strictObject({
   ...commonProviderFields,
 });
 
-/** The settings of a local model: those of any Chat Completions server, and the dialect that renders the prompt itself (docs/local-models.md, section 9). */
+/** The settings of a local model: those of any Chat Completions server, and the dialect that renders the prompt itself. */
 export const localModelsSettings = strictObject({
   ...compatibleSettings.properties,
   /** Render the prompt and read the output ourselves, through `/completion`, instead of the server's chat template. Absent: the server's template. */
@@ -74,6 +74,11 @@ export interface LocalModelsExtras {
   today?: () => string;
 }
 
+/**
+ * The adapter definition for local models, built over a runtime the application provides. The runtime is asked for a
+ * connection on every request, not once, so a server that starts late or stops between requests is handled per request.
+ * Not part of the default registry: it needs a runtime, so the caller registers it.
+ */
 export function localModelsDefinition(runtime: LocalModelsRuntime, extras: LocalModelsExtras = {}) {
   const dialects = new DialectRegistry(extras.dialects ?? builtinDialects());
   const today = extras.today ?? (() => new Date().toISOString().slice(0, 10));
@@ -109,6 +114,7 @@ export function localModelsDefinition(runtime: LocalModelsRuntime, extras: Local
               message: `invalid model settings for this provider: ${settings.issues.map((i) => `${i.path.join(".") || "settings"}: ${i.message}`).join("; ")}`,
             });
           const dialect = settings.value.dialect;
+          // A dialect renders the prompt itself and reads the output through `/completion`, so the server's chat template is bypassed.
           if (dialect !== undefined) {
             const mapper = completionMapper(
               {

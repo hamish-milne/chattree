@@ -1,5 +1,5 @@
 /**
- * How does gpt-oss call a built-in tool, and what does it do with a tool of our own that is described the same way? (docs/local-models.md, 9.5.)
+ * How does gpt-oss call a built-in tool, and what does it do with a tool of our own that is described the same way?
  * The model was trained on `python` and `browser` as built-ins: described in prose in the system block (no schema), called on the `analysis`
  * channel as `to=python`, with the code as the bare message. Functions are declared in the developer block as TypeScript and called on
  * `commentary` as `to=functions.NAME <|constrain|>json` with a JSON body. This probe asks, from the model's raw output (the first request of

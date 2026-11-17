@@ -1,6 +1,6 @@
 /**
  * Fetch busybox.exe for Windows, so that `run` can offer cat, ls, grep, sed and the other everyday utilities there
- * (docs/tools.md, 4.1). It is not part of the repository: busybox is GPL-2.0 software, so it is downloaded on request
+ *. It is not part of the repository: busybox is GPL-2.0 software, so it is downloaded on request
  * and kept in vendor/busybox/ (ignored by git), and nothing is added to PATH.
  *
  *   node tools/fetch-busybox.ts                      download the pinned xPack windows-build-tools release and take busybox.exe from it (chattree does this by itself on first use; this is for doing it by hand)

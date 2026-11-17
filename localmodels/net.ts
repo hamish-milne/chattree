@@ -1,6 +1,7 @@
 /**
- * Fetching with the two rules downloads need (docs/local-models.md, section 3): redirects are followed by hand so a token is sent only to
- * the host it was meant for (Hugging Face redirects to a CDN), and failures are a `FetchError` that says what to do.
+ * Fetching with the two rules downloads need: redirects are followed by hand so a token is sent only to the host it was meant for
+ * (Hugging Face redirects to a CDN, which must not get the token), and failures are a `FetchError` that says what to do. Used by the
+ * downloader (download.ts), the Hugging Face client (hf.ts) and the sampling lookup (sampling.ts).
  */
 
 export type FetchFn = typeof fetch;
@@ -27,7 +28,11 @@ export interface FollowOptions {
 
 const MAX_REDIRECTS = 8;
 
-/** The response after any redirects. A status of 400 or more is a `FetchError`. */
+/**
+ * The response after any redirects. A status of 400 or more is a `FetchError`, except 416 (a range past the end), which is returned so
+ * that a download can tell that its part is already the whole file. The token is sent only while the request stays on the host of the
+ * first URL.
+ */
 export async function fetchFollow(url: string, o: FollowOptions = {}): Promise<Response> {
   const doFetch = o.fetch ?? fetch;
   const first = new URL(url).host;

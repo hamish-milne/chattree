@@ -1,3 +1,9 @@
+/**
+ * Turns a branch's entries into what a provider is asked: a provider-neutral `ModelContext`. Pure apart from reading
+ * blobs; no network, no provider code. Adapters translate the result into their API's messages, so everything
+ * provider-specific stays in `providers/`. Tool calls and results are paired here, once, for every adapter.
+ */
+
 import { attachmentKind, decodeText, normalizeMime } from "./attachments.ts";
 import { contextEntries } from "./context.ts";
 import type { ChatEntry } from "./entries.ts";
@@ -17,12 +23,6 @@ export async function inlineBlobs(v: unknown, text: (t: { sha256: string; bytes:
   for (const [k, x] of Object.entries(o)) out[k] = await inlineBlobs(x, text);
   return out;
 }
-
-/**
- * Turns a branch's entries into what a provider is asked: a provider-neutral `ModelContext`. Pure apart from
- * reading blobs; no network, no provider code. Adapters translate the result into their API's messages.
- * See docs/providers.md, P1.
- */
 
 type EntryBlock = Extract<ChatEntry, { $tag: "assistant" }>["blocks"][number];
 /** An assistant block with its texts read in. `payload` is opaque and goes back to the provider verbatim. */
@@ -83,13 +83,21 @@ export interface BuildInput {
   target: { provider: string; model: string };
   /** Turns structured entries into text for the model. Default: `chattree-english-v1`. See `renderer.ts`. */
   renderer?: Renderer;
-  /** For each `agent_setup` entry that changed the instructions by `append` (see `pendingAppends`): the new text, shown where the entry is. */
+  /**
+   * For each `agent_setup` entry that changed the instructions by `append` (see `pendingAppends`): the new text, shown
+   * where the entry is.
+   */
   instructionUpdates?: ReadonlyMap<string, string>;
-  /** The same for skills (see `skillUpdates`): what was added, changed and removed by that entry. An entry may carry both. */
+  /**
+   * The same for skills (see `skillUpdates`): what was added, changed and removed by that entry. An entry may carry both.
+   */
   skillUpdates?: ReadonlyMap<string, { added: readonly SkillNote[]; changed: readonly SkillNote[]; removed: readonly string[] }>;
   /** Build the context as it stood after this entry (an id in the visible sequence); what comes later is left out. */
   upTo?: string;
-  /** Leave out the visible entries before this one (an id in the visible sequence): a summary of a range is written from the range, not from the summaries above it. */
+  /**
+   * Leave out the visible entries before this one (an id in the visible sequence): a summary of a range is written from
+   * the range, not from the summaries above it.
+   */
   from?: string;
   /** `false`: show every entry whole, as if no trim had been made (the raw input of a summary). Default true. */
   trims?: boolean;
@@ -138,7 +146,8 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
         ...ext,
       };
     const min = rule?.tool_args;
-    // A trim keeps the shape of the arguments and leaves out the long texts (before any blob is read); the provider's raw string would show them again, so it goes.
+    // A trim keeps the shape of the arguments and leaves out the long texts (before any blob is read). The provider's
+    // raw argument string would show them again, so it is left out too.
     if (min !== undefined)
       return {
         type: "tool_call",
@@ -181,7 +190,8 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       case "approval": // a decision about a call: the model sees the call's result, which says what happened
         break;
       case "agent_setup": {
-        // An appended change to the instructions or skills is shown like a queued message: after the results that close the open turn.
+        // An appended change to the instructions or skills is shown like a queued message: after the results that close
+        // the open turn.
         const parts: UserPart[] = [];
         const updated = input.instructionUpdates?.get(e.id);
         if (updated !== undefined) parts.push({ type: "text", text: render.instructionsUpdated(updated) });
@@ -241,7 +251,8 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
       }
       case "tool_result": {
         const left = rule?.tool_results !== undefined && textBytes(e.content) >= rule.tool_results;
-        // Pictures cost the most of anything a result holds, so a trim that leaves results out leaves them out first, and says so.
+        // Pictures cost the most of anything a result holds, so a trim that leaves results out leaves their media out
+        // first, and says so in place of the file.
         const shown: AttachmentPart[] = [];
         const notes: string[] = [];
         for (const m of e.media ?? []) {
@@ -339,9 +350,13 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     open = new Map();
   };
   let pendingResults: Pending[] = [];
-  // Messages sent while the thread was working wait for the results that close the open turn, and are shown right after them.
+  // Messages sent while the thread was working wait for the results that close the open turn, and are shown right after
+  // them.
   let queued: { id: string; turn: Turn }[] = [];
-  /** Show the queued messages now, except those the request behind `unseenAfter` (the assistant entry that comes next) was built before: they follow its turn. */
+  /**
+   * Show the queued messages now, except those the request behind `unseenAfter` (the assistant entry that comes next)
+   * was built before: they follow its turn.
+   */
   const flushQueued = (unseenAfter?: string): void => {
     const now = queued.filter((q) => unseenAfter === undefined || q.id <= unseenAfter);
     if (now.length === 0) return;

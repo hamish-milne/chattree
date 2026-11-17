@@ -6,7 +6,10 @@ import { cliRegistry } from "./providers.ts";
 import { Git, GitError } from "../src/index.ts";
 import { CliError, type Io } from "./io.ts";
 
-/** A chattree project: a git working tree that contains `harness.yml` (see docs/cli.md, section 2). */
+/**
+ * A chattree project: a git working tree that contains `harness.yml`. Threads are branches of its repository, and each
+ * thread's files live in a worktree, so this module is where the CLI maps a name to a directory and a conversation.
+ */
 export interface Project {
   /** The working tree the search found (the top level of the repository or linked worktree). */
   root: string;
@@ -77,11 +80,6 @@ export interface OpenedThread {
   degraded?: string;
 }
 
-/**
- * Open a thread. With no `name`, the thread of the working tree the project was found in (it throws if that branch is not a
- * thread). With a name, that branch's worktree, created under the worktree root if it has none.
- * `providers: "optional"` opens without providers when their keys are missing, for commands that only read.
- */
 /** A directory name for a thread: letters, digits, `.`, `_` and `-` only (no `%` or `/`, which URL-minded tools such as vite and cmd.exe mishandle). */
 export const safeDirName = (name: string): string =>
   name
@@ -98,6 +96,11 @@ export async function threadDir(io: Io, project: Project, name: string): Promise
   }
 }
 
+/**
+ * Open a thread. With no `name`, the thread of the working tree the project was found in (it throws if that branch is not a
+ * thread). With a name, that branch's worktree, created under the worktree root if it has none.
+ * `providers: "optional"` opens without providers when their keys are missing, for commands that only read.
+ */
 export async function openThread(
   io: Io,
   project: Project,
@@ -133,6 +136,7 @@ export async function openThread(
       });
     return { convo, thread };
   } catch (e) {
+    // Only a missing key degrades the open; any other failure to open the conversation still fails.
     if (opts.providers === "optional" && e instanceof ConversationError && /secrets|environment variable/i.test(e.message)) {
       return {
         convo: await Conversation.open(io.host, dir, await conversationOptions(io, git, { providers: false })),

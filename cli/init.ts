@@ -10,6 +10,11 @@ import { Git } from "../src/index.ts";
 import { CliError, type Io } from "./io.ts";
 import { nth } from "../src/nth.ts";
 
+/**
+ * `chattree init`'s work: choose a provider, write the project's config, start the conversation (a new repository, or the
+ * checked-out branch when adopting one), pin the model setup and prices, and make the settings file on a first run.
+ */
+
 export interface InitOptions {
   dir?: string | undefined;
   provider?: string | undefined;
@@ -157,7 +162,7 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
     if (local === undefined || Object.keys(local.models).length === 0)
       throw new CliError(
         "the settings file has no models under local_models",
-        "add some with `chattree settings edit` (docs/local-models.md shows what goes in)",
+        "add some with `chattree settings edit` (docs/guide/local-models.md shows what goes in)",
       );
     const names = Object.keys(catalog(local));
     if (o.model === undefined && Object.keys(local.models).length > 1)
@@ -196,13 +201,13 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
     if (e instanceof ConversationError) throw new CliError(e.message);
     throw e;
   }
-  // Sampling is pinned in the setup as well as being the server's default, so the transcript says what the model was run with (docs/local-models.md, section 7).
+  // Sampling is pinned in the setup as well as being the server's default, so the transcript records what the model was run with.
   let sampling: ReturnType<typeof samplingSettings> = {};
   const pinned_extra: Record<string, unknown> = {};
   if (provider === "local-models") {
     const found = await lookupSampling(where, model);
     sampling = samplingSettings(found.values);
-    // What the benchmarks found (docs/local-models.md, sections 8 and 9): Gemma needs its dialect, the others do well with their own reasoning sent back since the last user message.
+    // Chosen from benchmark results: Gemma does better with its own dialect, the others with their reasoning sent back between tool calls.
     if (dialectForModel(model) === "gemma") {
       pinned_extra["dialect"] = "gemma";
       notes.push("pinned dialect gemma: its chat template and parser lose to our own on the tool tasks");

@@ -1,14 +1,15 @@
+/**
+ * Pictures and sound as the dialects write them into a prompt for llama-server's `/completion`: the text of the parts, and the server's
+ * media marker where each picture or sound is, one marker for each. The server swaps each marker for the media's embedding (and writes
+ * the tokens around it that its projector wants), so a dialect has nothing to say of media except where they stand. PDFs are refused
+ * here: only pictures and sound reach a local model.
+ *
+ * `marker` is undefined when the transport has not been told one (render is pure and the marker belongs to the server); a turn with
+ * media then cannot be written.
+ */
 import type { AttachmentPart, UserPart } from "../../harness/context-builder.ts";
 import { ProviderError } from "../types.ts";
 
-/**
- * How a user turn is written into a prompt that goes to llama-server's `/completion`: the text of its parts, and the server's media
- * marker where a picture is, one marker for each picture. The server swaps each marker for the picture's embedding (and writes the
- * tokens around it that its projector wants), so a dialect has nothing to say of pictures except where they stand.
- *
- * `marker` is undefined when the transport has not been told one (render is pure and the marker belongs to the server); a turn with a
- * picture then cannot be written.
- */
 /** The text of a tool result, and the server's marker after it for each picture or sound it shows (`media` gets them, in order). */
 export function resultContent(
   r: { content: string; media?: AttachmentPart[] },
@@ -37,8 +38,9 @@ export function resultContent(
 
 /**
  * How a sound is introduced in the prompt (`dialect_options.audio_frame`). A speech encoder gives the model embeddings that look like the
- * words themselves, so a bare marker reads as stray text and the model says no audio was attached (Gemma 4 12B, docs/local-models.md 9.11).
- * `transcript` (the default: Gemma 4 12B reasoned most sensibly with it) says what follows is what was heard; `label` says in words that a sound follows; `none` leaves the marker bare.
+ * words themselves, so a bare marker reads as stray text and the model says no audio was attached (seen with Gemma 4 12B). `transcript`
+ * (the default: Gemma 4 12B reasoned most sensibly with it) says what follows is what was heard; `label` says in words that a sound
+ * follows; `none` leaves the marker bare.
  */
 export type AudioFrame = "none" | "label" | "transcript";
 export const AUDIO_FRAMES: readonly AudioFrame[] = ["none", "label", "transcript"];
@@ -54,6 +56,10 @@ export function framed(p: AttachmentPart, marker: string, frame: AudioFrame): st
     : `[The audio clip${name} attached here is heard by you as follows:]\n${marker}\n[End of audio clip.]`;
 }
 
+/**
+ * The text of a user turn's parts, joined by `join` (a blank line by default). A picture or sound sits on a line of its own, so the text
+ * around it is not run into the marker; every media part is pushed onto `media` in order, for the server's markers to be matched to.
+ */
 export function userContent(
   parts: readonly UserPart[],
   marker: string | undefined,

@@ -170,6 +170,7 @@ export async function formatEntry(
     case "injection":
       return `[note from the harness: ${e.key}]\n${indent(wrap(await t(e.text)))}`;
     case "job_event":
+      // Job output is previewed in the transcript view; the whole of it stays in the entry (`/show` prints it).
       return `[background job ${e.job} ${e.status}] ${await t(e.summary)}${e.output === undefined ? "" : `\n${indent(clip(await t(e.output), 400))}`}`;
   }
 }
@@ -214,6 +215,11 @@ export const ansiStyle: Style = {
   yellow: (s) => `\x1b[33m${s}\x1b[39m`,
 };
 
+/**
+ * Writes outputs as plain text. Replies and transcript entries go to the sink's `out`; notices, warnings, errors and tool
+ * lines go to `err`, so a pipe's stdout carries only what was asked for. Streamed text is kept open until a non-stream
+ * output or the end of the request, so a line break is added once, not per chunk.
+ */
 export class PlainRenderer {
   readonly #sink: PlainSink;
   readonly #convo: () => Conversation;

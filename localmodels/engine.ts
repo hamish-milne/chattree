@@ -1,13 +1,12 @@
+/**
+ * The engine seam: a program that serves the models. The first is llama-server's router mode; the host is written against these types
+ * so another (llama-swap) can be added. Nothing here reads settings files, downloads anything or decides when to restart.
+ */
 import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { LocalModels } from "./config.ts";
 import { routerArgs } from "./plan.ts";
 import { asJson, jsonList } from "../src/json.ts";
-
-/**
- * The engine seam (docs/local-models.md, section 3): a program that serves the models. The first is llama-server's router mode; the host
- * is written against these types so another (llama-swap) can be added. Nothing here knows about settings files, downloads or restarts.
- */
 
 export type ModelState = "unloaded" | "loading" | "loaded" | "sleeping" | "unknown";
 
@@ -80,7 +79,9 @@ export const nodeSpawn: SpawnFn = (binary, args, o) => {
   };
 };
 
+/** The address to connect to for a bind address: a wildcard is reached on the loopback, and an IPv6 literal is bracketed for the URL. */
 const connectHost = (host: string): string => (host === "0.0.0.0" || host === "::" ? "127.0.0.1" : host.includes(":") ? `[${host}]` : host);
+/** Waits `ms`, or less when the signal aborts. */
 const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise((resolve) => {
     const t = setTimeout(resolve, ms);
@@ -108,7 +109,12 @@ export class RouterEngine implements Engine {
     this.#pollMs = o.pollMs ?? 250;
   }
 
+  /**
+   * Starts the program and resolves once its model list answers. The health check is polling, bounded by `health_timeout`; if the program
+   * exits or the start is cancelled first, the error says so and carries the last lines it printed.
+   */
   async start(spec: EngineSpec): Promise<EngineProcess> {
+    // The last 20 lines are kept for the error message: they are usually why a program that will not start has stopped.
     const tail: string[] = [];
     const child = this.#spawn(spec.binary, routerArgs(spec.config, spec.presetPath, spec.port), {
       cwd: spec.cwd,
@@ -143,6 +149,7 @@ export class RouterEngine implements Engine {
 
     let ended = false;
     void child.exit.then(() => (ended = true));
+    // The model list is the health check: it answers only once the router is up.
     const deadline = Date.now() + spec.config.server.health_timeout * 1000;
     while (!ended && spec.signal?.aborted !== true) {
       try {
@@ -172,6 +179,7 @@ export class RouterEngine implements Engine {
   }
 }
 
+/** A POST of `{model}` to a router path. A refusal carries the start of llama-server's answer, which says why. */
 async function post(get: (path: string, init?: RequestInit) => Promise<Response>, path: string, model: string): Promise<void> {
   const res = await get(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ model }) });
   const text = await res.text();

@@ -6,7 +6,7 @@ import { nth } from "../src/nth.ts";
 import { asJson } from "../src/json.ts";
 
 /**
- * Trimming (docs/context.md, section 5): the cheap kind of compaction. Nothing is summarised: the bulky parts of old entries (big tool output,
+ * Trimming: the cheap kind of compaction. Nothing is summarised: the bulky parts of old entries (big tool output,
  * big tool arguments, reasoning) are left out of what the model sees, and every word the user and the model wrote stays. A `trim` entry
  * records the rule and the last entry it covers, so a replay shows the model the same thing.
  *

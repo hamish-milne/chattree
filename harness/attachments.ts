@@ -36,7 +36,8 @@ export function normalizeMime(mime: string): string | undefined {
 export function attachmentKind(mime: string): AttachmentKind | undefined {
   const m = normalizeMime(mime);
   if (m === undefined) return undefined;
-  // Any picture, sound or PDF the format registry knows is kept as it came; what a model is sent is decided per sink (harness/prepare-media.ts).
+  // Any picture, sound or PDF the format registry knows is kept as it came; what a model is sent is decided per sink
+  // (see prepare-media.ts).
   const f = formatOf(m);
   if (f !== undefined && f.kind !== "video") return f.kind;
   if (AUDIO_FORMATS[m] !== undefined) return "audio";
@@ -68,11 +69,11 @@ export class TextAttachmentError extends Error {
 }
 
 /**
- * The text of a text attachment, as UTF-8 text for the model. The file's bytes are never changed; this is a strict view of
- * them. A UTF-8 BOM is dropped and a UTF-16 BOM selects UTF-16; otherwise the declared `charset` (from the host, or a media type's parameter) is used (any label the
- * runtime knows, such as windows-1252), else UTF-8. Bytes that are not valid in that encoding are an error, never
- * replaced and never guessed at (detection is the host's job: it can pass a charset). NUL bytes in an 8-bit
- * encoding mean the file is binary. Line endings are left exactly as they are.
+ * The text of a text attachment, as UTF-8 text for the model. The file's bytes are never changed; this is a strict view
+ * of them. A UTF-8 BOM is dropped and a UTF-16 BOM selects UTF-16; otherwise the declared `charset` (from the host, or a
+ * media type's parameter) is used (any label the runtime knows, such as windows-1252), else UTF-8. Bytes that are not
+ * valid in that encoding are an error, never replaced and never guessed at (detection is the host's job: it can pass a
+ * charset). NUL bytes in an 8-bit encoding mean the file is binary. Line endings are left exactly as they are.
  */
 export function decodeText(bytes: Uint8Array, charset?: string): string {
   let label = charset ?? "utf-8";
@@ -97,6 +98,7 @@ export function decodeText(bytes: Uint8Array, charset?: string): string {
   }
 }
 
+/** The largest attachment `Conversation.attach` accepts when harness.yml sets no `attachments.max_bytes`. */
 export const DEFAULT_MAX_ATTACHMENT_BYTES = 20 * 1024 * 1024;
 
 export function base64(bytes: Uint8Array): string {
@@ -115,5 +117,8 @@ export function dataUrl(mime: string, bytes: Uint8Array): string {
 export const IMAGE_TOKEN_GUESS = 2000;
 export const pdfTokenGuess = (bytes: number): number => 1500 + Math.ceil(bytes / 25);
 
-/** Audio costs a token per frame the model's encoder makes (25 a second for Gemma 4); 16-bit mono at 16 kHz is 32 000 bytes a second, so a token for every 400 bytes is a deliberate overestimate. */
+/**
+ * Audio costs a token per frame the model's encoder makes (25 a second for Gemma 4). 16-bit mono at 16 kHz is 32 000
+ * bytes a second, so a token for every 400 bytes is a deliberate overestimate.
+ */
 export const audioTokenGuess = (bytes: number): number => 100 + Math.ceil(bytes / 400);

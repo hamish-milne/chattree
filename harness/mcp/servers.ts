@@ -1,3 +1,9 @@
+/**
+ * MCP servers as the harness uses them. A server's configuration is **accepted by the thread** (pinned in `agent_setup.mcp`)
+ * before anything is started or contacted; its tools become ordinary registry tools named `mcp__<server>__<tool>` whose
+ * definitions are pinned like any tool's, and a call is an approval question like any other. The wire protocol is in client.ts,
+ * connection sharing in pool.ts.
+ */
 import { createHash } from "node:crypto";
 import type { BlobStore } from "../../src/index.ts";
 import type { Host } from "../../src/host.ts";
@@ -11,12 +17,6 @@ import { toPortableSchema } from "../schema-project.ts";
 import { schemaProblems } from "../tool-schema.ts";
 import { optString } from "../../providers/wire.ts";
 import { asJson } from "../../src/json.ts";
-
-/**
- * MCP servers as the harness uses them (docs/context.md, section 2): a server's configuration is **accepted by the thread** (pinned in
- * `agent_setup.mcp`) before anything is started or contacted, its tools become ordinary registry tools named `mcp__<server>__<tool>` whose
- * definitions are pinned like any tool's, and a call is an approval question like any other.
- */
 
 export type McpServerConfig = HarnessConfig["mcp"][string];
 
@@ -109,7 +109,8 @@ function wrap(server: string, client: McpClient, t: McpTool, name: string, schem
   const definition: ToolDefinition = { name, description: describeTool(server, t), input_schema: schema, flags: { mcp: server } };
   return {
     definition,
-    // Every call asks, as the server's own claims about it (`readOnlyHint`) are not something to rely on; "all" lets the user grant that tool for a while.
+    // Every call asks, as the server's own claims about it (`readOnlyHint`) are not something to rely on; "all" lets the
+    // user grant that tool for a while.
     allowKeys: () => ["all"],
     async execute(args, ctx): Promise<ToolOutput> {
       try {
@@ -226,6 +227,7 @@ export async function listServer(
     // What a model that takes only the portable subset would lose, for `/mcp show`.
     const portable = toPortableSchema(schema);
     let full = toolName(name, t.name);
+    // Names that differ only in characters `toolName` replaces (`a.b` and `a_b`) would collide, so later ones get a numeric suffix.
     for (let n = 2; taken.has(full); n++) full = `${toolName(name, t.name).slice(0, MAX_NAME - 3)}_${n}`;
     taken.add(full);
     tools.push(wrap(name, client, t, full, schema));
@@ -240,7 +242,10 @@ export async function listServer(
   return { client, tools, status };
 }
 
-/** Start one server whatever the thread has accepted (`/mcp accept` does this to show its tools first), and turn its tools into registry tools. */
+/**
+ * Start one server whatever the thread has accepted (`/mcp accept` does this to show its tools first), and turn its tools
+ * into registry tools.
+ */
 export async function connectServer(
   name: string,
   cfg: McpServerConfig,
@@ -270,10 +275,12 @@ function serverCwd(cfg: McpServerConfig, deps: Pick<McpDeps, "cwd" | "projectDir
 }
 
 /**
- * What makes two threads' connections to a server the same one, so the pool may share it: the server's name and everything its configuration
+ * What makes two threads' connections to a server the same one, so the pool may share it: the server's name and everything
+ * its configuration
  * says (secrets too, as a hash, so a different token is a different connection), and for a program the directory it starts in.
  */
 export function connectionKey(name: string, cfg: McpServerConfig, deps: Pick<McpDeps, "cwd" | "projectDir" | "env">): string {
+  // `allow` (the approvals granted for the server's tools) is left out: granting a tool does not change the connection.
   const secrets = [
     ...(cfg.env_from ?? []),
     ...(cfg.bearer_env === undefined ? [] : [cfg.bearer_env]),

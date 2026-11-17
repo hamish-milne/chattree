@@ -8,21 +8,21 @@ import { parseSchema, toolSchema, type SchemaNode } from "./schema-tree.ts";
 import { spacedJson } from "./scan.ts";
 
 /**
- * Harmony, the format gpt-oss was trained on (docs/local-models.md, section 9.1). Rendering reproduces what the model's own chat
- * template produces for plain conversations (the parity tests compare against its output), and departs from it in four deliberate
- * ways, each a lever in the options or a documented fix:
+ * Harmony, the format gpt-oss was trained on: `<|start|>role<|channel|>NAME<|message|>body<|end|>` messages, with the tools declared as
+ * TypeScript in a developer message. Rendering reproduces what the model's own chat template produces for plain conversations (the
+ * parity tests compare against its output), and departs from it in four deliberate ways, each a lever in the options or a deliberate fix:
  *   D1  a finished answer is always in the `final` channel, and the reasoning of finished exchanges is dropped (the template puts a
  *       message that has both reasoning and content in `analysis`, which teaches the model to answer there);
  *   D2  several calls in one assistant turn are rendered as call/result pairs in order (the template renders only the first);
  *   D3  nested object and array schemas are declared in full (the template says `any[]`); `schema: "flat"` restores that;
  *   D4  text written before a call (a preamble) is in the `commentary` channel, as the format's own guide has it.
- * The parser also reads a bare body as the argument of a tool with one required string argument (see `harmonyParser`), and
- * `builtin_tools` presents chosen tools as built-ins (harmony-builtin.ts).
- * Options: `keep_reasoning` (default true): reasoning of the unfinished exchange is replayed in `analysis`;
- * `schema`: `"full"` (default) or `"flat"`; and the wording of the system block, which differs between checkpoints and variants:
- * `identity` (the first line; `false` leaves it out), `knowledge_cutoff` (`"2024-06"`; `false` leaves it out) and `date`: `"none"` (default:
- * the date is given in the `environment` injection instead, which keeps the start of the prompt, and so its cache, the same from day to
- * day), `"today"` (the date the request is made on, as the model's own template does) or any text, written as `Current date: TEXT`.
+ * The parser also reads a bare body as the argument of a tool with one required string argument (see `harmonyParser`), and `builtin_tools`
+ * presents chosen tools as built-ins (harmony-builtin.ts). Options: `keep_reasoning` (default true): reasoning of the unfinished exchange
+ * is replayed in `analysis`; `schema`: `"full"` (default) or `"flat"`; and the wording of the system block, which differs between
+ * checkpoints and variants: `identity` (the first line; `false` leaves it out), `knowledge_cutoff` (`"2024-06"`; `false` leaves it out) and
+ * `date`: `"none"` (default: the date is given in the `environment` injection instead, which keeps the start of the prompt, and so its
+ * cache, the same from day to day), `"today"` (the date the request is made on, as the model's own template does) or any text, written as
+ * `Current date: TEXT`.
  */
 
 const START = "<|start|>";
@@ -116,6 +116,7 @@ function declaration(t: ToolDefinition, full: boolean): string {
   return `${desc}type ${t.name} = (_: {\n${properties(root, full)}\n}) => any;`;
 }
 
+/** The system message: identity, cutoff and date lines, the reasoning effort, the channel rule, and the prose of any built-in tools. */
 function systemBlock(
   input: RenderInput,
   o: HarmonyOptions,
@@ -160,12 +161,18 @@ const message = (channel: string, body: string, end = END): string => `${START}a
 const sameModel = (t: Extract<Turn, { role: "assistant" }>, input: RenderInput): boolean =>
   t.provider === input.provider && t.model.split("@")[0] === input.model.split("@")[0];
 
+/**
+ * The prompt for a context in Harmony's format: the system and developer messages, then each turn, and the prompt ends with
+ * `<|start|>assistant` for the model's next message. A call and its result are written together, from the assistant turn that made the
+ * call; the tool_results turn that follows it writes nothing of its own.
+ */
 export function renderHarmony(input: RenderInput): { prompt: string; stop: string[] } {
   const o = harmonyOptions(input.options);
   const turns = input.context.turns;
   const lastUser = turns.map((t) => t.role).lastIndexOf("user");
   const have = new Set(input.context.tools.map((t) => t.name));
   const own = (n: string): boolean => o.builtin.get(n)?.run === undefined;
+  // A built-in that is a tool of its own is offered as that tool, not in `namespace functions`, so it is left out of the list.
   const functions = input.context.tools.filter((t) => !(o.builtin.has(t.name) && own(t.name)));
   // A built-in made of `run` is offered when `run` is; one that is a tool of its own, when that tool is.
   const builtins = [...o.builtin].filter(([n, b]) => have.has(b.run === undefined ? n : RUN_TOOL));
@@ -178,6 +185,8 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
       const next = turns[i + 1];
       const results = new Map((next?.role === "tool_results" ? next.results : []).map((r) => [r.call_id, r]));
       const hasCalls = t.blocks.some((b) => b.type === "tool_call");
+      // Reasoning is replayed only in the unfinished exchange and only for a turn that made calls; a finished answer keeps its
+      // reasoning out of the prompt (D1), so the model does not learn to answer on the analysis channel.
       const replay = o.keepReasoning && hasCalls && i > lastUser && sameModel(t, input);
       for (const b of t.blocks) {
         if (b.type === "reasoning") {
@@ -185,6 +194,8 @@ export function renderHarmony(input: RenderInput): { prompt: string; stop: strin
         } else if (b.type === "text") {
           if (b.text !== "") out += message(hasCalls ? "commentary" : "final", b.text);
         } else if (b.type === "tool_call") {
+          // The built-in this call was made as: the one its `ext` records (a `run` built-in, read from the model's message), else a
+          // built-in that has the tool's own name.
           const made = (b.ext as { builtin?: { name?: unknown; message?: unknown } } | undefined)?.builtin;
           const name =
             typeof made?.name === "string" && o.builtin.has(made.name)
@@ -225,7 +236,8 @@ type Mode = "header" | "text" | "reasoning" | "call" | "done";
 
 /**
  * A call whose body is not JSON, to a tool whose only required argument is a string, takes the whole body as that argument: the model was
- * trained to send code to its `python` tool as the bare message, and does so for any tool that is called that (`python` with a `code` argument).
+ * trained to send code to its `python` tool as the bare message, and does so for any tool that is called that (`python` with a `code`
+ * argument).
  *
  * Reads the model's output after `<|start|>assistant`: messages of `<|channel|>NAME[ to=RECIPIENT][ <|constrain|>json]<|message|>BODY`
  * ended by `<|end|>`, `<|call|>` or `<|return|>`. A message with a `functions.` recipient is a call whatever its channel (the model
@@ -251,7 +263,7 @@ export function harmonyParser(
     } else out.push({ kind: mode === "reasoning" ? "reasoning" : "text", text });
   };
 
-  /** The one argument that a bare (non-JSON) body belongs to, if the tool has just one required argument and it is a string. */
+  // The one argument that a bare (non-JSON) body belongs to, if the tool has just one required argument and it is a string.
   const bareArgument = (name: string): string | undefined => {
     const tool = tools.find((t) => t.name === name);
     if (tool === undefined) return undefined;
@@ -269,6 +281,8 @@ export function harmonyParser(
     }
   };
 
+  // Ends the message being read. A call to a built-in is read by `messageOf`; a `run` built-in also records its name and message in `ext`,
+  // which the prompt needs back to write the call in the same form the model used.
   const closeMessage = (out: Emit[]): void => {
     const spec = mode === "call" ? builtin.get(callName) : undefined;
     if (mode === "call" && spec !== undefined) {
@@ -292,6 +306,7 @@ export function harmonyParser(
       mode = "call";
       args = "";
       callName = recipient.startsWith("functions.") ? recipient.slice("functions.".length) : recipient;
+      // A built-in made of `run` is announced as a call of `run`, the tool it is made through.
       out.push({ kind: "call.start", name: builtin.get(callName)?.run === undefined ? callName : RUN_TOOL });
     } else mode = channel === "analysis" ? "reasoning" : "text";
   };
@@ -304,6 +319,7 @@ export function harmonyParser(
         return out;
       }
       if (mode === "header") {
+        // Text that cannot be the start of a message means the model is not using the format: it is text from here on.
         if (!sawStart && header === "" && buf.trim() !== "" && !buf.trimStart().startsWith("<|") && !"<|".startsWith(buf.trimStart())) {
           sawStart = true;
           mode = "text"; // bare text: the model is not using the format
@@ -324,6 +340,7 @@ export function harmonyParser(
       // Reading a body: text up to the next special token.
       const i = buf.indexOf("<|");
       if (i < 0) {
+        // A `<` at the very end may be the start of a token that is still arriving.
         const hold = !final && buf.endsWith("<") ? 1 : 0;
         emitBody(buf.slice(0, buf.length - hold), out);
         buf = buf.slice(buf.length - hold);
@@ -333,18 +350,22 @@ export function harmonyParser(
       buf = buf.slice(i);
       const tok = TOKEN.exec(buf)?.[0];
       if (tok === undefined) {
-        if (!final && buf.length < 24) return out; // a token not complete yet
-        emitBody(buf.slice(0, 2), out); // not a token: plain text
+        // No special token is 24 characters long, so a longer run that does not match one is text; a shorter one may still be arriving.
+        if (!final && buf.length < 24) return out;
+        emitBody(buf.slice(0, 2), out); // not a token: the `<|` is text
         buf = buf.slice(2);
         continue;
       }
       if (!TERMINATORS.has(tok)) {
+        // A special token inside a body that does not end the message (`<|channel|>`, say) is written out as text.
         emitBody(tok, out);
         buf = buf.slice(tok.length);
         continue;
       }
       buf = buf.slice(tok.length);
       closeMessage(out);
+      // `<|start|>` begins the next message; `<|end|>` ends this one and the next is headed; a call or a return stops the output,
+      // since the model is then waiting for a result it must not make up.
       if (tok === START) {
         mode = "header";
         header = "";

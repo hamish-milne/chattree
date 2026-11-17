@@ -58,7 +58,11 @@ export interface Fs {
   writeAtomic(path: string, data: Uint8Array, opts?: { keepMode?: boolean }): Promise<void>;
   /** Append bytes, creating the file (and parent directories) if needed. With `sync`, flush to stable storage before resolving. */
   append(path: string, data: Uint8Array, opts?: { sync?: boolean }): Promise<void>;
-  /** Create the file with this content only if it does not exist (the basis of lock files). Resolves false if it exists. */
+  /**
+   * Create the file with this content only if it does not exist (the basis of lock files). Resolves false if it exists.
+   * Hosts must publish the complete content at once: a concurrent reader must never see an empty or partly written file,
+   * because lock takeover treats an unreadable lock file as stale.
+   */
   createExclusive(path: string, data: Uint8Array): Promise<boolean>;
   /** Shrink the file to `length` bytes, flushing the change. */
   truncate(path: string, length: number): Promise<void>;

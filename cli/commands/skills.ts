@@ -1,3 +1,8 @@
+/**
+ * `/skills` and `/skill`: list the skills pinned to this thread, take changes from disk (`/skills sync`), and send one skill's text to the
+ * model as the user's message. A thread pins a skill's text when it is accepted, so the thread does not change when files on disk do;
+ * the difference is reported as drift until a sync pins the new text.
+ */
 import type { Conversation } from "../../harness/conversation.ts";
 import { loadPinned } from "../../harness/definitions.ts";
 import { hasSkillTool, asSkill, driftSize, skillDrift, skillText, syncSkills, type SkillValue } from "../../harness/skills.ts";
@@ -51,6 +56,8 @@ const skills: Command = {
         yield { type: "error", message: `unknown option ${args[0]}`, hint: "/skills [sync]" };
         return;
       }
+      // Three copies matter: the pin (what the thread uses), the text the cached prefix shows the model, and the file on disk. The state
+      // says whether the first two agree; the disk is compared separately, below the list.
       const names = [...new Set([...Object.keys(setup.skills), ...Object.keys(setup.prefix.skills)])].sort();
       const rows: string[] = [];
       for (const name of names) {
@@ -120,6 +127,7 @@ const skill: Command = {
         yield { type: "error", message: `the skill ${name} is pinned but its text could not be read` };
         return;
       }
+      // Sent as the user's message, not as a tool result, so the model follows it as it would any request from the user.
       const request = rest.replace(/^\s*\S+\s*/, "").trim();
       const text = `[The user invoked the skill ${name}; follow it]\n${skillText(value)}${request === "" ? "" : `\n\nThe user's request: ${request}`}`;
       yield* sendMessage(ctx, text, () => undefined);

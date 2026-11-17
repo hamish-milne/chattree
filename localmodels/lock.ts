@@ -1,13 +1,12 @@
+/**
+ * The record of what was fetched: the SHA-256 and size of every program archive and model file the first time it arrives, and which
+ * files a quantisation named. A recorded file is trusted without asking the network again, so the host starts offline; a changed hash on
+ * a recorded program is refused by install.ts, not replaced. Written by replacing the whole file, so a crash leaves the old one.
+ */
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Type } from "typebox";
 import { safeParse, withDefault } from "../src/validate.ts";
-
-/**
- * The record of what was fetched (docs/local-models.md, section 3): the SHA-256 and size of every program archive and model file the
- * first time it arrives, and which files a quantisation named. A recorded file is trusted without asking the network again, so the
- * host starts offline; a changed hash on a recorded program is refused, not replaced.
- */
 
 export interface LockedFile {
   sha256: string;
@@ -42,6 +41,7 @@ export class Lock {
     this.#data = data;
   }
 
+  /** A missing file is an empty lock; a file that does not parse is a `LockError`, never silently replaced (its records would be lost). */
   static async open(path: string): Promise<Lock> {
     let data: LockData = { version: 1, files: {}, quants: {} };
     const text = await readFile(path, "utf8").catch(() => undefined);
@@ -88,6 +88,10 @@ export class Lock {
     this.#data.quants[key] = paths;
   }
 
+  /**
+   * Written to a `.tmp` file and renamed over the lock, so a crash mid-write leaves the last good lock in place. Keys are sorted, so the
+   * file diffs cleanly.
+   */
   async save(): Promise<void> {
     const sorted = (o: Record<string, unknown>) => Object.fromEntries(Object.entries(o).sort(([a], [b]) => a.localeCompare(b)));
     const out = { version: 1, files: sorted(this.#data.files), quants: sorted(this.#data.quants) };

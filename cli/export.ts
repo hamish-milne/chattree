@@ -2,6 +2,12 @@ import type { Conversation } from "../harness/conversation.ts";
 import type { ChatEntry } from "../harness/entries.ts";
 import { inlineBlobs } from "../harness/context-builder.ts";
 
+/**
+ * Thread export to Markdown, for sharing. It is a read-only rendering of the transcript: the thread's own record is not
+ * changed, and blobs are read back from the store so the text appears inline.
+ */
+
+// A fence one backtick longer than the longest run in the body, so the body cannot close the block early.
 const fence = (body: string): string => {
   const longest = Math.max(2, ...[...body.matchAll(/`+/g)].map((m) => m[0].length));
   const f = "`".repeat(longest + 1);
@@ -107,6 +113,7 @@ export async function exportMarkdown(
       case "agent_setup":
         if (e.model !== undefined && e.reason !== "provider") out.push(`*Model set to ${e.model.provider}/${e.model.id}.*`);
         break;
+      // The header is metadata and approvals are decisions, not conversation: neither is written out.
       case "header":
       case "approval":
         break;

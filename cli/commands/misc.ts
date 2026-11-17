@@ -1,3 +1,8 @@
+/**
+ * Thread-level commands: `/compact` (replace a range of entries, in what the model sees, with a summary), `/export`, `/log`, `/clear`
+ * and `/edit` (the prompt draft, in the editor). Compaction and trimming change only what the next request sends; the transcript keeps
+ * every entry. `editText` is the shared helper for writing text through the user's editor.
+ */
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 import { compactionSettings } from "../../harness/compaction.ts";
@@ -65,6 +70,8 @@ const compact: Command = {
       let summary = rest.replace(/^\s*\S+\s+\S+\s*/, "").trim();
       let model: string | undefined;
       let usage: Record<string, number> | undefined;
+      // No summary given: the model writes one for the range, and nothing is replaced until the user has read it and confirmed.
+      // Its usage is recorded in the ledger only if it is accepted.
       if (summary === "") {
         const a = entries.indexOf(from);
         const b = entries.indexOf(to);
@@ -190,7 +197,10 @@ const clear: Command = {
   },
 };
 
-/** Text through the user's editor: `initial` goes in, the saved text comes back (undefined if the editor failed). The scratch file is removed. */
+/**
+ * Text through the user's editor: `initial` goes in, the saved text comes back (undefined if the editor failed). The scratch file is
+ * removed.
+ */
 export async function editText(ctx: Ctx, fileName: string, initial: string): Promise<string | undefined> {
   const file = ctx.io.host.path.join(ctx.engine.project.mainRoot, ".chattree", "tmp", fileName);
   await ctx.io.host.fs.writeAtomic(file, new TextEncoder().encode(initial));

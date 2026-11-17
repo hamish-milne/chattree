@@ -4,7 +4,7 @@ import type { Tool, ToolOutput } from "./tools.ts";
 import { optStringArg } from "./tool-args.ts";
 
 /**
- * The `search` tool (docs/tools.md, 4.4). Searching the asking thread's own history needs the key `current`; anything that reads another
+ * The `search` tool. Searching the asking thread's own history needs the key `current`; anything that reads another
  * thread (a wider scope, or opening an entry of another thread) needs `other`, which also covers `current`. `all` covers both.
  */
 export interface SearchToolDeps {
@@ -24,6 +24,7 @@ function wanted(args: Record<string, unknown>, thread: string | undefined): "cur
 const line = (h: Hit): string =>
   `${h.ref}  #${h.n} ${h.kind}${h.relation === "self" ? "" : ` (${h.relation === "other" ? "other thread" : h.relation})`}: ${h.excerpt}`;
 
+/** The `search` tool over the project's threads. Its approval key is chosen per call from the scope and `entry` it asks for. */
 export function searchTool(deps: SearchToolDeps): Tool {
   return {
     definition: {

@@ -4,9 +4,11 @@ import type { Ctx } from "./engine.ts";
 import type { Output } from "./output.ts";
 
 /**
- * Run a setup change that the library may refuse until the user agrees (docs/cli.md, section 8): the refusal is shown with
- * what each change does, the user is asked, and the call repeats with exactly those kinds allowed. A changed price table is
- * pinned first, as `/pricing pin` would. Returns what `fn` returned, or `undefined` if the user said no.
+ * Run a setup change that the library may refuse until the user agrees. The refusal is shown with what each change does,
+ * the user is asked, and the call repeats with exactly those kinds allowed. A changed price table is pinned first, as
+ * `/pricing pin` would, so the change being agreed to is the one the library refused. Returns what `fn` returned,
+ * or `{ done: false }` if the user said no. Each round only adds the kinds the library named, so a retry cannot widen
+ * the allowance beyond what was shown; after three refusals it gives up with an error rather than looping.
  */
 export async function* withConfirmation<T>(
   ctx: Ctx,

@@ -9,7 +9,7 @@ import { nth } from "../src/nth.ts";
 import { jsonOr } from "../src/json.ts";
 
 /**
- * Session files (docs/cli.md, section 3): everything a CLI process holds that is not in the transcript, one YAML file per
+ * Session files: everything a CLI process holds that is not in the transcript, one YAML file per
  * session under `<git-common-dir>/chattree/cli/sessions/`, written with the repository's canonical emitter and read back
  * through a strict schema. A session is held by a lock with a heartbeat; resuming takes the earliest unlocked session that
  * points at the wanted thread.
@@ -46,6 +46,7 @@ const pipeline = new Pipeline<SessionFile>({ types: [defineEntry("session", sess
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
+/** Recalled input lines kept per session file; the oldest are dropped when the file is written. */
 export const HISTORY_LIMIT = 500;
 
 export interface SessionInfo {
@@ -144,6 +145,8 @@ export class Session {
       heartbeatMs: opts.heartbeatMs ?? 10_000,
       staleAfterMs: opts.staleAfterMs ?? 30_000,
     };
+    // Timers are unref'd so they never keep the process alive on their own; the lock itself is released in `close`.
+    // A refresh that reports the lock gone marks it lost rather than stopping the session, which keeps writing.
     if (this.#opts.heartbeatMs > 0) {
       this.#beat = setInterval(
         () =>
@@ -188,6 +191,7 @@ export class Session {
       try {
         await this.#store.write(toFile(this));
       } catch (e) {
+        // A failed write stays pending, so the next flush retries it rather than dropping the change.
         this.#dirty = true;
         throw e;
       }
@@ -281,6 +285,7 @@ export class SessionStore {
   }
 
   async #lockedNow(id: string): Promise<boolean> {
+    // A lock that cannot be read or parsed counts as not held, so a damaged lock file never blocks a session.
     try {
       const created = jsonOr(JSON.parse(dec.decode(await this.#host.fs.read(this.#lockFile(id)))))["createdAt"];
       return typeof created === "number" && this.#now() - created <= (this.#opts.staleAfterMs ?? 30_000);
@@ -317,6 +322,7 @@ export class SessionStore {
     return out;
   }
 
+  /** Take the session's lock without waiting: undefined when another process holds it. */
   async #lock(id: string): Promise<Lock | undefined> {
     try {
       return await acquireLock(this.#host.fs, this.#lockFile(id), {
@@ -358,7 +364,11 @@ export class SessionStore {
     return session;
   }
 
-  /** Resume or create (docs/cli.md, section 3). `skipped` names sessions that could not be used and why. */
+  /**
+   * Resume the earliest unlocked session of the thread, or create one. Sessions that cannot be read are left on disk and
+   * named in `skipped`, not deleted, so the user can inspect them. `req.id` takes a specific session
+   * instead and fails rather than falling back to another.
+   */
   async open(req: OpenRequest): Promise<{ session: Session; resumed: boolean; skipped: string[] }> {
     const skipped: string[] = [];
     if (req.id !== undefined) {
@@ -372,6 +382,7 @@ export class SessionStore {
       try {
         return { session: new Session(this, lock, await this.#read(id), this.#opts), resumed: true, skipped };
       } catch (e) {
+        // Release the lock so a session that failed to open is not left held until the stale timeout.
         await lock.release();
         throw new CliError(
           `session ${id} cannot be read: ${e instanceof Error ? e.message : String(e)}`,
@@ -388,6 +399,7 @@ export class SessionStore {
           file = await this.#read(id);
         } catch (e) {
           await lock.release();
+          // A file that vanished between listing and reading is not worth reporting.
           if ((await this.#host.fs.stat(this.#file(id))) !== undefined)
             skipped.push(`session ${id} was not used: ${e instanceof Error ? e.message : String(e)}`);
           continue;

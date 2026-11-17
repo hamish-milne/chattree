@@ -2,7 +2,7 @@ import { Git, type Host } from "../src/index.ts";
 import { nth } from "../src/nth.ts";
 
 /**
- * Where secret values come from (docs/providers.md, P7). `harness.yml` holds only the *names* of environment
+ * Where secret values come from. `harness.yml` holds only the *names* of environment
  * variables; the core never reads `process.env` itself. A `SecretSource` is injected: the Node entry point passes the
  * process environment to `repoSecretSource`, which adds a file that git cannot commit.
  */

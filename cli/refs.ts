@@ -1,3 +1,7 @@
+/**
+ * How the user names an entry in a command (`/show 3`, `/show 01HX...`). Pure lookups over an entry list the caller already
+ * holds. The header is not nameable because it has no id.
+ */
 import type { ChatEntry } from "../harness/entries.ts";
 
 /** Entries that can be named: everything but the header, which has no id. */

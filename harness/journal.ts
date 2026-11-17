@@ -4,7 +4,7 @@ import { safeParse } from "../src/validate.ts";
 import type { Completed, StreamEvent } from "../providers/types.ts";
 
 /**
- * The journal of a request in flight (docs/providers.md, P5): one append-only JSON-lines file per branch, beside the
+ * The journal of a request in flight: one append-only JSON-lines file per branch, beside the
  * repository's locks and never committed, that records what a request was and every event it produced. It exists
  * for one reason: if the process dies, `open` can say what the request got instead of losing it.
  *
@@ -105,6 +105,10 @@ export class JournalBusy extends Error {
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
+/**
+ * The writer side of a journal, held by the request that owns the file. Every write checks that the file is still the one
+ * this request created before appending, so a recovery that has taken the file over is never written into.
+ */
 export class Journal {
   readonly #host: Host;
   readonly #path: string;
@@ -240,6 +244,7 @@ export async function requestAbortOf(host: Host, path: string, nonce: string): P
 
 async function isLive(host: Host, path: string, staleMs: number, now: (() => number) | undefined): Promise<boolean> {
   const mtime = (await host.fs.stat(path))?.mtimeMs;
+  // A journal that cannot be stat'ed may be in the middle of being written, so it is treated as live rather than recovered.
   return mtime === undefined || (now ?? Date.now)() - mtime <= staleMs;
 }
 

@@ -1,5 +1,5 @@
 /**
- * busybox.exe for Windows, fetched on first use (docs/tools.md, 4.1). Busybox is GPL-2.0 software and is not part of this
+ * busybox.exe for Windows, fetched on first use for the `run` and `script` tools. Busybox is GPL-2.0 software and is not part of this
  * repository. The download is the xPack windows-build-tools release below, and it is used only if the zip's SHA-256 is the
  * one pinned here; the exe taken from it must also answer `--list` like busybox. It is kept in vendor/busybox/ (ignored by
  * git), nothing is added to PATH, and the agent never sees any of this: a failure is the user's to fix, so it is a

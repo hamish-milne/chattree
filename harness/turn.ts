@@ -13,7 +13,7 @@ import { sha256Hex } from "../src/blobs.ts";
 import { ProviderError, type Completed, type StreamEvent } from "../providers/types.ts";
 
 /**
- * One request to a model, from the transcript to the transcript (docs/providers.md, P5): check and build the
+ * One request to a model, from the transcript to the transcript: check and build the
  * context (`prepareContext`), stream the provider's events to the caller while journaling them beside the
  * repository, and commit the result: the `assistant` entry when the response completes, or an `interrupted` entry
  * holding what arrived when it does not. The loop around it (running tools, asking again) is the caller's.
@@ -35,7 +35,7 @@ export interface TurnOptions extends PrepareOptions {
   abortPollMs?: number;
   /** Injection rules from the host, run after the ones `harness.yml` asks for (`injections` in config). */
   injections?: readonly InjectionRule[];
-  /** What the host knows about the machine; with it the model is told where it is (`environment` injection, docs/context.md). */
+  /** What the host knows about the machine; with it the model is told where it is (the `environment` injection). */
   environment?: HostEnvironment | undefined;
   /** Called with what was checked, before anything is sent: the host's chance to show warnings. */
   onPrepared?: (prepared: Prepared) => void | Promise<void>;

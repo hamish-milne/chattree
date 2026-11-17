@@ -1,10 +1,3 @@
-import { Document, isAlias, isCollection, isMap, isNode, isScalar, parseDocument, visit } from "yaml";
-import { SchemaError, type Issue } from "./errors.ts";
-import { hashValue } from "./hash.ts";
-import { TAG_KEY, VALUE_KEY, objectToValue } from "./schema.ts";
-import type { StaticDecode, TSchema } from "typebox";
-import { safeParse } from "./validate.ts";
-
 /**
  * Configuration files. Same schemas, validation and hashing as the transcript, but a different codec:
  * people edit these by hand, so they are read with the `yaml` package (comments, flow style, plain scalars,
@@ -19,6 +12,12 @@ import { safeParse } from "./validate.ts";
  * `{$tag: anthropic, ...}` and is normalised before validation and hashing; `$tag: anthropic` written out is
  * the same thing and works with any YAML editor and JSON Schema.
  */
+import { Document, isAlias, isCollection, isMap, isNode, isScalar, parseDocument, visit } from "yaml";
+import { SchemaError, type Issue } from "./errors.ts";
+import { hashValue } from "./hash.ts";
+import { TAG_KEY, VALUE_KEY, objectToValue } from "./schema.ts";
+import type { StaticDecode, TSchema } from "typebox";
+import { safeParse } from "./validate.ts";
 
 export type ConfigResult<T> = { ok: true; value: T; hash: string } | { ok: false; issues: Issue[] };
 
@@ -99,6 +98,7 @@ function structural(doc: Document.Parsed): Issue[] {
 export function loadConfigDocument(text: string): { doc: Document.Parsed; issues: Issue[] } {
   const doc = parseDocument(text, { version: "1.2", uniqueKeys: true, prettyErrors: false, strict: true });
   const issues: Issue[] = [];
+  // "Unresolved tag" warnings are the `!name` sugar, which normaliseTags handles, so they are not problems.
   for (const e of [...doc.errors, ...doc.warnings.filter((w) => !unresolvedTag(w.message))]) {
     const pos = e.linePos?.[0];
     issues.push({ path: "", message: `${pos ? `line ${pos.line}, column ${pos.col}: ` : ""}${e.message.split("\n")[0]}` });

@@ -1,3 +1,11 @@
+/**
+ * The entry types of a thread's transcript (`chat.yml`, in the canonical format of `src/`), with its format version in a
+ * header entry. Everything the harness records (messages, model output, tool results, compactions,
+ * setup changes, approvals) is one of these, so every reader and writer goes through this module's schemas. Objects
+ * are strict: an unknown field is an error, not something to ignore, so an older build never silently drops data it
+ * does not understand (see `EntryReader` for how versions gate it). Built on the generic pipeline in `src/`.
+ */
+
 import { Type, type Static } from "typebox";
 import {
   Pipeline,
@@ -15,10 +23,10 @@ import { pattern, strictObject } from "../src/validate.ts";
 import { ULID_RE } from "./ulid.ts";
 
 /**
- * Format version recorded in the header entry. A minor bump widens what an entry may hold (a new optional field, a new entry type), so a
- * build that reads minor N reads every file of minor N or below; a file of a higher minor may hold what this build does not know, which is an
- * error (update chattree), not something to skip. A major bump narrows or changes it (a new required field), and a build reads only the
- * majors it has entry types for (`entryTypesByMajor`).
+ * Format version recorded in the header entry. A minor bump widens what an entry may hold (a new optional field, a new
+ * entry type), so a build that reads minor N reads every file of minor N or below; a file of a higher minor may hold
+ * what this build does not know, which is an error (update chattree), not something to skip. A major bump narrows or
+ * changes it (a new required field), and a build reads only the majors it has entry types for (`entryTypesByMajor`).
  */
 export const FORMAT = { format: "chatlog", major: 2, minor: 7 } as const;
 
@@ -45,8 +53,9 @@ const reasoningBlock = strictObject({
   $tag: Type.Literal("reasoning"),
   provider: Type.String(),
   /**
-   * What the provider needs back that `visible` does not hold, as the provider's own object (an Anthropic thinking block without its
-   * text, redacted thinking, an OpenAI reasoning item). Opaque to the harness; absent when `visible` is all there is to replay.
+   * What the provider needs back that `visible` does not hold, as the provider's own object (an Anthropic thinking block
+   * without its text, redacted thinking, an OpenAI reasoning item). Opaque to the harness; absent when `visible` is all
+   * there is to replay.
    */
   payload: Type.Optional(json),
   /** Readable form of the reasoning when the provider exposes one. */
@@ -57,20 +66,29 @@ const toolCallBlock = strictObject({
   $tag: Type.Literal("tool_call"),
   call_id: Type.String(),
   name: Type.String(),
-  /** Arguments as the model gave them; a string longer than the externalizing threshold is a blob reference inside (`inlineBlobs` puts it back). */
+  /**
+   * Arguments as the model gave them; a string longer than the externalizing threshold is a blob reference inside
+   * (`inlineBlobs` puts it back).
+   */
   args: json,
   /** The provider's original argument string, kept when it was not valid JSON. */
   args_raw: Type.Optional(text),
   ext: blockExt,
 });
-/** A provider's own compaction of the conversation so far: opaque, replayed only to the model that made it (docs/providers.md, P4). Not our readable `compaction` entry. */
+/**
+ * A provider's own compaction of the conversation so far: opaque, replayed only to the model that made it. Not the
+ * readable `compaction` entry.
+ */
 const providerCompactionBlock = strictObject({
   $tag: Type.Literal("provider_compaction"),
   provider: Type.String(),
   payload: text,
   ext: blockExt,
 });
-/** `charset`: how to read the bytes of a text file that is not UTF-8 (a label such as `windows-1252`); the blob's `mime` stays a bare `type/subtype`. */
+/**
+ * `charset`: how to read the bytes of a text file that is not UTF-8 (a label such as `windows-1252`); the blob's `mime`
+ * stays a bare `type/subtype`.
+ */
 const attachmentPart = strictObject({
   $tag: Type.Literal("attachment"),
   name: Type.Optional(Type.String()),
@@ -101,7 +119,8 @@ export const user = strictObject({
   queued: Type.Optional(Type.Boolean()),
   /**
    * The thread that sent it (format 2.6), for a message one thread wrote to another with `thread_send`; absent for what a person typed. The
-   * text itself starts with a line naming the sender, so the model reads it the same way (renderers are frozen and know nothing of this field).
+   * text itself starts with a line naming the sender, so the model reads it the same way (renderers are frozen and know
+   * nothing of this field).
    */
   from: Type.Optional(Type.String()),
 });
@@ -113,9 +132,15 @@ export const assistant = strictObject({
   model: Type.String(),
   blocks: Type.Array(assistantBlock),
   stop_reason: Type.String(),
-  /** The id of the last entry the request that produced this one was built from (format 2.3): a user message with a later id was not seen by it. */
+  /**
+   * The id of the last entry the request that produced this one was built from (format 2.3): a user message with a later
+   * id was not seen by it.
+   */
   context_tip: Type.Optional(ulid),
-  /** Pictures and sound the request sent in another format than the thread holds, and what converted them: what the model was shown, where it differs from the entries before this one. */
+  /**
+   * Pictures and sound the request sent in another format than the thread holds, and what converted them: what the model
+   * was shown, where it differs from the entries before this one.
+   */
   converted: Type.Optional(
     Type.Array(strictObject({ name: Type.Optional(Type.String()), from: Type.String(), to: Type.String(), converter: Type.String() })),
   ),
@@ -178,7 +203,7 @@ export const trim = strictObject({
   by: Type.Enum(["user", "auto"]),
 });
 
-// ---- agent_setup: the agent's state, folded per branch (see docs/providers.md, P8) -----------------------------
+// ---- agent_setup: the agent's state, folded per branch -----------------------------------------------------
 
 /** What a change to an agent's setup would do. Which of these a given change causes is the provider adapter's call. */
 export const CHANGE_KINDS = [
@@ -232,7 +257,10 @@ export const agentSetup = strictObject({
   instructions: Type.Optional(pinnedDefinition),
   skills: Type.Optional(definitionDelta),
   mcp: Type.Optional(definitionDelta),
-  /** The renderer that turns structured entries into text for the model (`chattree-english-v1`); immutable per id. Unset means the default. */
+  /**
+   * The renderer that turns structured entries into text for the model (`chattree-english-v1`); immutable per id. Unset
+   * means the default.
+   */
   renderer: Type.Optional(nonEmpty),
   /** The hash of the price table this agent is costed under. */
   pricing: Type.Optional(strictObject({ table: sha256 })),
@@ -244,7 +272,8 @@ export const agentSetup = strictObject({
   acknowledges: Type.Optional(Type.Array(ulid)),
   /**
    * How a change to the instructions (or skills) reaches the model (format 2.4). `append`: the cached prefix keeps the text it had, and the
-   * model is told of the change at this point in the conversation, so nothing before it is re-read. `rebuild`: the prefix is rewritten from the
+   * model is told of the change at this point in the conversation, so nothing before it is re-read. `rebuild`: the prefix
+   * is rewritten from the
    * setup as it is after this entry, and earlier `append` changes are folded into it. Absent on entries that change neither (and on entries
    * from before 2.4, where a change to the instructions always rewrote the prefix).
    */
@@ -253,7 +282,8 @@ export const agentSetup = strictObject({
 
 /**
  * Text the harness put in front of the model (format 2.4): a usage warning, a reminder every N turns, a rule's output. Recorded, not
- * generated at request time, so the context is the same on every later request, replays exactly, and is paid for and audited like any message.
+ * generated at request time, so the context is the same on every later request, replays exactly, and is paid for and
+ * audited like any message.
  * `key` names the rule that wrote it, so "every N turns" can be answered from the history alone.
  */
 export const injection = strictObject({
@@ -343,7 +373,10 @@ export const jobEvent = strictObject({
   /** The job's id on this branch (`j1`). */
   job: nonEmpty,
   call_id: Type.String(),
-  /** `completed`: it ended and succeeded; `failed`: it ended with an error or timed out; `stopped`: stopped on request; `lost`: the process that ran it ended first. */
+  /**
+   * `completed`: it ended and succeeded; `failed`: it ended with an error or timed out; `stopped`: stopped on request;
+   * `lost`: the process that ran it ended first.
+   */
   status: Type.Enum(["completed", "failed", "stopped", "lost"]),
   /** One line: what it was and how it ended. */
   summary: text,
@@ -468,10 +501,11 @@ export function versionProblem(h: FormatVersion, current: FormatVersion | undefi
 }
 
 /**
- * Reads entries in file order, holding the format version as its state. Before any header the version is unknown and every other entry is
- * refused ("expected a header first"); a header is checked (see `versionProblem`) and sets the version; each later entry is read by the entry
- * types of the current major. A header may appear again (a newer build writes one when it first adds to an older file). A refused entry
- * comes back with reason `version` and no state change, like any entry that does not decode.
+ * Reads entries in file order, holding the format version as its state. Before any header the version is unknown and
+ * every other entry is refused ("expected a header first"); a header is checked (see `versionProblem`) and sets the
+ * version; each later entry is read by the entry types of the current major. A header may appear again (a newer build
+ * writes one when it first adds to an older file). A refused entry comes back with reason `version` and no state
+ * change, like any entry that does not decode.
  */
 export class EntryReader {
   static readonly #headers = new Pipeline<ChatEntry>({ types: [defineEntry("header", header)] });

@@ -1,3 +1,8 @@
+/**
+ * The `read` tool: returns a text file with line numbers and its version, a directory listing, or stored output named by a
+ * `blob:<sha256>` address. Long files are returned in pages (`offset` and `limit`), so one read returns a bounded amount of text.
+ * Binary files are refused, not shown as text.
+ */
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool, ToolContext } from "../tools.ts";
 import { versionOf } from "./version.ts";
@@ -62,6 +67,7 @@ async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{
     if (st.size > MAX_FILE_BYTES) return failed(name, `${st.size} bytes is too large to read whole; use run with head, tail or grep`);
     bytes = await host.fs.read(abs);
   }
+  // A NUL byte in the first 8000 bytes marks the file as binary; the rest of the file is not scanned.
   if (bytes.subarray(0, 8000).includes(0))
     return failed(
       name,
@@ -73,6 +79,7 @@ async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{
   } catch {
     return failed(name, "not UTF-8 text");
   }
+  // A blob is addressed by its content hash, so it has no file version for `edit` to check.
   const v = item.path.startsWith("blob:") ? "" : `, version ${await versionOf(bytes)}`;
   if (text === "") return { text: `=== ${name} (empty file${v}) ===`, ok: true };
   const all = text.split("\n");

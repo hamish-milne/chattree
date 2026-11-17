@@ -1,3 +1,9 @@
+/**
+ * The daemon: one process per data directory that owns the host and serves the control API. Sessions start it and never stop it;
+ * `chattree models stop` does. It outlives the session that started it, and a session that comes later finds it through the state file.
+ * It watches its settings file, which it re-reads when it changes, and its own source code, after whose change it stops so the next
+ * session starts the new code.
+ */
 import { watch, type FSWatcher } from "node:fs";
 import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
@@ -7,12 +13,6 @@ import { ControlServer, type ControlTarget, type DaemonEvent, type DaemonStatus 
 import { acquireLock, releaseLock, removeInfo, writeInfo } from "./daemon-files.ts";
 import { LocalModelHost, type HostOptions } from "./host.ts";
 import type { InstallPlan } from "./install.ts";
-
-/**
- * The daemon (docs/local-models.md, section 3): one process per data directory that owns the host and serves the control API. Sessions
- * start it and never stop it; `chattree models stop` does. It outlives the session that started it, and a session that comes later
- * finds it through the state file.
- */
 
 export interface SettingsSnapshot {
   config: LocalModels;
@@ -27,8 +27,8 @@ export interface DaemonOptions {
   host: Omit<HostOptions, "data" | "config" | "baseDir" | "confirm">;
   /**
    * The settings file to watch: a change is applied as a reload is. The watch does not rely on the operating system's events alone: it also
-   * looks at the file every `pollMs` (default 1000), re-attaches the events when they fail, and says in `settingsError` when the file cannot
-   * be read, so a change is never silently missed.
+   * looks at the file every `pollMs` (default 1000), re-attaches the events when they fail, and says in `settingsError` when the file
+   * cannot be read, so a change is never silently missed.
    */
   watch?: { path: string; debounceMs?: number; pollMs?: number } | undefined;
   /**
@@ -48,6 +48,10 @@ export class DaemonRunning extends Error {
   override name = "DaemonRunning";
 }
 
+/**
+ * The daemon's state and the `ControlTarget` it presents to the control API. Methods that touch the host throw until `open` has run;
+ * `done` settles once `close` has finished.
+ */
 export class Daemon implements ControlTarget {
   readonly #o: DaemonOptions;
   readonly #listeners = new Set<(e: DaemonEvent) => void>();
@@ -154,6 +158,10 @@ export class Daemon implements ControlTarget {
     void this.close();
   }
 
+  /**
+   * Stops the host, removes the state file, closes the control server and releases the lock, in that order. The state file goes before
+   * the lock is released, so a session that starts next does not find a state file with no daemon behind it.
+   */
   async close(): Promise<void> {
     this.#watcher?.close();
     clearTimeout(this.#watchTimer);
@@ -168,6 +176,7 @@ export class Daemon implements ControlTarget {
     this.#stopped();
   }
 
+  /** Reads the settings again and applies them. A failure keeps the running settings and is reported in the status and as an event. */
   async reload(): Promise<DaemonStatus> {
     try {
       const snap = await this.#o.loadSettings();
@@ -197,9 +206,9 @@ export class Daemon implements ControlTarget {
 
   /**
    * Apply the settings file when it changes, however it changes. Editors replace files, so the directory is watched, and the file is also
-   * looked at on a timer, so a missed or failed event costs a second and not the change. A save that changes nothing is ignored. A file that
-   * cannot be read, or does not pass the schema, is `settingsError` (the old settings keep running, and a consumer that asks for the host is
-   * told why it is not on the new ones); the next good save clears it.
+   * looked at on a timer, so a missed or failed event costs a second and not the change. A save that changes nothing is ignored. A file
+   * that cannot be read, or does not pass the schema, is `settingsError` (the old settings keep running, and a consumer that asks for the
+   * host is told why it is not on the new ones); the next good save clears it.
    */
   async #watchSettings(): Promise<void> {
     const w = this.#o.watch;
@@ -295,7 +304,10 @@ export class Daemon implements ControlTarget {
     this.#codePoll.unref();
   }
 
-  /** `server.idle_exit_minutes`: exit when no model is in memory and nothing has used the control API, with no session attached, for that long. */
+  /**
+   * `server.idle_exit_minutes`: exit when no model is in memory and nothing has used the control API, with no session attached, for that
+   * long. A model that is loaded or loading counts as use, so a long-running model is never stopped under a session.
+   */
   #watchIdle(): void {
     this.#idleTimer = setInterval(() => {
       const minutes = this.#running.config.server.idle_exit_minutes;
@@ -312,6 +324,10 @@ export class Daemon implements ControlTarget {
     this.#idleTimer.unref();
   }
 
+  /**
+   * Asks whether an install plan may go ahead. A `yes` given with the start that needs it answers yes at once; otherwise the question is an
+   * event, and `consent()` answers it.
+   */
   async #ask(plan: InstallPlan): Promise<boolean> {
     if (this.#yes) return true;
     const answer = await new Promise<boolean>((resolve) => {

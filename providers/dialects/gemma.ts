@@ -50,9 +50,9 @@ const typeName = (n: SchemaNode): string | undefined => {
 
 /**
  * What the format says of one schema, between the braces: the parts it knows, in its (alphabetical) order. The same for a property and for
- * the `items` of an array, at any depth, so nested arrays and objects read alike. Keywords the format has no word for (`pattern`, `minimum`,
- * `additionalProperties`, ...) are left out rather than passed through: the model was not taught them, and the schema projection already
- * puts the constraints that matter into the description.
+ * the `items` of an array, at any depth, so nested arrays and objects read alike. Keywords the format has no word for (`pattern`,
+ * `minimum`, `additionalProperties`, ...) are left out rather than passed through: the model was not taught them, and the schema projection
+ * already puts the constraints that matter into the description.
  */
 function describe(n: SchemaNode): string {
   const type = typeName(n);
@@ -95,6 +95,12 @@ function declaration(t: { name: string; description: string; input_schema: Schem
 
 const response = (name: string, content: string): string => `<|tool_response>response:${name}{value:${Q}${content}${Q}}<tool_response|>`;
 
+/**
+ * The prompt for a context in Gemma's notation. A model turn holds its text, its calls and the results of those calls, one after
+ * another. It is closed with `<turn|>` unless the results are followed by another model turn, which continues it, or they are the
+ * last thing in the context. Reasoning is replayed only in the unfinished exchange
+ * (after the last user turn) and only to the model that wrote it.
+ */
 export function renderGemma(input: RenderInput): { prompt: string; stop: string[] } {
   const keep = input.options["keep_reasoning"] !== false;
   const thinking = input.options["thinking"] !== false;
@@ -104,6 +110,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
     .join("\n\n")
     .trim();
   let out = "";
+  // The system turn is written only when it has something to say: the thinking marker, the tools or the system text.
   if (thinking || context.tools.length > 0 || system !== "") {
     out += `<|turn>system\n${thinking ? "<|think|>\n" : ""}${system}${context.tools.map((t) => `<|tool>${declaration(t)}<tool|>`).join("")}<turn|>\n`;
   }
@@ -136,6 +143,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
       out += text;
       const calls = blocks.filter((b): b is Extract<Block, { type: "tool_call" }> => b.type === "tool_call");
       for (const c of calls) {
+        // A call the model wrote in a notation we could not read is written back as it was, so the model sees its own mistake.
         const raw = c.args_raw?.trim();
         const args =
           raw !== undefined
@@ -161,7 +169,8 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
       if (nextNonTool?.role === "assistant" && (calls.length === 0 || answered)) {
         openAfterResponse = false; // the turn goes on
       } else if (answered && text === "" && nextNonTool === undefined) {
-        openAfterResponse = true; // the model's turn is still open, waiting for it to carry on
+        // The results are the last thing and the model wrote no text after its calls: the model's turn stays open for it to carry on.
+        openAfterResponse = true;
       } else {
         out += "<turn|>\n";
         open = false;
@@ -169,6 +178,7 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
       }
     }
   }
+  // The prompt ends where the model writes next. With thinking off, an empty thought channel tells it to answer without thinking.
   if (open && openAfterResponse) out += thinking ? "<|channel>thought\n" : "";
   else if (!open) out += `<|turn>model\n${thinking ? "" : "<|channel>thought\n<channel|>"}`;
   return { prompt: out, stop: ["<turn|>", "<|tool_response>"], ...(media.length === 0 ? {} : { media }) };
@@ -176,7 +186,10 @@ export function renderGemma(input: RenderInput): { prompt: string; stop: string[
 
 // ---- parsing ----------------------------------------------------------------------------------------------------
 
-/** Reads the arguments of a call, `key:value,key:value`, with `<|"|>` as the string quote. Returns undefined if the text is not in that notation. */
+/**
+ * Reads the arguments of a call, `key:value,key:value`, with `<|"|>` as the string quote. Returns undefined if the text is not in that
+ * notation.
+ */
 export function parseGemmaArgs(text: string): Record<string, unknown> | undefined {
   let i = 0;
   const ws = (): void => {
@@ -271,12 +284,18 @@ type Mode = "reasoning" | "text" | "call";
 const TEXT_MARKS = ["<|channel>", "<|tool_call>", "<turn|>", "<|tool_response>"];
 const END_THOUGHT = ["<channel|>"];
 
+/**
+ * The streaming parser for Gemma's output. Calls are read as `call:NAME{...}` and their arguments as they arrive, so the name is emitted
+ * before the arguments are complete. `options` are not read: nothing in the parsing depends on them. `tools` give the argument types
+ * (for `argNode`), and `prompt` says whether the model starts inside its thought channel.
+ */
 export function gemmaParser(options: Record<string, unknown>, tools: Parameters<typeof argNode>[0], prompt: string): Parser {
   void options;
   let mode: Mode = prompt.endsWith("<|channel>thought\n") ? "reasoning" : "text";
   let buf = "";
   let call = "";
   let started = false;
+  // Set by a turn-ending or result-asking token: nothing after it is read, so the model cannot write a result for itself.
   let done = false;
   let skipThought = false; // `thought\n` right after `<|channel>`
   const trim = new Trimmer();

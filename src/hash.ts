@@ -1,3 +1,8 @@
+/**
+ * Content hashing for values. Hashes are taken over the canonical text, not over the source bytes, so a
+ * value keeps its hash when a file is reformatted, its comments change or its map keys are reordered.
+ * Used for config identity (see config.ts).
+ */
 import { sha256Hex } from "./blobs.ts";
 import { emitEntry } from "./emit.ts";
 import { BlobData, BlobRef, Tagged, type Value } from "./value.ts";

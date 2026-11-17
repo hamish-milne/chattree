@@ -3,9 +3,9 @@ import type { Block, ModelContext } from "../harness/context-builder.ts";
 import type { AgentSetup, Change } from "../harness/setup.ts";
 
 /**
- * The provider seam (docs/providers.md, P2). An adapter is a stateless translation: it takes a `ModelContext`
- * and the agent's setup, makes one request, and streams neutral events. It knows nothing of git, the
- * transcript, journals or budgets. This file is the whole contract; `docs/writing-an-adapter.md` explains it.
+ * The provider seam. An adapter is a stateless translation: it takes a `ModelContext` and the agent's setup, makes one
+ * request, and streams neutral events. It knows nothing of git, the transcript, journals or budgets, so the same turn
+ * runner works for every provider. This file is the whole contract that the runner and the adapters share.
  */
 
 /**
@@ -107,6 +107,10 @@ export interface ProviderErrorInit {
   cause?: unknown;
 }
 
+/**
+ * The one failure a stream or provider call reports. `kind` says what went wrong, `retryable` says whether the same request
+ * may succeed later, and `partial` carries the blocks completed before the failure, so a caller can keep them.
+ */
 export class ProviderError extends Error {
   override name = "ProviderError";
   readonly kind: ErrorKind;
@@ -133,7 +137,10 @@ export interface StreamRequest {
   session?: string;
 }
 
-/** The part of an adapter the turn runner needs. Catalog, pricing, estimates and schemas arrive with later steps. */
+/**
+ * The part of an adapter the turn runner calls. Models, prices and tool conventions are declared on the registry's
+ * `AdapterDefinition` instead, so an adapter here is only its streaming behaviour plus the optional hooks below.
+ */
 export interface ProviderAdapter {
   /** The `$tag` it handles in `harness.yml`. */
   readonly $tag: string;
@@ -146,7 +153,6 @@ export interface ProviderAdapter {
    * which is asked for, so it is async.
    */
   mediaSpec?(setup: AgentSetup): MediaSpec | Promise<MediaSpec>;
-  /** What a change of setup does that the harness cannot tell (cache, cost, capabilities). */
   /**
    * Fetch a finished response by the id reported in `observed.response_id`, for recovery after a crash.
    * `undefined` when the provider no longer has it (or never stored it). Only providers that store responses have this.
@@ -158,5 +164,6 @@ export interface ProviderAdapter {
    * if the call fails; the caller then keeps the estimate. Absent for providers that have no such endpoint.
    */
   countTokens?(req: { context: ModelContext; setup: AgentSetup; signal: AbortSignal }): Promise<number>;
+  /** What a change of setup does that the harness cannot tell (cache, cost, capabilities). */
   classify?(from: AgentSetup, to: AgentSetup, ctx: { midLoop: boolean }): readonly Change[];
 }

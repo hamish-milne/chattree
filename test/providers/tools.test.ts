@@ -12,7 +12,7 @@ import { buildResponsesBody, openaiResponsesAdapter } from "../../providers/open
 import type { ProviderAdapter } from "../../providers/types.ts";
 
 /**
- * What every adapter must do with tools (docs/tools.md, 3.6), checked with the real starter definitions:
+ * What every adapter must do with tools, checked with the real starter definitions:
  * definitions pass through unchanged, several calls in one response come out as several blocks with unique ids,
  * and several results go back in the form each API needs.
  */

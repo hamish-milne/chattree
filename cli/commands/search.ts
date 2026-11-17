@@ -1,3 +1,7 @@
+/**
+ * `/search`: parses the flags and hands the query to harness/search.ts, which does the matching over the thread, its family or the
+ * project (`--scope`). A SearchError is a mistake in the query and is shown as an error; any other exception is a bug and is rethrown.
+ */
 import { parseArgs } from "node:util";
 import { parseScope, SCOPES, search, SearchError } from "../../harness/search.ts";
 import type { Command } from "../registry.ts";
@@ -61,6 +65,7 @@ const searchCommand: Command = {
         reasoning: values.reasoning === true,
         ...(limit === undefined ? {} : { limit }),
       });
+      // By default hits in what the model already sees are left out; --visible includes them. The empty answer says which.
       if (r.hits.length === 0) {
         yield {
           type: "text",

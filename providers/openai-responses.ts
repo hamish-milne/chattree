@@ -31,7 +31,7 @@ import {
 import { asJson, asString, jsonList, jsonOr, messageText, optString, parseJsonObject, type Json } from "./wire.ts";
 
 /**
- * The OpenAI Responses API (docs/providers.md), and the servers that speak it (Ollama and others). Checked against
+ * The OpenAI Responses API, and the servers that speak it (Ollama and others). Checked against
  * OpenAI's streaming-events reference: the event names and shapes, the function-call argument events, the usage
  * object on `response.completed`, `response.incomplete` and `response.failed`, and that the replayable reasoning
  * item is the one in `response.output_item.done`. From memory and not yet checked: the request item shapes for
@@ -40,7 +40,7 @@ import { asJson, asString, jsonList, jsonOr, messageText, optString, parseJsonOb
  * stored response, the `context_management` compaction request field, that the `compaction` output item is replayed
  * as is, and that everything before the latest compaction item may be dropped from a stateless replay.
  *
- * State (docs/providers.md, P4): a response that the server confirms it stored (`response.store === true`) is
+ * State: a response that the server confirms it stored (`response.store === true`) is
  * remembered by its id and by a digest of the exact input it saw plus what it produced. A later request chains
  * from it, sending only the new items, when the digest of the context's own prefix is the same; otherwise (or if
  * the server has forgotten the id) the whole context is replayed. Replay is always possible: reasoning items are
@@ -89,6 +89,7 @@ export function parseOpenAISettings(settings: unknown): OpenAISettings {
 
 // ---- request --------------------------------------------------------------------------------------------------
 
+// Request fields the adapter sets itself; the `extra` setting skips these, so it cannot change what is chained, stored or cached.
 const OWNED = new Set([
   "model",
   "input",
@@ -122,6 +123,7 @@ export interface ChainPlan {
 }
 
 const sha = (x: unknown): string => createHash("sha256").update(stable(x)).digest("hex");
+/** With pruning on, the items before the latest compaction item are dropped: that item stands in for them. */
 const prune = (items: Json[], opts: RequestOptions): Json[] => {
   if (!opts.pruneAtCompaction) return items;
   const at = items.findLastIndex((i) => i["type"] === "compaction");
@@ -144,6 +146,7 @@ export function planChain(ctx: ModelContext, setup: AgentSetup, opts: RequestOpt
       typeof ext["prefix_digest"] !== "string"
     )
       return undefined;
+    // The stored response can be continued only if what this request would replay up to that turn is exactly what it saw.
     if (sha({ model, items: prune(toItems(ctx.turns.slice(0, i + 1), opts).flat(), opts) }) !== ext["prefix_digest"]) return undefined;
     const input = toItems(ctx.turns.slice(i + 1), opts).flat();
     return input.length === 0 ? undefined : { previous_response_id: ext["response_id"], input };
@@ -356,6 +359,7 @@ function partsText(content: unknown): { text: string; refused: boolean } {
   return { text, refused };
 }
 
+/** Close one open output item into its block. The completed item, when the server sent it, is authoritative over what streamed. */
 function finishBlock(s: State, i: number, o: Open, item?: Json): StreamEvent[] {
   let block: Block;
   if (o.kind === "skip") return [];
@@ -381,6 +385,7 @@ function finishBlock(s: State, i: number, o: Open, item?: Json): StreamEvent[] {
   return [{ type: "block.done", index: i, block }];
 }
 
+/** Normalised stop reason. A refusal or the output limit outranks a tool call; otherwise a call means `tool_use`. */
 function stopReason(r: Json, blocks: readonly (Block | undefined)[], refused: boolean): string {
   const reason = jsonOr(r["incomplete_details"])["reason"];
   if (refused || reason === "content_filter") return "refusal";
@@ -415,6 +420,10 @@ function outputBlocks(output: unknown, provider: string): { blocks: Block[]; ref
   return { blocks, refused };
 }
 
+/**
+ * The HTTP mapper for Responses. Each attempt keeps its own state; `finish` records the digest of what the response saw,
+ * which is what lets a later request continue it with `previous_response_id`.
+ */
 export function openaiResponsesMapper(baseUrl: string, request: RequestOptions): HttpMapper<State> {
   return {
     request(req: StreamRequest): HttpRequestSpec {
@@ -502,6 +511,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
         case "response.reasoning_summary_part.added":
         case "response.reasoning_summary_text.done": {
           const o = s.open.get(index);
+          // Summary parts are separated by blank lines, the same way `summaryText` joins them when the item is complete.
           if (o?.kind === "reasoning" && type === "response.reasoning_summary_part.added" && o.summary !== "") o.summary += "\n\n";
           return [];
         }
@@ -606,6 +616,11 @@ export interface OpenAIResponsesOptions {
   http?: HttpOptions;
 }
 
+/**
+ * An adapter for the Responses API. A request continues the stored response when that is provably safe (see `planChain`);
+ * if the server rejects the chained request (its error names `previous_response`) before anything has reached the caller,
+ * the same request is sent again with the whole context.
+ */
 export function openaiResponsesAdapter(opts: OpenAIResponsesOptions = {}): ProviderAdapter {
   const baseUrl = opts.baseUrl ?? "https://api.openai.com/v1";
   const request: RequestOptions = {

@@ -1,3 +1,9 @@
+/**
+ * The CLI's boundary with the process. Everything the CLI reads from or writes to the outside (output, terminal, stdin,
+ * signals, child programs, the editor) goes through `Io`, so `main` and the commands can run in-process under fake I/O.
+ * `nodeIo` is the only place that touches the real `process`: the entry point and the scripts under `tools/` build their
+ * `Io` from it.
+ */
 import type { Host } from "../src/host.ts";
 import { nodeHost } from "../hosts/node.ts";
 import type { Settings } from "./settings.ts";
@@ -90,6 +96,7 @@ export function nodeIo(): Io {
       try {
         return await new Promise<number>((resolve) => {
           const child = spawn(nth(stage, 0), stage.slice(1), { cwd, stdio: "inherit" });
+          // A program killed by a signal has no exit code; 128 is the conventional shell status for that.
           child.on("exit", (code, signal) => resolve(code ?? (signal === null ? 1 : 128)));
           child.on("error", () => resolve(127));
         });

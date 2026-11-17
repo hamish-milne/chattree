@@ -9,12 +9,15 @@ const enc = new TextEncoder();
 const dec = new TextDecoder("utf-8", { fatal: true });
 
 /**
- * Edit by line number (docs/tools.md, 4.1). `read` numbers every line and gives the file's version; a change names lines
- * of the file as it was read. The tool takes one change per call (flat arguments: nested lists are shown to some models as
- * `any[]`); `applyChanges` still takes several, numbered as read. Two shapes:
+ * The `edit` tool and the line-based change engine behind it. Line numbers refer to the file as it was read, identified by
+ * its version (see version.ts), so a stale read is refused rather than applied to the wrong lines. The tool takes one change
+ * per call (flat arguments: nested lists are shown to some models as `any[]`); `applyChanges` still takes several, numbered
+ * as read. Two shapes:
  *   replace lines `start`..`end` (inclusive) with `content` (empty content deletes them);
  *   insert `content` after line `after` (0 is the top of the file, the last line number appends).
  */
+
+/** One line-based change. `start` and `end` are inclusive, 1-based, and are used together; `after` is used alone. */
 export interface Change {
   start?: number;
   end?: number;
@@ -58,7 +61,11 @@ const numbered = (rows: string[], first: number, sign: string): string[] => {
   return shown;
 };
 
-/** Apply the changes to the text as one numbering, top to bottom. Returns the new text and a report of what happened, in the new numbering. */
+/**
+ * Apply the changes to the text as one numbering, top to bottom. Every change is checked against the original numbering
+ * before any is applied, and overlapping changes are refused, so the order a model wrote them in does not matter.
+ * Returns the new text and a report of what happened, in the new numbering. Throws `EditFailed` for an invalid change.
+ */
 export function applyChanges(original: string, changes: readonly Change[]): { text: string; report: string[]; lines: number } {
   const { lines, finalNewline, eol } = splitLines(original);
   const n = lines.length;
@@ -83,6 +90,7 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
       );
     return { index, key: c.start - 1, end: c.end, kind: 1, c };
   });
+  // At one position an insert comes before a replacement, and changes at the same position keep the order they were written in.
   ops.sort((a, b) => a.key - b.key || a.kind - b.kind || a.index - b.index);
 
   const out: Line[] = [];
@@ -123,8 +131,9 @@ export function applyChanges(original: string, changes: readonly Change[]): { te
 }
 
 /**
- * Whether `content` is the lines of `read`'s output pasted back: every line starts with its own line number and a tab, counting up from where the
- * change begins. Some models copy the numbering of what they read into what they write, so the file gains a `1\t` in front of every line; the
+ * Whether `content` is the lines of `read`'s output pasted back: every line starts with its own line number and a tab,
+ * counting up from where the change begins. Some models copy the numbering of what they read into what they write, so the
+ * file gains a `1\t` in front of every line; the
  * numbers have to be the ones the lines would have, which a file that really starts its lines with numbers and tabs rarely matches.
  */
 export function echoesLineNumbers(content: string, first: number): boolean {
@@ -140,7 +149,7 @@ const CHANGE_ALIASES = {
   content: ["contents", "text", "new_text", "replace_with", "replacement", "new_content"],
 } as const;
 
-/** The flat arguments of edit: one file, one change (docs/tools.md, 4.1). The nested shapes with one item are repaired (args.ts). */
+/** The flat arguments of edit: one file, one change. The nested shapes with one item are repaired (args.ts). */
 export function normalizeEdit(args: unknown): unknown {
   return flattenArgs(args, { path: PATH_ALIASES, ...CHANGE_ALIASES });
 }

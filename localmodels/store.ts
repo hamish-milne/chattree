@@ -1,3 +1,8 @@
+/**
+ * The model files: pending Hugging Face quantisations turned into files, then every file fetched and recorded in the lock. Used by the
+ * host (host.ts) when it brings a model up. Two steps so that a quantisation is looked up once and then the files are fetched from
+ * the recorded list, even when the network is down.
+ */
 import { mkdir, rename, stat } from "node:fs/promises";
 import { basename, dirname } from "node:path";
 import { hfUrl } from "./config.ts";
@@ -6,8 +11,6 @@ import { linkedInfo, listRepoFiles, pickGguf, pickSidecar } from "./hf.ts";
 import { Lock } from "./lock.ts";
 import { resolveKey, sourceHash, type Download } from "./plan.ts";
 import type { FetchFn } from "./net.ts";
-
-/** The model files: pending Hugging Face quantisations turned into files, then every file fetched and recorded (docs/local-models.md, section 3). */
 
 export type StoreEvent =
   | { type: "resolve"; model: string; what: string }
@@ -30,7 +33,10 @@ export interface StoreOptions {
 const keyOf = (data: string, dest: string): string => dest.slice(data.length).replaceAll("\\", "/").replace(/^\/+/, "");
 const isHf = (url: string): boolean => new URL(url).host === "huggingface.co";
 
-/** Pending quantisations become files (one, or the parts of a split model). Anything else passes through. A quantisation seen before is not asked about again. */
+/**
+ * Pending quantisations become files (one, or the parts of a split model). Anything else passes through. A quantisation seen before is not
+ * asked about again.
+ */
 export async function resolveDownloads(downloads: readonly Download[], o: StoreOptions): Promise<Download[]> {
   const out: Download[] = [];
   for (const d of downloads) {
@@ -95,7 +101,9 @@ export interface Fetched {
   size: number;
 }
 
-/** Every file, in order. A file that is recorded in the lock and present with the recorded size is not fetched and the network is not asked. */
+/**
+ * Every file, in order. A file that is recorded in the lock and present with the recorded size is not fetched and the network is not asked.
+ */
 export async function fetchDownloads(downloads: readonly Download[], o: StoreOptions): Promise<Fetched[]> {
   const out: Fetched[] = [];
   for (const d of downloads) {
@@ -105,11 +113,13 @@ export async function fetchDownloads(downloads: readonly Download[], o: StoreOpt
     const locked = o.lock.file(key);
     const present = (await stat(d.dest).catch(() => undefined))?.size;
     const pinned = d.sha256?.toLowerCase();
+    // Trusted without the network only when the lock records it, the size on disk matches, and any hash the model pins agrees.
     if (locked !== undefined && present === locked.size && (pinned === undefined || pinned === locked.sha256)) {
       o.onEvent?.({ type: "have", model: d.model, role: d.role, file: d.file });
       out.push({ model: d.model, role: d.role, dest: d.dest, sha256: locked.sha256, size: locked.size });
       continue;
     }
+    // With no pinned hash, Hugging Face's redirect gives the file's own hash, so the download is still checked against something.
     let expected = pinned;
     let size = d.size;
     if (expected === undefined && isHf(d.url)) {
@@ -136,10 +146,11 @@ export async function fetchDownloads(downloads: readonly Download[], o: StoreOpt
   return out;
 }
 
-/** `name@hash8`: the model's identity in history (docs/local-models.md, section 1): the first eight hex digits of the SHA-256 of its first file. */
+/** `name@hash8`: the model's identity in history, from the first eight hex digits of the SHA-256 of its first (model) file. */
 export const modelId = (name: string, fetched: readonly Fetched[]): string | undefined => {
   const f = fetched.find((x) => x.model === name && x.role === "model");
   return f === undefined ? undefined : `${name}@${f.sha256.slice(0, 8)}`;
 };
 
+// Re-exported from download.ts; no module imports it from here at present.
 export { DownloadError };

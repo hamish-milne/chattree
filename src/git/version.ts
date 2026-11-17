@@ -1,3 +1,7 @@
+/**
+ * Version parsing for the git binary the harness runs. Only major, minor and patch are kept; whatever follows
+ * them in the `git version` output (vendor tags and the like) is ignored.
+ */
 export interface GitVersion {
   major: number;
   minor: number;
@@ -17,5 +21,5 @@ export function compareVersions(a: GitVersion, b: GitVersion): number {
 
 export const formatVersion = (v: GitVersion): string => `${v.major}.${v.minor}.${v.patch}`;
 
-/** See docs/git-integration.md, D7. */
+/** The oldest git accepted at start-up (`Git.open` refuses older ones). A handle can be given a different minimum. */
 export const MIN_GIT_VERSION: GitVersion = { major: 2, minor: 38, patch: 0 };

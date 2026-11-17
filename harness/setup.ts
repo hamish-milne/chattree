@@ -4,7 +4,7 @@ import { nth } from "../src/nth.ts";
 import { isJson } from "../src/json.ts";
 
 /**
- * An agent's state, as folded from the `agent_setup` entries on its branch (docs/providers.md, P8). Agents are
+ * An agent's state, as folded from the `agent_setup` entries on its branch. Agents are
  * branches: a fork inherits the folded state without writing anything, a subagent (fresh context) starts from
  * nothing and writes its own complete first `agent_setup`.
  */

@@ -1,4 +1,4 @@
-# Transcript file format (v0 draft, with tags)
+# Transcript file format
 
 A transcript file is an append-only sequence of **entries**. It is a valid YAML document (one block
 sequence of maps) and is meant to be readable in `git log -p`, but **only this library may write it**.
@@ -108,7 +108,7 @@ string**, never a number, boolean or null. Names match `[A-Za-z][A-Za-z0-9_./-]*
 
 A reader that does not know a tag keeps the value and writes it back byte for byte. Because the tag is
 the first token of an entry, `peekTag()` reads an entry's type from the bytes without parsing it.
-Schemas, validation and transforms are applied by the `Pipeline` (see README), not by the codec.
+Schemas, validation and transforms are applied by the `Pipeline` (see [src.md](src.md)), not by the codec.
 
 ## Canonical form
 

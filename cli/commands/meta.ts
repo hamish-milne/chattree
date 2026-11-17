@@ -1,3 +1,7 @@
+/**
+ * `/help` and `/quit`: the commands about the session rather than a thread, both allowed while a request runs. `/quit` only sets a flag
+ * on the engine for the session loop to act on; drafts and staged files are kept.
+ */
 import type { Command } from "../registry.ts";
 
 const help: Command = {

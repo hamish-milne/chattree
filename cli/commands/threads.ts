@@ -1,3 +1,9 @@
+/**
+ * `/thread`, `/fork` and `/merge`: move between threads and bring forks back. Each thread is a conversation on its own git branch with
+ * its own worktree. A fork is a new thread that starts from the current one (or an earlier entry of it). The session is rebound to the
+ * conversation it moves to (`moveTo`) and the one it leaves is closed. A merge goes through the parent's conversation, which is why the
+ * merge is checked before a summary is asked for.
+ */
 import { parseArgs } from "node:util";
 import type { Conversation } from "../../harness/conversation.ts";
 import { ConversationError } from "../../harness/conversation.ts";
@@ -31,7 +37,10 @@ async function* moveTo(ctx: Ctx, convo: Conversation, thread: string, why: strin
   if (recent.length > 0) yield { type: "text", text: recent.join("\n") };
 }
 
-/** The smallest unused `fork/<n>` (archived threads count, so a number is never reused). `skip` leaves out that many candidates, for a retry after a race. */
+/**
+ * The smallest unused `fork/<n>` (archived threads count, so a number is never reused). `skip` leaves out that many candidates, for a
+ * retry after a race.
+ */
 export async function nextForkName(convo: Conversation, skip = 1): Promise<string> {
   const used = new Set((await convo.listBranches()).map((b) => b.name));
   let n = 0;
@@ -58,6 +67,7 @@ export async function createFork(
   for (let attempt = 0; r === undefined; attempt++) {
     const dir = await threadDir(io, project, branch);
     await io.host.fs.mkdir(io.host.path.dirname(dir));
+    // The worktree path is derived from the branch name, so a retried name needs its own directory.
     try {
       r = await convo.fork(at, { name: branch, worktree: dir });
     } catch (e) {
@@ -184,6 +194,7 @@ const fork: Command = {
         [at, name] = [e.id, args[1]];
       } else if (args.length === 1) {
         const arg = args[0];
+        // A single argument names an entry if it looks like one and matches; otherwise it is the new fork's name.
         const e = arg !== undefined && (/^\d+$/.test(arg) || /^[0-9A-Za-z]{8,26}$/.test(arg)) ? resolveEntry(entries, arg) : undefined;
         if (e !== undefined) at = e.id;
         else name = args[0];
@@ -261,6 +272,7 @@ const merge: Command = {
         yield { type: "error", message: "say which thread to merge", hint: "/merge [summary text]  |  /merge <thread> [summary text]" };
         return;
       }
+      // The parent is opened only for this merge. If the session did not move onto it (moveTo takes ownership), it is closed here.
       let moved = false;
       try {
         // Before spending a request on a summary, check the merge can happen at all.

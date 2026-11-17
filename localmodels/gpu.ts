@@ -1,3 +1,7 @@
+/**
+ * GPU detection for `backend: auto`: asks the NVIDIA driver's tool whether there is a card, and says so in a note the person can read.
+ * Kept to one program call so tests can pass a stand-in for it (`RunProgram`).
+ */
 import { execFile } from "node:child_process";
 
 /** What `backend: auto` found on this machine. */

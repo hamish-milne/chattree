@@ -4,16 +4,18 @@ import { defineFamily, fencedJson, jsonCall, nameThenJson, tagParams, type Famil
 import { spacedJson } from "./scan.ts";
 
 /**
- * Chat formats declared with `defineFamily` (family.ts): the tokens of each model's own template, checked against it by the parity
- * tests (test/providers/families.test.ts). All of them keep the choices the existing dialects make: reasoning is replayed only
- * for the unfinished exchange, a tool result is not trimmed, arguments are written as JSON with a space after `,` and `:`, and the
- * BOS token is left to the server where its tokenizer adds one (Mistral) and written where the template spells it (GLM). Each says here what it takes from its template and what it does not:
+ * Chat formats declared with `defineFamily` (family.ts): the tokens of each model's own template, checked against it by the parity tests
+ * (test/providers/families.test.ts). All of them keep the choices the existing dialects make: reasoning is replayed only for the unfinished
+ * exchange, a tool result is not trimmed, arguments are written as JSON with a space after `,` and `:`, and the BOS token is left to the
+ * server where its tokenizer adds one (Mistral) and written where the template spells it (GLM). Each says here what it takes from its
+ * template and what it does not:
  *   hermes    Qwen3 and the many models with its `<tool_call>{json}</tool_call>` format (Hermes, Qwen2.5);
  *   mistral   Devstral and Mistral Small (v7 tokenizer: `[TOOL_CALLS]name[ARGS]{json}`), without call ids: results follow in order;
  *   glm       GLM-4.7 and later (Flash too): a tag for each argument with no newlines, and the prompt ends inside `<think>`;
  *   glm46     GLM-4.5 and 4.6: the same tags with newlines between them, `<think></think>` stands for reasoning that is not replayed;
  *   kimi-vl   Kimi-VL, Thinking and Instruct (one template for both): no tool calls, thinking between `◁think▷` and `◁/think▷`;
- *   deepseek-r1  the R1 distills (and R1): DeepSeek's original call format, which the models' template can only replay: it never writes the tool list.
+ *   deepseek-r1  the R1 distills (and R1): DeepSeek's original call format, which the models' template can only replay: it never writes the
+ *   tool list.
  */
 
 const tool = (
@@ -76,7 +78,10 @@ const glm46: FamilySpec = {
 
 // ---- GLM-4.7 ------------------------------------------------------------------------------------------------------------
 
-/** GLM-4.7 and later: the template drops every newline of 4.5/4.6's (`glm46`): `<|user|>text`, `<tool_call>name<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>`, `<tool_response>…</tool_response>`. */
+/**
+ * GLM-4.7 and later: the template drops every newline of 4.5/4.6's (`glm46`): `<|user|>text`,
+ * `<tool_call>name<arg_key>k</arg_key><arg_value>v</arg_value></tool_call>`, `<tool_response>…</tool_response>`.
+ */
 const glm: FamilySpec = {
   id: "glm",
   head: ({ system, tools }) =>
@@ -97,8 +102,8 @@ const glm: FamilySpec = {
 /**
  * Kimi-VL-A3B (Thinking and Instruct have the very same template, so one dialect): `<|im_user|>user<|im_middle|>…<|im_end|>`, a default
  * system turn when there is none, no tools. Only the Thinking model writes `◁think▷ … ◁/think▷` (llama-server's own reasoning parser looks
- * for `<think>`, so through the chat endpoint that text arrives as the answer); the Instruct one never does, and the tags are then never met.
- * The picture is a marker; the server writes the `<|media_start|>image<|media_content|>…<|media_end|>` tokens around it.
+ * for `<think>`, so through the chat endpoint that text arrives as the answer); the Instruct one never does, and the tags are then never
+ * met. The picture is a marker; the server writes the `<|media_start|>image<|media_content|>…<|media_end|>` tokens around it.
  */
 const kimiVl: FamilySpec = {
   id: "kimi-vl",
@@ -112,12 +117,12 @@ const kimiVl: FamilySpec = {
 // ---- DeepSeek R1 ---------------------------------------------------------------------------------------------------------
 
 /**
- * The R1 distills (Qwen and Llama weights) and R1 itself: the system text straight after the BOS (left to the server), `<｜User｜>`, `<｜Assistant｜>`,
- * the model's answer after `</think>` (with the blank line that follows it) is all that is kept in history, and the prompt ends in `<think>\n`. Their template has calls and results
- * in DeepSeek's original format but never reads the `tools` it is given, and the distills were not trained for calls, so the tool list is
- * written into the system text here (the same words as Hermes) and asked for in the format the template replays. Where this and the template
- * differ on calls: the template leaves `<｜tool▁calls▁end｜><｜end▁of▁sentence｜>` out after a single call (a bug of its own), this writes them as V3 does.
- * Experimental: nothing says these models call well.
+ * The R1 distills (Qwen and Llama weights) and R1 itself: the system text straight after the BOS (left to the server), `<｜User｜>`,
+ * `<｜Assistant｜>`, the model's answer after `</think>` (with the blank line that follows it) is all that is kept in history, and the prompt
+ * ends in `<think>\n`. Their template has calls and results in DeepSeek's original format but never reads the `tools` it is given, and the
+ * distills were not trained for calls, so the tool list is written into the system text here (the same words as Hermes) and asked for in
+ * the format the template replays. Where this and the template differ on calls: the template leaves `<｜tool▁calls▁end｜><｜end▁of▁sentence｜>`
+ * out after a single call (a bug of its own), this writes them as V3 does. Experimental: nothing says these models call well.
  */
 const deepseekR1: FamilySpec = {
   id: "deepseek-r1",
@@ -151,5 +156,5 @@ export const deepseekR1Dialect: Dialect = defineFamily(deepseekR1);
 
 export const familyDialects = (): Dialect[] => [hermesDialect, mistralDialect, glm46Dialect, glmDialect, kimiVlDialect, deepseekR1Dialect];
 
-// Declarations for Kimi K2, DeepSeek V3.1 and MiniMax-M2 were here (checked against their templates) and were removed in 2026-11-12, since
-// no hosted service offers a raw prompt endpoint we could test them on: see docs/local-models.md 9.7, and the history of this file.
+// Kimi K2, DeepSeek V3.1 and MiniMax-M2 have no declaration here: a declaration is checked against the model's template, and no hosted
+// service offers a raw prompt endpoint to check these against.

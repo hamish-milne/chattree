@@ -1,3 +1,8 @@
+/**
+ * Command-line entry: parses the arguments and runs one verb. Verbs that do not need a thread (`init`, `settings`,
+ * `models`, `run`, `chat`) are handled here. Every other verb is turned into a slash-command line and sent through the
+ * same `Engine` a session uses, so a verb and its in-session command share one implementation and one set of rules.
+ */
 import { parseArgs } from "node:util";
 import { describeSettings } from "./commands/settings.ts";
 import { editorFor, ensureSettingsFile, loadSettings } from "./settings.ts";
@@ -137,6 +142,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
       io.err(`error: ${verb} is not a verb\n${HELP}`);
       return 2;
     }
+    // Only verbs that call a model need providers configured; the others must still work without them.
     const needsProviders = ["say", "retry", "continue"].includes(verb);
     const project = await findProject(where, start);
     const opened = await openThread(where, project, values.thread, { providers: needsProviders ? "required" : "optional" });
@@ -159,10 +165,12 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
 
     let line: string;
     if (verb === "say") {
+      // Attachments are staged with the same /attach command a session uses, before the message is sent.
       for (const f of values.attach ?? []) {
         const staged = await drain(engine, `/attach ${quote(f)}${values.mime === undefined ? "" : ` --mime ${quote(values.mime)}`}`, io);
         if (staged !== 0) return staged;
       }
+      // Standard input is read only when asked for with `-`, or when there is no text and no terminal (a pipe).
       let text = args.join(" ");
       if (text === "-" || (text === "" && !io.interactive && (values.attach ?? []).length === 0))
         text = new TextDecoder().decode(await io.readStdin());

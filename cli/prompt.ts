@@ -1,3 +1,7 @@
+/**
+ * Line handling for the interactive prompt. The terminal layer hands over each Enter as a line; this decides whether it
+ * extends the draft, sends it, or is a command. It keeps no terminal state of its own, so it can be tested directly.
+ */
 import type { SessionState } from "./engine.ts";
 
 /** What the prompt wants done with a line the user entered. */
@@ -10,7 +14,7 @@ export type PromptAction =
   | { kind: "command"; line: string };
 
 /**
- * The rules for turning lines into messages and commands (docs/cli.md, sections 4 and 10), with no terminal in them:
+ * The rules for turning lines into messages and commands, with no terminal in them:
  * a line starting with `/` is a command and runs at once; other text accumulates in the draft, one line per Enter, and a
  * blank line sends it; a trailing `\\` continues the line (so a paragraph break can be typed); a pasted block is taken
  * whole, blank lines and slashes included; `//x` is the text `/x`. The draft lives in the session state, so it is saved and

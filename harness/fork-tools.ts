@@ -5,9 +5,9 @@ import { optStringArg, stringArg } from "./tool-args.ts";
 import { nth } from "../src/nth.ts";
 
 /**
- * The `fork` and `merge` tools (docs/tools.md, section 4.2). `fork` is for work to be picked up later with everything the model
- * already knows: it makes a branch from here and returns at once. `merge` brings a fork back (the trunk wins) and its summary is
- * what the model sees from then on.
+ * The `fork` and `merge` tools. `fork` is for work to be picked up later with everything the model already knows: it
+ * makes a branch from here and returns at once. `merge` brings a fork back (the trunk wins) and its summary is what the
+ * model sees from then on.
  */
 export interface ForkDeps {
   /** The thread that makes the calls. */
@@ -43,6 +43,7 @@ export async function deliverForks(convo: Conversation): Promise<number> {
     const name = nth(m, 1);
     if ((await convo.git.revParse(`refs/heads/${name}`)) === undefined) continue;
     const theirs = (await convo.readEntriesAt(`refs/heads/${name}`)).flatMap((x) => (x.ok ? [x.value] : []));
+    // The last entry that says how the run went: setup, approvals and injections are bookkeeping, not an outcome.
     const last = [...theirs].reverse().find((x) => x.$tag !== "agent_setup" && x.$tag !== "approval" && x.$tag !== "injection");
     if (last?.$tag === "assistant" && !last.blocks.some((b) => b.$tag === "tool_call")) {
       const text = last.blocks
@@ -72,6 +73,7 @@ export async function deliverForks(convo: Conversation): Promise<number> {
   return delivered;
 }
 
+// Branch names a fork may be given: a conservative subset of git ref names, starting with a letter or digit.
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9_/-]{0,60}$/;
 
 export function forkTool(deps: ForkDeps): Tool {
@@ -122,7 +124,8 @@ export function forkTool(deps: ForkDeps): Tool {
         content: `You are now in the fork ${made.branch}, a side conversation started from the thread above. Carry on from here; your work is brought back with the merge tool, not before.`,
       });
       if (autoRun && deps.auto !== undefined && message !== undefined) {
-        // Tools first, so the message is not split from the reply by a setup entry; then the message is the request that makes the thread run.
+        // Tools first, so the message is not split from the reply by a setup entry; then the message is the request that
+        // makes the thread run.
         await syncTools(made.conversation, deps.auto.childRegistry);
         await made.conversation.append({ $tag: "user", content: [{ $tag: "text", text: message.trim() }] });
         return {

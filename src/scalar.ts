@@ -1,3 +1,8 @@
+/**
+ * Scalar text for the canonical format: decides whether a string is written bare, double-quoted or as a
+ * literal block, formats numbers, and reads quoted scalars back strictly. Emit and parse both use these
+ * rules, so what the emitter writes is what the parser accepts.
+ */
 import { EmitError, ParseError } from "./errors.ts";
 
 /**
@@ -157,6 +162,7 @@ export function scanQuoted(text: string, start: number, line?: number): QuotedSc
 
 export function formatNumber(n: number): string {
   if (!Number.isFinite(n)) throw new EmitError(`cannot represent non-finite number ${n}`);
+  // String(-0) is "0", which would read back as a different value (valueEquals tells them apart), so refuse it.
   if (Object.is(n, -0)) throw new EmitError("cannot represent negative zero");
   return String(n);
 }

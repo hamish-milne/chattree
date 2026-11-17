@@ -1,7 +1,8 @@
 /**
- * Slips with one possible meaning in the flat arguments of read, write and edit (docs/tools.md, 4.1): the old nested shape
- * with one item (`files: [{path, changes: [{...}]}]`, `files: ["a.txt"]`), and a different name for the same thing
- * (`file` for `path`, `contents` for `content`). Anything with several files or changes is left for validation to refuse.
+ * Normalises the arguments of read, write and edit before validation. Models sometimes send the older nested shape with a
+ * single item (`files: [{path, changes: [{...}]}]`, `files: ["a.txt"]`) or another name for the same field (`file` for
+ * `path`). Those are flattened to the canonical shape. Anything with several files or changes is left unchanged so that
+ * validation refuses it, rather than guessing which one was meant.
  */
 const isObj = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
@@ -16,6 +17,7 @@ export function flattenArgs(args: unknown, aliases: Record<string, readonly stri
     const one: unknown = Array.isArray(v) ? (v.length === 1 ? v[0] : undefined) : v;
     if (isObj(one)) {
       delete out[w];
+      // Fields given at the top level win over the same fields inside the wrapper.
       out = { ...one, ...out };
     } else if (typeof one === "string" && w !== "changes" && !("path" in out)) {
       delete out[w];
@@ -33,4 +35,5 @@ export function flattenArgs(args: unknown, aliases: Record<string, readonly stri
   return out;
 }
 
+/** Names a model has used for `path`, besides `path` itself. */
 export const PATH_ALIASES = ["file", "file_path", "filepath", "filename", "file_name"] as const;

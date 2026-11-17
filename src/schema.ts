@@ -1,3 +1,9 @@
+/**
+ * Entry types and the Pipeline: typed plain objects (validated by TypeBox schemas) go in, canonical
+ * entries come out, and the reverse. Reading never throws; a bad entry comes back with its issues and its
+ * raw value, so it can be shown and written back unchanged. The plain-object form uses `$tag` and `$value`
+ * as reserved keys, which is why a map may not use them.
+ */
 import { EmitError, SchemaError, type Issue } from "./errors.ts";
 import type { TSchema } from "typebox";
 import { orderBySchema, safeParse } from "./validate.ts";
@@ -53,6 +59,8 @@ export function valueToObject(v: Value, path = "", depth = 0): unknown {
   return o;
 }
 
+// $tag and $value are the wrapper keys of a tagged value in plain-object form, so a plain map using them
+// would read back as a different value.
 function mapFields(m: Map<string, Value>, path: string): Map<string, Value> {
   if (m.has(TAG_KEY) || m.has(VALUE_KEY)) {
     throw new SchemaError([issue(path, `maps may not use the reserved keys ${TAG_KEY} and ${VALUE_KEY}`)]);

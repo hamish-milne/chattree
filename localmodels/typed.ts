@@ -1,6 +1,10 @@
+/** Small typed helpers for the local-model code: the keys of a table, and the port of a listening server. */
 import type { Server } from "node:net";
 
-/** The keys of an object, typed as what they are. `Object.keys` says `string[]` because an object may have more keys than its type names; for a table written in this code it has not. */
+/**
+ * The keys of an object, typed as what they are. `Object.keys` says `string[]` because an object may have more keys than its type
+ * names; for a table written in this code it has not, so the narrower type is true.
+ */
 export function typedKeys<T extends object>(table: T): (keyof T & string)[] {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the point of this function: see above
   return Object.keys(table) as (keyof T & string)[];

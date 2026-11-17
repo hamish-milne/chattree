@@ -1,3 +1,7 @@
+/**
+ * Public surface of the git layer: the `Git` handle with its option and result types, the minimum supported
+ * version, and the long-running object reader. Import git through here, not from the individual files.
+ */
 export {
   Git,
   type CommitInfo,

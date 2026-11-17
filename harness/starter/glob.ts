@@ -1,16 +1,16 @@
-import type { Host } from "../../src/host.ts";
-import { nth } from "../../src/nth.ts";
-
 /**
  * A small glob over the host's file system, confined to the workspace. It supports `*`, `?`, `[abc]`, `[!a-z]`, `{a,b}`
  * and `**` (any number of directories), and follows the shell's dot rule: a wildcard never matches a name that
  * starts with a dot. It goes through `Host.fs`, so it works on whatever host the tools run on.
  */
+import type { Host } from "../../src/host.ts";
+import { nth } from "../../src/nth.ts";
 
 export class GlobError extends Error {
   override name = "GlobError";
 }
 
+// Caps on one expansion, so a pattern such as `**` over a large tree fails with a GlobError instead of walking it all.
 const MAX_VISITED = 20_000;
 const MAX_DEPTH = 40;
 
@@ -75,7 +75,10 @@ function segmentRegex(seg: string): RegExp {
 
 const dotOk = (pattern: string, name: string): boolean => !name.startsWith(".") || pattern.startsWith(".");
 
-/** The workspace-relative paths matching `pattern` (files and directories), sorted. Throws `GlobError` for a pattern that leaves the workspace or matches too much to walk. */
+/**
+ * The workspace-relative paths matching `pattern` (files and directories), sorted. Throws `GlobError` for a pattern that
+ * leaves the workspace or matches too much to walk.
+ */
 export async function expandGlob(host: Host, workspace: string, pattern: string): Promise<string[]> {
   if (host.path.isAbsolute(pattern) || pattern.startsWith("/") || pattern.startsWith("\\"))
     throw new GlobError(`${pattern}: patterns are relative to the workspace`);

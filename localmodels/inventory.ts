@@ -1,11 +1,13 @@
+/**
+ * What is on disk for each configured model, from the settings and the lock alone: no network and no running host, so a status check is
+ * cheap. Also removes a model's files (and prunes the ones no model uses) when the settings or the user drop them.
+ */
 import { readdir, rm, rmdir, stat } from "node:fs/promises";
 import { basename, dirname, join } from "node:path";
 import type { LocalModels } from "./config.ts";
 import type { Lock } from "./lock.ts";
 import { downloadList, modelsByName, resolveKey, sourceHash } from "./plan.ts";
 import { hfUrl } from "./config.ts";
-
-/** What is on disk for each configured model, from the settings and the lock alone: no network, no running host (docs/local-models.md, section 3). */
 
 export interface ModelFile {
   file: string;
@@ -39,7 +41,10 @@ interface Wanted {
   key: string;
 }
 
-/** The files each configured model calls for, from the settings and the lock (a quantisation not looked up yet has none, and `looked` is false). */
+/**
+ * The files each configured model calls for, from the settings and the lock (a quantisation not looked up yet has none, and `looked` is
+ * false).
+ */
 function wantedFiles(config: LocalModels, lock: Lock, data: string): Map<string, { files: Wanted[]; looked: boolean; resolved: string[] }> {
   const { downloads } = downloadList(config, { join }, data);
   const out = new Map<string, { files: Wanted[]; looked: boolean; resolved: string[] }>();
@@ -64,6 +69,10 @@ function wantedFiles(config: LocalModels, lock: Lock, data: string): Map<string,
   return out;
 }
 
+/**
+ * One entry per configured model. A file counts as there only when the lock records it and its size on disk matches; the hash is not
+ * re-read.
+ */
 export async function inventory(config: LocalModels, lock: Lock, data: string): Promise<ModelInfo[]> {
   const wanted = wantedFiles(config, lock, data);
   const out: ModelInfo[] = [];
@@ -74,6 +83,7 @@ export async function inventory(config: LocalModels, lock: Lock, data: string): 
     let complete = w.looked;
     for (const f of w.files) {
       const locked = lock.file(f.key);
+      // A file the lock does not record is not counted even when it is on disk, since its hash (the model's identity) is unknown.
       const size = (await stat(f.dest).catch(() => undefined))?.size;
       if (locked !== undefined && size === locked.size)
         files.push({ file: f.file, role: f.role, dest: f.dest, size, sha256: locked.sha256 });
@@ -91,13 +101,15 @@ export async function inventory(config: LocalModels, lock: Lock, data: string): 
   return out;
 }
 
+/** Removes a directory only when it is empty; one that cannot be read is left alone. */
 const dropEmpty = async (dir: string): Promise<void> => {
   if ((await readdir(dir).catch(() => ["x"])).length === 0) await rmdir(dir).catch(() => undefined);
 };
 
 /**
  * Delete a model's downloaded files and forget them in the lock, so they are fetched again the next time they are wanted. A file another
- * configured model also uses stays (it is not this model's alone), unless `shared` says to delete it too (`pull --force`, which fetches it again).
+ * configured model also uses stays (it is not this model's alone), unless `shared` says to delete it too (`pull --force`, which fetches it
+ * again).
  */
 export async function removeModelFiles(
   config: LocalModels,

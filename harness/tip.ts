@@ -5,7 +5,7 @@ import type { LeaseOwner, LeaseState } from "./lease.ts";
 import { nth } from "../src/nth.ts";
 
 /**
- * What a thread's tip needs (docs/tools.md, 5.4): worked out by reading its history, the way the model's context is, so it is the same
+ * What a thread's tip needs: worked out by reading its history, the way the model's context is, so it is the same
  * answer in every process that looks. Nothing here is stored. A session that is not running the thread can show "this thread asks
  * whether to run `run: rm -r build`", and appending an `approval` entry is the whole of answering it.
  *

@@ -1,3 +1,8 @@
+/**
+ * The value model: the in-memory shape of transcript data (maps, lists, scalars, tagged values, blob
+ * references and raw binary). Every other part of the codec reads and writes this type, so it stays
+ * free of I/O and of schema knowledge.
+ */
 import { EmitError } from "./errors.ts";
 import { nth } from "../src/nth.ts";
 
@@ -77,7 +82,7 @@ export function isEntry(v: unknown): v is Entry {
   return v instanceof Map || (v instanceof Tagged && v.value instanceof Map);
 }
 
-/** Order-sensitive deep equality (Object.is for numbers, so -0 and NaN are distinguished/equal). */
+/** Order-sensitive deep equality. Scalars compare with Object.is, so 0 and -0 differ and NaN equals NaN. */
 export function valueEquals(a: Value, b: Value): boolean {
   if (typeof a !== "object" || a === null || typeof b !== "object" || b === null) return Object.is(a, b);
   if (a instanceof BlobRef) {

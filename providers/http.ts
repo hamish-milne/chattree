@@ -4,8 +4,7 @@ import { USER_AGENT } from "./identity.ts";
 import { ProviderError, type Completed, type ErrorKind, type ModelStream, type StreamEvent, type StreamRequest } from "./types.ts";
 
 /**
- * The shared HTTP transport for adapters that talk SSE over HTTP (docs/providers.md, P3; the extension points are
- * documented in docs/writing-an-adapter.md). It owns what is the same for every such provider: concurrency,
+ * The shared HTTP transport for adapters that talk SSE over HTTP. It owns what is the same for every such provider: concurrency,
  * timeouts, retry, error classification, secret scrubbing, event buffering, cancellation. A provider supplies an
  * `HttpMapper`: three small functions and a way to classify errors. Every behaviour here is an option with a
  * documented default, and any of them can be replaced.
@@ -72,7 +71,7 @@ export interface HttpHooks {
 
 /**
  * The headers a request goes out with, lowest priority first: our `User-Agent`, what the adapter built, the provider's `headers` map (a
- * `null` value removes that header, which can break a provider's terms: docs/providers.md), the session header (`session_header`, with the
+ * `null` value removes that header, which can break a provider's terms), the session header (`session_header`, with the
  * conversation's id when there is one). Credentials are added after this and always win. Names are compared case-insensitively.
  */
 export function requestHeaders(
@@ -162,6 +161,7 @@ export class Limiter {
 }
 
 const SENSITIVE_HEADERS = /^(authorization|x-api-key|api-key|proxy-authorization|cookie|set-cookie|x-goog-api-key)$/i;
+// Error bodies are only quoted in the error message, so reading stops after this many bytes.
 const MAX_ERROR_BODY = 64 * 1024;
 
 export const defaultRetry: RetryPolicy = {
@@ -209,6 +209,7 @@ export function parseRetryAfter(value: string | null, now: number = Date.now()):
   return Number.isNaN(at) ? undefined : Math.max(0, at - now);
 }
 
+// Bookkeeping events are held back until the first content event (see `httpStream`), so a retry never repeats them to the consumer.
 const isContent = (e: StreamEvent): boolean => e.type !== "started" && e.type !== "observed" && e.type !== "usage";
 
 /**
@@ -250,6 +251,7 @@ export async function* httpStream<S>(mapper: HttpMapper<S>, req: StreamRequest, 
   let release: (() => void) | undefined;
   try {
     for (let attempt = 1; ; attempt++) {
+      // Bookkeeping events of this attempt wait in `held` until content arrives; a failed attempt discards them.
       let held: StreamEvent[] = [];
       let content = false;
       // Per attempt, so an idle timeout ends this attempt only; the caller's abort and the total limit end them all.
@@ -367,6 +369,10 @@ function viewHeaders(h: Record<string, string>): Record<string, string> {
   return Object.fromEntries(Object.entries(h).map(([k, v]) => [k, SENSITIVE_HEADERS.test(k) ? "[redacted]" : v]));
 }
 
+/**
+ * The error for a non-2xx response. The body is read up to a bound, then classified by the default status table; the
+ * mapper's `classify`, if it returns anything, overrides that, and its `retry-after` wins over the header.
+ */
 async function failure<S>(mapper: HttpMapper<S>, res: Response, scrub: (s: string) => string): Promise<ProviderError> {
   let text = "";
   try {

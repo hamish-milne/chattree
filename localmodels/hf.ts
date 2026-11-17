@@ -1,7 +1,10 @@
+/**
+ * Hugging Face: which file a quantisation names in a repository, which are the projector and draft files beside a model, and the
+ * SHA-256 a file must have (from the repository listing, or from the redirect of a `resolve` address). Reads only; the bytes are
+ * fetched by download.ts.
+ */
 import { fetchFollow, fetchJson, type FetchFn } from "./net.ts";
 import { asJson, jsonList } from "../src/json.ts";
-
-/** Hugging Face (docs/local-models.md, section 2): which file a quantisation names, and the SHA-256 a file must have. */
 
 export interface RepoFile {
   path: string;
@@ -10,7 +13,9 @@ export interface RepoFile {
   sha256: string | undefined;
 }
 
-/** What a file's path says of its role beside a model: a multimodal projector, or a draft model (Gemma 4's `mtp-…` / `…-assistant` files). */
+/**
+ * What a file's path says of its role beside a model: a multimodal projector, or a draft model (Gemma 4's `mtp-…` / `…-assistant` files).
+ */
 export const PROJECTOR = /mmproj/i;
 export const DRAFT = /(^|[^a-z0-9])(mtp|assistant)([^a-z0-9]|$)/i;
 export type SidecarKind = "mmproj" | "draft";
@@ -23,8 +28,9 @@ export class QuantError extends Error {
 }
 
 /**
- * The file (or the parts of a split file, in order) that a quantisation names. A quantisation matches as a whole word of the path:
- * `Q4_K` does not match `Q4_K_M`, and a folder named for it counts (`Q4_K_M/model-00001-of-00002.gguf`). Projector and draft files are never the model.
+ * The file (or the parts of a split file, in order) that a quantisation names. A quantisation matches as a whole word of the path: `Q4_K`
+ * does not match `Q4_K_M`, and a folder named for it counts (`Q4_K_M/model-00001-of-00002.gguf`). Projector and draft files are never the
+ * model.
  */
 export function pickGguf(files: readonly RepoFile[], quant: string | undefined, repo = "the repository"): RepoFile[] {
   const ggufs = files.filter((f) => /\.gguf$/i.test(f.path) && !PROJECTOR.test(f.path) && !DRAFT.test(f.path));
@@ -58,7 +64,11 @@ export function pickGguf(files: readonly RepoFile[], quant: string | undefined, 
   return parts;
 }
 
-/** How much a file name says it is a precision worth taking first: projectors in half precision, draft models in 8 bits (they are small and a low one costs acceptance). A file with no precision in its name ranks last. */
+/**
+ * The precision a projector or draft file is preferred in, best first. Projectors take half precision (they are small enough to keep
+ * their accuracy); draft models take 8 bits (they are small, and a lower precision costs the draft its acceptance). A file with no
+ * precision in its name ranks last.
+ */
 const PREFERRED: Record<SidecarKind, readonly RegExp[]> = {
   mmproj: [/(^|[^a-z0-9])f16([^a-z0-9]|$)/i, /(^|[^a-z0-9])bf16([^a-z0-9]|$)/i, /q8_0/i],
   draft: [/q8_0/i, /(^|[^a-z0-9])bf16([^a-z0-9]|$)/i, /(^|[^a-z0-9])f16([^a-z0-9]|$)/i],
@@ -120,7 +130,10 @@ export async function listRepoFiles(
   return out;
 }
 
-/** The hash and size Hugging Face gives a file on the redirect from its `resolve` address (`x-linked-etag`, `x-linked-size`); undefined for a file stored without LFS. */
+/**
+ * The hash and size Hugging Face gives a file on the redirect from its `resolve` address (`x-linked-etag`, `x-linked-size`); undefined for
+ * a file stored without LFS.
+ */
 export async function linkedInfo(
   url: string,
   o: { fetch?: FetchFn | undefined; token?: string | undefined } = {},
@@ -132,4 +145,5 @@ export async function linkedInfo(
   return { sha256: sha, size: size === null ? undefined : Number(size) };
 }
 
+// Re-exported from net.ts; no module imports it from here at present.
 export { fetchJson };

@@ -1,3 +1,8 @@
+/**
+ * Sortable unique ids for entries and threads: ULIDs (48-bit time, 80-bit random, Crockford base32). The history orders
+ * entries by their ids as strings, so an id must sort in creation order. `ulidTime` reads the time back out of an id.
+ */
+
 const ENC = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const ULID_RE = /^[0-7][0-9A-HJKMNP-TV-Z]{25}$/;
 
@@ -20,6 +25,7 @@ export function createUlid(now: () => number = Date.now): () => string {
   return () => {
     let time = now();
     let random: bigint;
+    // The clock may stand still or go back (or two ids come in one millisecond): the id then continues the last one, so order holds.
     if (time <= lastTime) {
       time = lastTime;
       random = lastRandom + 1n;

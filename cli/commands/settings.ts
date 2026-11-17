@@ -1,3 +1,7 @@
+/**
+ * `/settings`: shows the user-level settings file, or opens it in the editor. Settings are read once at startup, which is why an edit is
+ * reported as applying the next time chattree starts rather than now.
+ */
 import { stringify } from "yaml";
 import type { Io } from "../io.ts";
 import type { Command } from "../registry.ts";

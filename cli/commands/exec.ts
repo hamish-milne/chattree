@@ -1,3 +1,8 @@
+/**
+ * `/exec`: the one command that runs a process for the user outside the conversation. It does not go through the model or the approval
+ * flow, and it leaves no entry in the transcript, so it is the user's own act. The engine's exec owns the terminal while the process runs;
+ * shellStage turns the line into a POSIX `sh` invocation so that it means the same on Windows (via busybox) as elsewhere.
+ */
 import { shellStage } from "../../harness/starter/portable.ts";
 import type { Command } from "../registry.ts";
 import { busyboxFor } from "../toolset.ts";

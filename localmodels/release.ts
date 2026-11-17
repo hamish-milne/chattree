@@ -1,9 +1,8 @@
-import type { Backend } from "./config.ts";
-
 /**
- * llama.cpp releases (docs/local-models.md, section 5): which of a release's files is the one for this machine, and how a version
- * tag leads to the build tag that has the files. Pure: the release listing comes from the installer, which does the fetching.
+ * llama.cpp releases: which of a release's files is the one for this machine, and how a version tag leads to the build tag that has
+ * the files. Pure: the release listing comes from the installer (install.ts), which does the fetching.
  */
+import type { Backend } from "./config.ts";
 
 export type Platform = "windows" | "linux" | "macos";
 export type Arch = "x64" | "arm64";
@@ -32,7 +31,10 @@ export interface ParsedAsset {
 const ARCHES = ["x64", "arm64", "s390x"];
 const KNOWN_BACKENDS = ["cpu", "cuda", "vulkan", "rocm", "sycl", "openvino", "opencl", "snapdragon", "zdnn"];
 
-/** A release file's name taken apart; undefined for anything that is not a program archive (the source code, the UI bundle, the xcframework). */
+/**
+ * A release file's name taken apart; undefined for anything that is not a program archive (the source code, the UI bundle, the
+ * xcframework).
+ */
 export function parseAssetName(name: string): ParsedAsset | undefined {
   const m = /^(llama|cudart-llama)-(?:(b\d+)-)?bin-(.+)\.(tar\.gz|zip)$/.exec(name);
   if (m === null) return undefined;
@@ -44,7 +46,8 @@ export function parseAssetName(name: string): ParsedAsset | undefined {
   if (archAt < 0) return undefined;
   const arch = tokens.splice(archAt, 1)[0];
   if (arch === undefined) return undefined;
-  // What is left is the backend, with its version or variant; a bare version such as "26.04" is the operating system's.
+  // What is left is the backend, with its version or variant. A version right at the front (`26.04`) is the operating system's, not a
+  // backend's.
   const rest = tokens.filter((t) => !/^\d+(\.\d+)*$/.test(t) || tokens[0] !== t);
   const first = rest[0];
   const kind = family === "llama" ? "llama" : "cudart";
@@ -90,7 +93,10 @@ export interface SelectOptions {
 
 export type SelectResult = { ok: true; selection: Selection } | { ok: false; error: string };
 
-/** The release's file for this platform, architecture and backend. A cuda backend takes the requested or newest CUDA version, and the runtime file of that version. */
+/**
+ * The release's file for this platform, architecture and backend. A cuda backend takes the requested or newest CUDA version, and the
+ * runtime file of that version. Errors name what the release does have, so a wrong setting is easy to correct.
+ */
 export function selectAsset(assets: readonly ReleaseAsset[], opts: SelectOptions): SelectResult {
   const backend = resolveBackend(opts.backend, opts.platform, opts.gpu);
   const os = OS_NAME[opts.platform];
@@ -122,6 +128,7 @@ export function selectAsset(assets: readonly ReleaseAsset[], opts: SelectOptions
   }
   const program = chosen[0];
   if (program === undefined) return { ok: false, error: `this release has no ${backend} build for ${opts.platform} ${opts.arch}` };
+  // The runtime is matched by CUDA version; the Windows runtime has no build tag, so a missing tag on either side matches.
   const runtime = matching.find(
     ({ p }) => p.kind === "cudart" && p.cuda === program.p.cuda && (p.tag === undefined || p.tag === program.p.tag),
   );

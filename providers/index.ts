@@ -1,3 +1,9 @@
+/**
+ * Public entry point of the providers directory. Re-exports the registry, pricing and local-model helpers that callers use,
+ * and defines the default registry of shipped adapters. Local models are deliberately not in that default set: their adapter
+ * needs a running server and a runtime, so callers register it themselves (see `localModelsDefinition`).
+ */
+
 import { anthropicDefinition } from "./anthropic.ts";
 import { geminiDefinition } from "./gemini.ts";
 import { opencodeGoDefinition } from "./opencode-go.ts";

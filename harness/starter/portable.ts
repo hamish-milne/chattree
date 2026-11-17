@@ -1,5 +1,5 @@
 /**
- * Cross-platform commands for `run` (docs/tools.md, 4.1). The model writes `cat`, `ls`, `grep`, `sed` and the rest as it
+ * Cross-platform commands for `run` and `script`. The model writes `cat`, `ls`, `grep`, `sed` and the rest as it
  * would anywhere. On POSIX they are the system's own programs. On Windows, where they do not exist (or are different
  * programs: `find`, `sort`, `date`), the command is started as `busybox.exe <applet> ...`. Nothing is added to PATH, and
  * programs that are not on the list (`git`, `node`, `npm`, `python`) are started as they are.

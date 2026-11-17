@@ -1,3 +1,7 @@
+/**
+ * Talking to the daemon: finding it, starting it when it is not there, and its control API (control.ts on the other end). Every
+ * answer is checked against a schema before it is used, since the daemon may be a different build from this client.
+ */
 import { spawn } from "node:child_process";
 import { mkdir, open } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -7,8 +11,6 @@ import { streamChunks } from "../src/stream.ts";
 import { asString, jsonOr } from "../src/json.ts";
 import { Type, type StaticDecode, type TSchema } from "typebox";
 import { safeParse } from "../src/validate.ts";
-
-/** Talking to the daemon (docs/local-models.md, section 3): finding it, starting it when it is not there, and its control API. */
 
 export class DaemonError extends Error {
   override name = "DaemonError";
@@ -38,6 +40,11 @@ export class DaemonClient {
     this.#fetch = f;
   }
 
+  /**
+   * One request to the daemon, with the token as a bearer. A connection failure or a non-OK answer is a `DaemonError` that says what
+   * happened; an answer that does not match `schema` is a `DaemonError` naming the fields, which suggests stopping the daemon, since it
+   * may be a different version.
+   */
   async #call<S extends TSchema>(schema: S, method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<StaticDecode<S>> {
     let res: Response;
     try {
@@ -160,7 +167,11 @@ export async function waitGone(pid: number, ms: number): Promise<boolean> {
   return true;
 }
 
-/** Start a daemon that outlives this process: its output goes to `run/daemon.log`. */
+/**
+ * Start a daemon that outlives this process: its output goes to `run/daemon.log`. It is this program run as `models serve`, detached so
+ * that it keeps running after the session that started it ends. A failure to start shows up as the daemon never answering, which
+ * `ensureDaemon` reports.
+ */
 export async function launchDetached(data: string, env: Readonly<Record<string, string | undefined>> = process.env): Promise<void> {
   await mkdir(runDir(data), { recursive: true });
   const log = await open(logFile(data), "a");
@@ -187,7 +198,10 @@ export interface EnsureOptions {
   fetch?: typeof fetch | undefined;
 }
 
-/** The daemon for this data directory, started when there is none. Two sessions starting at once end up with one: the second process cannot take the lock and leaves. */
+/**
+ * The daemon for this data directory, started when there is none. Two sessions starting at once end up with one: the second process
+ * cannot take the lock and leaves.
+ */
 export async function ensureDaemon(o: EnsureOptions): Promise<DaemonClient> {
   const found = await findDaemon(o.data, o.fetch);
   if (found !== undefined) return found;

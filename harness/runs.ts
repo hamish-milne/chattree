@@ -2,7 +2,7 @@ import type { Conversation } from "./conversation.ts";
 import { runLoop, type LoopEvent, type LoopOptions, type LoopResult } from "./loop.ts";
 
 /**
- * The run manager (docs/tools.md, section 4.2 and the step 8 plan). One place owns every loop that is running in this process, so that
+ * The run manager. One place owns every loop that is running in this process, so that
  * a loop does not belong to whichever call or screen started it: a subagent's loop is a run, a fork that works by itself is a run,
  * and the terminal's own turn can be one. A run belongs to one branch; it can be watched from any number of places, stopped, and
  * started again when the user speaks to its branch.
@@ -28,8 +28,13 @@ export interface RunInfo {
 
 export type RunOptions = Omit<LoopOptions, "signal">;
 
+// Events of the current cycle kept for a watcher that subscribes late with `replay`. Past this many, the newest are not kept.
 const BUFFER = 500;
 
+/**
+ * One branch's loop, run cycle after cycle. Events go to the current subscribers and to a bounded buffer. A cycle's error
+ * is recorded as the cycle's end rather than thrown, so the owner of the run decides what it means.
+ */
 export class Run {
   readonly convo: Conversation;
   readonly kind: string;
@@ -155,6 +160,7 @@ export class Run {
   }
 }
 
+/** The runs of this process, one per branch. A run leaves the table when it closes. */
 export class ThreadRuns {
   readonly #runs = new Map<string, Run>();
   readonly #now: () => number;

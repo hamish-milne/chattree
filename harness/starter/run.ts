@@ -1,3 +1,9 @@
+/**
+ * `run` and `script`, the two tools that start programs in the workspace. `run` takes one command line in a small bash-like
+ * syntax that `command.ts` parses (no shell is involved), so what the user approves is the parsed programs and arguments.
+ * `script` is the escape hatch: a string for POSIX `sh -c`, which always needs approval. Both use the host's `run` and are
+ * refused on a host that cannot run commands.
+ */
 import type { RunOutcome } from "../../src/host.ts";
 import { CommandSyntax, parseCommand, type ParsedCommand } from "./command.ts";
 import { GlobError, expandGlob } from "./glob.ts";
@@ -10,12 +16,6 @@ import { optNumberArg, stringArg } from "../tool-args.ts";
 import { isJson } from "../../src/json.ts";
 import { nth } from "../../src/nth.ts";
 
-/**
- * `run` and `script` (docs/tools.md, 4.1). `run` takes one command line in a small bash-like syntax that `command.ts`
- * parses (no shell is involved), so what the user approves is the parsed programs and arguments. `script` is the
- * escape hatch: a string for POSIX `sh -c`.
- */
-
 export interface RunToolOptions {
   /** Which environment variables `$VAR` may read, and their values. Default: none. `"*"` allows every name in `values`. */
   env?: { allow: readonly string[] | "*"; values: Readonly<Record<string, string | undefined>> };
@@ -23,15 +23,24 @@ export interface RunToolOptions {
   secretEnv?: readonly string[];
   /** `mm_read` is offered: the refusals of binary data say to use it. */
   mmRead?: boolean;
-  /** Windows: allow `.cmd` and `.bat` programs (`tools.run.batch`). Default false: they are refused with a message that says what to set. */
+  /**
+   * Windows: allow `.cmd` and `.bat` programs (`tools.run.batch`). Default false: they are refused with a message that
+   * says what to set.
+   */
   batch?: boolean;
   /** Windows: globs (relative to the workspace) of batch files inside the workspace that may be started (`tools.run.local`). */
   batchLocal?: readonly string[];
   /** The host's own environment (`PATH`, `ComSpec`), for finding programs. Not what commands may read: that is `env`. */
   hostEnv?: Readonly<Record<string, string | undefined>>;
-  /** Command prefixes known to be read-only (`tools.run.safe` in harness.yml): a grant for one is offered as `<prefix> **`. Default: none. */
+  /**
+   * Command prefixes known to be read-only (`tools.run.safe` in harness.yml): a grant for one is offered as
+   * `<prefix> **`. Default: none.
+   */
   safe?: readonly string[];
-  /** Allow `git` (`tools.run.git`). Default false: a thread's working directory is a repository that chattree keeps, and a model that commits to it, or reads its log, is working against the harness. */
+  /**
+   * Allow `git` (`tools.run.git`). Default false: a thread's working directory is a repository that chattree keeps, and a
+   * model that commits to it, or reads its log, is working against the harness.
+   */
   git?: boolean;
   /** Default timeout for a command (seconds). Default 120. */
   timeoutSeconds?: number;
@@ -42,6 +51,7 @@ export interface RunToolOptions {
 const MAX_TIMEOUT = 3600;
 /** Names that look like credentials are not passed to commands. */
 export const SECRET_ENV_PATTERN = "(^|_)(API_?KEY|TOKEN|SECRET|PASSWORD|PASSWD|CREDENTIALS?|PRIVATE_KEY)($|_)";
+// Bounds the workspace file read as `<` input and the output captured for `>`; larger files are refused, not truncated.
 const MAX_REDIRECT_BYTES = 64 * 1024 * 1024;
 const dec = new TextDecoder();
 const strict = new TextDecoder("utf-8", { fatal: true });
@@ -155,7 +165,10 @@ const backgroundProp = {
     "Start it as a background job and return at once, for something long (a build, a server, a test run). You are told when it ends; the jobs, job_output and job_stop tools manage it. Default false.",
 };
 
-/** Let a tool be started as a background job (`background: true`): the same execution, not tied to the turn, with a long default timeout. */
+/**
+ * Let a tool be started as a background job (`background: true`): the same execution, not tied to the turn, with a long
+ * default timeout.
+ */
 function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => string, defaultSeconds: number | undefined): Tool {
   const inner = tool.execute;
   const schema = tool.definition.input_schema;
@@ -174,6 +187,7 @@ function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => st
       if (args["background"] !== true) return inner(args, ctx);
       const stop = new AbortController();
       const { background: _b, ...rest } = args;
+      // A background job runs for up to an hour unless the caller asks for less; it is not bound to the foreground timeout.
       const done = inner({ timeout_seconds: 3600, ...rest }, { ...ctx, signal: stop.signal }).then(
         (r): ToolOutput => (isStarted(r) ? { content: "nested background job", is_error: true } : r),
         (e: unknown): ToolOutput => ({ content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true }),
@@ -259,6 +273,7 @@ function plainRunTool(opts: RunToolOptions): Tool {
         const extra: string[] = [];
         if (target !== undefined && outcome.stdout !== undefined) {
           if (out?.append === true) await host.fs.append(target, outcome.stdout);
+          // `>` replaces the file in one step, so a failed write does not leave it half written.
           else await host.fs.writeAtomic(target, outcome.stdout, { keepMode: true });
           extra.push(
             `stdout ${out?.append === true ? "appended to" : "written to"} ${display(host, workspace, target)} (${outcome.stdout.length} bytes)`,

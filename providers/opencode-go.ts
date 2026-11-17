@@ -9,11 +9,11 @@ import { OPENCODE_GO_ROWS } from "./catalog/opencode-go-rows.ts";
  * OpenCode Go (https://opencode.ai/docs/en/go/): a flat monthly plan whose gateway serves many models. It speaks Chat Completions,
  * Responses, Messages and generate-content, and translates any text model to the others, so this provider uses Chat Completions for
  * every model: one request shape, one settings schema. A model's own style is in the catalog (`GoRow.api`); to use `messages` for a
- * Claude model, point an `anthropic` provider at `<base>/anthropic` (docs/providers.md).
+ * Claude model, point an `anthropic` provider at `<base>/anthropic`.
  *
  * What it adds to `openai-compatible`: the gateway's base URL, the `x-opencode-session` header (a stable id per thread, which the
  * gateway uses for caching: without it the allowance is spent faster), and the catalog: context windows, output limits, reasoning
- * levels and prices of its models. The service's terms are the user's to follow (docs/providers.md).
+ * levels and prices of its models. The service's terms are the user's to follow.
  */
 export const OPENCODE_GO_BASE = "https://opencode.ai/inference/go";
 export const OPENCODE_GO_SESSION_HEADER = "x-opencode-session";
@@ -37,7 +37,10 @@ export interface GoRow {
 
 const costTier = (input: number): "low" | "medium" | "high" => (input <= 0.5 ? "low" : input <= 2.5 ? "medium" : "high");
 
-/** The catalog, the price table and each model's native API, from rows. */
+/**
+ * The catalog, the price table and each model's native API, from rows. A model priced at zero for both input and output is
+ * recorded as `free`, not as a zero rate, so its cost is known to be nothing rather than unknown.
+ */
 export function catalogFrom(
   rows: readonly GoRow[],
   asOf: string,
@@ -126,6 +129,7 @@ export const opencodeGoDefinition = defineAdapter({
       ...(key === undefined ? {} : { apiKey: key }),
       ...(c.max_tokens_param === undefined ? {} : { maxTokensParam: c.max_tokens_param }),
       ...(c.include_usage === undefined ? {} : { includeUsage: c.include_usage }),
+      // A `session_header` in the config overrides the gateway's header name; the default is the one the gateway reads.
       http: httpOptionsFor({ ...c, session_header: c.session_header ?? OPENCODE_GO_SESSION_HEADER }),
     });
     return { ...adapter, $tag: "opencode-go" };

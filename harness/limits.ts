@@ -3,7 +3,7 @@ import type { Estimate } from "./estimate.ts";
 import type { Ledger } from "./ledger.ts";
 
 /**
- * The spending limits (docs/providers.md, P9). A request that would break one is not sent. `warn_at` is the fraction
+ * The spending limits. A request that would break one is not sent. `warn_at` is the fraction
  * of a limit at which a warning is raised first. To go past a limit, edit `harness.yml`.
  */
 
@@ -43,6 +43,11 @@ export class LimitExceeded extends Error {
 
 const usd = (n: number): string => `$${n < 0.1 ? n.toFixed(4) : n.toFixed(2)}`;
 
+/**
+ * Check one request against the limits before it is sent. A violation stops the request; a warning does not. When the
+ * price is unknown there is no money figure for the request, so the money limits are skipped for it; the request count per
+ * turn is still checked, and `unknown_price` decides whether an unpriced request is blocked.
+ */
 export function checkLimits(opts: { limits: Limits; ledger: Ledger; estimate: Estimate }): {
   violations: Violation[];
   warnings: CostWarning[];

@@ -1,3 +1,8 @@
+/**
+ * A long-running `git cat-file --batch-command` process used as a reader of git objects. It exists because starting
+ * git is the slow part, so many questions can share one process. `Git` creates these (see `Git.catFile`), and
+ * the process is the one reader that `Git` keeps alive between calls, so it only answers object questions.
+ */
 import { GitError } from "../errors.ts";
 import type { HostProcess } from "../host.ts";
 import type { ObjectInfo } from "./git.ts";

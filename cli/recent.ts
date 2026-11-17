@@ -4,7 +4,10 @@ import { formatTranscript } from "./output.ts";
 
 const RECENT = 10;
 
-/** What the user should see when a thread opens: the exchange since their last message (at most ten entries), clipped. */
+/**
+ * What the user should see when a thread opens: the exchange since their last message, at most ten entries, clipped.
+ * Setup entries are left out. When the user's last message is older than the ten, the window is simply the last ten.
+ */
 export async function recentEntries(engine: Engine): Promise<string[]> {
   const entries = (await engine.convo.readEntries())
     .flatMap((e) => (e.ok ? [e.value] : []))

@@ -241,7 +241,7 @@ export function available(need: "utils", busybox: string | undefined): boolean {
 }
 
 /**
- * Tasks that test what a dialect tells the model rather than how it calls tools (docs/local-models.md, section 9). They are not in `TASKS`:
+ * Tasks that test what a dialect tells the model rather than how it calls tools. They are not in `TASKS`:
  * ask for them with `--group context`. They need a model's own thinking to vary with its settings, so compare arms by output tokens too.
  */
 const monthAfter = (days: number): string => new Date(Date.now() + days * 86_400_000).toLocaleString("en-US", { month: "long" });

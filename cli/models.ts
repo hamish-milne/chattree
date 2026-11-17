@@ -26,7 +26,11 @@ import { lookupSampling } from "./providers.ts";
 import { loadSettings, settingsPath } from "./settings.ts";
 import { nth } from "../src/nth.ts";
 
-/** `chattree models ...` (docs/local-models.md, section 3): the local model host, which runs as a daemon of its own. */
+/**
+ * `chattree models ...`: the local model host, which runs as a daemon of its own. This module is the command-line side:
+ * it starts or finds the daemon, sends it a request and prints what it reports. Files are fetched and removed directly
+ * when no daemon is running, so those commands work without starting one.
+ */
 
 const USAGE = "usage: chattree models start|restart|stop|status|list|info <name>|pull [name...]|rm <name>|prune|logs|update|reload";
 
@@ -40,12 +44,13 @@ function dataOf(io: Pick<Io, "host" | "env" | "settings">): string {
   return data;
 }
 
+/** The `local_models` section of the settings; a CliError (with how to add one) when there is none. */
 function localConfig(io: Pick<Io, "settings">) {
   const config = io.settings?.local_models;
   if (config === undefined)
     throw new CliError(
       "the settings file has no local_models section",
-      "add one with `chattree settings edit` (docs/local-models.md shows what goes in it)",
+      "add one with `chattree settings edit` (docs/guide/local-models.md shows what goes in it)",
     );
   return config;
 }
@@ -158,6 +163,7 @@ async function follow(io: Io, client: DaemonClient, action: Action): Promise<num
     await client.consent(ok).catch(() => undefined);
   }
 
+  // Interrupting a follow stops watching only: the daemon keeps going, and the command reports that it is still running.
   const off = io.onSignal?.(() => {
     say("the model host keeps working in the background; `chattree models status` shows it");
     finish(130);
@@ -194,6 +200,7 @@ export async function serve(io: Io): Promise<number> {
     data,
     host: { ...thisMachine(), env: io.env },
     watch: path === undefined ? undefined : { path },
+    // The daemon watches the code it runs from, so an update restarts it rather than leaving old code serving requests.
     codeWatch: {
       root: fileURLToPath(new URL("..", import.meta.url)),
       dirs: ["cli", "harness", "hosts", "localmodels", "providers", "src"],
@@ -303,6 +310,7 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
           io.err("stopping the model host\n");
           const pid = (await old.status()).pid;
           await old.stop();
+          // A daemon that has not exited in a minute is reported, not waited for indefinitely.
           if (!(await waitGone(pid, 60_000))) throw new CliError(`the model host (process ${pid}) did not stop within a minute`);
         }
         const client = await ensureDaemon({
@@ -343,6 +351,7 @@ export async function runModels(io: Io, args: readonly string[], o: ModelsOption
           lines.push(
             `  ${f.role === "mmproj" ? "projector" : f.role === "draft" ? "draft" : "file"}:     ${f.dest} (${bytes(f.size)})\n            sha256 ${f.sha256}`,
           );
+        // The source and file keys are shown above already; sampling has its own lines below.
         const settings = Object.entries(cfg).filter(
           ([k, v]) => v !== undefined && !["url", "hf", "file", "revision", "mmproj", "sha256"].includes(k),
         );

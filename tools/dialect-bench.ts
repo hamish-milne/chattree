@@ -1,5 +1,5 @@
 /**
- * Compare how a local model does the tool tasks under different ways of talking to it (docs/local-models.md, section 9): the server's
+ * Compare how a local model does the tool tasks under different ways of talking to it: the server's
  * own chat template (`jinja`, with and without sending the reasoning back) against our dialect for that model (with and without
  * replaying reasoning). Every arm runs the same tasks in fresh workspaces through the real loop, interleaved (task by task, repeat by
  * repeat, so a slow patch of the machine falls on every arm alike), and each sample is scored by outcome as in tools/live-sample.ts.

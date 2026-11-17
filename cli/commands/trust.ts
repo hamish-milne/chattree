@@ -1,3 +1,8 @@
+/**
+ * `/trust [show]`: checks that harness.yml is the file the user approved for this thread, and reviews and approves a new one. Approval
+ * decides which providers get keys, what runs without asking and which programs start, so until it is given none of that is used.
+ * Approving reopens the thread, because providers are built when a thread is opened.
+ */
 import { configHash } from "../../harness/trust.ts";
 import type { Ctx } from "../engine.ts";
 import type { Output } from "../output.ts";
@@ -9,19 +14,22 @@ const dec = new TextDecoder();
 const MAX_LINES = 120;
 
 /**
- * What changed in harness.yml, as far as git can say: against the version that was approved (found in the file's history by its hash), or the
+ * What changed in harness.yml, as far as git can say: against the version that was approved (found in the file's history by its
+ * hash), or the
  * uncommitted edit, or else the commit that last touched it; and, when there is nothing to compare, the file itself.
  */
 async function describeFile(ctx: Ctx, approved: string | undefined): Promise<string> {
   const git = ctx.engine.project.git.withCwd(ctx.convo.dir);
   const out = async (args: string[], ok: number[] = [0]): Promise<string> =>
     dec.decode((await git.run(args, { ok, readOnly: true })).stdout).trim();
+  // The approval records only a hash of the file, so the history is searched for the commit that had that exact text.
   if (approved !== undefined) {
     for (const commit of (await out(["log", "-n", "100", "--format=%h", "--", "harness.yml"], [0, 128]))
       .split("\n")
       .filter((c) => c !== "")) {
       const then = await git.readFileAt(commit, "harness.yml");
       if (then !== undefined && configHash(then) === approved) {
+        // Exit 1 means differences were found; 128 (no such path or no history) means there is nothing to show, not a failure.
         const diff = await out(["diff", commit, "--", "harness.yml"], [0, 1, 128]);
         return `changes since the version you approved (commit ${commit}):\n${diff === "" ? "(none that git shows)" : diff}`;
       }

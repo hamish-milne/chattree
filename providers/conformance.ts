@@ -3,9 +3,8 @@ import { ProviderError, type Completed, type ModelStream, type StreamEvent } fro
 import { thrownText } from "./wire.ts";
 
 /**
- * The checks every adapter's stream must pass (docs/writing-an-adapter.md). Independent of any test runner:
- * `collectStream` runs a stream to its end, `conformanceProblems` returns what is wrong with what happened.
- * An adapter's tests run both over each of their fixtures.
+ * The checks every adapter's stream must pass. Independent of any test runner: `collectStream` runs a stream to its end,
+ * `conformanceProblems` returns what is wrong with what happened. An adapter's tests run both over each of their fixtures.
  */
 
 export interface StreamRun {
@@ -16,6 +15,7 @@ export interface StreamRun {
   error?: unknown;
 }
 
+/** Run a stream to its end, keeping every event and how it ended. Never rejects: a throw is recorded in `error` for the checks to judge. */
 export async function collectStream(stream: ModelStream): Promise<StreamRun> {
   const run: StreamRun = { events: [] };
   try {
@@ -38,6 +38,7 @@ export interface ConformanceOptions {
   secrets?: readonly string[];
 }
 
+/** One sentence per way the run breaks the stream contract; an empty array means the run conforms. */
 export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {}): string[] {
   const out: string[] = [];
   const ev = run.events;

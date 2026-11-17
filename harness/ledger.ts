@@ -4,7 +4,7 @@ import { applyChange, emptySetup, type AgentSetup } from "./setup.ts";
 import { nth } from "../src/nth.ts";
 
 /**
- * What a conversation has cost (docs/providers.md, P9). Derived, never stored per entry: each response's usage is
+ * What a conversation has cost. Derived, never stored per entry: each response's usage is
  * priced under the table pinned in the setup in force at that entry, so the answer is the same on every replay and
  * survives restarts and forks. A merged branch's spend arrives as the rollup on its `subagent_result` / `fork_merge`.
  * An unknown price is counted as unpriced and left out of `usd`; it is never treated as zero.
@@ -39,7 +39,10 @@ const add = (a: Spend, b: Spend): void => {
 
 const WINDOW_KEY = /^cache_write_tokens_(\d+)m$/;
 
-/** Usage as an entry stores it: flat names, with the per-lifetime cache writes as `cache_write_tokens_<minutes>m`. */
+/**
+ * Usage as an entry stores it: flat names, with the per-lifetime cache writes as `cache_write_tokens_<minutes>m`. `tokensOf`
+ * reads this shape back.
+ */
 export function usageRecord(u: {
   input_tokens: number;
   output_tokens: number;
@@ -74,6 +77,11 @@ export interface LedgerOptions {
   from?: number;
 }
 
+/**
+ * Price every response on the branch. Setup changes are applied in order as the entries are walked (even those before
+ * `opts.from`), so each entry is priced under the table in force when it was written. Requests whose price is unknown are
+ * counted in `unpriced`, not as zero.
+ */
 export async function computeLedger(entries: readonly ChatEntry[], prices: PriceResolver, opts: LedgerOptions = {}): Promise<Ledger> {
   const out: Ledger = { conversation: zero(), turn: zero(), byModel: {} };
   let setup: AgentSetup = emptySetup();

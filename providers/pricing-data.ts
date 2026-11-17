@@ -5,7 +5,7 @@ import type { ModelInfo } from "./registry.ts";
  * Bundled price tables. These were read from the providers' pricing pages on 2026-10-25 through a summarising tool,
  * not copied from a machine-readable source, and only for the models whose API ids are known. They are defaults:
  * check them before relying on a spending limit, and put your own in a provider's `pricing.models` in `harness.yml`.
- * A package upgrade that changes a table is a `pricing_changed` for every agent pinned to the old one (docs/providers.md, P9).
+ * A package upgrade that changes a table is a `pricing_changed` for every agent pinned to the old one, since setups pin the table by hash.
  * Cache writes are keyed by the cache lifetime in minutes.
  */
 

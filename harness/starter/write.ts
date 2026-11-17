@@ -1,3 +1,8 @@
+/**
+ * The `write` tool: creates a file or replaces one whole, inside the workspace. It reports the new file's version so that
+ * `edit` can be used on it next. An existing file keeps its permission bits (`keepMode`), and the write is atomic, so a
+ * failure leaves the old content in place rather than a partly written file.
+ */
 import { PathRefused, display, resolveInWorkspace } from "./workspace.ts";
 import type { Tool } from "../tools.ts";
 import { versionOf } from "./version.ts";

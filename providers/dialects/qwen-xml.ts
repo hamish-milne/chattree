@@ -9,8 +9,8 @@ import { spacedJson } from "./scan.ts";
  *   Q1  a tool result is not trimmed (its trailing newline is meaningful, and the harness formats results itself);
  *   Q2  a boolean argument is written `true`/`false` and null as `null`, not as the template's Python `True`/`None`.
  * Options: `thinking` (default true): the prompt ends inside `<think>`, so the model thinks first; false asks for no thinking;
- * `keep_reasoning` (default true): the reasoning of the unfinished exchange is replayed, as the template does (earlier exchanges never are);
- * `instructions`: the text after the tool list that restates the call format (a string, or `false` for none; default the template's).
+ * `keep_reasoning` (default true): the reasoning of the unfinished exchange is replayed, as the template does (earlier exchanges never
+ * are); `instructions`: the text after the tool list that restates the call format (a string, or `false` for none; default the template's).
  */
 
 const INSTRUCTIONS = `
@@ -65,6 +65,7 @@ const SPEC: FamilySpec = {
 };
 
 export const qwenXml: Dialect = defineFamily(SPEC);
+// Named wrappers over `qwenXml`, which the qwen-gemma tests call directly; the registry uses the dialect object.
 export const renderQwen = (input: RenderInput): { prompt: string; stop: string[] } => qwenXml.render(input);
 export const qwenParser = (options: Record<string, unknown>, tools: Parameters<typeof qwenXml.parser>[1], prompt: string): Parser =>
   qwenXml.parser(options, tools, prompt);

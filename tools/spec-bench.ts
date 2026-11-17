@@ -1,5 +1,5 @@
 /**
- * Does speculative decoding change what a model says, and how much faster is it? (docs/local-models.md, 9.8.) Every model named runs
+ * Does speculative decoding change what a model says, and how much faster is it? Every model named runs
  * the same requests at temperature 0 (a copy of code with one change, a tool call that writes a file, plain prose as the control), and
  * the first is the baseline the others are compared with: with speculation the text and the calls should be the same, and only the
  * time and the server's counts of drafted and accepted tokens should differ. Make the arms as entries of `local_models` that share one

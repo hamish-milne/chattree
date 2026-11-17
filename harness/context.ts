@@ -38,6 +38,7 @@ export function contextEntries(entries: readonly ChatEntry[]): ChatEntry[] {
     if (first !== undefined && last !== undefined && first[0] <= last[1]) {
       const [from, to] = [first[0], last[1]];
       for (let k = from; k <= to; k++) covered[k] = true;
+      // A summary of a range that already holds an earlier summary replaces it; the earlier one is not shown.
       for (const earlier of active) if (earlier.from >= from && earlier.from <= to) earlier.swallowed = true;
       active.push({ from, entry: e, swallowed: false });
       span.set(e.id, [from, to]);

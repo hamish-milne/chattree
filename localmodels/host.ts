@@ -1,3 +1,8 @@
+/**
+ * The local model host: settings in, a running llama-server out. It installs the program, fetches the models, writes the preset, starts
+ * the engine, restarts it when it dies, and applies a changed settings section to the running server without stopping it when it can.
+ * It does not read the settings file or serve a control API; the daemon (daemon.ts) does both.
+ */
 import { createServer } from "node:net";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
@@ -11,12 +16,6 @@ import { downloadList, presetIni, type ModelFiles } from "./plan.ts";
 import type { Arch, Platform } from "./release.ts";
 import { fetchDownloads, modelId, resolveDownloads, type Fetched, type StoreEvent } from "./store.ts";
 import { portOf } from "./typed.ts";
-
-/**
- * The local model host (docs/local-models.md, section 3): settings in, a running llama-server out. It installs the program, fetches the
- * models, writes the preset, starts the engine, restarts it when it dies, and applies a changed settings section to the running server
- * without stopping it when it can. It does not read the settings file or serve a control API; the daemon (step 4) does both.
- */
 
 export type Phase = "idle" | "installing" | "downloading" | "starting" | "ready" | "restarting" | "stopping" | "stopped" | "error";
 
@@ -77,9 +76,14 @@ export interface HostOptions {
   hfBase?: string | undefined;
 }
 
+/** The first retry waits a second, the wait doubles up to 30 seconds, and five starts in a row that fail give up. */
 const DEFAULT_BACKOFF: Backoff = { initialMs: 1000, maxMs: 30_000, maxFailures: 5, stableMs: 60_000 };
 const LOG_LINES = 500;
 
+/**
+ * A port that was free a moment ago, found by binding port 0 and letting it go. Nothing reserves it, so another process can take it
+ * before the server does, and the start then fails.
+ */
 export async function freePort(host: string): Promise<number> {
   return new Promise((resolvePort, reject) => {
     const s = createServer();
@@ -91,7 +95,10 @@ export async function freePort(host: string): Promise<number> {
   });
 }
 
-/** What makes the engine process itself different: a change here is a restart. */
+/**
+ * What makes the engine process itself different: a change here is a restart. `idle_exit_minutes` is left out, since only the daemon reads
+ * it; `hf_token_env` is in, so a changed token setting restarts the process.
+ */
 const processKey = (c: LocalModels): string =>
   JSON.stringify({ e: c.engine, l: c.llama_cpp, s: { ...c.server, idle_exit_minutes: undefined }, t: c.hf_token_env });
 
@@ -105,6 +112,11 @@ function sections(ini: string): Map<string, string> {
   return out;
 }
 
+/**
+ * The host. Every operation that changes what runs goes through `#enqueue`, so operations happen one at a time in the order they were
+ * asked; the state is an object replaced on each change, and each change is announced as an event. `start` and `stop` set the
+ * intent (`#wanted`) that the supervisor respects when the engine dies.
+ */
 export class LocalModelHost {
   readonly #o: HostOptions;
   readonly #engine: Engine;
@@ -160,6 +172,7 @@ export class LocalModelHost {
     this.#wanted = true;
     this.#abort = new AbortController();
     // The phase changes now, not when the queue gets to it, so whoever asked sees a start in progress and not the end of the last one.
+    // Only a host that is not running starts from `installing`; a restart from `error` or `stopped` is the same start.
     if (this.#proc === undefined && ["idle", "stopped", "error"].includes(this.#state.phase))
       this.#set({ phase: "installing", error: undefined });
     return this.#enqueue(async () => {
@@ -183,12 +196,13 @@ export class LocalModelHost {
 
   /**
    * Use new settings. A change to the program, its backend or the server (address, port, how many models) restarts the server; anything
-   * else is written to the preset and read by the running server, and the models whose section changed are unloaded so they come back
-   * with the new settings. A change that cannot be applied (a download fails) leaves the old settings running and says why in `state.error`.
+   * else is written to the preset and read by the running server, and the models whose section changed are unloaded so they come back with
+   * the new settings. A change that cannot be applied (a download fails) leaves the old settings running and says why in `state.error`.
    */
   apply(config: LocalModels): Promise<HostState> {
     return this.#enqueue(async () => {
       const old = this.#config;
+      // Not running: the new settings are kept for the next start, and a host that failed while it was wanted is started with them now.
       if (this.#proc === undefined || this.#state.phase !== "ready") {
         this.#config = config;
         if (this.#state.phase === "error" && this.#wanted) await this.#bringUp(config);
@@ -212,6 +226,7 @@ export class LocalModelHost {
           this.#preset = next;
           const proc = this.#proc;
           await proc.reload();
+          // The `*` section holds the defaults every model inherits, so a change there touches every loaded model.
           const shared = before.get("*") !== after.get("*");
           const loaded = new Set(
             (await proc.models()).filter((m) => m.state === "loaded" || m.state === "loading" || m.state === "sleeping").map((m) => m.name),
@@ -285,6 +300,7 @@ export class LocalModelHost {
     return this.#proc;
   }
 
+  /** Runs `op` after the operations already queued; one that fails does not hold up the ones behind it. */
   #enqueue<T>(op: () => Promise<T>): Promise<T> {
     const run = this.#chain.then(op, op);
     this.#chain = run.catch(() => undefined);
@@ -332,6 +348,7 @@ export class LocalModelHost {
     const ids: Record<string, string> = {};
     const base = this.#o.baseDir ?? data;
     for (const name of Object.keys(config.models)) {
+      // The model is the first model file in name order: for a split model, its first part, from which llama-server loads the rest.
       const model = fetched.filter((f: Fetched) => f.model === name && f.role === "model").sort((a, b) => a.dest.localeCompare(b.dest))[0];
       if (model === undefined) continue;
       const mm = fetched.find((f) => f.model === name && f.role === "mmproj");
@@ -349,6 +366,10 @@ export class LocalModelHost {
     return { files, ids };
   }
 
+  /**
+   * Installs what is missing, fetches the models, writes the preset and starts the engine, from whatever state the host is in. A failure
+   * sets the state to `error` and is rethrown to the caller.
+   */
   async #bringUp(config: LocalModels): Promise<void> {
     try {
       this.#set({ phase: "installing", error: undefined, restarts: 0 });
@@ -371,6 +392,7 @@ export class LocalModelHost {
       this.#preset = presetIni(config, prepared.files);
       await mkdir(join(this.#o.data, "run"), { recursive: true });
       await writeFile(join(this.#o.data, "run", "preset.ini"), this.#preset);
+      // `auto` picks the port now, so the address is known before the server starts.
       this.#port = config.server.port === "auto" ? await (this.#o.freePort ?? freePort)(config.server.host) : config.server.port;
       this.#set({ ids: prepared.ids });
       await this.#launch();
@@ -408,6 +430,7 @@ export class LocalModelHost {
     void proc.exited.then(() => this.#died(proc, startedAt));
   }
 
+  /** The supervisor: a server that exits while the host is wanted is restarted; one stopped on purpose is not. */
   #died(proc: EngineProcess, startedAt: number): void {
     if (this.#proc !== proc || !this.#wanted) return;
     this.#proc = undefined;
@@ -415,6 +438,10 @@ export class LocalModelHost {
     void this.#enqueue(() => this.#restart(Date.now() - startedAt));
   }
 
+  /**
+   * Restarts with backoff. A server that lived `stableMs` before it died counts as healthy, so its restart starts the count again; a server
+   * that died young counts as one failure already. The host gives up after `maxFailures` failures in a row.
+   */
   async #restart(livedMs: number): Promise<void> {
     const b = { ...DEFAULT_BACKOFF, ...this.#o.backoff };
     let failures = livedMs >= b.stableMs ? 0 : 1;

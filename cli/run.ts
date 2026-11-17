@@ -16,13 +16,16 @@ export interface RunOptions {
 }
 
 /**
- * `chattree run`: the pump with no screen (docs/tools.md, 5.4). It runs every thread that can go on without a person (a message
- * nobody has answered, a decided call, a subagent that handed back) and leaves the questions in the transcripts, where any session
- * can answer them; the runner then notices the answer and goes on. Exit status with `--once`: 0 nothing is waiting, 3 questions are.
+ * `chattree run`: the session's pump without a screen. It runs every thread that can go on without a person (a message
+ * nobody has answered, a decided call, a subagent that handed back) and leaves the questions in the transcripts, where any
+ * session can answer them; the runner then notices the answer and goes on. Exit status with `--once`: 0 nothing is waiting,
+ * 3 questions are, 1 a thread is held (refused or blocked). Questions are not answered here, so the runner never confirms
+ * anything itself: a call that needs a person is left waiting.
  */
 export async function runRunner(io: Io, start: string, o: RunOptions): Promise<number> {
   const project = await findProject(io, start);
   const opened = await openThread(io, project, o.thread, { providers: "required" });
+  // No person is there to confirm or answer, so both paths are closed: `confirm` refuses and `ask` is absent.
   const engine = new Engine({ io, project, opened, tools: true, headless: true, confirm: async () => false });
   engine.ask = undefined;
   engine.childLine = (text) => io.err(text);

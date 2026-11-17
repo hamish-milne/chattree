@@ -207,6 +207,7 @@ function issuesOf(errors: TLocalizedValidationError[], schema: TSchema, value: u
   return out;
 }
 
+// Compiled once per schema object: building a validator is the expensive part, checking is cheap.
 const compiled = new WeakMap<TSchema, Validator>();
 const validatorFor = (schema: TSchema): Validator => {
   let v = compiled.get(schema);
@@ -214,7 +215,9 @@ const validatorFor = (schema: TSchema): Validator => {
   return v;
 };
 
+/** Check `raw` against the schema and return the decoded value, or the issues. Never throws on bad data; the input is not changed. */
 export function safeParse<S extends TSchema>(schema: S, raw: unknown): ParseResult<StaticDecode<S>> {
+  // Cloned before defaults are filled in, so the caller's object is never written to.
   const filled = Default({}, schema, Clone(raw));
   const validator = validatorFor(schema);
   if (!validator.Check(filled)) {

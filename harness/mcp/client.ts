@@ -1,12 +1,14 @@
+/**
+ * A small client for the Model Context Protocol: the tools part only (`initialize`, `tools/list`, `tools/call`,
+ * `notifications/tools/list_changed`), over a child process's stdin and stdout or over streamable HTTP. No dependency: the
+ * protocol is JSON-RPC 2.0 and a handful of rules. Resources, prompts, sampling, roots and elicitation are not offered, so a
+ * server that asks for them is told the method is unknown.
+ * Used by servers.ts, which turns the tools into registry tools.
+ */
 import type { Host, HostProcess } from "../../src/host.ts";
 import { SseParser } from "../../providers/sse.ts";
 
-/**
- * A small client for the Model Context Protocol (docs/context.md, section 2): the tools part only (`initialize`, `tools/list`, `tools/call`,
- * `notifications/tools/list_changed`), over a child process's stdin and stdout or over streamable HTTP. No dependency: the protocol is JSON-RPC 2.0
- * and a handful of rules. Resources, prompts, sampling, roots and elicitation are not offered, so a server that asks for them is told the method is unknown.
- */
-
+// The newest protocol version this client asks for; `connect` also accepts the two older versions listed there.
 export const PROTOCOL_VERSION = "2025-06-18";
 
 export class McpError extends Error {
@@ -199,6 +201,7 @@ export class McpClient {
       const cancel = (reason: string, error: McpError): void => {
         if (!this.#pending.has(id)) return;
         done();
+        // The MCP spec does not allow `initialize` to be cancelled, so a stopped handshake is only abandoned on this side.
         if (method !== "initialize")
           void this.#transport
             .send({ jsonrpc: "2.0", method: "notifications/cancelled", params: { requestId: id, reason } })
@@ -369,6 +372,7 @@ export function httpTransport(o: HttpOptions): McpTransport {
       if (sid !== null && session === undefined) session = sid;
       if (!res.ok) {
         const body = (await res.text().catch(() => "")).slice(0, 300);
+        // A 404 for a session the server has forgotten ends the connection; the client does not start a new session.
         if (res.status === 404 && session !== undefined) ended?.("the server forgot the session (HTTP 404)");
         throw new McpError(`${o.url} answered HTTP ${res.status}${body === "" ? "" : `: ${body}`}`);
       }
@@ -402,6 +406,7 @@ export function httpTransport(o: HttpOptions): McpTransport {
     },
     async close() {
       controller.abort();
+      // Ends the server-side session where there is one, so the server can free it; a failure is ignored as the client is closing anyway.
       if (session !== undefined)
         await f(o.url, {
           method: "DELETE",

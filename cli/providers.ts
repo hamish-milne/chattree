@@ -5,7 +5,12 @@ import { dataDir } from "../localmodels/plan.ts";
 import { resolveSampling, type ResolvedSampling } from "../localmodels/sampling.ts";
 import type { Io } from "./io.ts";
 
-/** The local models as a provider sees them (docs/local-models.md, section 6): the catalog from the settings, the address from the running host. */
+/**
+ * Adapts the CLI's settings and machine to the provider layer. The local-models provider gets its catalog from the
+ * settings file and its address from the local model host, which this module starts on demand.
+ */
+
+/** The local models as a provider sees them: the catalog from the settings, the address from the running host. */
 export function localRuntime(io: Pick<Io, "host" | "env" | "settings">): LocalModelsRuntime {
   const config = io.settings?.local_models;
   return {
@@ -50,7 +55,10 @@ export function cliRegistry(io: Pick<Io, "host" | "env" | "settings">): AdapterR
   return defaultRegistry().register(localModelsDefinition(localRuntime(io)));
 }
 
-/** The sampling for one of the settings' models, looking through the model's own metadata when the settings have none (docs/local-models.md, section 5). Never throws. */
+/**
+ * The sampling for one of the settings' models, looking through the model's own metadata when the settings have none.
+ * Never throws: a model not in the settings, or metadata that cannot be read, comes back as notes in the result.
+ */
 export async function lookupSampling(
   io: Pick<Io, "env" | "settings">,
   name: string,
@@ -62,6 +70,7 @@ export async function lookupSampling(
     return { values: {}, source: undefined, detail: undefined, notes: [`${name} is not in local_models`] };
   const tokenVar = config.hf_token_env;
   const token = tokenVar === undefined ? undefined : io.env[tokenVar];
+  // An empty variable counts as no token. The lookup is bounded, so an unreachable model host cannot stall the command.
   return resolveSampling(entry, {
     fetch: o.fetch,
     hfBase: o.hfBase,

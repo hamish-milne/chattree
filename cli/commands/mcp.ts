@@ -1,3 +1,8 @@
+/**
+ * `/mcp`: the MCP servers harness.yml names, set against what this thread has accepted. A server's tools reach the model only once the
+ * thread has accepted them, and a server whose configuration or tool list changed must be accepted again; each tool call still asks.
+ * `forget` unpins a server from the thread, and `refresh` reconnects the accepted ones.
+ */
 import { toolDrift, syncMcpTools } from "../../harness/loop.ts";
 import { describeServer, pinServer, serverOf, serverState, type ServerStatus } from "../../harness/mcp/servers.ts";
 import type { Ctx } from "../engine.ts";
@@ -54,6 +59,7 @@ const mcp: Command = {
       const servers = await configured(ctx);
       const sub = args[0] ?? "list";
       const driftOf = async (name: string) => {
+        // Drift is read from the connected server's tool list, so it is only meaningful after the server has been reconnected.
         const d = await toolDrift(ctx.convo, set.registry);
         const mine = (n: string): boolean => serverOf(n) === name;
         return { tools: d.missing.filter(mine).length, changed: d.changed.filter(mine).length, gone: d.extra.filter(mine).length };
@@ -63,7 +69,7 @@ const mcp: Command = {
         const setup = await ctx.convo.setup();
         const names = [...new Set([...Object.keys(servers), ...Object.keys(setup.mcp)])].sort();
         if (names.length === 0) {
-          yield { type: "text", text: "no MCP servers: add them under `mcp:` in harness.yml (docs/context.md)" };
+          yield { type: "text", text: "no MCP servers: add them under `mcp:` in harness.yml (docs/extending/skills-and-mcp.md)" };
           return;
         }
         const rows: string[] = [];
@@ -171,6 +177,7 @@ const mcp: Command = {
             continue;
           }
           for (const x of s.skipped) yield { type: "warning", message: `${name}: tool ${x.tool} is not offered: ${flat(x.why, 160)}` };
+          // Drift is measured after the connection, because the tools the server offers now are what the user is asked to accept.
           const d = await driftOf(name);
           if (d.tools + d.changed + d.gone === 0) {
             yield { type: "notice", message: `${name}: ${s.tools.length} tool${s.tools.length === 1 ? "" : "s"}, all accepted already` };

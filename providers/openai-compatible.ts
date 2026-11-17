@@ -21,8 +21,8 @@ import {
 import { asJson, asString, jsonList, jsonOr, messageText, parseJsonObject, type Json } from "./wire.ts";
 
 /**
- * The Chat Completions API as llama-server, Ollama, vLLM, LM Studio and similar servers speak it (docs/providers.md,
- * step 8). It is stateless and has no cache control, no storage and no retrieval: every request replays the context.
+ * The Chat Completions API as llama-server, Ollama, vLLM, LM Studio and similar servers speak it. It is stateless and has no
+ * cache control, no storage and no retrieval: every request replays the context.
  *
  * Wire facts relied on, from OpenAI's documentation and from what these servers are known to do (checked live against
  * Ollama only; llama-server, vLLM and LM Studio are from memory): `data:` chunks whose `choices[0].delta` carries
@@ -93,6 +93,7 @@ export function parseCompatibleSettings(settings: unknown): CompatibleSettings {
 
 // ---- request --------------------------------------------------------------------------------------------------
 
+// Request fields the adapter sets itself. The `extra` setting is copied after the fixed fields and skips these, so it cannot change them.
 const OWNED = new Set(["model", "messages", "tools", "stream", "stream_options", "max_tokens", "max_completion_tokens", "tool_choice"]);
 
 export interface RequestOptions {
@@ -347,6 +348,10 @@ function endContent(s: State, events: StreamEvent[]): void {
   if (s.think !== undefined) content(s, events, s.think.end());
 }
 
+/**
+ * The HTTP mapper for Chat Completions. It has no `retrieve` or `countTokens`, since the API stores nothing and has no
+ * counting endpoint, so a crash mid-response cannot be recovered from the provider.
+ */
 export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper<State> {
   return {
     request(req: StreamRequest): HttpRequestSpec {
@@ -484,6 +489,7 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
     done: (s) => s.done,
     finish(s): Completed {
       const blocks = s.out.filter((b): b is Block => b !== undefined);
+      // A tool call outranks the finish reason: Ollama reports `stop` after a tool call.
       const stop = s.sawTool ? "tool_use" : s.refused ? "refusal" : s.finish === undefined ? "end_turn" : (FINISH[s.finish] ?? s.finish);
       return {
         blocks,
@@ -524,6 +530,10 @@ export interface CompatibleOptions {
   http?: HttpOptions;
 }
 
+/**
+ * An adapter for any Chat Completions server. `tag` names it for the turn runner (default `openai-compatible`). The auth
+ * function built here wraps any `auth` the caller put in `http`, so both sets of credentials are applied.
+ */
 export function openaiCompatibleAdapter(opts: CompatibleOptions & { tag?: string }): ProviderAdapter {
   const mapper = chatMapper(opts.baseUrl, {
     maxTokensParam: opts.maxTokensParam ?? "max_tokens",

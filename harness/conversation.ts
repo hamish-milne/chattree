@@ -1,3 +1,12 @@
+/**
+ * A conversation: one thread, which is the transcript `chat.yml` committed on a branch of a Git repository, and the
+ * `Conversation` handle through which everything that changes it goes. Each append commits the entry together with the
+ * workspace changes since the last commit, so the transcript and the files stay in step. Forks, subagents and new
+ * threads are branches, each with its own worktree; merges are trunk-wins and recorded as entries. Opening repairs what a
+ * crash left (a torn append, uncommitted entries, an unfinished request journal). Every other module reads or writes the
+ * thread through this class, and the harness modules that work on a thread (loop, pump, turn) are its callers.
+ */
+
 import { parseConfig, type ConfigResult } from "../src/config.ts";
 import { parse } from "../src/validate.ts";
 import {
@@ -100,9 +109,9 @@ export type NewEntry = DistributiveOmit<ChatEntry, "id"> & { id?: string };
 
 export interface ConversationOptions {
   /**
-   * `enforce` (the default): `harness.yml` is used only while it is the file the user approved for this thread (`approveConfig`, `trust.ts`).
-   * Otherwise the thread opens without providers, `readConfig` says why it has none, no grant counts, and the loop refuses
-   * (`ConfigNotTrusted`). `ignore` is for hosts that decide for themselves.
+   * `enforce` (the default): `harness.yml` is used only while it is the file the user approved for this thread
+   * (`approveConfig`, `trust.ts`). Otherwise the thread opens without providers, `readConfig` says why it has none, no
+   * grant counts, and the loop refuses (`ConfigNotTrusted`). `ignore` is for hosts that decide for themselves.
    */
   configTrust?: "enforce" | "ignore";
   /** Used as committer, and as author for entries that are neither the user's nor the model's. */
@@ -113,8 +122,8 @@ export interface ConversationOptions {
   pipeline?: Omit<PipelineConfig, "store">;
   lock?: LockOptions;
   /**
-   * Tells whether the process that holds a run lease is gone (the same machine and no such pid): such a lease is taken over at once
-   * instead of when its deadline passes. Without it only the deadline says.
+   * Tells whether the process that holds a run lease is gone (the same machine and no such pid): such a lease is taken
+   * over at once instead of when its deadline passes. Without it only the deadline says.
    */
   isOwnerDead?: (owner: LeaseOwner) => boolean;
   /** The lease store to use instead of the process's shared one: for tests that stand in for several processes. */
@@ -168,7 +177,10 @@ export type ConversationEvent =
       recovered?: true;
       /** Another process appended it (see `Conversation.sync`). */ foreign?: true;
     }
-  /** An `agent_setup` entry was committed. For `reason: provider` this is the host's cue to tell the user ("the provider changed the model to X"). */
+  /**
+   * An `agent_setup` entry was committed. For `reason: provider` this is the host's cue to tell the user ("the provider
+   * changed the model to X").
+   */
   | { type: "setup_changed"; branch: string; entry: Appended; value: Extract<ChatEntry, { $tag: "agent_setup" }> }
   /** Pending workspace changes were committed without an entry. */
   | { type: "snapshot"; branch: string; commit: string }
@@ -236,7 +248,10 @@ export interface InterruptOptions {
   error?: string;
   /** Tokens of the partial response (billed even though it was cut off), in the normalised names of `assistant.usage`. */
   usage?: Record<string, number>;
-  /** Runs under the branch lock just before the entry is written; throwing from it stops the write (the turn runner checks its journal is still its own). */
+  /**
+   * Runs under the branch lock just before the entry is written; throwing from it stops the write (the turn runner checks
+   * its journal is still its own).
+   */
   guard?: () => Promise<void>;
 }
 
@@ -253,9 +268,12 @@ export interface RecoveryReport {
   truncatedBytes: number;
   /** Entries that were complete but never committed; each is now committed. */
   recovered: Appended[];
-  /** Leftovers of interrupted work that `open` removed (temporary files, stale lock remnants), as repository-relative or `.git/` paths. */
+  /**
+   * Leftovers of interrupted work that `open` removed (temporary files, stale lock remnants), as repository-relative or
+   * `.git/` paths.
+   */
   cleaned: string[];
-  /** What was done about a request that was in flight when the process died (see `docs/providers.md`, P5). */
+  /** What was done about a request that was in flight when the process died. */
   journal?: JournalRecovery;
 }
 
@@ -368,7 +386,10 @@ export interface BlobGcOptions {
 export interface BlobGcReport {
   /** Unreferenced blob files that were never committed. */
   untracked: { path: string; bytes: number }[];
-  /** Unreferenced blob files that had been committed (by a later entry's commit, after a failed append). They are removed in a new commit. */
+  /**
+   * Unreferenced blob files that had been committed (by a later entry's commit, after a failed append). They are removed
+   * in a new commit.
+   */
   tracked: { path: string; bytes: number }[];
   /** The commit that removed the tracked ones, if there were any. */
   commit: string | undefined;
@@ -396,7 +417,10 @@ const DEFAULT_COMMITTER: Identity = { name: "chattree", email: "chattree@localho
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 
-/** The kinds of change that lose the cached prefix anyway: rewriting the prefix with them costs nothing more. */
+/**
+ * The kinds of change that lose the cached prefix anyway. When the prefix is lagging behind the setup, a change of these
+ * kinds rewrites it at no extra cost, since the cache is lost either way.
+ */
 const PREFIX_BREAKING: readonly ChangeKind[] = ["cache_break", "tools_changed", "renderer_changed", "model_changed", "provider_changed"];
 
 const HEADER_START = new TextEncoder().encode("- !header");
@@ -623,12 +647,12 @@ export class Conversation {
   /**
    * Start a conversation in a git repository that already exists: the repository's top level, on the branch checked out
    * (not detached), with a clean working tree and no conversation yet. Writes `chat.yml`, `harness.yml` (when `config` is
-   * given), the ignore and attribute entries (added to existing files, never replacing them; the attributes name only the
-   * transcript and the blobs) and commits them with the header entry on that branch.
+   * given), the ignore and attribute entries (added to existing files, never replacing them; the attributes name only
+   * the transcript and the blobs) and commits them with the header entry on that branch.
    *
    * What this means for the repository: from here on every entry commits whatever changed in the working tree since the
-   * last commit, with the entry (that is how snapshots and rollback work), so edits made outside the conversation land in its
-   * commits, on this branch. Use `create` for a repository of its own.
+   * last commit, with the entry (that is how snapshots and rollback work), so edits made outside the conversation land in
+   * its commits, on this branch. Use `create` for a repository of its own.
    */
   static async adopt(host: Host, dir: string, inOpts: CreateOptions = {}): Promise<Conversation> {
     if ((await host.fs.stat(host.path.join(dir, ".git"))) === undefined)
@@ -745,7 +769,8 @@ export class Conversation {
     const common = await this.git.commonDir();
     const cfg = await this.readConfig();
     const remote = cfg?.ok === true ? cfg.value.leases?.remote : undefined;
-    // With `leases.remote` the lease is a ref on that remote, so clones that do not share this git directory agree on who runs a thread.
+    // With `leases.remote` the lease is a ref on that remote, so clones that do not share this git directory agree on
+    // who runs a thread.
     if (remote !== undefined)
       return sharedLeaseStore(
         this.host.fs,
@@ -796,7 +821,8 @@ export class Conversation {
     if (inOpts.providers !== undefined && inOpts.built === undefined) {
       const file = host.path.join(dir, CONFIG_FILE);
       const bytes = (await host.fs.stat(file)) === undefined ? undefined : await host.fs.read(file);
-      // A file the user has not approved is not read for providers: that is where the keys go.
+      // A file the user has not approved is not read for providers: a provider entry names the environment variables
+      // whose secrets it is given, so an unreviewed file must not get them.
       const trusted =
         inOpts.configTrust === "ignore" ||
         judge(await new TrustStore(host, await git.commonDir()).get(branch), configHash(bytes)).state === "trusted";
@@ -867,7 +893,10 @@ export class Conversation {
     return "requested";
   }
 
-  /** Record what a request that died on this thread had received (what `open` does), now. Does nothing to a request that may still be running. */
+  /**
+   * Record what a request that died on this thread had received (what `open` does), now. Does nothing to a request that
+   * may still be running.
+   */
   async recoverRequest(): Promise<JournalRecovery | undefined> {
     await this.#recoverJournal();
     return this.recovery.journal;
@@ -1045,8 +1074,8 @@ export class Conversation {
       disk = disk.subarray(0, framed.validLength);
     }
 
-    // The format version is the state of a read from the top, and only the headers set it: check each one now, so a thread this build cannot read
-    // is refused here, with the reason, and not read as an empty one.
+    // The format version is the state of a read from the top, and only the headers set it: check each one now, so a
+    // thread this build cannot read is refused here, with the reason, and not read as an empty one.
     const reader = new EntryReader();
     const checkHeaders = async (spans: typeof framed.spans): Promise<void> => {
       for (const [i, span] of spans.entries()) {
@@ -1099,6 +1128,11 @@ export class Conversation {
 
   // ---- commits ---------------------------------------------------------------------------------------------
 
+  /**
+   * The commit message and trailers for an entry. The trailers (`Chattree-Kind`, `-Entry`, `-Offset`) let the commit
+   * graph and recovery find entries without parsing the file. An assistant entry is authored by its model, a user entry
+   * by the user, and everything else by the committer.
+   */
   static #commitFor(
     entry: ChatEntry,
     id: string,
@@ -1127,6 +1161,10 @@ export class Conversation {
 
   // ---- mutations -------------------------------------------------------------------------------------------
 
+  /**
+   * Run `fn` under the branch lock, after every earlier transaction on this handle, then check whether housekeeping is
+   * due. A failure in `fn` releases the lock and does not stop later transactions.
+   */
   #transaction<T>(fn: () => Promise<T>): Promise<T> {
     const run = this.#queue.then(async () => {
       const lock = await acquireLock(this.host.fs, this.#lockPath, {
@@ -1223,7 +1261,10 @@ export class Conversation {
     return { looseObjects: n("count"), packs: n("packs"), bytes: (n("size") + n("size-pack")) * 1024 };
   }
 
-  /** Called inside the branch lock after each transaction, and once at open: look every `check_every` calls. Never fails the caller. */
+  /**
+   * Called inside the branch lock after each transaction, and once at open: look every `check_every` calls. Never fails
+   * the caller.
+   */
   async #autoMaintain(first = false): Promise<void> {
     try {
       const cfg = await this.readConfig();
@@ -1329,6 +1370,7 @@ export class Conversation {
 
     let commits: string[];
     try {
+      // Blobs go down before the transcript that refers to them.
       for (const item of items) for (const data of item.blobs.values()) await this.store.put(data);
       await this.host.fs.append(this.#file, full.subarray(before), { sync: true });
       const after = (await this.host.fs.stat(this.#file))?.size ?? 0;
@@ -1454,6 +1496,7 @@ export class Conversation {
           found.push({ entry: { id: ref.id ?? "", tag: ref.tag, commit: ref.commit, offset: ref.offset }, value: d.value });
       }
       this.#foreign.push(...found);
+      // Only the newest 1000 are kept for `sync` to return.
       if (this.#foreign.length > 1000) this.#foreign.splice(0, this.#foreign.length - 1000);
       for (const f of found) this.#emit({ type: "entry", branch: this.branch, entry: f.entry, value: f.value, foreign: true });
     } catch {
@@ -1567,8 +1610,8 @@ export class Conversation {
   }
 
   /**
-   * Record a trim: from now on the model is shown the entries up to and including `upto` with what `rule` names left out (`trimRules`). Nothing is
-   * rewritten. `upto` must be an entry of the current context.
+   * Record a trim: from now on the model is shown the entries up to and including `upto` with what `rule` names left
+   * out (`trimRules`). Nothing is rewritten. `upto` must be an entry of the current context.
    */
   trim(opts: { upto: string; rule: TrimRule; by: "user" | "auto" }): Promise<Appended> {
     return this.#transaction(async () => {
@@ -1646,12 +1689,15 @@ export class Conversation {
     return judge(await (await this.#trusts()).get(this.branch), hash);
   }
 
-  /** Whether `harness.yml` is the file the user approved for this thread (docs/tools.md, section 6). */
+  /** Whether `harness.yml` is the file the user approved for this thread. */
   async configTrust(): Promise<ConfigTrust> {
     return this.#trustOf(await this.#configBytes());
   }
 
-  /** Approve the `harness.yml` the thread has now. The caller shows the user what it is first; a thread opened without it needs opening again to use providers. */
+  /**
+   * Approve the `harness.yml` the thread has now. The caller shows the user what it is first; a thread opened without it
+   * needs opening again to use providers.
+   */
   async approveConfig(): Promise<ConfigTrust> {
     const hash = configHash(await this.#configBytes());
     await (await this.#trusts()).set(this.branch, hash);
@@ -1664,7 +1710,10 @@ export class Conversation {
     if (t.state !== "trusted") throw new ConfigNotTrusted(this.branch, t);
   }
 
-  /** Something the harness does for the user changed `harness.yml`: a file that was approved stays approved, one that was not does not become so. */
+  /**
+   * Something the harness does for the user changed `harness.yml`: a file that was approved stays approved, one that was
+   * not does not become so.
+   */
   async #keepTrust<T>(change: () => Promise<T>): Promise<T> {
     const before = await this.configTrust();
     const out = await change();
@@ -1672,7 +1721,10 @@ export class Conversation {
     return out;
   }
 
-  /** A new branch starts from this thread's files: it is approved when this thread is and the file it starts with is the one approved. */
+  /**
+   * A new branch starts from this thread's files: it is approved when this thread is and the file it starts with is the
+   * one approved.
+   */
   async #inheritTrust(branch: string, from: string): Promise<void> {
     const mine = await this.configTrust();
     const store = await this.#trusts();
@@ -1702,9 +1754,9 @@ export class Conversation {
   // ---- approvals -------------------------------------------------------------------------------------------
 
   /**
-   * Where the loop reads and writes the user's grants: the `tools.<name>.allow` maps of `harness.yml` (docs/tools.md,
-   * section 5). A grant is a change to that file; by default it is committed with whatever commit comes next, and
-   * `commit: true` makes it a commit of its own (only the file), so a long-lived grant has a place in history.
+   * Where the loop reads and writes the user's grants: the `tools.<name>.allow` maps of `harness.yml`. A grant is a change
+   * to that file; by default it is committed with whatever commit comes next, and `commit: true` makes it a commit of its
+   * own (only the file), so a long-lived grant has a place in history.
    */
   grantStore(): GrantStore {
     const path = this.host.path.join(this.dir, CONFIG_FILE);
@@ -1806,7 +1858,8 @@ export class Conversation {
   ): Promise<Appended | undefined> {
     return this.#transaction(async () => {
       const { setup, entries } = await this.#foldedSetup();
-      // An agent's first setup records the renderer explicitly, so what the model is shown never depends on a later default.
+      // An agent's first setup records the renderer explicitly, so what the model is shown never depends on a later
+      // default.
       const first =
         setup.model === undefined && change.model !== undefined && change.renderer === undefined && setup.renderer === undefined;
       const delta = minimizeChange(setup, first ? { ...change, renderer: DEFAULT_RENDERER } : change);
@@ -1815,8 +1868,8 @@ export class Conversation {
         if (!acknowledges.includes(id)) throw new ConversationError(`${id} is not an unacknowledged provider change on this branch`);
       if (Object.keys(delta).length === 0 && acknowledges.length === 0) return undefined;
       const next = applyChange(setup, delta);
-      // A change to nothing but the instructions and skills is shown to the model where it is made: the cached prefix keeps what it has (docs/context.md),
-      // so it is classified as if the instructions and skills had not changed.
+      // A change to nothing but the instructions and skills is shown to the model where it is made: the cached prefix
+      // keeps what it has, so it is classified as if the instructions and skills had not changed.
       const touchesDefs = delta.instructions !== undefined || delta.skills !== undefined;
       const defsOnly =
         touchesDefs &&
@@ -1848,9 +1901,10 @@ export class Conversation {
   }
 
   /**
-   * Fold the instructions and skills changes the model was only told about (`append`) into the cached prefix, which is then rewritten: the
-   * whole conversation is read again once, at the full input price (`cache_break`, which `allow` must name). A compaction does the same
-   * as a side effect. Resolves to the entry, or undefined when the prefix already shows everything.
+   * Fold the instructions and skills changes the model was only told about (`append`) into the cached prefix, which is
+   * then rewritten: the whole conversation is read again once, at the full input price (`cache_break`, which `allow`
+   * must name). A compaction does the same as a side effect. Resolves to the entry, or undefined when the prefix already
+   * shows everything.
    */
   rebuildPrefix(opts: { allow?: readonly ChangeKind[] } = {}): Promise<Appended | undefined> {
     return this.#transaction(async () => {
@@ -1869,7 +1923,10 @@ export class Conversation {
     });
   }
 
-  /** Put text in front of the model as a note from the harness. It is recorded, so every later request shows the same. `key` names the rule that wrote it. */
+  /**
+   * Put text in front of the model as a note from the harness. It is recorded, so every later request shows the same.
+   * `key` names the rule that wrote it.
+   */
   inject(key: string, text: string): Promise<Appended> {
     return this.append({ $tag: "injection", key, text });
   }
@@ -2056,11 +2113,12 @@ export class Conversation {
   }
 
   /**
-   * Move this thread back to an earlier commit of its own history: the transcript and the workspace files are what they were
-   * then, and the commits after it are no longer on the branch. Nothing is lost at once: uncommitted workspace changes are
-   * snapshotted first, and the old tip is kept under `refs/chattree/undone/<branch>/<id>` (which keeps it from ever being
-   * collected) and returned, so `git branch <name> <hash>` brings it back. Refused while a request is running, and when the
-   * target is not an earlier commit that holds the thread's header. Other processes holding this thread open must reopen it.
+   * Move this thread back to an earlier commit of its own history: the transcript and the workspace files are what they
+   * were then, and the commits after it are no longer on the branch. Nothing is lost at once: uncommitted workspace
+   * changes are snapshotted first, and the old tip is kept under `refs/chattree/undone/<branch>/<id>` (which keeps it
+   * from ever being collected) and returned, so `git branch <name> <hash>` brings it back. Refused while a request is
+   * running, and when the target is not an earlier commit that holds the thread's header. Other processes holding this
+   * thread open must reopen it.
    */
   rewind(target: string): Promise<{ from: string; to: string; ref: string }> {
     return this.#transaction(async () => {
@@ -2094,10 +2152,11 @@ export class Conversation {
   }
 
   /**
-   * Start a new thread: a branch with an empty conversation, checked out in its own worktree (`worktree`, default as for forks).
-   * It begins from the commit that holds this conversation's header, so it shares `harness.yml` and the repository but not
-   * this thread's messages or workspace edits (to branch from where you are, `fork`). With `inheritSetup` (the default)
-   * it starts with this thread's agent setup: model and settings, instructions, tools and the price pin.
+   * Start a new thread: a branch with an empty conversation, checked out in its own worktree (`worktree`, default as for
+   * forks). It begins from the commit that holds this conversation's header, so it shares `harness.yml` and the
+   * repository but not this thread's messages or workspace edits (to branch from where you are, `fork`). With
+   * `inheritSetup` (the default) it starts with this thread's agent setup: model and settings, instructions, tools and
+   * the price pin.
    */
   async newThread(name: string, opts: { worktree?: string; inheritSetup?: boolean } = {}): Promise<Conversation> {
     await this.#assertNewBranch(name);
@@ -2112,8 +2171,8 @@ export class Conversation {
   }
 
   /**
-   * Give `target` (a branch that starts without an agent setup, such as a new thread or a subagent) this thread's setup: model and
-   * settings, instructions, tools, skills, MCP servers, the price pin and the renderer.
+   * Give `target` (a branch that starts without an agent setup, such as a new thread or a subagent) this thread's setup:
+   * model and settings, instructions, tools, skills, MCP servers, the price pin and the renderer.
    */
   async copySetupTo(target: Conversation, reason: "fork" | "subagent", opts: { model?: ModelSetup } = {}): Promise<void> {
     const source = await this.setup();
@@ -2124,7 +2183,8 @@ export class Conversation {
         model: { provider, id, ...(settings === undefined ? {} : { settings }) },
         ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),
         ...(source.instructions === undefined ? {} : { instructions: source.instructions }),
-        // A definition section is a delta: what a new agent starts with is `set`. (Tools are left to the host, which pins its own registry.)
+        // A definition section is a delta: what a new agent starts with is `set`. (Tools are left to the host, which
+        // pins its own registry.)
         ...(Object.keys(source.skills).length > 0 ? { skills: { set: source.skills } } : {}),
         ...(Object.keys(source.mcp).length > 0 ? { mcp: { set: source.mcp } } : {}),
         ...(source.pricing === undefined ? {} : { pricing: source.pricing }),
@@ -2207,9 +2267,9 @@ export class Conversation {
   }
 
   /**
-   * Whether `child` could be merged into this branch now, without changing anything: the same refusals `mergeFork` makes before it
-   * writes (a branch into itself, a missing branch, one that is already merged, one with no common history). A host calls it first so
-   * that work done in preparation (writing a summary) is not wasted on a merge that cannot happen.
+   * Whether `child` could be merged into this branch now, without changing anything: the same refusals `mergeFork` makes
+   * before it writes (a branch into itself, a missing branch, one that is already merged, one with no common history). A
+   * host calls it first so that work done in preparation (writing a summary) is not wasted on a merge that cannot happen.
    */
   async assertMergeable(child: string): Promise<void> {
     if (child === this.branch) throw new ConversationError("a branch cannot be merged into itself");
@@ -2279,7 +2339,8 @@ export class Conversation {
         Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts),
       );
       await this.git.fastForward(commit);
-      // The merged file is approved when it is the file either side was approved with (the merge takes a file from one side whole).
+      // The merged file is approved when it is the file either side was approved with (the merge takes a file from one
+      // side whole).
       const store = await this.#trusts();
       const mergedHash = configHash(await this.#configBytes());
       if (mergedHash !== NO_CONFIG && [await store.get(this.branch), await store.get(childBranch)].includes(mergedHash))
@@ -2305,7 +2366,10 @@ export class Conversation {
     return outcome;
   }
 
-  /** What a branch spent after `base` (its own entries since it diverged or was last merged), or undefined if costs are not tracked here. */
+  /**
+   * What a branch spent after `base` (its own entries since it diverged or was last merged), or undefined if costs are
+   * not tracked here.
+   */
   async #spendSince(base: string, tip: string): Promise<Spend | undefined> {
     if (this.#opts.built === undefined) return undefined;
     const decode = async (rev: string) => (await this.readEntriesAt(rev)).flatMap((e) => (e.ok ? [e.value] : []));
@@ -2348,7 +2412,10 @@ export class Conversation {
     return wt.path;
   }
 
-  /** Remove the worktrees of every branch merged into this one that has nothing uncommitted in it; report what was kept and why. */
+  /**
+   * Remove the worktrees of every branch merged into this one that has nothing uncommitted in it; report what was kept
+   * and why.
+   */
   async pruneWorktrees(): Promise<WorktreeCleanup> {
     const report: WorktreeCleanup = { removed: [], kept: [] };
     for (const wt of await this.git.worktrees()) {
@@ -2438,7 +2505,10 @@ export class Conversation {
     return Conversation.open(this.host, path, this.#opts);
   }
 
-  /** All local branches with their tips, where each is checked out, whether it is archived, its last activity and whether a request is running on it. */
+  /**
+   * All local branches with their tips, where each is checked out, whether it is archived, its last activity and whether
+   * a request is running on it.
+   */
   async listBranches(): Promise<BranchInfo[]> {
     const [refs, worktrees, common] = await Promise.all([
       this.git.run(
@@ -2471,9 +2541,9 @@ export class Conversation {
   }
 
   /**
-   * Names of the threads that were merged into another thread: forks and subagents whose tip a merge commit brought into
-   * the history of the thread they came from (reachable from it other than along its own first-parent line, which
-   * would be a thread that was itself forked from this one). A fork nothing was merged from is not in the set.
+   * Names of the threads that were merged into another thread: a thread whose tip is reachable from another thread's
+   * history other than along that thread's own first-parent line. (A parent whose tip lies on a fork's first-parent line
+   * is not counted as merged into that fork.) A fork nothing was merged from is not in the set.
    */
   async mergedBranches(): Promise<Set<string>> {
     const branches = await this.git.branches();
@@ -2506,16 +2576,19 @@ export class Conversation {
 
   /**
    * Archive a thread (this one by default): a commit with the same content as its tip and the trailer
-   * `Chattree-Archived: true`, which `listBranches` reports and a host uses to leave the thread out of default
-   * listings (an abandoned fork). Any later commit on the branch, an entry or a snapshot, un-archives it. The commit is
-   * made under that branch's lock without a worktree, and does not disturb one that has the branch checked out (its tree
-   * is unchanged). Resolves to whether anything changed.
+   * `Chattree-Archived: true`, which `listBranches` reports and a host uses to leave the thread out of default listings
+   * (an abandoned fork). Any later commit on the branch, an entry or a snapshot, un-archives it. The commit is made under
+   * that branch's lock without a worktree, and does not disturb one that has the branch checked out (its tree is
+   * unchanged). Resolves to whether anything changed.
    */
   archive(name: string = this.branch): Promise<boolean> {
     return this.#mark(name, true);
   }
 
-  /** Bring an archived thread back into default listings, with a commit of its own (so it does not have to wait for the next entry). */
+  /**
+   * Bring an archived thread back into default listings, with a commit of its own (so it does not have to wait for the
+   * next entry).
+   */
   unarchive(name: string = this.branch): Promise<boolean> {
     return this.#mark(name, false);
   }
@@ -2567,7 +2640,10 @@ export class Conversation {
 
   // ---- reading ---------------------------------------------------------------------------------------------
 
-  /** Every entry in the transcript as of the working tree, decoded and validated. Entries that no longer validate come back with their issues. */
+  /**
+   * Every entry in the transcript as of the working tree, decoded and validated. Entries that no longer validate come back
+   * with their issues.
+   */
   async readEntries(): Promise<DecodeResult<ChatEntry>[]> {
     const bytes = await this.host.fs.read(this.#file);
     const { entries } = parseFile(bytes);
@@ -2668,7 +2744,10 @@ export class Conversation {
     return (await this.index()).find((r) => r.id === id);
   }
 
-  /** Entries up to and including `ref`, read from the working-tree transcript without running git. `ref` must come from this branch's index. */
+  /**
+   * Entries up to and including `ref`, read from the working-tree transcript without running git. `ref` must come from
+   * this branch's index.
+   */
   async readEntriesUpTo(ref: EntryRef): Promise<DecodeResult<ChatEntry>[]> {
     if (ref.offset > this.#size) throw new ConversationError(`entry ${ref.id ?? ref.tag} is beyond the end of the transcript`);
     const bytes = await this.host.fs.readRange(this.#file, 0, ref.offset);

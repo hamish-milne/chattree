@@ -3,7 +3,7 @@ import type { Fs } from "../src/host.ts";
 import { safeParse, strictObject } from "../src/validate.ts";
 
 /**
- * The run lease (docs/tools.md, 5.3): who is running a thread, and until when. It is separate from the append lock (`lock.ts`), which is
+ * The run lease: who is running a thread, and until when. It is separate from the append lock (`lock.ts`), which is
  * taken for the length of one write: the lease is held for as long as a loop executes in the foreground or a background job runs, and
  * while it is held other sessions can still append (a user message, an approval).
  *
@@ -154,6 +154,11 @@ export function fileLeaseBackend(fs: Fs, file: (branch: string) => string): Leas
 
 type Mine = { owner: LeaseOwner; since: number; holds: Record<string, number>; follows: Record<string, string>; rev: string };
 
+/**
+ * Holds, follows and drops on one repository's leases, serialized per thread within this process. Across processes the
+ * backend's compare-and-swap is what keeps two writers from both taking a lease: a write that finds the lease changed
+ * starts again from the new state. A lease is only ever taken over once it is stale (past its deadline or with a dead owner).
+ */
 export class LeaseStore {
   /** One per process and repository, for the life of the process: the lease says whose it is by this. */
   readonly id = crypto.randomUUID();
@@ -243,6 +248,11 @@ export class LeaseStore {
     });
   }
 
+  /**
+   * Apply `change` to the thread's lease, creating the lease if there is none. The first attempt updates the lease this process
+   * already holds, if any; otherwise it creates the file, and on a clash reads what is there and either fails (a live holder
+   * elsewhere) or removes the stale or unreadable lease and tries again.
+   */
   #add(branch: string, owner: LeaseOwner, env: LeaseEnv, change: (m: Mine) => void): Promise<LeaseBefore> {
     return this.#serial(branch, async () => {
       const have = this.#mine.get(branch);

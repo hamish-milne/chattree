@@ -1,7 +1,10 @@
+/**
+ * The settings seen as a provider catalog and as agent setup: the models the settings name, with their context size and sampling, and
+ * how a name or an alias resolves to the model's own name. Pure: it reads the settings and nothing else, so the catalog and the agent
+ * setup agree with what config.ts parsed.
+ */
 import type { ModelInfo } from "../providers/registry.ts";
 import type { LocalModels, Sampling } from "./config.ts";
-
-/** The settings seen as a provider catalog and as agent setup (docs/local-models.md, sections 4 and 7). Pure. */
 
 /** What the settings say about each model, under its name and each of its aliases. */
 export function catalog(config: LocalModels): Record<string, ModelInfo> {
@@ -25,7 +28,9 @@ export function resolveName(config: LocalModels, id: string): string {
   return id;
 }
 
-/** The sampling pinned in the agent setup, as the OpenAI-compatible adapter's model settings (the ones it has no field for go in `extra`). */
+/**
+ * The sampling pinned in the agent setup, as the OpenAI-compatible adapter's model settings (the ones it has no field for go in `extra`).
+ */
 export function samplingSettings(s: Sampling | undefined): { temperature?: number; top_p?: number; extra?: Record<string, number> } {
   if (s === undefined) return {};
   const extra: Record<string, number> = {};

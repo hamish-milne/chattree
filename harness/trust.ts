@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { Host } from "../src/host.ts";
 
 /**
- * Which `harness.yml` each thread has been approved to run with (docs/tools.md, section 6). The file decides which providers get which
+ * Which `harness.yml` each thread has been approved to run with. The file decides which providers get which
  * keys, what runs without asking, which programs start and which files are read, and a cloned repository (or a model that can write files)
  * can change it. So the harness keeps, outside the repository, a map from branch name to the hash of the file the user approved, in
  * `<git dir>/chattree/config-trust.json`, and uses the file only while it matches. Anything the harness itself does for the user (a grant,
@@ -50,6 +50,10 @@ export class ConfigNotTrusted extends Error {
 const dec = new TextDecoder();
 const enc = new TextEncoder();
 
+/**
+ * The approvals file, one per repository, under its git directory: branch name to the approved hash. It is read on every
+ * use, so an approval made by another process is seen at once, and a file that cannot be parsed approves nothing.
+ */
 export class TrustStore {
   readonly #host: Host;
   readonly #path: string;

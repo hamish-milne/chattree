@@ -13,7 +13,7 @@ import { nth } from "../src/nth.ts";
 import { jsonOr } from "../src/json.ts";
 
 /**
- * The `subagent` tool (docs/tools.md, section 4.2). It hands a self-contained task to a fresh-context child on its own branch and
+ * The `subagent` tool. It hands a self-contained task to a fresh-context child on its own branch and
  * worktree. The tool starts nothing: it makes the branch and, for a call that waits (the default), returns `waiting`, which ends the
  * caller's loop cleanly (a context switch: nothing is held while the child works). Whoever pumps threads (`pump.ts`) runs the child's loop,
  * asks its questions through the same queue as any thread's, and, when the child has handed back, runs the caller's loop again; the tool
@@ -164,6 +164,7 @@ export const SUBAGENT_STARTED = /^started subagent (\S+)/;
  * answered yet, a child that handed back is merged (a `subagent_result` entry, shown to the model as a message), and one that gave up is
  * reported as a failed `job_event`. Returns how many were delivered. Safe to call at any time the thread is between requests.
  */
+// `opts.review` is accepted but not read here: a report is merged the same way whether or not the user is asked first.
 export async function deliverSubagents(convo: Conversation, opts: { review?: boolean } = {}): Promise<number> {
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const done = new Set<string>();
@@ -197,6 +198,11 @@ export async function deliverSubagents(convo: Conversation, opts: { review?: boo
   return delivered;
 }
 
+/**
+ * The `subagent` tool for one conversation. A call is the same on every execution: the child's branch is named from the
+ * call id, so a call the loop repeats (after a crash, or when the call is resumed) finds the branch it made before. The
+ * call waits (`waiting`) rather than running the child itself, and is answered when the child has handed back.
+ */
 export function subagentTool(deps: SubagentDeps): Tool {
   /** The child starts with the parent's setup, except for the model when the call chose one (and then its provider's prices are pinned). */
   const setupChild = async (child: Conversation, model: ModelSetup | undefined): Promise<void> => {

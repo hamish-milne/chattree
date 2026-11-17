@@ -3,8 +3,8 @@ import { fileTypeFromBuffer } from "file-type";
 /**
  * The media formats chattree knows by name, and how to tell which one a file is. Detection is by content (magic numbers), done by the
  * `file-type` package, never by file name: a `.png` that is not a PNG is a surprise, not a PNG. This table is what the rest of the
- * harness reasons about: what kind a format is, and what to call it to a person. Which sink accepts which format is a separate question
- * (harness/media-spec.ts; docs/tools.md, media formats).
+ * harness reasons about: what kind a format is, and what to call it to a person. Which sink accepts which format is a
+ * separate question (harness/media-spec.ts).
  */
 
 export type FormatKind = "image" | "audio" | "pdf" | "video";

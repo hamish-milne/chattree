@@ -1,3 +1,8 @@
+/**
+ * The table of slash commands and the shell-style tokenizer their arguments go through. Commands are looked up by name
+ * or alias, and the constructor refuses a table with duplicate names or a missing partner, so the table is checked once at
+ * startup rather than when a user happens to type the wrong name.
+ */
 import type { Output } from "./output.ts";
 import type { Ctx } from "./engine.ts";
 import { nth } from "../src/nth.ts";
@@ -5,7 +10,7 @@ import { nth } from "../src/nth.ts";
 /**
  * A slash command. `busy` says whether it may run while a request is in flight ("blocked" commands answer with the
  * reason). A command that stages something for the next prompt names, in `stages`, the commands that show and clear what
- * it staged; the registry refuses one whose partners do not exist (docs/cli.md, section 4).
+ * it staged; the registry refuses one whose partners do not exist.
  */
 export interface Command {
   name: string;

@@ -103,6 +103,7 @@ export interface FfmpegConverterOptions {
 
 /** The converter for this ffmpeg. Asks the program what it can do (three quick runs), and fails if it does not run. */
 export async function ffmpegConverter(o: FfmpegConverterOptions): Promise<Converter> {
+  // Runs ffmpeg in workDir, so the relative file names used by `convert` resolve there.
   const run = async (args: string[], signal?: AbortSignal) =>
     o.host.exec(o.ffmpeg, args, { cwd: o.workDir, ...(signal === undefined ? {} : { signal }), maxOutput: 16 * 1024 * 1024 });
   await o.host.fs.mkdir(o.workDir);
@@ -143,6 +144,7 @@ export async function ffmpegConverter(o: FfmpegConverterOptions): Promise<Conver
       const outPath = o.host.path.join(o.workDir, outName);
       await o.host.fs.writeAtomic(inPath, bytes);
       try {
+        // Bit-exact output with no metadata: the same input and ffmpeg must give the same bytes (see the module comment).
         const r = await run(
           [
             "-hide_banner",

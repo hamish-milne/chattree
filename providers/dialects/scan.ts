@@ -21,7 +21,10 @@ export function safeLength(buf: string, markers: readonly string[]): number {
   return buf.length;
 }
 
-/** Drops the whitespace at the start and end of a run of text, however it arrives in pieces; whitespace inside is kept. */
+/**
+ * Drops the whitespace at the start and end of a run of text, however it arrives in pieces; whitespace inside is kept. Trailing
+ * whitespace is held back until more text comes, since only then is it known to be trailing. `reset` starts a new run (after a marker).
+ */
 export class Trimmer {
   #lead = true;
   #held = "";
@@ -43,7 +46,9 @@ export class Trimmer {
   }
 }
 
-/** An argument written as text, as the schema says it should be: numbers, booleans and JSON structures are read; anything else stays text. */
+/**
+ * An argument written as text, as the schema says it should be: numbers, booleans and JSON structures are read; anything else stays text.
+ */
 export function coerce(text: string, schema: SchemaNode | undefined): unknown {
   const types = schema?.types ?? [];
   const asJson = (): unknown => {

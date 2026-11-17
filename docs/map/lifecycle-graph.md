@@ -4,7 +4,7 @@ The commit graph of the conversation in `test/integration/lifecycle.test.ts`, dr
 `harness/graph.ts` (`readCommitGraph` and `toMermaid`). Regenerate it with:
 
 ```sh
-CHATTREE_GRAPH_OUT=docs/lifecycle-graph.md pnpm test -- test/integration/lifecycle.test.ts
+CHATTREE_GRAPH_OUT=docs/map/lifecycle-graph.md pnpm test -- test/integration/lifecycle.test.ts
 ```
 
 (The PNG next to it was rendered from the same Mermaid source with `mmdc`.)

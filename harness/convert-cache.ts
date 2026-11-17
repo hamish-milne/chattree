@@ -21,6 +21,7 @@ export interface ConvertKey {
   converter: string;
 }
 
+/** The size the cache is kept near when the caller does not give one (256 MiB). */
 export const DEFAULT_CACHE_BYTES = 256 * 1024 * 1024;
 
 const slug = (s: string): string => s.replace(/[^A-Za-z0-9]+/g, "-").replace(/^-|-$/g, "");
@@ -48,6 +49,8 @@ export function hostConvertCache(host: Host, dir: string, maxBytes: number = DEF
           if (st !== undefined) files.push({ path, size: st.size, at: st.mtimeMs ?? 0 });
         }
         let total = files.reduce((n, f) => n + f.size, 0);
+        // Oldest first. The file just written is the newest, so eviction stops there: a result is kept even when it
+        // alone is larger than the limit.
         for (const f of files.sort((a, b) => a.at - b.at)) {
           if (total <= maxBytes || f.path.endsWith(fileName(key))) break;
           await host.fs.remove(f.path);

@@ -1,3 +1,8 @@
+/**
+ * Framing for transcript files: splits a byte stream into entries and finds where the valid prefix ends.
+ * It works on raw bytes, so a cut inside a multi-byte character is handled like any other truncation.
+ * It never repairs a file itself; callers truncate to `validLength` and then append.
+ */
 import { emitEntry } from "./emit.ts";
 import { FrameError, ParseError } from "./errors.ts";
 import { parseEntry, type ParseOptions } from "./parse.ts";

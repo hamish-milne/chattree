@@ -4,7 +4,7 @@ import type { Tool, ToolOutput } from "./tools.ts";
 import { optNumberArg, stringArg } from "./tool-args.ts";
 
 /**
- * The `thread_read` and `thread_send` tools (docs/tools.md, 4.3). A parent reads what a child has done and tells it something; a child
+ * The `thread_read` and `thread_send` tools. A parent reads what a child has done and tells it something; a child
  * tells its parent something without ending. Who may talk is worked out from the history, never from what the model says: a thread
  * knows where it came from (the last `branch_start` in its own entries), so a parent is the thread that started this one, a child is a
  * thread this one started, and siblings share a parent. A message is a `user` entry on the receiver's branch (queued, with `from`), so it
@@ -143,6 +143,7 @@ async function resolve(
   return { branch, entries: theirs, relation: rel };
 }
 
+/** The two tools. Both resolve the other thread through `resolve`, so the same relation check applies to reading and to sending. */
 export function threadTools(deps: ThreadDeps): Tool[] {
   const read: Tool = {
     definition: {

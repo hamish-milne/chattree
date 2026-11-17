@@ -6,7 +6,7 @@ import { byteLength, trimRules, type TrimRule } from "./trim.ts";
 import { originOf } from "./thread-tools.ts";
 
 /**
- * Lexical search over the entries of a conversation's threads (docs/tools.md, 4.4). It reads the transcripts as they are and builds no
+ * Lexical search over the entries of a conversation's threads. It reads the transcripts as they are and builds no
  * index: the entries of a branch are read once per process and kept by the branch's tip commit. What it finds is returned as references
  * (`thread:entry-id`) that `openEntry` turns back into the entry.
  */
@@ -162,6 +162,7 @@ function safeRegex(query: string): RegExp {
   }
 }
 
+// Counting stops at 1000 matches in one part, so the work spent on one text is bounded whatever the query.
 function matcher(opts: SearchOptions): (text: string) => { score: number; at: number } | undefined {
   if (opts.regex === true) {
     const re = safeRegex(opts.query);

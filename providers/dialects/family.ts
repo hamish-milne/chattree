@@ -241,6 +241,11 @@ export function anyOf(...codecs: [CallCodec, ...CallCodec[]]): CallCodec {
 
 // ---- rendering ----------------------------------------------------------------------------------------------------
 
+/**
+ * The prompt for a context: the head, then each turn in the family's wrappers, then the opener the model writes its reply after. A call
+ * in history is written back in the family's own format under the id it was given here, and a result is matched to its call by that id.
+ * Reasoning is replayed only for the unfinished exchange (the turns after the last user turn), and only to the model that wrote it.
+ */
 export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
   const { context, options } = input;
   const keep = options["keep_reasoning"] !== false;
@@ -249,6 +254,7 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
     .filter((x) => x !== "")
     .join("\n\n")
     .trim();
+  // Refused here rather than rendered: the model would be asked to call tools in a format that has no way to write them.
   if (spec.call === undefined && context.tools.length > 0)
     throw new ProviderError({
       kind: "invalid_request",
@@ -258,6 +264,7 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
   let out = spec.head({ system, tools: context.tools, options });
   const turns = context.turns;
   const lastUser = turns.map((t) => t.role).lastIndexOf("user");
+  // The calls written so far, by the call's own id, so that each result names the id its call was written under.
   const ids = new Map<string, { id: string; name: string }>();
   let n = 0;
   for (const [i, t] of turns.entries()) {
@@ -287,11 +294,14 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
               .trim()
           : "";
       const calls = blocks.filter((b): b is Extract<Block, { type: "tool_call" }> => b.type === "tool_call");
+      // A family whose model carries on after its results (DeepSeek) has no turn marker between them and the reply, so the reply
+      // continues the same assistant turn instead of opening one.
       const continued = spec.results.continues === true && turns[i - 1]?.role === "tool_results";
       if (!continued) {
         out += spec.assistant.open;
         const th = spec.think;
         if (th !== undefined) {
+          // Reasoning is replayed only in the unfinished exchange; a family that never replays it writes its `absent` text instead.
           const replay = th.never !== true && i > lastUser && (reasoning !== "" || th.emptyBlock === true);
           out += replay ? `${th.open}${reasoning}${th.close}` : (th.absent ?? "");
         }
@@ -313,6 +323,8 @@ export function renderFamily(spec: FamilySpec, input: RenderInput): Rendered {
       out += spec.assistant.close;
     }
   }
+  // The prompt ends where the model writes next: after the results of a family that continues, otherwise in a new assistant turn,
+  // inside the thinking tag the `thinking` option asks for.
   const resumed = spec.results.continues === true && turns[turns.length - 1]?.role === "tool_results";
   const th = spec.think;
   out += resumed ? "" : `${spec.assistant.open}${th === undefined ? "" : thinking ? (th.start ?? "") : (th.skip ?? "")}`;
@@ -329,18 +341,25 @@ const NO_CALLS: NonNullable<FamilySpec["call"]> = {
   codec: { write: () => "", read: () => undefined, peek: () => undefined },
 };
 
+/**
+ * The streaming parser for a family: it reads the model's text in whatever pieces arrive and emits text, reasoning and calls as they
+ * are known. A call's name is emitted as soon as the codec can peek it, before its arguments are complete. `prompt` is what was
+ * rendered, since a prompt that ends inside the thinking tag means the model starts out thinking.
+ */
 export function familyParser(spec: FamilySpec, tools: Tools, prompt: string): Parser {
   // A family with no calls never enters call mode: `c` is only used there.
   const c = spec.call ?? NO_CALLS;
   const hasCalls = spec.call !== undefined;
   const open = spec.think?.open.trim();
   const close = spec.think?.close.trim();
+  // Section markers are neither text nor a call: they are found and dropped wherever they stand.
   const ignored = hasCalls
     ? [c.section?.open, c.section?.close].flatMap((m) => (m === undefined || m.trim() === "" ? [] : [m.trim()]))
     : [];
   const textMarks = [...(hasCalls ? [c.start, ...ignored] : []), ...(open === undefined || open === "" ? [] : [open])];
   const reasoningMarks = close === undefined || close === "" ? [] : [close];
   const callMarks = !hasCalls ? [] : c.end !== undefined ? [c.end] : [c.start, ...ignored];
+  // The model starts in its reasoning when the prompt already opened the thinking tag.
   let mode: Mode = open !== undefined && open !== "" && prompt.trimEnd().endsWith(open) ? "reasoning" : "text";
   let buf = "";
   let call = "";
@@ -350,6 +369,7 @@ export function familyParser(spec: FamilySpec, tools: Tools, prompt: string): Pa
   const finish = (out: Emit[]): void => {
     const read = c.codec.read(call, tools);
     if (read === undefined) {
+      // A body that does not read as a call is given back as text, markers and all, so what the model wrote is not lost.
       if (started) out.push({ kind: "call.end", raw: call });
       else out.push({ kind: "text", text: `${c.start}${call}${c.end ?? ""}` });
     } else {
@@ -420,7 +440,8 @@ export function familyParser(spec: FamilySpec, tools: Tools, prompt: string): Pa
         if (c.end === undefined) {
           if (call.trim() !== "" || started) finish(out);
         } else if (started) {
-          // Cut off inside a call: the arguments that are complete are kept if the call is whole, and the text is kept for the model to see either way.
+          // Cut off inside a call: the arguments that are complete are kept if the call is whole, and the text is kept for the model to see
+          // either way.
           const read = c.codec.read(call, tools);
           out.push(
             read !== undefined && "args" in read && c.codec.complete?.(call) === true

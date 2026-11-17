@@ -1,5 +1,5 @@
 /**
- * How each local model's own chat template treats the situations a tool-calling agent produces (docs/local-models.md, 9.4 step 1).
+ * How each local model's own chat template treats the situations a tool-calling agent produces.
  *
  *   node tools/template-compare.ts [--model NAME ...] [--live] [--out templates-run/]
  *

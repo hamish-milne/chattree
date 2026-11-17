@@ -1,10 +1,11 @@
+/**
+ * The `local_models` section of the user's settings file: the models to download and run, the llama.cpp release to run them with, and
+ * how the server is reached. Pure data: nothing here touches the network or the disk. Every object is strict (an unknown key is an
+ * error, so a misspelt setting is reported rather than ignored), and the rules between fields are checked here too, with a sentence
+ * for each.
+ */
 import { Type, type Static, type StaticDecode } from "typebox";
 import { record, rules, said, section, strictObject, withDefault } from "../src/validate.ts";
-
-/**
- * The `local_models` section of the user's settings file (docs/local-models.md, section 4): the models to download and run, the
- * llama.cpp release to run them with, and how the server is reached. Pure data: nothing here touches the network or the disk.
- */
 
 const opt = Type.Optional;
 const pattern = (re: RegExp, message: string) => said(message, Type.String({ pattern: re.source }));
@@ -14,6 +15,7 @@ const name = pattern(
   "letters, digits and . _ : -, starting with a letter or digit, at most 64 characters",
 );
 const envName = pattern(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
+// A hash is written in either case and kept in lower case, so that it compares equal to the hashes the lock records.
 const sha256 = Type.Codec(pattern(/^[0-9a-fA-F]{64}$/, "64 hexadecimal digits"))
   .Decode((s) => s.toLowerCase())
   .Encode((s) => s);
@@ -29,10 +31,10 @@ const nonNegative = Type.Integer({ minimum: 0 });
 const positive = Type.Integer({ minimum: 1 });
 const nonEmpty = Type.String({ minLength: 1 });
 
-/** What a llama-server option may be given in the preset file: the long option name without dashes. */
+/** The value of a llama-server option in the preset file: a string, a number or a boolean, written as the server reads it. */
 const optionValue = Type.Union([Type.String(), Type.Number(), Type.Boolean()]);
 
-/** The types of speculative decoding (docs/local-models.md, 9.8), named as llama-server's `--spec-type` does. */
+/** The types of speculative decoding, named as llama-server's `--spec-type` does. */
 export const SPEC_TYPES = [
   "none",
   "ngram-simple",
@@ -87,7 +89,10 @@ const speculativeBase = strictObject({
   /** The longest draft, and the shortest one worth making (for ngram-mod, its `n-max` and `n-min`). */
   draft_max: opt(positive),
   draft_min: opt(nonNegative),
-  /** The length of the n-gram looked up in the history (for ngram-mod, `n-match`), and of the run drafted after a match (not used by ngram-mod). */
+  /**
+   * The length of the n-gram looked up in the history (for ngram-mod, `n-match`), and of the run drafted after a match (not used by
+   * ngram-mod).
+   */
   ngram_n: opt(positive),
   ngram_m: opt(positive),
   /** How many times a key must have been seen before it drafts (ngram-map types). */
@@ -123,7 +128,9 @@ const params = {
   cache_type_v: opt(nonEmpty),
   /** Seconds idle before the model is unloaded from memory (it is loaded again by the next request). */
   sleep_idle_seconds: opt(nonNegative),
-  /** Speculative decoding: a type (`ngram-mod`) or an object with its tuning. Outputs are the same with it on or off; only speed changes. */
+  /**
+   * Speculative decoding: a type (`ngram-mod`) or an object with its tuning. Outputs are the same with it on or off; only speed changes.
+   */
   speculative: opt(
     Type.Union([
       Type.Codec(Type.Enum(SPEC_TYPES))
@@ -164,7 +171,10 @@ const modelBase = strictObject({
   load_on_startup: opt(Type.Boolean()),
   embeddings: opt(Type.Boolean()),
   sampling: opt(sampling),
-  /** How tool definitions must be written for this model (docs/tools.md, 3.7). */
+  /**
+   * How tool definitions must be written for this model: `full` (the default) takes the whole schema, `flat` only tools with flat
+   * arguments.
+   */
   tool_convention: opt(Type.Enum(["full", "flat"])),
   /** A chat template file to use instead of the model's own; a relative path is relative to the settings file. */
   chat_template: opt(nonEmpty),
@@ -185,7 +195,10 @@ const modelEntry = rules(modelBase, [
 export type ModelEntry = StaticDecode<typeof modelEntry>;
 
 const llamaCpp = section({
-  /** The release to run: a build (`b12110`) or a release that points at one (`v0.9.0`). No tag, no download: `chattree models update` picks the newest and writes it here. */
+  /**
+   * The release to run: a build (`b12110`) or a release that points at one (`v0.9.0`). No tag, no download: `chattree models update`
+   * picks the newest and writes it here.
+   */
   tag: opt(said("a build such as b12110, or a version such as v0.9.0", Type.String({ pattern: LLAMA_TAG.source }))),
   backend: withDefault(Type.Enum(BACKENDS), "auto"),
   /** With the cuda backend, the CUDA version to prefer (`12.8`); default the newest the release has. */
@@ -209,7 +222,10 @@ const server = section({
 });
 
 export const localModelsSchema = strictObject({
-  /** The engine that runs the models. Only `router` (llama-server's own router mode) exists so far; the host is written against an interface so another can be added. */
+  /**
+   * The engine that runs the models. Only `router` (llama-server's own router mode) exists so far; the host is written against an
+   * interface so another can be added.
+   */
   engine: withDefault(Type.Literal("router"), "router"),
   llama_cpp: llamaCpp,
   server,

@@ -1,3 +1,7 @@
+/**
+ * The built-in slash commands, in the order /help lists them. Each group lives in its own file; a new command goes in the group it
+ * belongs to, and the group is added to the list returned here.
+ */
 import type { Command } from "../registry.ts";
 import { searchCommands } from "./search.ts";
 import { settingsCommands } from "./settings.ts";

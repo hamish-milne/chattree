@@ -1,3 +1,8 @@
+/**
+ * Cross-process file locks, used by the conversation and session code to guard a conversation's files.
+ * A lock is a file created exclusively, so only one process can hold it. It is advisory: it only helps
+ * where every writer takes it. Built on the host `Fs` interface.
+ */
 import { Type } from "typebox";
 import type { Fs } from "./host.ts";
 import { safeParse } from "./validate.ts";
@@ -105,6 +110,8 @@ export async function acquireLock(fs: Fs, path: string, opts: LockOptions = {}):
     const held = await readInfo(fs, path);
     if (!held.present) continue; // released between our attempt and the read
     // A lock file we cannot parse was not written by us (content is published atomically), so it is stale too.
+    // A stale lock is renamed aside, then removed. The rename moves whatever is at `path` at that moment,
+    // which is the window the doc above describes.
     if (held.info === undefined || now() - held.info.createdAt > staleAfter) {
       const aside = `${path}.stale-${crypto.randomUUID().slice(0, 8)}`;
       try {

@@ -12,6 +12,10 @@ export interface SseEvent {
   id: string | undefined;
 }
 
+/**
+ * Incremental parser. Chunks may split an event, a line or a CRLF anywhere, so state is kept between `push` calls. Events
+ * are returned in order, and nothing is dispatched until its terminating blank line has arrived.
+ */
 export class SseParser {
   readonly #decoder = new TextDecoder("utf-8", { fatal: false, ignoreBOM: false });
   #buffer = "";
@@ -58,6 +62,7 @@ export class SseParser {
         continue;
       }
       const line = s.slice(start, i);
+      // A CR at the very end of the buffer is remembered: its LF may be the first byte of the next chunk.
       if (c === 13) {
         if (i + 1 < s.length) {
           if (s.charCodeAt(i + 1) === 10) i++;

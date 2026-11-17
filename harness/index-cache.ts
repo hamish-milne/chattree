@@ -1,3 +1,9 @@
+/**
+ * An optional on-disk copy of each branch's entry index, so opening a long conversation does not re-read every commit
+ * trailer. The conversation never trusts it: `parseCachedIndex` checks the shape, and the conversation checks the tip
+ * still fits the branch before using it. Lives under the git common directory, outside any commit.
+ */
+
 import type { Git, Host } from "../src/index.ts";
 import { jsonOr } from "../src/json.ts";
 
@@ -81,6 +87,7 @@ export function parseCachedIndex(text: string): CachedIndex | undefined {
         !/^[0-9a-f]{40,64}$/.test(commit)
       )
         return undefined;
+      // Offsets must strictly increase: a file that reorders or repeats entries would give a wrong transcript position.
       if (typeof offset !== "number" || !Number.isSafeInteger(offset) || offset <= prev) return undefined;
       prev = offset;
       refs.push({ id: id === null ? undefined : id, tag, commit, offset });

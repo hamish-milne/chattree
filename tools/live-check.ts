@@ -13,7 +13,7 @@
  * environment variable; never pass a key on the command line), --record DIR (save each scenario's events as JSON,
  * secrets scrubbed), --only NAME (repeatable), --list.
  *
- * The tools-* and agent-loop scenarios (tools-edit scores edits by whether the file ended up right) use the real starter tools (docs/tools.md, 3.6); agent-loop runs the whole loop in a
+ * The tools-* and agent-loop scenarios (tools-edit scores edits by whether the file ended up right) use the real starter tools; agent-loop runs the whole loop in a
  * temporary git workspace and checks the file and the history.
  *
  * Exit code: 1 if any scenario fails; a scenario the server does not support (a model without tools or
@@ -94,7 +94,7 @@ export function makeAdapter(o: Pick<LiveOptions, "flavor" | "baseUrl" | "apiKey"
 const summary = (c: ModelContext): RequestSummary => ({ last: c.turns.at(-1), tools: c.tools.map((t) => t.name) });
 
 const user = (text: string): Turn => ({ role: "user", parts: [{ type: "text", text }] });
-/** A tool with a list of objects, to find out whether the model is shown and fills nested arguments (docs/tools.md, 3.7). */
+/** A tool with a list of objects, to find out whether the model is shown and fills nested arguments. */
 const NESTING = {
   name: "record_items",
   description: "Record the items of an order.",

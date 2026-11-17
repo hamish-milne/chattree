@@ -1,14 +1,14 @@
+/**
+ * Where a model's sampling comes from when the settings do not say, in this order, the first that has any values being used whole: the
+ * settings, `general.sampling.*` in the GGUF header, the base model's `generation_config.json` (found through the Hugging Face API's
+ * `base_model`), nothing. Nothing is applied silently: the caller shows `source`. A remote GGUF is read by byte ranges, so only the start
+ * of the file, where the header is, is fetched.
+ */
 import { open } from "node:fs/promises";
 import { modelSource, type ModelEntry, type Sampling } from "./config.ts";
 import { listRepoFiles, pickGguf } from "./hf.ts";
 import { fetchFollow, fetchJson, type FetchFn } from "./net.ts";
 import { asJson } from "../src/json.ts";
-
-/**
- * Where a model's sampling comes from when the settings do not say (docs/local-models.md, section 5), in this order, the first that
- * has any values being used whole: the settings, `general.sampling.*` in the GGUF header, the base model's `generation_config.json`
- * (found through the Hugging Face API's `base_model`), nothing. Nothing is applied silently: the caller shows `source`.
- */
 
 export type SamplingSource = "settings" | "gguf" | "generation_config";
 
@@ -49,6 +49,7 @@ export const fileReader =
     }
   };
 
+/** A reader that asks for byte ranges of a URL, so only the header is downloaded. */
 export const urlReader =
   (url: string, o: { fetch?: FetchFn | undefined; token?: string | undefined; signal?: AbortSignal | undefined }): RangeReader =>
   async (start, length) => {
@@ -58,6 +59,7 @@ export const urlReader =
       signal: o.signal,
       headers: { range: `bytes=${start}-${start + length - 1}` },
     });
+    // A range past the end of the file reads as nothing: the header reader then reports that the file ended.
     if (res.status === 416) return new Uint8Array(0);
     const bytes = new Uint8Array(await res.arrayBuffer());
     // A server that ignores Range sends the whole file from the start; never use more than was asked.
@@ -69,6 +71,10 @@ export const urlReader =
 const HEADER_LIMIT = 48 * 1024 * 1024;
 const CHUNK = 1024 * 1024;
 
+/**
+ * Reads a GGUF header sequentially. Bytes are fetched in chunks as they are needed and kept, so a value is read once; a length field that
+ * is too large for a JavaScript number is refused rather than misread.
+ */
 class Cursor {
   buf = new Uint8Array(0);
   pos = 0;
@@ -117,6 +123,9 @@ class Cursor {
 
 const FIXED: Record<number, number> = { 0: 1, 1: 1, 2: 2, 3: 2, 4: 4, 5: 4, 6: 4, 7: 1, 10: 8, 11: 8, 12: 8 };
 
+/**
+ * One metadata value of GGUF type `type`. Arrays are skipped rather than read (the sampling keys are scalars), and come back undefined.
+ */
 async function value(c: Cursor, type: number): Promise<number | string | boolean | undefined> {
   const size = FIXED[type];
   if (size !== undefined) {
@@ -196,6 +205,9 @@ const round = (n: number): number => Number(n.toPrecision(7));
 
 const asNumber = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
+/**
+ * The sampling keys of a `generation_config.json`. A value outside the range the settings accept is dropped, not clamped to the range.
+ */
 export function fromGenerationConfig(json: unknown): Sampling {
   const g = asJson(json);
   if (g === undefined) return {};
@@ -228,6 +240,10 @@ export function baseModels(info: unknown): string[] {
 /** How far up the chain of base models to look (a quantised copy of a re-upload of the original is two). */
 const MAX_HOPS = 3;
 
+/**
+ * The first generation_config with any sampling keys, found by walking up to `MAX_HOPS` base models breadth first. Problems are added to
+ * `notes` and the walk goes on; undefined when nothing is found.
+ */
 async function baseGenerationConfig(
   repo: string,
   o: SamplingOptions,

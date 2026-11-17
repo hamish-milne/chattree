@@ -7,7 +7,7 @@ import { nth } from "../src/nth.ts";
 /**
  * What a model is shown of a tool's schema. A tool definition keeps its schema as written (any JSON Schema); what goes into a request depends on
  * what the model's endpoint takes (`ModelInfo.tool_schema`): `full` passes it on, `portable` narrows it to the subset every provider and local
- * grammar compiler takes (docs/tools.md, 3.6). Narrowing moves the constraints the subset cannot say (`pattern`, `format`, lengths) into the
+ * grammar compiler takes. Narrowing moves the constraints the subset cannot say (`pattern`, `format`, lengths) into the
  * description, where the model still reads them, and the validator enforces the real thing when the call arrives. What cannot be narrowed (a
  * free-form object, a choice between different types) is left out when the argument is optional; when it is required the tool cannot be shown.
  */
@@ -33,6 +33,11 @@ export type Converted = { ok: true; schema: Schema; notes: string[] } | { ok: fa
 
 class Unsupported extends Error {}
 
+/**
+ * Narrow a tool's schema to the portable subset. `notes` says what was moved into descriptions or left out, so the log can
+ * show it. Fails (with `problems`) when a required argument cannot be narrowed, which fails the whole tool, or when the
+ * narrowed schema is still not valid for the subset. An optional argument that cannot be narrowed is left out instead.
+ */
 export function toPortableSchema(input: unknown): Converted {
   const notes: string[] = [];
   try {

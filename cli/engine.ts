@@ -1,3 +1,8 @@
+/**
+ * The session engine. It holds what a session keeps (the draft, history, staged files, preferences), the thread it is on,
+ * that thread's tools, and the pump that runs the project's other threads. Commands and the terminal, plain and headless
+ * hosts all drive it through `submit` and its methods; nothing here touches a terminal.
+ */
 import type { Conversation } from "../harness/conversation.ts";
 import { localOwner } from "./owner.ts";
 import type { ChangeKind } from "../harness/entries.ts";
@@ -37,7 +42,7 @@ export interface StagedAttachment {
   mtimeMs: number;
 }
 
-/** What a session holds that is not in the transcript (docs/cli.md, section 3). Persisted by the session store. */
+/** A named message written ahead in the editor, kept in the session until it is sent. Persisted by the session store. */
 export interface NamedDraft {
   name: string;
   text: string;
@@ -163,7 +168,7 @@ export class Engine {
   /** Called when the questions waiting for the user changed (the terminal asks them when it is idle). */
   onQuestion: (() => void) | undefined;
   readonly #toolsets = new WeakMap<Conversation, Promise<ToolSet>>();
-  /** The MCP connections of this process, shared by the threads and subagents that would make the same one (docs/context.md, section 2). */
+  /** The MCP connections of this process, shared by the threads and subagents that would make the same one. */
   readonly #mcpPool = new McpPool();
   /** The MCP servers each running subagent holds, by branch; let go when its loop ends. */
   readonly #childMcp = new Map<string, Promise<{ servers: McpServers; names: string[] }>>();
@@ -171,6 +176,7 @@ export class Engine {
   escaped = false;
   /** A message is being put in the transcript and its turn is about to start: the pump must not start one too. */
   sending = false;
+  /** Set when the user escapes at a question on this thread; the next request is aborted at once (see `takeStopNext`). */
   #stopNext = false;
   /** The turn that just ended went as far as it could (the model answered, it waited for a question or another thread); false when it was stopped, refused or failed. */
   cleanTurn = false;
@@ -266,7 +272,7 @@ export class Engine {
     }
   }
 
-  /** The pump for this project (docs/tools.md, 5.4): subagents' loops run in it, and the questions of every thread it looks at wait in it. */
+  /** The pump for this project: subagents' loops run in it, and the questions of every thread it looks at wait in it. */
   pump(): Pump | undefined {
     if (!this.tools) return undefined;
     if (this.#pump === undefined) {
@@ -307,7 +313,6 @@ export class Engine {
     return this.#pump;
   }
 
-  /** What the pump needs to look at a thread and run it: the current thread's own tools, or a subagent's. Other threads are left alone. */
   #localStart: Promise<void> | undefined;
 
   /** Before a request to a thread whose model is one of chattree's own (`local-models`), start the model host as `chattree models start` would, with its progress. */
@@ -323,6 +328,10 @@ export class Engine {
     await this.#localStart;
   }
 
+  /**
+   * What the pump needs to run a thread: the current thread's own tools, a subagent's, or a side thread's pinned tools.
+   * Other threads are left alone (undefined), so the pump never runs a thread whose tools this session cannot vouch for.
+   */
   async #loopFor(convo: Conversation): Promise<RunOptions | undefined> {
     try {
       await this.ensureLocalModels(convo);
@@ -528,7 +537,7 @@ export class Engine {
   }
 
   /**
-   * Look at the skills on disk, as `skills.follow` in harness.yml says (docs/context.md, section 3): `auto` records what changed, `ask` reports it.
+   * Look at the skills on disk, as `skills.follow` in harness.yml says: `auto` records what changed, `ask` reports it.
    * The sentence waits in `takeSkillNotes`. A report that has not changed since it was last made is not repeated. Never throws: a failed look is not worth a failed request.
    */
   async followSkills(): Promise<void> {
@@ -655,6 +664,10 @@ export class Engine {
     return { engine: this, io: this.io, convo: this.convo, state: this.state, confirm: this.#confirm };
   }
 
+  /**
+   * Run one line the user entered (a command, or text to say), yielding what happened. The session is marked for saving
+   * after each line.
+   */
   async *submit(line: string): AsyncGenerator<Output, void> {
     try {
       yield* this.#submit(line);

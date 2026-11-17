@@ -1,10 +1,10 @@
-import type { Host } from "../../src/host.ts";
-
 /**
- * The workspace boundary (docs/tools.md, section 5): every path a tool is given is resolved against the thread's
- * worktree, symbolic links included, and refused if it lands outside it or on something that is the conversation
- * itself. The refusal text goes back to the model as the tool's error.
+ * The workspace boundary for the file and command tools: every path a tool is given is resolved against the thread's
+ * worktree, symbolic links included, and refused if it lands outside it or on something that is the conversation itself.
+ * The refusal text goes back to the model as the tool's error. The file tools, and `run` for its input and output files,
+ * call `resolveInWorkspace`; run-keys.ts applies it to the arguments of a `run` call before it can be approved.
  */
+import type { Host } from "../../src/host.ts";
 
 export class PathRefused extends Error {
   override name = "PathRefused";
@@ -12,9 +12,12 @@ export class PathRefused extends Error {
 
 export type PathMode = "read" | "write";
 
-/** Written by the harness, never by the model: the transcript, the configuration, git's own files and local state. */
+/**
+ * Written by the harness, never by the model: the transcript, the configuration, git's own files and local state. Checked
+ * against the first path segment only, so these names are refused at the top of the worktree.
+ */
 const NO_WRITE = ["chat.yml", "harness.yml", ".git", ".chattree", "blobs"];
-/** Not even readable: git internals and local secrets. */
+/** Not even readable: git's internals and the harness's local state directory. */
 const NO_READ = [".git", ".chattree"];
 
 const within = (rel: string): boolean => rel === "" || (rel !== ".." && !rel.startsWith("../"));

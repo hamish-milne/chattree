@@ -2,7 +2,11 @@ import { release, type } from "node:os";
 import type { HostEnvironment } from "../harness/environment.ts";
 import type { Io } from "./io.ts";
 
-/** What this machine is, for the `environment` note the model gets. Settings can override the time zone later; today it is the machine's. */
+/**
+ * What this machine is, for the `environment` note the model gets. The `platform` value tells the model which shell
+ * dialect its `run` and `script` tools speak: Windows hosts get busybox utilities, everything else the machine's own.
+ * The time zone is the machine's; settings may override it later.
+ */
 export function hostEnvironment(io: Io): HostEnvironment {
   const platform = io.host.platform === "windows" ? "windows" : "posix";
   const name = process.platform === "win32" ? "Windows" : process.platform === "darwin" ? "macOS" : type();

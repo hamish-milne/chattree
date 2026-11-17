@@ -1,3 +1,9 @@
+/**
+ * `/model`, `/set`, `/instructions`, `/rebuild`, `/providers`, `/pricing`, `/accept` and `/config`: the thread's agent setup (model and its
+ * settings, instructions, pinned prices) and harness.yml. Setup changes go through the conversation's setupChange, which can ask for
+ * confirmation. A change the provider made to the agent itself (a model alias moving to a new version) waits to be accepted with
+ * /accept, and requests do not go ahead until it is.
+ */
 import type { Conversation } from "../../harness/conversation.ts";
 import { pinDefinition, loadDefinitions } from "../../harness/definitions.ts";
 import { prefixLags, type AgentSetup, type ModelSetup } from "../../harness/setup.ts";
@@ -96,8 +102,11 @@ const model: Command = {
         return;
       }
       const known = registry.get(conf.$tag)?.models?.(conf) ?? {};
+      // An id missing from the provider's list is only a warning: the provider may serve ids it does not list, so it is used as given.
       if (Object.keys(known).length > 0 && known[id] === undefined)
         yield { type: "warning", message: `${id} is not in ${provider}'s list of known models; it is used as given` };
+      // Other settings belong to the previous provider, so only max_output_tokens moves to a different one,
+      // and only if the new one accepts it.
       let settings = provider === setup.model?.provider ? setup.model?.settings : undefined;
       if (provider !== setup.model?.provider && setup.model?.settings !== undefined) {
         const max = setup.model.settings["max_output_tokens"];
@@ -116,6 +125,7 @@ const model: Command = {
         yield { type: "notice", message: `already using ${provider}/${id}` };
         return;
       }
+      // A new provider has its own price table: pin the current one, so the costs recorded from here on use the prices in force now.
       if (provider !== setup.model?.provider) {
         await ctx.convo.pinPricing();
         yield { type: "notice", message: `pinned ${provider}'s prices` };
@@ -180,6 +190,7 @@ const set: Command = {
           next[key] = raw;
         }
       }
+      // The provider's own rules check the value before it is recorded, so an invalid setting never reaches a request.
       const issues = await settingsIssues(registry, tag, next);
       if (issues.length > 0) {
         yield {
@@ -252,6 +263,7 @@ const instructions: Command = {
         yield { type: "error", message: `unknown option ${sub}`, hint: "/instructions [show | edit | set <text>]" };
         return;
       }
+      // Instructions can be replaced but not emptied, so an empty text is refused rather than recorded.
       if (next.trim() === "") {
         yield {
           type: "error",
@@ -288,6 +300,8 @@ const rebuild: Command = {
         yield { type: "notice", message: "the cached prefix already shows everything" };
         return;
       }
+      // Until a rebuild, the prefix keeps the old text and the model is told of each change in a message. A rebuild rewrites the
+      // prefix, so the next request reads the whole conversation again.
       const r = yield* withConfirmation(ctx, (allow) => ctx.convo.rebuildPrefix({ allow }));
       if (r.done) yield { type: "notice", message: "the prefix is rewritten; the next request reads the whole conversation again" };
     } catch (e) {

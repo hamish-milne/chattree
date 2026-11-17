@@ -1,4 +1,10 @@
 import { externalizeValue, type BlobStore, type ExternalizeOptions } from "./blobs.ts";
+/**
+ * Transforms: functions applied to a value just before it is written (after validation, before emit).
+ * Most transforms only rewrite the value model. `externalizeLarge` also writes to a blob store. Their
+ * order in a pipeline is significant: redaction must run before externalization so secrets never reach
+ * the blob store.
+ */
 import { BlobRef, BlobData, Tagged, type Value } from "./value.ts";
 
 /**

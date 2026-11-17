@@ -6,6 +6,11 @@ import { SessionStore, type Session } from "./session.ts";
 import { Terminal } from "./terminal.ts";
 import { recentEntries } from "./recent.ts";
 
+/**
+ * `chattree chat`'s setup: open or resume a session on a thread, then hand the engine to the full-screen terminal when there
+ * is one, or to the line-oriented loop for pipes and `--plain`. The session is saved and its lock released on every exit path.
+ */
+
 export interface ChatOptions {
   /** The thread to chat on; default: the one the working directory is on. */
   thread?: string | undefined;
@@ -39,7 +44,6 @@ async function statusLine(engine: Engine, resumed: boolean): Promise<string> {
   return `thread ${engine.thread} · ${model}${spend} · session ${s?.id.slice(0, 8) ?? "-"}${back}`;
 }
 
-/** `chattree chat`: open (or resume) a session on a thread and run it until the user leaves. Returns the exit status. */
 /**
  * Yes/no questions from commands (`/undo`, a changed price table). In a terminal they go through the engine's own prompt, the one
  * that owns the keyboard: a second `readline` on the same input would take it over and leave the session unresponsive.
@@ -59,6 +63,7 @@ function confirmWith(engine: () => Engine, io: Io, yes: boolean): (q: string) =>
   };
 }
 
+/** `chattree chat`: open (or resume) a session on a thread and run it until the user leaves. Returns the exit status. */
 export async function runChat(io: Io, start: string, o: ChatOptions): Promise<number> {
   const project = await findProject(io, start);
   const sessions = await SessionStore.open(io, project.git);
@@ -100,6 +105,7 @@ export async function runChat(io: Io, start: string, o: ChatOptions): Promise<nu
   if (o.tools !== undefined) engine.state.tools = o.tools;
   if (!interactive) engine.ask = undefined; // lines of a script are not answers: calls no grant covers are declined
 
+  // 130 is the conventional exit status after an interrupt (SIGINT); the session is saved first.
   const stop = io.onSignal?.(() => {
     void shutdown().then(() => process.exit(130));
   });

@@ -6,7 +6,7 @@ import { strictObject } from "../src/validate.ts";
 import { CliError, type Io } from "./io.ts";
 
 /**
- * The user-level settings file (docs/cli.md): things that belong to the person and the machine, not to a thread, so they are not in
+ * The user-level settings file: things that belong to the person and the machine, not to a thread, so they are not in
  * `harness.yml`. Read once at startup; a file that does not parse is an error, never silently ignored.
  */
 const opt = Type.Optional;
@@ -17,14 +17,14 @@ export const settingsSchema = strictObject({
   /** Windows: where `run` gets cat, ls, grep and the rest. `auto` (the default) uses the busybox.exe that is there or fetches the pinned release, `off` never fetches, anything else is the path of a busybox.exe. */
   busybox: opt(nonEmpty),
   /**
-   * Where ffmpeg comes from, which converts pictures and sound into a form a model takes (docs/tools.md, media formats). `auto`: the one that
+   * Where ffmpeg comes from, which converts pictures and sound into a form a model takes. `auto`: the one that
    * is there (CHATTREE_FFMPEG, the PATH), else on Windows the pinned build is fetched; a path: that program; `false`: never convert. There is no
    * default: a conversion that is needed while this is not set is an error, since what was meant is not known. `chattree init` makes the file with `auto`.
    */
   ffmpeg: opt(Type.Union([Type.Literal(false), nonEmpty])),
   /** Where downloaded programs and models are kept. Default: the user data directory (`$XDG_DATA_HOME/chattree`, `%LOCALAPPDATA%\\chattree`). */
   data_dir: opt(nonEmpty),
-  /** The models chattree downloads and runs itself (docs/local-models.md). */
+  /** The models chattree downloads and runs itself, through its local model host. */
   local_models: opt(localModelsSchema),
   /** What new sessions show; `/display` changes it for one session. */
   display: opt(
@@ -75,7 +75,7 @@ export function settingsTemplate(platform: "windows" | "posix" | undefined): str
 ${windows ? "busybox: auto          # auto | off | path to busybox.exe: where run gets cat, ls, grep and the rest" : "# (busybox is for Windows only)"}
 ffmpeg: auto           # auto | false | path to ffmpeg: converts pictures and sound a model cannot take; false never converts
 # data_dir: ~/.local/share/chattree
-# local_models:             # see docs/local-models.md
+# local_models:             # see docs/guide/local-models.md
 #   llama_cpp: { tag: b12110, backend: auto }
 #   models:
 #     qwen: { hf: "Qwen/Qwen3-8B-GGUF:Q4_K_M", ctx_size: 16384 }

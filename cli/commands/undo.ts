@@ -1,3 +1,8 @@
+/**
+ * `/undo [n]`: takes the thread back n commits (by default to just before the user's last message) and puts the text of the first dropped
+ * user message into a draft, so it can be edited and sent again. The rewind itself is the conversation's; it keeps the old tip under a
+ * ref, which the notice reports, so the undo can be reversed by hand. Attached files are not text and do not go into the draft.
+ */
 import type { ChatEntry } from "../../harness/entries.ts";
 import { recentEntries } from "../recent.ts";
 import type { Command } from "../registry.ts";
@@ -22,6 +27,7 @@ const undo: Command = {
         yield { type: "error", message: "the thread has no commits" };
         return;
       }
+      // The default is the parent of the last user message's commit, so that message and everything after it are dropped.
       let rev: string;
       if (args[0] === undefined) {
         const lastUser = [...refs].reverse().find((r) => r.tag === "user");
@@ -38,11 +44,13 @@ const undo: Command = {
       }
       const [tip] = await convo.git.log(to, { maxCount: 1 });
       const offset = Number(tip?.trailers["Chattree-Offset"]?.[0]);
+      // Entries are dropped by position in the transcript: everything after the target commit's offset.
       const dropped = refs.filter((r) => r.offset > offset);
       const count = Number((await convo.git.text(["rev-list", "--count", `${to}..${head}`], { readOnly: true })).trim());
 
       const byId = new Map<string, ChatEntry>();
       for (const e of await convo.readEntries()) if (e.ok && "id" in e.value) byId.set(e.value.id, e.value);
+      // Only the first dropped user message comes back as a draft; later ones go with their commits and stay only under the kept ref.
       const firstUser = dropped
         .filter((r) => r.tag === "user")
         .map((r) => (r.id === undefined ? undefined : byId.get(r.id)))
@@ -80,6 +88,7 @@ const undo: Command = {
         yield { type: "notice", message: "nothing was changed" };
         return;
       }
+      // The draft is written only after the rewind succeeds, so a failed rewind leaves the message where it was.
       const r = await convo.rewind(to);
       if (firstUser !== undefined && text.trim() !== "") {
         if (ctx.state.draft.trim() === "") ctx.state.draft = text;

@@ -1,6 +1,6 @@
 import { streamChunks } from "../src/stream.ts";
 /**
- * Recorded provider responses, for tests that must not call a provider (docs/writing-an-adapter.md). A fixture is
+ * Recorded provider responses, for tests that must not call a provider. A fixture is
  * one HTTP response, secrets scrubbed, stored as JSON; replaying it lets a test choose how the bytes are split
  * into network chunks, which is how streaming parsers are shaken out.
  */
@@ -12,6 +12,7 @@ export interface Fixture {
   response: { status: number; headers: Record<string, string>; body: string };
 }
 
+// Headers that identify the account, the organisation or a single request. They never go into a fixture.
 const SENSITIVE =
   /^(authorization|x-api-key|api-key|proxy-authorization|cookie|set-cookie|x-goog-api-key|openai-organization|openai-project|anthropic-organization-id|request-id|x-request-id|cf-ray)$/i;
 
@@ -41,6 +42,7 @@ export function recordingFetch(
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
     const headers = Object.fromEntries(new Headers(init?.headers).entries());
     const body = typeof init?.body === "string" ? init.body : "";
+    // Recording reads the other branch of the tee in the background, so the caller gets its response without waiting for the sink.
     void (async () => {
       const dec = new TextDecoder();
       let text = "";

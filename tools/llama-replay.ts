@@ -1,5 +1,5 @@
 /**
- * Replay a request a llama-server answered badly, to see what the model actually wrote (docs/local-models.md, 8.2).
+ * Replay a request a llama-server answered badly, to see what the model actually wrote.
  *
  *   node tools/live-sample.ts --flavor local-models --model gpt-oss-20b --task "one line" --repeat 20 --wire-log wire.jsonl
  *   node tools/llama-replay.ts --wire wire.jsonl [--entry N] [--repeat 10] [--max-tokens 16384] [--out replay/]

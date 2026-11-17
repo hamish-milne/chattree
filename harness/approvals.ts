@@ -5,9 +5,9 @@ import { harnessConfig, type HarnessConfig } from "./config.ts";
 import type { ApprovalContext, Tool } from "./tools.ts";
 
 /**
- * Approvals (docs/tools.md, section 5). A tool's `allow` map in harness.yml says, key by key, until when a class of
- * calls needs no question. This module is the pure part: reading expiry, deciding whether a call is covered, and
- * editing the map in the file text. Asking the user and running the call is the loop's job (`loop.ts`).
+ * Approvals. A tool's `allow` map in harness.yml says, key by key, until when a class of calls needs no question. This
+ * module is the pure part: reading expiry, deciding whether a call is covered, and editing the map in the file text.
+ * Asking the user and running the call is the loop's job (`loop.ts`).
  */
 
 /** The key that covers every call of a tool. */
@@ -29,7 +29,10 @@ export function untilAfter(nowMs: number, seconds: number): string {
   return Number.isFinite(seconds) ? new Date(nowMs + seconds * 1000).toISOString() : FOREVER;
 }
 
-/** The keys that have not yet expired. */
+/**
+ * The keys that have not yet expired. Keys with an unreadable expiry count as expired, so a hand-edited typo fails
+ * closed (the call is asked about again) rather than granting access.
+ */
 export function liveKeys(map: AllowMap | undefined, nowMs: number): string[] {
   if (map === undefined) return [];
   return Object.entries(map).flatMap(([k, u]) => {
@@ -41,7 +44,10 @@ export function liveKeys(map: AllowMap | undefined, nowMs: number): string[] {
 /** What a stored grant says about one call: the keys that cover it. */
 export type Permit = { permitted: true; keys: string[] } | { permitted: false };
 
-/** Is this call covered by live keys? `all` covers everything; the rest is the tool's to judge, jointly. */
+/**
+ * Is this call covered by live keys? `all` covers everything without asking the tool. Any other live key is passed to
+ * the tool's `covers`, which decides jointly which of them (if any) cover this call; with no `covers` only `all` works.
+ */
 export async function permitted(
   tool: Tool,
   args: Record<string, unknown>,
@@ -71,7 +77,10 @@ const fail = (r: Extract<ConfigResult<unknown>, { ok: false }>): ApprovalsEdit =
   message: r.issues.map((i) => `${i.path === "" ? "" : `${i.path}: `}${i.message}`).join("; "),
 });
 
-/** Remove every expired key from every tool's map (a tool whose map empties keeps its other settings). */
+/**
+ * Remove every expired key from every tool's map (a tool whose map empties keeps its other settings). Runs before each
+ * write so expired grants do not pile up in the file. Entries whose expiry does not parse are kept, not pruned.
+ */
 function prune(doc: Document.Parsed, nowMs: number): void {
   const tools = doc.get("tools", true);
   if (!isMap(tools)) return;

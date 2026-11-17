@@ -15,6 +15,9 @@ import type { Ctx } from "./engine.ts";
 import type { Output } from "./output.ts";
 import { mediaFor } from "./toolset.ts";
 
+// The session-facing side of a model request. The harness throws its refusals and limits; this module turns each one into a
+// question, a notice or an error, and is where a user's "go ahead anyway" is carried into the next attempt.
+
 /**
  * One request to the model for the thread as it stands, shown as it streams. Shared by `/say`, `/retry` and `/continue`.
  * Library refusals become questions or errors here, because deciding what to do about them is the host's job: a changed
@@ -28,6 +31,7 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
   engine.running = true;
   engine.cleanTurn = false;
   engine.pump()?.release(engine.thread);
+  // A stop made at a question on this thread (escape while it is asked) is kept until the next request, which is aborted at once.
   if (engine.takeStopNext()) ac.abort();
   try {
     try {
@@ -46,6 +50,8 @@ export async function* runTurn(ctx: Ctx): AsyncGenerator<Output, void> {
     }
     await engine.followSkills();
     for (const note of engine.takeSkillNotes()) yield { type: "notice", message: note };
+    // Up to three attempts. A refused change the user agrees to adds its kinds to `drift`, and the request is sent again with
+    // exactly those allowed; a refusal after the last attempt is not retried.
     for (let attempt = 0; attempt < 3; attempt++) {
       const warnings: string[] = [];
       let model = "";

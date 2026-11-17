@@ -1,7 +1,7 @@
 import { formatOf, type Format } from "./formats.ts";
 
 /**
- * What a sink takes, and what to do with a file that is not in a form it takes (docs/tools.md, media formats). A sink is a provider's
+ * What a sink takes, and what to do with a file that is not in a form it takes. A sink is a provider's
  * wire or a local server; it says, per kind, the formats it accepts in order of preference. A file already in an accepted format
  * passes untouched, however low it is in the list: the order only says what to convert *to* when a conversion is needed, and the first
  * accepted format that the converter can make is the one used.
@@ -48,6 +48,7 @@ export function planMedia(
     return { action: "pass" };
   }
   const accepted = targets.map((t) => formatOf(t.mime)?.label ?? t.mime).join(", ");
+  // PDFs are never converted, whatever the sink accepts: a PDF in another form is refused and the reason lists what is taken.
   if (format.kind === "pdf") return { action: "refuse", reason: `${format.label} cannot be converted; this model takes ${accepted}` };
   const to = targets.find((t) => canConvert(format, t));
   if (to === undefined)

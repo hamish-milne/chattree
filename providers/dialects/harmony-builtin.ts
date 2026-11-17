@@ -1,9 +1,9 @@
 /**
- * Built-in tools for Harmony (docs/local-models.md, 9.5). gpt-oss was trained on `python` and `browser` as built-ins: described in prose in
+ * Built-in tools for Harmony (see harmony.ts). gpt-oss was trained on `python` and `browser` as built-ins: described in prose in
  * the system block, called on the `analysis` channel with the recipient set to the tool's name and the code as the bare message. A tool
  * that a model's settings list under `dialect_options.builtin_tools` is presented that way instead of in `namespace functions`, with the
- * convention stated in the developer block and shown by an example, because the model calls them in a mix of ways otherwise (probes in
- * docs/local-models.md: bare or JSON about half and half, on either channel, with an invented `cmd` array for a shell).
+ * convention stated in the developer block and shown by an example, because the model calls them in a mix of ways otherwise (in
+ * probes, bare or JSON about half and half, on either channel, with an invented `cmd` array for a shell).
  *
  * The tool itself is an ordinary chattree tool; only its presentation and the reading of its calls change. A call is read leniently when
  * that is unambiguous (any channel, a `functions.` prefix, a bare message, or JSON with one key holding a string or a list of strings,
@@ -20,8 +20,8 @@ export interface BuiltinSpec {
   /** A short message that is correct. */
   example: string;
   /**
-   * For a built-in that is not a chattree tool of its own: the `run` command it stands for, with `$message` where the message goes (quoted as
-   * one argument). The model's call is made as a call of `run`, so it is approved and recorded as one.
+   * For a built-in that is not a chattree tool of its own: the `run` command it stands for, with `$message` where the message goes (quoted
+   * as one argument). The model's call is made as a call of `run`, so it is approved and recorded as one.
    */
   run?: string;
 }
@@ -47,7 +47,10 @@ const KNOWN: Record<string, BuiltinSpec> = {
 
 const PLACEHOLDER = /\$\{message\}|\$message(?![A-Za-z0-9_])/;
 
-/** The `run` command for a message: the template with `$message` replaced by the message as one single-quoted word (a `'` inside it is `'"'"'`). */
+/**
+ * The `run` command for a message: the template with `$message` replaced by the message as one single-quoted word (a `'` inside it is
+ * `'"'"'`).
+ */
 export function commandFor(template: string, message: string): string {
   const word = `'${message.replaceAll("'", `'"'"'`)}'`;
   return template.replace(new RegExp(PLACEHOLDER.source, "g"), () => word);
@@ -56,9 +59,10 @@ export function commandFor(template: string, message: string): string {
 const isMap = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 
 /**
- * `{python: true, bash: {arg: "cmd"}, powershell: {run: "powershell -NoProfile -Command $message", description: "…"}}` from the options: a name
- * alone takes what is known of it; a name with `run` is a built-in made of the `run` tool (its `description` is the system-block text); any
- * other name needs its `arg`.
+ * `{python: true, bash: {arg: "cmd"}, powershell: {run: "powershell -NoProfile -Command $message", description: "…"}}` from the options: a
+ * name alone takes what is known of it (`python` and `bash` are in KNOWN); a name with `run` is a built-in made of the `run` tool (its
+ * `description` is the system-block text); `false` leaves a name out. Any other name takes `command` as its argument unless `arg` says
+ * otherwise. A `run` without `$message` is refused at once, since the model's message would then go nowhere.
  */
 export function builtinSpecs(option: unknown): Map<string, BuiltinSpec> {
   const out = new Map<string, BuiltinSpec>();

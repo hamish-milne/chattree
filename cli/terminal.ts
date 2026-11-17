@@ -1,3 +1,10 @@
+/**
+ * The interactive terminal: the one part of the CLI that reads keys. It sits between the user's tty and the `Engine`: `readline` does line editing and
+ * history, and this module adds bracketed paste (a paste is one block, never sent line by line), tab completion from the command table, a spinner while
+ * a blocking command runs, choice lists for questions, live display of entries that other sessions add, and the Ctrl-C and Ctrl-D rules. The rules for what a
+ * line means (extend the draft, send, or run a command) are in `prompt.ts`, so they can be tested without a tty.
+ */
+
 import { emitKeypressEvents, createInterface, type Interface } from "node:readline";
 import { Writable } from "node:stream";
 import type { Choice, Engine } from "./engine.ts";
@@ -44,7 +51,7 @@ export interface TerminalOptions {
 }
 
 /**
- * The terminal layer (docs/cli.md, sections 4 and 6): `readline` for editing and history, with bracketed paste, tab
+ * The terminal layer: `readline` for editing and history, with bracketed paste, tab
  * completion, a spinner while a request runs, live display of entries other sessions add, and Ctrl-C. Lines go through
  * `PromptBuffer` and then the engine; blocked commands entered during a request wait for it, so typing ahead works.
  * `run()` resolves when the session ends.
@@ -312,7 +319,10 @@ export class Terminal {
     this.#showPrompt();
   }
 
-  /** Hand the terminal to a program that wants it (an editor): ordinary mode while it runs, ours again after. */
+  /**
+   * Hand the terminal to a program that wants it (an editor): readline is paused, bracketed paste is switched off and raw mode
+   * released, so the program gets an ordinary terminal; all of it is restored afterwards, even if the program fails.
+   */
   async #suspend<T>(fn: () => Promise<T>): Promise<T> {
     this.#rl.pause();
     this.#tty.input.setRawMode?.(false);
@@ -365,6 +375,7 @@ export class Terminal {
     // A message sent while nothing runs starts a request (the spinner, input gated); while one runs it is only queued.
     const blocking = known?.busy === "blocked" || (known?.name === "say" && !this.#engine.running);
     if (blocking) this.#startSpinner();
+    // Command output is paged to the screen height; `/exec` is the one command whose output is not.
     const paged = cmd !== undefined && cmd.name !== "exec";
     const render = new PlainRenderer(
       {
@@ -458,6 +469,7 @@ export class Terminal {
       void this.#dispatch("/abort");
       return;
     }
+    // Ctrl-C clears typed text first; with nothing typed, a second Ctrl-C within the window leaves the session.
     const hadSomething = this.#rl.line !== "" || this.#prompt.draft !== "";
     const now = Date.now();
     if (!hadSomething && now - this.#exitArmed < this.#exitWindow) {
@@ -496,6 +508,7 @@ export class Terminal {
     return [hits, partial];
   }
 
+  /** Show entries that other sessions add to this thread, while this terminal is open. Restarted when the session changes thread. */
   #startWatch(): void {
     this.#watch?.abort();
     const ac = new AbortController();

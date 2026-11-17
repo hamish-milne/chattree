@@ -1,13 +1,14 @@
 import type { InjectionContext, InjectionRule } from "./injections.ts";
 
 /**
- * What the model is told about where it is (docs/context.md, section 2): a fixed description of chattree in the system prompt, and the facts that
- * change (the system, the thread, the date) in an `environment` injection, so a new day or a fork costs one short message and not the cached prefix.
+ * What the model is told about where it is: a fixed description of chattree in the system prompt, and the facts that
+ * change (the system, the thread, the date) in an `environment` injection, so a new day or a fork costs one short
+ * message and not the cached prefix.
  */
 
 /**
- * The system prompt. It is part of the cached prefix, so a change to the text is a change for every thread: the version at its end says which
- * wording a thread started with, and a new wording is a new version.
+ * The system prompt. It is part of the cached prefix, so a change to the text is a change for every thread: the
+ * version at its end says which wording a thread started with, and a new wording is a new version.
  */
 export const SYSTEM_PROMPT = `You are an assistant working in chattree, a harness that keeps a conversation as a Git repository. Be concise, and say plainly when you are unsure.
 

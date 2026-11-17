@@ -5,7 +5,7 @@ import { ChangeNotAllowed, stable, type AgentSetup, type Change, type PinnedDefi
 import type { ChangeKind } from "./entries.ts";
 
 /**
- * Pinned definitions (docs/providers.md, P10): tools, instructions, skills and MCP servers are recorded in the
+ * Pinned definitions: tools, instructions, skills and MCP servers are recorded in the
  * transcript as a name and the hash of their canonical form, never as the definition itself. Where the bytes
  * live is the host's choice per definition: copied into `blobs/` (`store: "blob"`), or only referenced
  * (`store: "external"`, e.g. a file in a shared submodule) and served by the host's `DefinitionSource`.
@@ -158,7 +158,10 @@ export interface LoadedDefinitions {
 
 type DefinitionFrom = { blobs: BlobStore; source?: DefinitionSource };
 
-/** The verified value of one pinned definition, from `blobs/` or the host's source. Throws if it is missing or does not match its hash. */
+/**
+ * The verified value of one pinned definition, from `blobs/` or the host's source. Throws if it is missing or does not
+ * match its hash.
+ */
 export async function loadPinned(kind: DefinitionKind, name: string, pin: PinnedDefinition, from: DefinitionFrom): Promise<unknown> {
   const bytes = pin.store === "blob" ? await from.blobs.get(pin.hash) : await from.source?.get(kind, name, pin.hash);
   if (bytes === undefined)
@@ -170,7 +173,10 @@ export async function loadPinned(kind: DefinitionKind, name: string, pin: Pinned
   return decodeDefinition(kind, bytes);
 }
 
-/** Fetch and verify the bytes of every pinned definition: from `blobs/` or from the host's source. Throws if any does not match its hash. */
+/**
+ * Fetch and verify the bytes of every pinned definition: from `blobs/` or from the host's source. Throws if any does not
+ * match its hash.
+ */
 export async function loadDefinitions(setup: AgentSetup, from: DefinitionFrom): Promise<LoadedDefinitions> {
   const out: LoadedDefinitions = {
     tools: [],

@@ -7,10 +7,10 @@ import { optNumberArg, stringArg } from "./tool-args.ts";
 import { nth } from "../src/nth.ts";
 
 /**
- * Background jobs (docs/tools.md, section 3.5). A tool called with `background: true` returns a `StartedJob` at once; the
- * registry keeps it running in this process, and when it ends a `job_event` entry is committed on the branch, which the model
- * is shown with its next request. Jobs live as long as the process: after a crash `recover` commits a `lost` event for each
- * job that was started and never ended.
+ * Background jobs. A tool called with `background: true` returns a `StartedJob` at once; the registry keeps it running in this
+ * process, and when it ends a `job_event` entry is committed on the branch, which the model is shown with its next request.
+ * Jobs live as long as the process: after a crash `recover` commits a `lost` event for each job that was started and never
+ * ended. The output is written with the event, so `job_output` can read it from the history after the job has ended.
  *
  * When the event is committed:
  * - while a tool loop runs, at the start of its next request (never between the calls of one response, whose results must stay together);
@@ -53,6 +53,11 @@ const JOB_HEADROOM_MS = 35_000;
 
 const jobNumber = (id: string): number => Number(id.slice(1));
 
+/**
+ * The jobs of one conversation in this process. Ids (`j1`, `j2`, ...) are numbered after every job the branch's history
+ * already mentions, so ids stay unique across restarts. A job that ends is queued, and `flush` commits the queued events one
+ * at a time in the order the jobs ended; while a loop runs, the queue waits for the loop's next request.
+ */
 export class JobRegistry {
   readonly #convo: Conversation;
   readonly #opts: JobsOptions;
@@ -131,6 +136,10 @@ export class JobRegistry {
     }
   }
 
+  /**
+   * A job with a time bound holds the lease for that long; a job that waits on another thread follows that thread's lease
+   * instead, so the lease is released when that thread's work is over.
+   */
   async #holdLease(id: string, lease: StartedJob["started"]["lease"]): Promise<void> {
     const convo = this.#convo;
     const store = await convo.leaseStore();
@@ -223,6 +232,8 @@ export class JobRegistry {
           this.#uncommitted.shift();
           continue;
         }
+        // A completed job may record its own entry instead (a subagent's merge). Only then is no `job_event` written, so the
+        // history does not report the job twice. A job that failed or was stopped always gets the event.
         if (job.settle !== undefined && job.status === "completed") {
           try {
             const r = await job.settle({ content: job.output ?? "" });

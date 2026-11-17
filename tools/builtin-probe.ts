@@ -1,5 +1,5 @@
 /**
- * Does gpt-oss reach for its built-in tools when they are not offered, and does it use them when they are? (docs/local-models.md, 9.1.)
+ * Does gpt-oss reach for its built-in tools when they are not offered, and does it use them when they are?
  * The model's own template declares `browser` and `python` in the system block and has them called as `to=browser.search` or `to=python`;
  * chattree offers every tool in `namespace functions`, so those names would never be right. This probe asks two questions of the model:
  *   1. (control) with `python` and `browser` declared the way the format's guide has it, does it call them (so a mapping would be worth having)?

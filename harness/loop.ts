@@ -16,7 +16,7 @@ import { callsIn, decisionsIn, mergeAllow, threadGrantsIn, unanswered, unseenQue
 import { type LeaseBefore, type LeaseOwner } from "./lease.ts";
 
 /**
- * The tool loop (docs/tools.md, section 3): ask the model, run what it asked for, write the results, ask again, until
+ * The tool loop: ask the model, run what it asked for, write the results, ask again, until
  * it answers without asking for a tool. Provider-neutral: it only sees `stop_reason: tool_use` and `tool_call` blocks.
  *
  * Every result is its own entry, committed as soon as its call finishes (an entry's commit also takes whatever the
@@ -67,7 +67,7 @@ export interface LoopOptions extends TurnOptions {
    */
   approve?: (request: ApprovalRequest) => Promise<Approval>;
   /**
-   * Approvals the user has already given (docs/tools.md, section 5). When set, a call runs unasked only if a live key
+   * Approvals the user has already given. When set, a call runs unasked only if a live key
    * covers it; otherwise `approve` is asked, and without `approve` the call is declined, never run.
    */
   grants?: GrantStore;
@@ -156,7 +156,7 @@ export class ToolsOutOfSync extends Error {
   }
 }
 
-/** A tool the model cannot be shown properly: its calling convention (docs/tools.md, 3.7) or the JSON Schema it takes cannot carry the arguments. */
+/** A tool the model cannot be shown properly: its calling convention or the JSON Schema it takes cannot carry the arguments. */
 export class ToolsNotSupported extends Error {
   override name = "ToolsNotSupported";
   readonly convention: ToolConvention;
@@ -317,9 +317,16 @@ class RunLease {
 const LEASE_HEADROOM_MS = 30_000;
 /** Time a tool gets, past its own timeout, to report that timeout itself before the loop stops it. */
 const TOOL_GRACE_MS = 5_000;
+// Used when harness.yml sets no limit. A call or request is never unbounded: its lease hold needs a deadline,
+// or a dead host could not be told from a live one.
 const DEFAULT_TOOL_SECONDS = 600;
 const DEFAULT_REQUEST_SECONDS = 600;
 
+/**
+ * The body of one run: first the calls an earlier loop left unanswered, then requests and their calls until the model
+ * answers without a tool call, a limit or the user stops it, or a call has to wait (for an approval, or for another thread).
+ * Each call is checked, approved, run under its own time bound, and recorded before the next one starts.
+ */
 async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): AsyncGenerator<LoopEvent, LoopResult, void> {
   const { registry } = opts;
   const now = convo.now;
@@ -338,6 +345,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   const stopReason = (): "stopped" | "deadline" | undefined =>
     opts.signal?.aborted === true ? "stopped" : deadline !== undefined && now() >= deadline ? "deadline" : undefined;
 
+  /** Write a call's result as an entry. A large text result is shortened, and the full text kept as a blob; media is kept as blobs. */
   const record = async function* (
     call: { call_id: string; name: string },
     out: ToolOutput,
@@ -392,6 +400,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     };
   };
 
+  // Jobs that an earlier process started and never ended are written as lost before this loop looks at the history.
   if (opts.jobs !== undefined)
     for (const id of await opts.jobs.recover()) yield { type: "job.event", job: id, status: "lost", summary: `job ${id} was lost` };
 
@@ -664,6 +673,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
   if (deadline === undefined) delete turnOpts.deadline;
   let requests = 0;
   for (;;) {
+    // Job events are committed here, before a request and never between the calls of one response (their results must stay together).
     if (opts.jobs !== undefined) for (const j of await opts.jobs.flush()) yield { type: "job.event", ...j };
     await opts.beforeRequest?.();
     requests++;

@@ -1,3 +1,8 @@
+/**
+ * Read-only audit of a conversation's git history. It checks the transcript at a revision and the commits that hold it
+ * against the format's promises, and returns what it finds as `Problem`s instead of throwing, so a damaged conversation can
+ * still be examined. Nothing is repaired or written here.
+ */
 import { FrameError, ParseError, decodeSpan, scan, sha256Hex, type CommitInfo } from "../src/index.ts";
 import { HostBlobStore, blobRefs } from "./blob-store.ts";
 import { contextEntries } from "./context.ts";

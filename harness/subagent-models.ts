@@ -2,7 +2,7 @@ import type { ModelInfo } from "../providers/registry.ts";
 import type { ModelSetup } from "./setup.ts";
 
 /**
- * Which models a parent may give a subagent, and how a choice becomes the child's model setting (docs/tools.md, 4.2). The list is
+ * Which models a parent may give a subagent, and how a choice becomes the child's model setting. The list is
  * `subagent.models` in harness.yml; what each model is good at, what it costs and its reasoning levels come from the provider's
  * catalog (`ModelInfo`). Reasoning levels have the same names for every provider and the catalog maps each to the settings that produce
  * it, so the parent says `reasoning: "low"` and never needs to know the adapter's own words.

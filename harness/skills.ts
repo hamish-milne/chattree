@@ -8,7 +8,7 @@ import type { Renderer, SkillNote } from "./renderer.ts";
 import { foldSetup, stable, type AgentSetup, type PinnedDefinition } from "./setup.ts";
 
 /**
- * Skills (docs/context.md, section 2): the Agent Skills layout, a directory holding `SKILL.md` with `name` and `description` in
+ * Skills: the Agent Skills layout, a directory holding `SKILL.md` with `name` and `description` in
  * its YAML frontmatter. The pinned unit is the whole `SKILL.md` as a `SkillValue` (kind `skill`), so what the model was
  * shown is reproducible from the transcript whatever happens to the file later.
  *

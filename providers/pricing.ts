@@ -4,7 +4,7 @@ import { stable } from "../harness/setup.ts";
 import { pattern, record, safeParse, strictObject } from "../src/validate.ts";
 
 /**
- * Prices (docs/providers.md, P9). A price table is plain data: per model, dollars per million tokens for each meter
+ * Prices. A price table is plain data: per model, dollars per million tokens for each meter
  * (input, output, cache read, cache write; reasoning is billed as output and already counted there) for each
  * service tier, and an optional long-context band. Tables are pinned by hash in the agent's setup so that the cost
  * of history never changes under it. An unknown price is unknown, never zero: a local server says `free: true`.
@@ -61,6 +61,7 @@ export const emptyTable = (): PriceTable => ({ version: 1, as_of: "1970-01-01", 
 export const tableBytes = (t: PriceTable): Uint8Array => new TextEncoder().encode(stable(t));
 export const tableHash = (t: PriceTable): string => createHash("sha256").update(tableBytes(t)).digest("hex");
 
+/** A stored table read back from its bytes. Returns `undefined` for anything that is not a valid table; never throws. */
 export function parseTable(bytes: Uint8Array): PriceTable | undefined {
   try {
     const r = safeParse(priceTable, JSON.parse(new TextDecoder().decode(bytes)));
@@ -160,6 +161,10 @@ function cacheWriteUsd(tokens: Tokens, writeRate: Rates["cache_write"]): number 
   return per === undefined ? undefined : usd + (rest * per) / 1_000_000;
 }
 
+/**
+ * Cost of one response's usage. A meter with tokens but no rate makes the result `unknown` rather than counting as zero,
+ * so a missing price never shows up as a cheap request.
+ */
 export function costOf(tokens: Tokens, price: ModelPrice | undefined, tier?: string): Priced {
   if (price?.free === true) return { usd: 0, unknown: false };
   if (price === undefined) return { usd: 0, unknown: true };

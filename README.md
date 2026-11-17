@@ -1,142 +1,36 @@
 # chattree
 
-Model-neutral agent harness whose conversation history lives in Git. **The MVP is complete**; what was deliberately left out is in `docs/parking-lot.md`. This repository holds: the transcript codec (`src/`), the harness schemas (`harness/`) and tests.
-
-The codec is a proof of concept: a strict, append-only YAML-subset codec for git-backed conversation transcripts, with tagged entries, a generic schema pipeline and a config-file layer.
-Format spec: [docs/format.md](./docs/format.md).
+A model-neutral agent harness whose conversation history lives in Git. You talk to a model (hosted, or running on your own machine); it can read and edit files and run commands in a workspace; every message, tool call and result is a commit you can inspect, rewind, fork and merge.
 
 ```
 pnpm install
-pnpm test        # the quick group, over a thousand tests: codec, fuzz, framing, tags, cross-check against `yaml`, blobs, schema pipeline, harness schemas, config, host, git, lock, conversation, fork and subagents with crash injection, compaction/config events, history verification, random-operation fuzzing, batched git reads and fast-import, events and the index cache, an end-to-end lifecycle test, and housekeeping (blob GC, worktrees, crash debris, processes) (needs git >= 2.38 on PATH)
-pnpm test:slow   # the [slow] suites only (exhaustive crash injection, random operations, live-check runs; about 2.5 minutes); skipped by `pnpm test`
-pnpm test:all    # both groups. Run the slow group before a release and after changing the journal, forks, subagents or history invariants
-pnpm typecheck   # src is checked with no Node types; tests and bench with @types/node
-pnpm bench       # strings vs bytes, see below
+pnpm chattree init        # start a conversation in this directory
+pnpm chattree chat        # talk
 ```
 
-Needs Node >= 22.18 (native type stripping, no build step). Written against the Node 26 target;
-developed on 22.23 because that is what the sandbox had.
+Needs Node 22.18 or later (it runs the TypeScript directly, with no build step) and Git 2.38 or later.
 
-## Layout
+## Documentation
 
-`src/` is the runtime-independent core library, `hosts/` the host implementations, `harness/` holds the harness-specific schemas built on it, `test/core` and `test/harness` mirror them, `docs/` has the format spec and the git integration plan.
-
-| File | Role |
+| For | Start at |
 |---|---|
-| `src/value.ts` | Value model (`Map`-based, order preserving), `BlobRef`, equality |
-| `src/scalar.ts` | Which string form to use; quoting and escaping; strict quoted-string scanner |
-| `src/emit.ts` | The one canonical emitter |
-| `src/parse.ts` | Line-structured parser, then a re-emit-and-compare canonical check |
-| `src/frame.ts` | Byte-level framing, truncation detection, tail checks, safe append |
-| `src/blobs.ts` | `externalize` / `resolve` over a `BlobStore` interface (+ in-memory store) |
-| `src/validate.ts` | Validation with TypeBox: strict objects, defaults, rules, codecs, readable issues (JSON Schema is the one description of data) |
-| `src/schema.ts` | Plain-object bridge (`$tag`, `$value`), `defineEntry`, `Pipeline` |
-| `src/transforms.ts` | `mapStrings`, `wellFormed`, `redact`, `externalizeLarge` |
-| `src/hash.ts` | Canonical, key-sorted hashing of values |
-| `src/config.ts` | Config files: lenient comment-preserving read and edit, same schemas and hash (`./config` export; the only file that needs `yaml`) |
-| `src/host.ts` | The `Host` seam: run programs (argv only) and file operations, for local, remote or test hosts |
-| `src/git/` | `Git`: a typed wrapper over the git command line with fixed safety settings (see docs/git-integration.md) |
-| `src/lock.ts` | Lock files with stale takeover, over `Fs.createExclusive` |
-| `hosts/node.ts` | The local-machine `Host`; the only code that imports Node |
-| `harness/` | The harness schemas (TypeBox): entries, blocks, ULIDs, config; `Conversation` (create, open with crash recovery, append, entry index, fork, subagents, fork merge, compact, interrupt, `agent_setup` changes and provider-observed model changes), the context view (`contextEntries`), `appendMany`, `onEvent` events, the entry-index cache, `gcBlobs`, `pruneWorktrees`, `close`, the turn runner (`requestStream`/`runRequest`: one model request, journaled beside the repository and committed as `assistant` or `interrupted`; `open` recovers a request the process died in), `verifyHistory`, `readCommitGraph`/`toMermaid` (see `docs/lifecycle-graph.md`), and the file-backed blob store |
-| `providers/` | The provider seam: neutral stream events and errors, an SSE parser, the shared HTTP transport (retry, timeouts, limits, scrubbing), conformance checks, fixture record and replay; the Anthropic, OpenAI Responses and OpenAI-compatible (Chat Completions) adapters and the registry that `harness.yml` providers are checked against (see `docs/providers.md`, `docs/writing-an-adapter.md`). `tools/live-check.ts` validates an adapter against a real or local server |
-| `cli/` | The CLI host (`chattree`; see `docs/cli.md`): project detection, `init`, the engine and command registry, the plain renderer, and the non-interactive verbs (`say`, `show`, `status`, `history`, `threads`, `usage`, `verify`, ...). Session files (`cli/session.ts`), the prompt rules (`cli/prompt.ts`), the readline terminal layer (`cli/terminal.ts`) `chat` (`cli/chat.ts`) and the slash commands (`cli/commands/`) are done; the tool loop is the next big piece |
+| Using chattree | [docs/guide/](docs/guide/README.md): what it offers, getting started, commands, configuration |
+| Adding an adapter, tool, skill or dialect | [docs/extending/](docs/extending/README.md) |
+| Working on chattree itself | [docs/map/index.md](docs/map/index.md) (where everything is), [docs/conventions.md](docs/conventions.md) (how to change it), [docs/adr/](docs/adr/README.md) (why it is this way) |
+| What is deliberately not done yet | [docs/parking-lot.md](docs/parking-lot.md) |
 
-`src/` uses only web-standard globals (`TextEncoder`, `TextDecoder`, `crypto.subtle`), so it should run
-unchanged on Node, Deno, Bun and browsers. `tsconfig.src.json` has `types: []` to enforce that (the root `tsconfig.json` covers everything else, with node types, and is what the linter reads).
+Coding agents: read [AGENTS.md](AGENTS.md).
 
-## Tags and the schema pipeline
+## Development
 
-Entry types are YAML tags (`- !assistant`), the same mechanism as `!blob`. A `Pipeline` is built from entry
-types (a tag plus a TypeBox schema, which is JSON Schema) and a list of transforms.
-
-- **Writing is strict.** `encode(obj)` validates (entry schemas are written with `strictObject`, so a field they do not name is an error), converts to
-  the value model in schema-defined field order, runs the transforms (redaction before externalization),
-  then decodes the result again so nothing undecodable is ever written.
-- **Reading is as strict as writing, and never throws.** `decode(entry)` returns the value, or an `unknown-tag` / `invalid` /
-  `untagged` / `version` result with issue paths and the raw entry, which can be written back unchanged. A file's format
-  version is the state of the read (`docs/git-integration.md`, D9): a newer minor is refused, not skipped.
-- **Plain-object form.** Validators see `{ $tag: "user", ...fields }`, tagged lists and strings as
-  `{ $tag, $value }`, blob references as `{ $tag: "blob", ... }`, so discriminated unions on `$tag` just work.
-  JavaScript orders integer-like keys first, so such keys are reordered in this form.
-- `typebox` is the one schema library (JSON Schema, with its validator); `src/` uses it only through `src/validate.ts`.
-
-## Config files
-
-Config uses the same schemas, validation and hashing but not the same codec. Comments in the transcript codec
-would break its one-spelling rule (byte-stable replay, prompt caching) and cannot be told apart from damage in
-a truncated tail. Config files are hand-edited, so they are read with `yaml` (comments, flow style, plain
-scalars) and edited through its document model, which keeps comments (it may normalise spacing before a
-trailing comment). Aliases, anchors, custom tags, duplicate keys, multiple documents, non-finite numbers and
-non-string keys are rejected. The config hash is taken over the validated data with sorted keys, so comments,
-quoting, style and key order do not change it, while values and list order do. `editConfig` re-validates
-after every edit and returns nothing if the result is invalid.
-
-## Strings or bytes?
-
-Both, split by job. Measured on 20,000 realistic entries (8.7 MB, Node 22):
-
-| | strings | bytes |
-|---|---|---|
-| framing only (find boundaries) | 40 ms (decode + `indexOf`) | 14 ms |
-| load everything, canonical check on | 323 ms | 224 ms |
-| load everything, canonical check off | 173 ms | 149 ms |
-| open for append (check tail, read last entry) | 33 ms | **15 us** |
-
-- **Framing on bytes.** It is faster, never needs to understand non-ASCII (your "opaque cookie" idea,
-  applied where it is free), and it is the only way to handle a tail cut in the middle of a multi-byte
-  character without a decode error. Opening a large file to append becomes independent of file size.
-- **Parsing on strings, one entry at a time.** Strict UTF-8 decoding runs at about 290 MB/s, roughly
-  15% of load time with the canonical check on (about 20% with it off); the rest is parsing. A byte-level
-  parser could save at most part of that share while making escapes and block scalars harder to get
-  right. Not worth it.
-- **The canonical check is about 1/3 of load time** (it re-emits every entry). It is on by default and can
-  be turned off per call. Incremental loading (only parse what the next request needs) matters more than
-  either.
-
-The synthetic corpus is 99.9% ASCII. Heavy CJK or emoji transcripts shift cost toward decoding, but not
-enough to change the design.
-
-## What the tests found
-
-The oracle and the exhaustive cut-point test earned their keep. Real defects they caught:
-
-1. A cut right after the first byte of the next entry's `- ` made `scan()` report zero valid bytes.
-2. A CRLF file was reported as "one incomplete tail", which a repair routine would truncate to nothing.
-   Tails are now sanity-checked (no stray control bytes, no blank line) and otherwise rejected as damage.
-3. The `yaml` package's 1.1 schema reads the bare word `e5` as NaN. Exponent-like words are now quoted.
-4. About 3% of cut points let a blind append graft onto the damaged entry and still produce valid
-   canonical text. No byte-level check can detect that, hence `endsCleanly()` / `appendEntry()`.
-
-## Differences from what we discussed
-
-- **Bare words are allowed** (conservative allowlist, quoted if reserved or number-like) instead of
-  quoting every string. This matches the schema example, where `type: user` is bare and ULIDs are
-  quoted. Both YAML 1.1 and 1.2 parsers are checked against it in the tests.
-- **Unrepresentable characters are escaped in a quoted string**, not diverted to blobs. That is lossless,
-  keeps small values inline, and is fuzz-tested. Blobs are for size and binary data. A lone surrogate
-  is the one thing that cannot be represented at all, and fails loudly.
-- **Empty lines inside block scalars are indentation-only lines.** This is what makes the blank-line
-  terminator unambiguous. Cost: trailing whitespace on those lines in `git diff`.
-- **Strings ending in two or more newlines, or starting with whitespace, are quoted** rather than using
-  keep-chomping or indentation indicators.
-- **TypeScript 7.0.2 only knows `es2025`**, so tsconfig uses `lib: es2025`, not es2026.
-
-## Not included yet
-
-- A filesystem `BlobStore`, file locking, and the append-with-repair routine around `endsCleanly()`.
-- Incremental context rebuild, git integration, git `textconv`/diff attributes.
-- Streaming parse of a single huge entry (entries are expected to be small because large values
-  are externalized).
-
-## Benchmarks
-
-The benchmark numbers above predate tags and were measured on untagged entries.
-
-## Limits
-
-Nesting depth 64, key length 4096 characters, numbers are IEEE doubles (integers beyond 2^53 are
-written in their double form), strings must be well-formed Unicode.
+```
+pnpm test          # the quick group (about 5 minutes), one process per test file
+pnpm test:slow     # the [slow] suites: exhaustive crash injection, random operations
+pnpm test:all      # both
+pnpm typecheck     # src is checked with no Node types; the rest with @types/node
+pnpm lint          # oxlint, type-aware
+pnpm format        # oxfmt (format:check to verify)
+```
 
 ## License
 

@@ -8,6 +8,7 @@ export async function* streamChunks(stream: ReadableStream<Uint8Array>): AsyncGe
       yield value;
     }
   } finally {
+    // Releases the lock without cancelling: if the consumer stops early, the rest of the stream is left unread.
     reader.releaseLock();
   }
 }

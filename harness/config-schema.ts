@@ -1,3 +1,8 @@
+/**
+ * The JSON Schema for `harness.yml`, generated from the core schema plus every registered adapter's provider and settings schemas. `create` and `open`
+ * write it into the worktree so a YAML-aware editor can validate and complete the file; the file is derived data (git-ignored) and is regenerated on each open.
+ */
+
 import type { AdapterRegistry } from "../providers/registry.ts";
 import { harnessConfig } from "./config.ts";
 

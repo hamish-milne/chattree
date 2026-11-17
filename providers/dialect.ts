@@ -8,7 +8,7 @@ import type { SseEvent } from "./sse.ts";
 import { asJson, jsonOr, messageText, parseJsonObject, type Json } from "./wire.ts";
 
 /**
- * Dialects (docs/local-models.md, section 9): our own prompt rendering and output parsing for a model, in place of the server's chat
+ * Dialects: our own prompt rendering and output parsing for a model, in place of the server's chat
  * template. A dialect turns a folded context into one raw prompt string, and turns the raw text the model writes back into blocks.
  * The server only runs the model on the string (llama-server's `/completion`), so what the model sees and what we read back are ours.
  * Not to be confused with `harness/renderer.ts`, which renders compactions and fork results.
@@ -71,6 +71,7 @@ export interface Dialect {
   markers?: readonly string[];
 }
 
+/** Dialects by id. A setup names its dialect by id, so an id must keep meaning the same dialect: a duplicate is refused. */
 export class DialectRegistry {
   readonly #by = new Map<string, Dialect>();
   constructor(dialects: readonly Dialect[] = []) {
@@ -186,6 +187,7 @@ export class Assembler {
 
 // ---- the /completion transport ------------------------------------------------------------------------------------
 
+// Request fields the transport sets itself; the `extra` setting skips these, so it cannot replace the prompt or the stop strings.
 const OWNED = new Set(["model", "prompt", "stream", "n_predict", "stop", "special", "return_tokens"]);
 const num = (v: unknown): number | undefined => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
 
@@ -315,6 +317,10 @@ const modelOf = (req: StreamRequest): NonNullable<StreamRequest["setup"]["model"
   return model;
 };
 
+/**
+ * The HTTP mapper for `/completion`. The dialect renders the prompt and parses the output, and the events and blocks that
+ * come out are the same as the chat adapters produce, so the turn runner cannot tell the two paths apart.
+ */
 export function completionMapper(opts: CompletionOptions, settings: (req: StreamRequest) => DialectSettings): HttpMapper<State> {
   const rendered = new WeakMap<StreamRequest, Rendered>();
   const markerIds = new WeakMap<StreamRequest, Map<number, string>>();

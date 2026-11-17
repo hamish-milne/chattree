@@ -7,7 +7,7 @@ import { nth } from "../src/nth.ts";
 import { asJson, jsonOr } from "../src/json.ts";
 
 /**
- * The host's tool registry (docs/tools.md, sections 3 and 4): what a tool is, how its call is checked, and how
+ * The host's tool registry: what a tool is, how its call is checked, and how
  * its output is shaped for the transcript. Running the tools and asking again is the loop's job (`loop.ts`).
  */
 
@@ -28,7 +28,7 @@ export interface ToolContext {
   setup?(): Promise<AgentSetup>;
   /**
    * For a tool whose `timeout` is `"thread"`: say which thread's work this call is waiting for. The call keeps the thread's run lease for
-   * as long as that thread's lease is live, and no longer (docs/tools.md, 5.3).
+   * as long as that thread's lease is live, and no longer.
    */
   lease?: { follow(branch: string): Promise<void> };
 }
@@ -99,8 +99,8 @@ export interface Tool {
   /** True when the tool can be started with `background: true` (its schema then has that argument). */
   background?: boolean;
   /**
-   * How long a call with these arguments may take, in seconds: the loop stops it then, and holds the thread's run lease that long
-   * (docs/tools.md, 5.3). Default: `limits.max_tool_seconds`. `"thread"`: the call waits for another thread's work and says which with
+   * How long a call with these arguments may take, in seconds: the loop stops it then, and holds the thread's run lease that long.
+   * Default: `limits.max_tool_seconds`. `"thread"`: the call waits for another thread's work and says which with
    * `ctx.lease.follow`; the loop sets no limit of its own.
    */
   timeout?(args: Record<string, unknown>): number | "thread";
@@ -116,7 +116,7 @@ export interface Tool {
    */
   normalize?(args: unknown): unknown;
   /**
-   * Approvals (docs/tools.md, section 5). The keys a grant for this call would add to the tool's `allow` map in
+   * Approvals. The keys a grant for this call would add to the tool's `allow` map in
    * harness.yml, shown to the user as "allow all of these for 5 minutes / 1 hour / forever". Usually one; a pipeline
    * with two uncovered stages returns two. `null` (also the default) means the call can only be allowed once.
    * Called on arguments that already passed validation.
@@ -146,6 +146,10 @@ export class ToolError extends Error {
 
 const NAME_RE = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 
+/**
+ * The tools one loop can offer and run. Names are unique within a registry. A registry is consulted again for each call,
+ * so a tool removed while a loop runs (an MCP server reconnected) is refused rather than run from stale state.
+ */
 export class ToolRegistry {
   readonly #tools = new Map<string, Tool>();
 

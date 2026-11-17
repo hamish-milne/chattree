@@ -5,7 +5,7 @@ import type { Observed, StreamEvent, Usage } from "../providers/types.ts";
  * Folds a stream's events into what is known so far: the complete blocks, the text received for a block that is
  * not finished, a tool call that has started, the usage and what the provider said about itself. It is how a turn
  * that ends early (the user stops it, the connection fails, the process dies and the journal is replayed) says what
- * it got, using the same rules each time (docs/providers.md, P5).
+ * it got, using the same rules each time.
  */
 export class StreamAccumulator {
   readonly #done = new Map<number, Block>();

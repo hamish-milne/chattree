@@ -6,14 +6,14 @@ import { effectiveTable, emptyTable, pricingConfig, type PriceTable } from "./pr
 import type { ProviderAdapter } from "./types.ts";
 
 /**
- * Adapters register by `$tag`, like entry types do (docs/providers.md, P6). A provider in `harness.yml` names its
+ * Adapters register by `$tag`, like entry types do. A provider in `harness.yml` names its
  * adapter with `$tag` (or `!tag`); the adapter's own schema validates the rest; the loader builds it after resolving
  * the secrets it names. The schemas are JSON Schema (TypeBox builds them), which is also what the editor is given: an adapter
  * hands over its schemas and the registry runs them.
  */
 
 /**
- * How tool definitions must be written for the model to see and fill them properly (docs/tools.md, 3.7). `full`: any
+ * How tool definitions must be written for the model to see and fill them properly. `full`: any
  * JSON Schema in the portable subset, nested objects and lists of objects included. `flat`: the model is shown only a
  * tool's top-level properties with their types and descriptions (some servers, such as Ollama for gpt-oss, print a list as
  * `any[]` and an object as `Record<string, any>`), so a tool must have scalar properties only. Reserved, not built: `text`
@@ -26,10 +26,11 @@ export type ToolConvention = (typeof TOOL_CONVENTIONS)[number];
 export const TOOL_SCHEMAS = ["full", "portable"] as const;
 export type ToolSchemaLevel = (typeof TOOL_SCHEMAS)[number];
 
-/** What is known about a model. Unknown fields are unknown; the harness only warns on what it can tell. */
+/** Coarse cost of a model relative to the others of its catalog. */
 export const COST_TIERS = ["low", "medium", "high"] as const;
 export type CostTier = (typeof COST_TIERS)[number];
 
+/** What is known about a model. Unknown fields are unknown; the harness only warns on what it can tell. */
 export interface ModelInfo {
   context_window?: number | undefined;
   max_output_tokens?: number | undefined;
@@ -69,6 +70,7 @@ export function defineAdapter<C extends TSchema, S extends TSchema>(def: Adapter
 export class AdapterRegistry {
   readonly #defs = new Map<string, AdapterDefinition>();
 
+  /** Throws on a duplicate or malformed `$tag`, so that every tag in `harness.yml` names exactly one adapter. */
   register<C extends TSchema, S extends TSchema>(def: AdapterDefinition<C, S>): this {
     if (this.#defs.has(def.$tag)) throw new Error(`an adapter for $tag ${def.$tag} is already registered`);
     if (!/^[a-z][a-z0-9-]*$/.test(def.$tag)) throw new Error(`invalid adapter $tag ${JSON.stringify(def.$tag)}`);
@@ -144,6 +146,7 @@ export interface CommonProviderConfig {
   session_header?: string | undefined;
 }
 
+/** The common config as HTTP base options. Keys the config leaves out are left out too, so the HTTP base's own defaults apply. */
 export function httpOptionsFor(c: CommonProviderConfig): HttpOptions {
   return {
     ...(c.max_concurrent === undefined ? {} : { limiter: new Limiter(c.max_concurrent) }),

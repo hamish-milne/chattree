@@ -3,8 +3,9 @@ import type { ConnectedServer } from "./servers.ts";
 
 /**
  * The MCP connections of one process, shared by the threads that would make the same one (`connectionKey`): a server over HTTP, a program
- * that every thread runs in the same directory (`scope: project`), and the same thread asking again. A connection lives while someone holds a
- * lease on it and is closed when the last lease is released, so a subagent's servers go when it is done and nothing is left running at exit.
+ * that every thread runs in the same directory (`scope: project`), and the same thread asking again. A connection lives
+ * while someone holds a lease on it and is closed when the last lease is released, so a subagent's servers go when it is
+ * done and nothing is left running at exit.
  */
 
 export interface ConnectionMaker {
@@ -36,7 +37,10 @@ export class McpPool {
     return this.#entries.size;
   }
 
-  /** Hold the connection for `key`, starting it if no one has. With `fresh` the tools are read again (and every other holder sees itself as stale). */
+  /**
+   * Hold the connection for `key`, starting it if no one has. With `fresh` the tools are read again (and every other
+   * holder sees itself as stale).
+   */
   async acquire(key: string, make: ConnectionMaker, opts: { fresh?: boolean } = {}): Promise<PoolLease> {
     let entry = this.#entries.get(key);
     if (entry !== undefined) {
@@ -59,6 +63,7 @@ export class McpPool {
       const made: Entry = { ready: make.open(), refs: 0 };
       entry = made;
       this.#entries.set(key, made);
+      // A connection that failed to open is dropped, so the next acquire starts again rather than reusing the failure.
       made.ready.catch(() => {
         if (this.#entries.get(key) === made) this.#entries.delete(key);
       });
@@ -72,6 +77,7 @@ export class McpPool {
       held.refs--;
       throw e;
     }
+    // Each holder gets its own copy of the status, so one holder's changes to it are not seen by the others.
     const mine: ConnectedServer = { ...server, status: { ...server.status } };
     const listings = server.client.listings;
     let released = false;

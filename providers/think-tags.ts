@@ -26,6 +26,10 @@ export type Piece = { kind: "reasoning" | "text"; text: string } | { kind: "reas
 
 type Mode = "detect" | "thinking" | "trim" | "answer";
 
+/**
+ * Streaming form of the rule above: text arrives in pieces, so a possible tag split across pieces is held back until it
+ * is either completed or ruled out. Feed content with `push`, then call `end` once; `thinking` reports the current state.
+ */
 export class ThinkSplitter {
   readonly #open: string;
   readonly #close: string;

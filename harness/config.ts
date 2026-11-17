@@ -34,9 +34,11 @@ export const untilTimestamp = rules(
   [(s) => (Number.isNaN(Date.parse(s)) ? UNTIL_SENTENCE : undefined)],
 );
 
-/** One tool's approvals (docs/tools.md, section 5): the keys the user has granted, each with the time it ends. */
+/** One tool's approvals: the keys the user has granted, each with the time it ends. */
 const toolEntry = strictObject({
-  /** Key to expiry. `all` covers every call; other keys are the tool's own (for `run`, argv patterns such as `grep **`). */
+  /**
+   * Key to expiry. `all` covers every call; other keys are the tool's own (for `run`, argv patterns such as `grep **`).
+   */
   allow: withDefault(record(nonEmpty, untilTimestamp), {}),
   /** `run` only: programs known to be read-only, which may be granted as `<program> **`. */
   safe: opt(Type.Array(nonEmpty)),
@@ -45,15 +47,18 @@ const toolEntry = strictObject({
    * re-interprets the command line; arguments with its special characters are refused (see harness/starter/batch.ts).
    */
   batch: opt(Type.Boolean()),
-  /** `run` only: allow `git`. Off by default: the thread's working directory is a repository chattree keeps, and the model's changes are saved without it. */
+  /**
+   * `run` only: allow `git`. Off by default: the thread's working directory is a repository chattree keeps, and the
+   * model's changes are saved without it.
+   */
   git: opt(Type.Boolean()),
   /** `run` only, with `batch`: globs of batch files inside the workspace that may be started, such as `./node_modules/.bin/*.cmd`. */
   local: opt(Type.Array(nonEmpty)),
 });
 
 /**
- * `env` (a list) and every other key (a tool's entry). JSON Schema says it plainly: `env` is a property, the rest are `additionalProperties`.
- * TypeBox's inferred type leaves the additional ones out, so the type is given here, as it was for the old schema.
+ * `env` (a list) and every other key (a tool's entry). JSON Schema says it plainly: `env` is a property, the rest are
+ * `additionalProperties`. TypeBox's inferred type leaves the additional ones out, so the type is given here.
  */
 type ToolsSection = { env?: string[] } & Record<string, Static<typeof toolEntry>>;
 const toolsSection = withDefault<TSchema, ToolsSection>(
@@ -64,9 +69,10 @@ const toolsSection = withDefault<TSchema, ToolsSection>(
 const envName = pattern(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
 
 /**
- * An MCP server (docs/context.md, section 2): a program that speaks MCP on stdin and stdout (`command`), or an HTTP endpoint (`url`). Nothing
- * is started or contacted until the thread has accepted the server's configuration (`/mcp accept`), because a `harness.yml` can arrive with a
- * cloned repository. Secrets are named, never written here: `env_from` and `bearer_env` read the host's environment when the server is started.
+ * An MCP server: a program that speaks MCP on stdin and stdout (`command`), or an HTTP endpoint (`url`). Nothing is
+ * started or contacted until the thread has accepted the server's configuration (`/mcp accept`), because a
+ * `harness.yml` can arrive with a cloned repository. Secrets are named, never written here: `env_from` and `bearer_env`
+ * read the host's environment when the server is started.
  */
 const mcpServer = rules(
   strictObject({
@@ -138,19 +144,25 @@ export const harnessConfig = strictObject({
     ),
     {},
   ),
-  /** Background jobs (docs/tools.md, 3.5). */
+  /** Background jobs. */
   background: section({
-    /** When a job ends while the conversation is idle, also send a request so the model can react. Off by default: it spends money unattended. */
+    /**
+     * When a job ends while the conversation is idle, also send a request so the model can react. Off by default: it
+     * spends money unattended.
+     */
     resume: withDefault(Type.Boolean(), false),
   }),
   /**
-   * Who is running a thread (docs/tools.md, 5.3). By default a file in this repository's git directory, which is enough for every
-   * session on this machine. With `remote`, a ref on that remote instead, so clones that share it but not a git directory agree too.
+   * Who is running a thread. By default a file in this repository's git directory, which is enough for every session on
+   * this machine. With `remote`, a ref on that remote instead, so clones that share it but not a git directory agree too.
    */
   leases: opt(strictObject({ remote: nonEmpty })),
-  /** Threads talking to each other (docs/tools.md, 4.3). A parent and its children always may, if the tools are listed; siblings only with `siblings`. */
+  /**
+   * Threads talking to each other. A parent and its children always may, if the tools are listed; siblings only with
+   * `siblings`.
+   */
   threads: section({ siblings: withDefault(Type.Boolean(), false) }),
-  /** Subagents (docs/tools.md, 4.2). */
+  /** Subagents. */
   subagent: section({
     /** `auto`: a subagent hands its work back without asking. `review`: you are asked first, and see its report. */
     merge: withDefault(Type.Enum(["auto", "review"]), "auto"),
@@ -184,9 +196,15 @@ export const harnessConfig = strictObject({
     max_requests_per_turn: opt(positive),
     /** Wall-clock seconds for one turn. Enforced by the turn runner. */
     max_turn_seconds: opt(positiveNumber),
-    /** Seconds one tool call may take unless the tool says otherwise (default 600): the loop stops it then, and the thread's run lease is held that long. */
+    /**
+     * Seconds one tool call may take unless the tool says otherwise (default 600): the loop stops it then, and the
+     * thread's run lease is held that long.
+     */
     max_tool_seconds: opt(positiveNumber),
-    /** Seconds one model request may take (default 600, the provider layer's own total limit): how long the run lease is held for it. */
+    /**
+     * Seconds one model request may take (default 600, the provider layer's own total limit): how long the run lease
+     * is held for it.
+     */
     max_request_seconds: opt(positiveNumber),
     /** Raise a warning when spend reaches this fraction of a limit. */
     warn_at: opt(fraction),
@@ -208,29 +226,30 @@ export const harnessConfig = strictObject({
     /** Look again after this many appends, snapshots and the like. */
     check_every: withDefault(Type.Integer({ minimum: 1 }), 200),
   }),
-  /** Files added to messages (`Conversation.attach`). */
+  /** Files added to messages (`Conversation.attach`). The default cap is 20 MiB. */
   attachments: section({ max_bytes: withDefault(Type.Integer({ minimum: 1 }), 20 * 1024 * 1024) }),
   /**
-   * Skills (docs/context.md, section 2). `follow` says what happens when a `SKILL.md` changes, appears or disappears on disk while a thread
-   * runs: `ask` (default) reports it and `/skills sync` takes it, `auto` pins it at the start of the next request (the model is told where
-   * it happened, the cached prefix is untouched), `off` never looks.
+   * Skills. `follow` says what happens when a `SKILL.md` changes, appears or disappears on disk while a thread runs:
+   * `ask` (default) reports it and `/skills sync` takes it, `auto` pins it at the start of the next request (the model is
+   * told where it happened, the cached prefix is untouched), `off` never looks.
    */
   skills: section({ follow: withDefault(Type.Enum(["auto", "ask", "off"]), "ask") }),
   /**
-   * Text the harness puts in front of the model before a request (docs/context.md, section 2); each is recorded in the transcript.
-   * `usage`: tell the model when a request nears a limit or the context window (default on). `rules`: reminders by key (the key is what the rule is recorded under), each with a
-   * `text` or a `file` (read from the thread's workspace when the rule fires), and `every` N responses since the last time (`first`: also on the first request).
+   * Text the harness puts in front of the model before a request; each is recorded in the transcript. `usage`: tell the
+   * model when a request nears a limit or the context window (default on). `rules`: reminders by key (the key is what the
+   * rule is recorded under), each with a `text` or a `file` (read from the thread's workspace when the rule fires), and
+   * `every` N responses since the last time (`first`: also on the first request).
    */
   injections: section({
     usage: withDefault(Type.Boolean(), true),
-    /** Tell the model where it is (system, thread, date; docs/context.md, section 2). Default on. */
+    /** Tell the model where it is (system, thread, date). Default on. */
     environment: withDefault(Type.Boolean(), true),
     rules: withDefault(record(pattern(/^[a-z0-9][a-z0-9_.-]*$/, "lowercase letters, digits, and . _ -"), injectionRule), {}),
   }),
   /**
-   * Keeping the context within the window (docs/context.md, sections 5 and 6). With `auto` on, a request that would reach `threshold_tokens` (default:
-   * 70% of the model's context window, which leaves room to finish a long tool loop) is trimmed first; `auto: full` then writes a summary if the trim
-   * was not enough, between turns only. The last `keep_recent` entries stay whole.
+   * Keeping the context within the window. With `auto` on, a request that would reach `threshold_tokens` (default: 70%
+   * of the model's context window, which leaves room to finish a long tool loop) is trimmed first; `auto: full` then
+   * writes a summary if the trim was not enough, between turns only. The last `keep_recent` entries stay whole.
    */
   compaction: opt(
     strictObject({
@@ -245,9 +264,16 @@ export const harnessConfig = strictObject({
       }),
       /** The model that writes summaries, of the thread's provider. Default: the thread's own model. */
       summary_model: opt(nonEmpty),
-      /** What the summarizer reads: `seen`, what the main model sees (past summaries and trimmed entries); or `raw`, the entries since the last summary untrimmed (falls back to `seen` if that does not fit). */
+      /**
+       * What the summarizer reads: `seen`, what the main model sees (past summaries and trimmed entries); or `raw`, the
+       * entries since the last summary untrimmed (falls back to `seen` if that does not fit).
+       */
       summary_input: withDefault(Type.Enum(["seen", "raw"]), "seen"),
-      /** The share of the threshold (at 3 bytes to a token) that the summaries in the context may take. While they fit, a new summary covers only what came after them and they stay as they are (cache-friendly); beyond it, the new one takes them in and covers everything. */
+      /**
+       * The share of the threshold (at 3 bytes to a token) that the summaries in the context may take. While they fit, a
+       * new summary covers only what came after them and they stay as they are (cache-friendly); beyond it, the new one
+       * takes them in and covers everything.
+       */
       summary_budget: withDefault(Type.Number({ exclusiveMinimum: 0, exclusiveMaximum: 1 }), 0.15),
     }),
   ),

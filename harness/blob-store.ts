@@ -1,3 +1,10 @@
+/**
+ * Blob storage for a conversation: large values and attachments live as content-addressed files in the working tree, so they are
+ * committed with the entry that refers to them and travel with forks and subagent branches. `HostBlobStore` keeps them through a
+ * `Host`; `RecordingBlobStore` collects them in memory for entries committed straight into git; `blobRefs` lists the blobs a value
+ * refers to.
+ */
+
 import { BlobError, sha256Hex, type BlobStore, type Host } from "../src/index.ts";
 import { isJson } from "../src/json.ts";
 
@@ -44,7 +51,10 @@ export class HostBlobStore implements BlobStore {
   }
 }
 
-/** Every blob a decoded entry refers to: its hash and the size the reference claims. */
+/**
+ * Every blob a decoded entry refers to: its hash and the size the reference claims. A blob reference is not descended
+ * into, so a blob's own fields are never mistaken for further references. Sizes come from the entry, not the bytes.
+ */
 export function blobRefs(value: unknown, into: Map<string, number> = new Map()): Map<string, number> {
   if (Array.isArray(value)) for (const x of value) blobRefs(x, into);
   else if (isJson(value)) {

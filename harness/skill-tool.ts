@@ -7,7 +7,7 @@ import { optString } from "../providers/wire.ts";
 const LISTED = 200;
 
 /**
- * The `skill` tool (docs/context.md, section 2): takes a skill's name and returns its instructions as the result, so the model reads a
+ * The `skill` tool: takes a skill's name and returns its instructions as the result, so the model reads a
  * skill when a task calls for it instead of carrying every skill in the prefix. It serves the skills the setup pins now, not the ones
  * the cached catalog lists: a skill added since is served, one removed is refused (an error that lists what is available).
  */

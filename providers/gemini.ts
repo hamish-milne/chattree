@@ -28,6 +28,10 @@ export interface GeminiRow {
   free_tier: boolean;
 }
 
+/**
+ * The models and price table of the Gemini rows. A row with no token limits (the catalog has not been refreshed) gets no
+ * `context_window` or `max_output_tokens`, so the harness knows nothing about them rather than a made-up number.
+ */
 export function geminiCatalogFrom(rows: readonly GeminiRow[], asOf: string): { models: Record<string, ModelInfo>; prices: PriceTable } {
   const models: Record<string, ModelInfo> = {};
   const prices: Record<string, ModelPrice> = {};
@@ -92,6 +96,7 @@ export const geminiDefinition = defineAdapter({
       ...(c.include_usage === undefined ? {} : { includeUsage: c.include_usage }),
       http: httpOptionsFor(c),
     });
+    // The adapter is built without a `tag` option, so it would report itself as `openai-compatible`; this provider's tag goes on instead.
     return { ...adapter, $tag: "gemini" };
   },
 });
