@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { Type, type Static, type StaticDecode } from "typebox";
 import { stable } from "../harness/setup.ts";
-import { parser, pattern, record, strictObject } from "../src/validate.ts";
+import { pattern, record, safeParse, strictObject } from "../src/validate.ts";
 
 /**
  * Prices (docs/providers.md, P9). A price table is plain data: per model, dollars per million tokens for each meter
@@ -44,18 +44,16 @@ export const modelPrice = strictObject({
 });
 export type ModelPrice = Static<typeof modelPrice>;
 
-export const priceTable = parser(
-  strictObject({
-    version: Type.Literal(1),
-    /** When these prices were read, `YYYY-MM-DD`. */
-    as_of: Type.String({ pattern: String.raw`^\d{4}-\d{2}-\d{2}$` }),
-    /** Where they came from (a URL, or "override"). */
-    source: nonEmpty,
-    currency: Type.Literal("USD"),
-    models: record(Type.String(), modelPrice),
-  }),
-);
-export type PriceTable = StaticDecode<typeof priceTable.schema>;
+export const priceTable = strictObject({
+  version: Type.Literal(1),
+  /** When these prices were read, `YYYY-MM-DD`. */
+  as_of: Type.String({ pattern: String.raw`^\d{4}-\d{2}-\d{2}$` }),
+  /** Where they came from (a URL, or "override"). */
+  source: nonEmpty,
+  currency: Type.Literal("USD"),
+  models: record(Type.String(), modelPrice),
+});
+export type PriceTable = StaticDecode<typeof priceTable>;
 
 export const emptyTable = (): PriceTable => ({ version: 1, as_of: "1970-01-01", source: "none", currency: "USD", models: {} });
 
@@ -65,7 +63,7 @@ export const tableHash = (t: PriceTable): string => createHash("sha256").update(
 
 export function parseTable(bytes: Uint8Array): PriceTable | undefined {
   try {
-    const r = priceTable.safeParse(JSON.parse(new TextDecoder().decode(bytes)));
+    const r = safeParse(priceTable, JSON.parse(new TextDecoder().decode(bytes)));
     return r.ok ? r.value : undefined;
   } catch {
     return undefined;

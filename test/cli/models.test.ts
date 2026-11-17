@@ -13,6 +13,7 @@ import { HttpFixture } from "../support/http-fixture.ts";
 import { fakeLlamaRelease } from "../support/llama-release.ts";
 import { tempDir } from "../support/tmp.ts";
 import { testIo } from "./support.ts";
+import { parse } from "../../src/validate.ts";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "support", "fake-llama-server.mjs");
 
@@ -138,7 +139,7 @@ describe("chattree models", () => {
     const daemon = new Daemon({
       data,
       loadSettings: async () => ({
-        config: localModelsSchema.parse({ llama_cpp: { tag: "b100" }, server: { health_timeout: 10 } }),
+        config: parse(localModelsSchema, { llama_cpp: { tag: "b100" }, server: { health_timeout: 10 } }),
         baseDir: dir,
       }),
       host: {
@@ -183,7 +184,7 @@ describe("chattree models", () => {
     await writeFile(settings, `data_dir: ${JSON.stringify(data)}\nlocal_models:\n  llama_cpp: { tag: b100 }\n  models: {}\n`);
     const daemon = new Daemon({
       data,
-      loadSettings: async () => ({ config: localModelsSchema.parse({ llama_cpp: { tag: "b100" } }), baseDir: dir }),
+      loadSettings: async () => ({ config: parse(localModelsSchema, { llama_cpp: { tag: "b100" } }), baseDir: dir }),
       host: { platform: "linux", arch: "x64", installDeps: { apiBase: server.base, verify: async () => undefined } },
     });
     await daemon.open();

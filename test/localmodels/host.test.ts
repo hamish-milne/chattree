@@ -8,6 +8,7 @@ import { nodeSpawn, RouterEngine, type SpawnFn } from "../../localmodels/engine.
 import { LocalModelHost, type HostEvent, type HostState } from "../../localmodels/host.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
+import { parse } from "../../src/validate.ts";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "support", "fake-llama-server.mjs");
 
@@ -26,7 +27,7 @@ async function setup(models: Record<string, unknown>, extraConfig: Record<string
   await writeFile(binary, "");
   for (const m of ["alpha", "beta", "gamma"]) server.on(`/${m}.gguf`, { body: gguf(m) });
   const config = (ms: Record<string, unknown>, more: Record<string, unknown> = extraConfig): LocalModels =>
-    localModelsSchema.parse({ llama_cpp: { path: binary }, server: { health_timeout: 10 }, ...more, models: ms });
+    parse(localModelsSchema, { llama_cpp: { path: binary }, server: { health_timeout: 10 }, ...more, models: ms });
   const fake = fakeSpawn(spawnExtra);
   const fetchFn: typeof fetch = (url, init) => fetch(String(url).replace(/^https:\/\/files\.test/, server.base), init);
   const host = new LocalModelHost({

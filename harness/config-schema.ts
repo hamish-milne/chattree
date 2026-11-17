@@ -12,7 +12,7 @@ export const SCHEMA_COMMENT = `# yaml-language-server: $schema=./${SCHEMA_PATH}`
  * setting), so editors are pointed at the plain `$tag: name` form; both are accepted by the loader.
  */
 export function configJsonSchema(registry: AdapterRegistry): object {
-  const core = harnessConfig.schema;
+  const core = harnessConfig;
   const variants = registry.tags().map((tag) => {
     const def = registry.get(tag);
     return { title: tag, ...def?.config };

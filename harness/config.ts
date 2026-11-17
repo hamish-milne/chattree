@@ -1,5 +1,5 @@
 import { Type, type Static, type StaticDecode, type TSchema } from "typebox";
-import { parser, pattern, record, rules, said, section, strictObject, withDefault } from "../src/validate.ts";
+import { pattern, record, rules, said, section, strictObject, withDefault } from "../src/validate.ts";
 
 /**
  * The harness configuration file (`harness.yml`): the outside world only. Machine setup (which providers, the
@@ -119,7 +119,7 @@ const injectionRule = rules(
   [(r) => ((r.text === undefined) === (r.file === undefined) ? "give either text or file" : undefined)],
 );
 
-const harness = strictObject({
+export const harnessConfig = strictObject({
   /** Providers by name (the name is what an agent's model setting refers to). */
   providers: withDefault(record(name, provider), {}),
   /**
@@ -253,5 +253,4 @@ const harness = strictObject({
   ),
 });
 
-export const harnessConfig = parser(harness);
-export type HarnessConfig = StaticDecode<typeof harness>;
+export type HarnessConfig = StaticDecode<typeof harnessConfig>;

@@ -2,7 +2,8 @@ import { Document, isAlias, isMap, isScalar, parseDocument, visit } from "yaml";
 import { SchemaError, type Issue } from "./errors.ts";
 import { hashValue } from "./hash.ts";
 import { TAG_KEY, VALUE_KEY, objectToValue } from "./schema.ts";
-import type { ParseResult } from "./validate.ts";
+import type { StaticDecode, TSchema } from "typebox";
+import { safeParse } from "./validate.ts";
 
 /**
  * Configuration files. Same schemas, validation and hashing as the transcript, but a different codec:
@@ -112,13 +113,8 @@ function checkRoot(doc: Document.Parsed): Issue | undefined {
   return undefined;
 }
 
-/** What a config file is read with: a `Parser` from `validate.ts`, or anything that checks a plain value the same way. */
-export interface ConfigSchema<T> {
-  safeParse(raw: unknown): ParseResult<T>;
-}
-
-async function validate<T>(schema: ConfigSchema<T>, plain: unknown): Promise<ConfigResult<T>> {
-  const r = schema.safeParse(plain);
+async function validate<S extends TSchema>(schema: S, plain: unknown): Promise<ConfigResult<StaticDecode<S>>> {
+  const r = safeParse(schema, plain);
   if (!r.ok) return { ok: false, issues: r.issues.map((i) => ({ path: pathOf(i.path), message: i.message })) };
   try {
     return { ok: true, value: r.value, hash: await hashValue(objectToValue(r.value)) };
@@ -132,7 +128,7 @@ async function validate<T>(schema: ConfigSchema<T>, plain: unknown): Promise<Con
  * Parse and validate a config file. The hash is of the validated data, in canonical form with sorted keys:
  * comments, spacing, quoting, flow versus block style and key order do not affect it; values and list order do.
  */
-export async function parseConfig<T>(text: string, schema: ConfigSchema<T>): Promise<ConfigResult<T>> {
+export async function parseConfig<S extends TSchema>(text: string, schema: S): Promise<ConfigResult<StaticDecode<S>>> {
   if (/\u0000/.test(text)) return fail("config files may not contain NUL bytes");
   const { doc, issues } = loadConfigDocument(text);
   if (issues.length > 0) return { ok: false, issues };
@@ -151,11 +147,11 @@ export async function parseConfig<T>(text: string, schema: ConfigSchema<T>): Pro
  * Change values in a config file, keeping its comments and layout. The edit is applied to the document,
  * the result is re-read and validated, and nothing is returned unless it is valid.
  */
-export async function editConfig<T>(
+export async function editConfig<S extends TSchema>(
   text: string,
-  schema: ConfigSchema<T>,
+  schema: S,
   edit: (doc: Document.Parsed) => void,
-): Promise<{ ok: true; text: string; value: T; hash: string } | { ok: false; issues: Issue[] }> {
+): Promise<{ ok: true; text: string; value: StaticDecode<S>; hash: string } | { ok: false; issues: Issue[] }> {
   const { doc, issues } = loadConfigDocument(text);
   if (issues.length > 0) return { ok: false, issues };
   edit(doc);

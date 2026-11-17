@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { localModelsSchema } from "../../localmodels/config.ts";
+import { localModelsSchema, type LocalModels } from "../../localmodels/config.ts";
 import {
   baseModels,
   fromGenerationConfig,
@@ -14,13 +14,14 @@ import {
 import { gguf, SAMPLING } from "../support/gguf.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
+import { parse } from "../../src/validate.ts";
 
 const reader =
   (b: Buffer) =>
   async (start: number, length: number): Promise<Uint8Array> =>
     b.subarray(start, start + length);
 const entry = (m: Record<string, unknown>) =>
-  localModelsSchema.parse({ models: { m } }).models["m"] as NonNullable<ReturnType<typeof localModelsSchema.parse>["models"]["m"]>;
+  parse(localModelsSchema, { models: { m } }).models["m"] as NonNullable<LocalModels["models"]["m"]>;
 
 describe("reading sampling from a GGUF header", () => {
   test("finds the general.sampling keys after a vocabulary, as clean numbers", async () => {

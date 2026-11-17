@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import { before, describe, test } from "node:test";
 import { Type } from "typebox";
 import { Settings } from "typebox/system";
-import { accelerated, parser, record, rules, said, section, strictObject, withDefault, ValidationError } from "../src/validate.ts";
+import {
+  accelerated,
+  parse,
+  safeParse,
+  record,
+  rules,
+  said,
+  section,
+  strictObject,
+  withDefault,
+  ValidationError,
+} from "../src/validate.ts";
 
 const modes = [true, false] as const;
 
@@ -35,32 +46,31 @@ for (const accel of modes) {
       sub: section({ a: withDefault(Type.Integer(), 3) }),
       items: withDefault(record(said("lower case letters", Type.String({ pattern: "^[a-z]+$" })), Entry), {}),
     });
-    const p = parser(Root);
     const bad = (v: unknown): string[] => {
-      const r = p.safeParse(v);
+      const r = safeParse(Root, v);
       assert.equal(r.ok, false);
       return r.ok ? [] : r.issues.map((i) => `${i.path.join(".")}: ${i.message}`);
     };
 
     test("is generated or interpreted as asked", () => {
-      p.parse({});
+      parse(Root, {});
       assert.equal(accelerated(Root), accel);
     });
 
     test("fills defaults, at the root, in objects, in record values and in arrays", () => {
-      assert.deepEqual(p.parse({}), { version: 1, sub: { a: 3 }, items: {} });
-      const v = p.parse({ items: { k: { x: 1, tags: [{}, { k: "z" }] } } });
+      assert.deepEqual(parse(Root, {}), { version: 1, sub: { a: 3 }, items: {} });
+      const v = parse(Root, { items: { k: { x: 1, tags: [{}, { k: "z" }] } } });
       assert.deepEqual(v.items["k"], { rev: "main", x: 1, tags: [{ k: "dflt" }, { k: "z" }] });
     });
 
     test("does not change what it is given", () => {
       const input = { items: { k: { x: 1 } } };
-      p.parse(input);
+      parse(Root, input);
       assert.deepEqual(input, { items: { k: { x: 1 } } });
     });
 
     test("runs codecs after the check: a lower-cased hash, a bare type that means an object", () => {
-      const v = p.parse({ items: { k: { x: 1, hash: "ABCD", spec: "a" }, j: { y: 1, spec: { type: "b", n: 2 } } } });
+      const v = parse(Root, { items: { k: { x: 1, hash: "ABCD", spec: "a" }, j: { y: 1, spec: { type: "b", n: 2 } } } });
       assert.equal(v.items["k"]?.hash, "abcd");
       assert.deepEqual(v.items["k"]?.spec, { type: "a" });
       assert.deepEqual(v.items["j"]?.spec, { type: "b", n: 2 });
@@ -92,14 +102,14 @@ for (const accel of modes) {
     });
 
     test("puts array positions in the path as numbers", () => {
-      const r = p.safeParse({ items: { k: { x: 1, tags: [{}, { k: 1 }] } } });
+      const r = safeParse(Root, { items: { k: { x: 1, tags: [{}, { k: 1 }] } } });
       assert.equal(r.ok, false);
       assert.deepEqual(r.ok ? [] : r.issues[0]?.path, ["items", "k", "tags", 1, "k"]);
     });
 
     test("parse throws every problem at once", () => {
       assert.throws(
-        () => p.parse({ nope: 1, items: { k: {} } }),
+        () => parse(Root, { nope: 1, items: { k: {} } }),
         (e: unknown) => e instanceof ValidationError && e.issues.length === 2,
       );
     });

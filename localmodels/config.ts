@@ -1,5 +1,5 @@
 import { Type, type Static, type StaticDecode } from "typebox";
-import { parser, record, rules, said, section, strictObject, withDefault } from "../src/validate.ts";
+import { record, rules, said, section, strictObject, withDefault } from "../src/validate.ts";
 
 /**
  * The `local_models` section of the user's settings file (docs/local-models.md, section 4): the models to download and run, the
@@ -208,7 +208,7 @@ const server = section({
   webui: withDefault(Type.Boolean(), false),
 });
 
-const localModels = strictObject({
+export const localModelsSchema = strictObject({
   /** The engine that runs the models. Only `router` (llama-server's own router mode) exists so far; the host is written against an interface so another can be added. */
   engine: withDefault(Type.Literal("router"), "router"),
   llama_cpp: llamaCpp,
@@ -236,8 +236,7 @@ const localModels = strictObject({
   ]),
 });
 
-export const localModelsSchema = parser(localModels);
-export type LocalModels = StaticDecode<typeof localModels>;
+export type LocalModels = StaticDecode<typeof localModelsSchema>;
 
 /** Where a model's file comes from, as far as the settings alone say. */
 export type ModelSource =

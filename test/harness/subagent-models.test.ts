@@ -27,7 +27,7 @@ describe("the model catalog", () => {
   });
 
   test("harness.yml accepts descriptions and levels in models, and refuses a default that is not a level", () => {
-    const ok = harnessConfig.safeParse({
+    const ok = safeParse(harnessConfig, {
       providers: {
         p: {
           $tag: "x",
@@ -36,8 +36,8 @@ describe("the model catalog", () => {
       },
     });
     assert.ok(ok.ok);
-    assert.ok(harnessConfig.safeParse({ subagent: { models: { "p/m": { reasoning: ["low"] } } } }).ok);
-    assert.ok(!harnessConfig.safeParse({ subagent: { models: { "no-slash": {} } } }).ok);
+    assert.ok(safeParse(harnessConfig, { subagent: { models: { "p/m": { reasoning: ["low"] } } } }).ok);
+    assert.ok(!safeParse(harnessConfig, { subagent: { models: { "no-slash": {} } } }).ok);
   });
 });
 
@@ -114,4 +114,5 @@ describe("the child's model setting", () => {
 });
 
 import { approvalKey } from "../../harness/subagent-models.ts";
+import { safeParse } from "../../src/validate.ts";
 const approvalKeyOf = (c: { key: string; level: string | undefined }): string => approvalKey(c);

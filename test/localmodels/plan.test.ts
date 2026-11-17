@@ -3,10 +3,11 @@ import { posix, win32 } from "node:path";
 import { describe, test } from "node:test";
 import { localModelsSchema, modelSource } from "../../localmodels/config.ts";
 import { dataDir, downloadList, presetIni, routerArgs, sourceHash } from "../../localmodels/plan.ts";
+import { parse as parseValue, safeParse } from "../../src/validate.ts";
 
-const parse = (v: unknown) => localModelsSchema.parse(v);
+const parse = (v: unknown) => parseValue(localModelsSchema, v);
 const bad = (v: unknown) => {
-  const r = localModelsSchema.safeParse(v);
+  const r = safeParse(localModelsSchema, v);
   assert.equal(r.ok, false);
   return r.ok ? "" : r.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n");
 };

@@ -9,6 +9,7 @@ import { Lock, LockError } from "../../localmodels/lock.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { fakeLlamaRelease } from "../support/llama-release.ts";
 import { tempDir } from "../support/tmp.ts";
+import { parse } from "../../src/validate.ts";
 
 async function setup(opts: { digest?: (b: Buffer) => string } = {}) {
   const server = await HttpFixture.start();
@@ -19,7 +20,7 @@ async function setup(opts: { digest?: (b: Buffer) => string } = {}) {
   const events: InstallEvent[] = [];
   const o = (config: Record<string, unknown>, extra: Partial<Parameters<typeof ensureLlamaServer>[0]> = {}) => ({
     data,
-    config: localModelsSchema.parse({ llama_cpp: config }).llama_cpp,
+    config: parse(localModelsSchema, { llama_cpp: config }).llama_cpp,
     platform: "linux" as const,
     arch: "x64" as const,
     lock,

@@ -14,6 +14,7 @@ import {
   ttlMinutes,
   type PriceTable,
 } from "../../providers/pricing.ts";
+import { safeParse } from "../../src/validate.ts";
 
 const table = (models: PriceTable["models"]): PriceTable => ({ ...emptyTable(), as_of: "2026-10-25", source: "test", models });
 const M = 1_000_000;
@@ -153,7 +154,7 @@ describe("tables", () => {
 
   test("cache lifetimes must be whole minutes", () => {
     const t = (cache_write: unknown) =>
-      priceTable.safeParse({ ...emptyTable(), models: { m: { rates: { standard: { cache_write } } } } }).ok;
+      safeParse(priceTable, { ...emptyTable(), models: { m: { rates: { standard: { cache_write } } } } }).ok;
     assert.equal(t({ 30: 1, 720: 2 }), true);
     assert.equal(t(1), true);
     assert.equal(t({ "0": 1 }), false);
@@ -164,13 +165,13 @@ describe("tables", () => {
   test("a malformed table is refused", () => {
     assert.equal(parseTable(new TextEncoder().encode("{")), undefined);
     assert.equal(parseTable(new TextEncoder().encode(JSON.stringify({ version: 1 }))), undefined);
-    assert.equal(priceTable.safeParse({ ...emptyTable(), models: { m: { rates: { standard: { input: -1 } } } } }).ok, false);
-    assert.equal(priceTable.safeParse({ ...emptyTable(), models: { m: { rates: { standard: { inptu: 1 } } } } }).ok, false);
+    assert.equal(safeParse(priceTable, { ...emptyTable(), models: { m: { rates: { standard: { input: -1 } } } } }).ok, false);
+    assert.equal(safeParse(priceTable, { ...emptyTable(), models: { m: { rates: { standard: { inptu: 1 } } } } }).ok, false);
   });
 
   test("the bundled tables are well formed and say where they came from", () => {
     for (const t of [ANTHROPIC_PRICES, OPENAI_PRICES]) {
-      assert.ok(priceTable.safeParse(t).ok);
+      assert.ok(safeParse(priceTable, t).ok);
       assert.match(t.source, /^https:\/\//);
       assert.ok(Object.keys(t.models).length > 0);
     }

@@ -13,6 +13,7 @@ import { gguf, SAMPLING } from "../support/gguf.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
 import { testIo } from "./support.ts";
+import { parse } from "../../src/validate.ts";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "support", "fake-llama-server.mjs");
 
@@ -151,7 +152,7 @@ describe("models reload and logs (host running)", () => {
     const daemon = new Daemon({
       data,
       loadSettings: async () => ({
-        config: localModelsSchema.parse({
+        config: parse(localModelsSchema, {
           llama_cpp: { path: join(dir, "bin") },
           server: { health_timeout: 10 },
           models: { alpha: { url: `${server.base}/alpha.gguf` } },

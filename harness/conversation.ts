@@ -1,4 +1,5 @@
 import { parseConfig, type ConfigResult } from "../src/config.ts";
+import { parse } from "../src/validate.ts";
 import {
   FrameError,
   Git,
@@ -803,7 +804,7 @@ export class Conversation {
         const parsed = bytes === undefined ? undefined : await parseConfig(dec.decode(bytes), harnessConfig);
         if (parsed !== undefined && !parsed.ok)
           throw new ConversationError(`invalid configuration: ${parsed.issues.map((i) => `${i.path || "file"}: ${i.message}`).join("; ")}`);
-        opts = { ...inOpts, ...(await Conversation.#withProviders(parsed?.value ?? harnessConfig.parse({}), inOpts)) };
+        opts = { ...inOpts, ...(await Conversation.#withProviders(parsed?.value ?? parse(harnessConfig, {}), inOpts)) };
       }
       await Conversation.#writeSchema(host, git, dir, inOpts.providers.registry);
     }

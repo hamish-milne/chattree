@@ -2,7 +2,7 @@ import { Type, type StaticDecode } from "typebox";
 import { parseConfig } from "../src/config.ts";
 import type { Host } from "../src/host.ts";
 import { localModelsSchema } from "../localmodels/config.ts";
-import { parser, strictObject } from "../src/validate.ts";
+import { strictObject } from "../src/validate.ts";
 import { CliError, type Io } from "./io.ts";
 
 /**
@@ -11,7 +11,7 @@ import { CliError, type Io } from "./io.ts";
  */
 const opt = Type.Optional;
 const nonEmpty = Type.String({ minLength: 1 });
-const settings = strictObject({
+export const settingsSchema = strictObject({
   /** The editor command (it may carry arguments, "code -w"). Before `$VISUAL` and `$EDITOR`. */
   editor: opt(nonEmpty),
   /** Windows: where `run` gets cat, ls, grep and the rest. `auto` (the default) uses the busybox.exe that is there or fetches the pinned release, `off` never fetches, anything else is the path of a busybox.exe. */
@@ -25,7 +25,7 @@ const settings = strictObject({
   /** Where downloaded programs and models are kept. Default: the user data directory (`$XDG_DATA_HOME/chattree`, `%LOCALAPPDATA%\\chattree`). */
   data_dir: opt(nonEmpty),
   /** The models chattree downloads and runs itself (docs/local-models.md). */
-  local_models: opt(localModelsSchema.schema),
+  local_models: opt(localModelsSchema),
   /** What new sessions show; `/display` changes it for one session. */
   display: opt(
     strictObject({
@@ -34,9 +34,8 @@ const settings = strictObject({
     }),
   ),
 });
-export const settingsSchema = parser(settings);
 
-export type Settings = StaticDecode<typeof settings>;
+export type Settings = StaticDecode<typeof settingsSchema>;
 
 /** Where the file is: `CHATTREE_SETTINGS`, else `chattree/settings.yml` under the user's config directory. Undefined when there is no way to tell. */
 export function settingsPath(host: Host, env: Readonly<Record<string, string | undefined>>): string | undefined {

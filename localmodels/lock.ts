@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { Type } from "typebox";
-import { parser, withDefault } from "../src/validate.ts";
+import { safeParse, withDefault } from "../src/validate.ts";
 
 /**
  * The record of what was fetched (docs/local-models.md, section 3): the SHA-256 and size of every program archive and model file the
@@ -23,13 +23,11 @@ interface LockData {
 }
 
 /** What a lock file says, read back as written (a missing `quants` is an older file's). */
-const LOCK_FILE = parser(
-  Type.Object({
-    version: Type.Literal(1),
-    files: Type.Record(Type.String(), Type.Object({ sha256: Type.String(), size: Type.Number() })),
-    quants: withDefault(Type.Record(Type.String(), Type.Array(Type.String())), {}),
-  }),
-);
+const LOCK_FILE = Type.Object({
+  version: Type.Literal(1),
+  files: Type.Record(Type.String(), Type.Object({ sha256: Type.String(), size: Type.Number() })),
+  quants: withDefault(Type.Record(Type.String(), Type.Array(Type.String())), {}),
+});
 
 export class LockError extends Error {
   override name = "LockError";
@@ -49,7 +47,7 @@ export class Lock {
     const text = await readFile(path, "utf8").catch(() => undefined);
     if (text !== undefined) {
       try {
-        const v = LOCK_FILE.safeParse(JSON.parse(text));
+        const v = safeParse(LOCK_FILE, JSON.parse(text));
         if (!v.ok) throw new Error("unknown format");
         data = v.value;
       } catch (e) {

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { catalog, resolveName, samplingSettings } from "../../localmodels/catalog.ts";
 import { localModelsSchema } from "../../localmodels/config.ts";
+import { parse } from "../../src/validate.ts";
 
-const config = localModelsSchema.parse({
+const config = parse(localModelsSchema, {
   defaults: { ctx_size: 8192 },
   models: {
     qwen: {

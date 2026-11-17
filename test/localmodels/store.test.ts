@@ -11,6 +11,7 @@ import { downloadList, sourceHash } from "../../localmodels/plan.ts";
 import { fetchDownloads, modelId, resolveDownloads, type StoreEvent } from "../../localmodels/store.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
+import { parse } from "../../src/validate.ts";
 
 const f = (path: string, size = 10): RepoFile => ({ path, size, sha256: undefined });
 
@@ -105,7 +106,7 @@ describe("the projector and draft files of a repository", () => {
 describe("the model store", () => {
   const body = Buffer.from("model-bytes-".repeat(2000));
   const sha = createHash("sha256").update(body).digest("hex");
-  const config = localModelsSchema.parse({
+  const config = parse(localModelsSchema, {
     models: { small: { hf: "org/repo:Q4_K_M" }, plain: { url: "https://files.test/plain.gguf" } },
   });
 
@@ -166,7 +167,7 @@ describe("the model store", () => {
           tree("MTP/mtp-M-BF16.gguf"),
         ]),
       });
-      const c = localModelsSchema.parse({
+      const c = parse(localModelsSchema, {
         models: { m: { hf: "org/side:Q4_K_M", mmproj: "auto", speculative: { type: "draft-mtp", draft: "auto" } } },
       });
       const resolved = await resolveDownloads(downloadList(c, { join }, data).downloads, opts);
@@ -205,7 +206,7 @@ describe("the model store", () => {
   test("a file that is not what the settings pinned is refused", async () => {
     const { server, data, opts } = await setup();
     try {
-      const pinned = localModelsSchema.parse({ models: { plain: { url: "https://files.test/plain.gguf", sha256: "1".repeat(64) } } });
+      const pinned = parse(localModelsSchema, { models: { plain: { url: "https://files.test/plain.gguf", sha256: "1".repeat(64) } } });
       const { downloads } = downloadList(pinned, { join }, data);
       await assert.rejects(fetchDownloads(downloads, opts), /not the expected file/);
     } finally {
@@ -233,7 +234,7 @@ describe("the model store", () => {
   test("two models with one source download it once", async () => {
     const { server, data, lock, opts } = await setup();
     try {
-      const two = localModelsSchema.parse({
+      const two = parse(localModelsSchema, {
         models: { a: { url: "https://files.test/plain.gguf" }, b: { url: "https://files.test/plain.gguf", speculative: "ngram-mod" } },
       });
       const fetched = await fetchDownloads(downloadList(two, { join }, data).downloads, opts);
@@ -252,7 +253,7 @@ describe("the model store", () => {
       await mkdir(join(data, "models", "plain"), { recursive: true });
       await writeFile(join(data, "models", "plain", "plain.gguf"), body);
       lock.setFile("models/plain/plain.gguf", { sha256: sha, size: body.length });
-      const one = localModelsSchema.parse({ models: { plain: { url: "https://files.test/plain.gguf" } } });
+      const one = parse(localModelsSchema, { models: { plain: { url: "https://files.test/plain.gguf" } } });
       const fetched = await fetchDownloads(downloadList(one, { join }, data).downloads, opts);
       assert.equal(server.seen.length, 0);
       assert.equal((await stat(fetched[0]?.dest as string)).size, body.length);
@@ -273,7 +274,7 @@ describe("removing and pruning shared files", () => {
     const { writeFile, mkdir } = await import("node:fs/promises");
     const data = await tempDir();
     const lock = await Lock.open(join(data, "lock.json"));
-    const config = localModelsSchema.parse({
+    const config = parse(localModelsSchema, {
       models: { a: { url: "https://files.test/m.gguf" }, b: { url: "https://files.test/m.gguf" }, c: { url: "https://files.test/c.gguf" } },
     });
     for (const d of downloadList(config, { join }, data).downloads) {

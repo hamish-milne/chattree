@@ -11,6 +11,7 @@ import { readInfo } from "../../localmodels/daemon-files.ts";
 import { nodeSpawn, RouterEngine } from "../../localmodels/engine.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { tempDir } from "../support/tmp.ts";
+import { parse as parseValue } from "../../src/validate.ts";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "support", "fake-llama-server.mjs");
 
@@ -60,7 +61,7 @@ async function setup(
     ...(o.idleMinuteMs === undefined ? {} : { idleMinuteMs: o.idleMinuteMs }),
     loadSettings: async () => {
       const doc = parse(await readFile(file, "utf8")) as { local_models: unknown };
-      return { config: localModelsSchema.parse(doc.local_models), baseDir: dir };
+      return { config: parseValue(localModelsSchema, doc.local_models), baseDir: dir };
     },
     host: {
       platform: "linux",

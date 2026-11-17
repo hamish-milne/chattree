@@ -12,6 +12,7 @@ import { nodeSpawn, RouterEngine } from "../../localmodels/engine.ts";
 import { HttpFixture } from "../support/http-fixture.ts";
 import { fakeLlamaRelease } from "../support/llama-release.ts";
 import { tempDir } from "../support/tmp.ts";
+import { parse as parseValue } from "../../src/validate.ts";
 
 const script = join(dirname(fileURLToPath(import.meta.url)), "..", "support", "fake-llama-server.mjs");
 
@@ -25,7 +26,7 @@ async function setup(llama: Record<string, unknown> | "path" = "path") {
   await writeFile(binary, "");
   let models: Record<string, unknown> = { alpha: { url: `${server.base}/alpha.gguf` } };
   const parse = (): LocalModels =>
-    localModelsSchema.parse({ llama_cpp: llama === "path" ? { path: binary } : llama, server: { health_timeout: 10 }, models });
+    parseValue(localModelsSchema, { llama_cpp: llama === "path" ? { path: binary } : llama, server: { health_timeout: 10 }, models });
   let fail: string | undefined;
   const daemon = new Daemon({
     data,

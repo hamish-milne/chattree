@@ -51,15 +51,6 @@ export class ValidationError extends Error {
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; issues: Issue[] };
 
-/** A schema with the parse functions bound to it. */
-export interface Parser<S extends TSchema, T = StaticDecode<S>> {
-  /** The JSON Schema this parses with. */
-  readonly schema: S;
-  /** The value with defaults filled in and codecs run; throws a `ValidationError` naming every problem. */
-  parse(raw: unknown): T;
-  safeParse(raw: unknown): ParseResult<T>;
-}
-
 /** An object that rejects fields it does not name. */
 export function strictObject<P extends TProperties>(properties: P, options: Parameters<typeof Type.Object>[1] = {}): TObject<P> {
   return Type.Object(properties, { ...options, additionalProperties: false });
@@ -121,7 +112,7 @@ export function record<V extends TSchema>(key: TSchema, value: V, options: Param
 }
 
 /** The node of the schema a `schemaPath` (`#/properties/a/anyOf/0`) names. */
-function nodeAt(schema: TSchema, schemaPath: string): Record<string, unknown> | undefined {
+export function nodeAt(schema: TSchema, schemaPath: string): Record<string, unknown> | undefined {
   const node = Pointer.Get(schema, schemaPath.replace(/^#/, ""));
   return Guard.IsObject(node) ? node : undefined;
 }
@@ -234,16 +225,11 @@ export function safeParse<S extends TSchema>(schema: S, raw: unknown): ParseResu
   return { ok: true, value: DecodeUnsafe({}, schema, filled) as StaticDecode<S> };
 }
 
-export function parser<S extends TSchema>(schema: S): Parser<S> {
-  return {
-    schema,
-    safeParse: (raw) => safeParse(schema, raw),
-    parse(raw) {
-      const r = safeParse(schema, raw);
-      if (!r.ok) throw new ValidationError(r.issues);
-      return r.value;
-    },
-  };
+/** The value with defaults filled in and codecs run; throws a `ValidationError` naming every problem. */
+export function parse<S extends TSchema>(schema: S, raw: unknown): StaticDecode<S> {
+  const r = safeParse(schema, raw);
+  if (!r.ok) throw new ValidationError(r.issues);
+  return r.value;
 }
 
 /** Whether this schema's checks run as generated code (false where the environment does not allow it, or `useAcceleration` is off). */
