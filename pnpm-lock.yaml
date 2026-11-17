@@ -175,6 +175,9 @@ importers:
       file-type:
         specifier: 22.3.0
         version: 22.3.0
+      typebox:
+        specifier: ^1.4.7
+        version: 1.4.7
       yaml:
         specifier: ^2.9.1
         version: 2.9.1
@@ -695,6 +698,9 @@ packages:
     resolution: {integrity: sha512-s9euYHM//T3loJtbNUYdbAzsMlvKBeRS+XCLFy+UGosMQH19Hwjap5k19i4PPAEJJBsVIpMpVTxl4fIqCuNfUg==}
     engines: {node: '>=14.16'}
 
+  typebox@1.4.7:
+    resolution: {integrity: sha512-KonYdBj3gOgG/rH96TlUs/f+eaEDqiKRW7KU4/LE/tEjEnRCcfpYLofBfHfNMBAiBosmY55e4YeCPuE+NXmJtg==}
+
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
     engines: {node: '>=16.20.0'}
@@ -1028,6 +1034,8 @@ snapshots:
       '@borewit/text-codec': 0.2.3
       '@tokenizer/token': 0.3.0
       ieee754: 1.2.1
+
+  typebox@1.4.7: {}
 
   typescript@7.0.2:
     optionalDependencies:

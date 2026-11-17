@@ -7,8 +7,8 @@ import { dataDir, downloadList, presetIni, routerArgs, sourceHash } from "../../
 const parse = (v: unknown) => localModelsSchema.parse(v);
 const bad = (v: unknown) => {
   const r = localModelsSchema.safeParse(v);
-  assert.equal(r.success, false);
-  return r.success ? "" : r.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n");
+  assert.equal(r.ok, false);
+  return r.ok ? "" : r.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n");
 };
 
 describe("the local_models section", () => {

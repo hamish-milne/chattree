@@ -1,41 +1,42 @@
-import { z } from "zod";
+import { Type, type StaticDecode } from "typebox";
 import { parseConfig } from "../src/config.ts";
 import type { Host } from "../src/host.ts";
 import { localModelsSchema } from "../localmodels/config.ts";
+import { parser, strictObject } from "../src/validate.ts";
 import { CliError, type Io } from "./io.ts";
 
 /**
  * The user-level settings file (docs/cli.md): things that belong to the person and the machine, not to a thread, so they are not in
  * `harness.yml`. Read once at startup; a file that does not parse is an error, never silently ignored.
  */
-export const settingsSchema = z
-  .object({
-    /** The editor command (it may carry arguments, "code -w"). Before `$VISUAL` and `$EDITOR`. */
-    editor: z.string().min(1).optional(),
-    /** Windows: where `run` gets cat, ls, grep and the rest. `auto` (the default) uses the busybox.exe that is there or fetches the pinned release, `off` never fetches, anything else is the path of a busybox.exe. */
-    busybox: z.string().min(1).optional(),
-    /**
-     * Where ffmpeg comes from, which converts pictures and sound into a form a model takes (docs/tools.md, media formats). `auto`: the one that
-     * is there (CHATTREE_FFMPEG, the PATH), else on Windows the pinned build is fetched; a path: that program; `false`: never convert. There is no
-     * default: a conversion that is needed while this is not set is an error, since what was meant is not known. `chattree init` makes the file with `auto`.
-     */
-    ffmpeg: z.union([z.literal(false), z.string().min(1)]).optional(),
-    /** Where downloaded programs and models are kept. Default: the user data directory (`$XDG_DATA_HOME/chattree`, `%LOCALAPPDATA%\\chattree`). */
-    data_dir: z.string().min(1).optional(),
-    /** The models chattree downloads and runs itself (docs/local-models.md). */
-    local_models: localModelsSchema.optional(),
-    /** What new sessions show; `/display` changes it for one session. */
-    display: z
-      .object({
-        thinking: z.enum(["on", "brief", "off"]).optional(),
-        tools: z.enum(["full", "brief", "off"]).optional(),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict();
+const opt = Type.Optional;
+const nonEmpty = Type.String({ minLength: 1 });
+const settings = strictObject({
+  /** The editor command (it may carry arguments, "code -w"). Before `$VISUAL` and `$EDITOR`. */
+  editor: opt(nonEmpty),
+  /** Windows: where `run` gets cat, ls, grep and the rest. `auto` (the default) uses the busybox.exe that is there or fetches the pinned release, `off` never fetches, anything else is the path of a busybox.exe. */
+  busybox: opt(nonEmpty),
+  /**
+   * Where ffmpeg comes from, which converts pictures and sound into a form a model takes (docs/tools.md, media formats). `auto`: the one that
+   * is there (CHATTREE_FFMPEG, the PATH), else on Windows the pinned build is fetched; a path: that program; `false`: never convert. There is no
+   * default: a conversion that is needed while this is not set is an error, since what was meant is not known. `chattree init` makes the file with `auto`.
+   */
+  ffmpeg: opt(Type.Union([Type.Literal(false), nonEmpty])),
+  /** Where downloaded programs and models are kept. Default: the user data directory (`$XDG_DATA_HOME/chattree`, `%LOCALAPPDATA%\\chattree`). */
+  data_dir: opt(nonEmpty),
+  /** The models chattree downloads and runs itself (docs/local-models.md). */
+  local_models: opt(localModelsSchema.schema),
+  /** What new sessions show; `/display` changes it for one session. */
+  display: opt(
+    strictObject({
+      thinking: opt(Type.Enum(["on", "brief", "off"])),
+      tools: opt(Type.Enum(["full", "brief", "off"])),
+    }),
+  ),
+});
+export const settingsSchema = parser(settings);
 
-export type Settings = z.infer<typeof settingsSchema>;
+export type Settings = StaticDecode<typeof settings>;
 
 /** Where the file is: `CHATTREE_SETTINGS`, else `chattree/settings.yml` under the user's config directory. Undefined when there is no way to tell. */
 export function settingsPath(host: Host, env: Readonly<Record<string, string | undefined>>): string | undefined {

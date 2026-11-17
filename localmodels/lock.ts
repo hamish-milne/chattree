@@ -1,6 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
-import { z } from "zod";
+import { Type } from "typebox";
+import { parser } from "../src/validate.ts";
 
 /**
  * The record of what was fetched (docs/local-models.md, section 3): the SHA-256 and size of every program archive and model file the
@@ -22,11 +23,13 @@ interface LockData {
 }
 
 /** What a lock file says, read back as written (a missing `quants` is an older file's). */
-const LOCK_FILE = z.object({
-  version: z.literal(1),
-  files: z.record(z.string(), z.object({ sha256: z.string(), size: z.number() })),
-  quants: z.record(z.string(), z.array(z.string())).default({}),
-});
+const LOCK_FILE = parser(
+  Type.Object({
+    version: Type.Literal(1),
+    files: Type.Record(Type.String(), Type.Object({ sha256: Type.String(), size: Type.Number() })),
+    quants: Type.Record(Type.String(), Type.Array(Type.String()), { default: {} }),
+  }),
+);
 
 export class LockError extends Error {
   override name = "LockError";
@@ -47,8 +50,8 @@ export class Lock {
     if (text !== undefined) {
       try {
         const v = LOCK_FILE.safeParse(JSON.parse(text));
-        if (!v.success) throw new Error("unknown format");
-        data = v.data;
+        if (!v.ok) throw new Error("unknown format");
+        data = v.value;
       } catch (e) {
         throw new LockError(
           `${path} is not a lock file chattree wrote (${e instanceof Error ? e.message : String(e)}); move it away to start again`,

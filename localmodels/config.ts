@@ -1,18 +1,23 @@
-import { z } from "zod";
+import { Type, type Static, type StaticDecode } from "typebox";
+import { parser, record, rules, said, strictObject } from "../src/validate.ts";
 
 /**
  * The `local_models` section of the user's settings file (docs/local-models.md, section 4): the models to download and run, the
  * llama.cpp release to run them with, and how the server is reached. Pure data: nothing here touches the network or the disk.
  */
 
-const name = z
-  .string()
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/, "letters, digits and . _ : -, starting with a letter or digit, at most 64 characters");
-const envName = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
-const sha256 = z
-  .string()
-  .regex(/^[0-9a-fA-F]{64}$/, "64 hexadecimal digits")
-  .transform((s) => s.toLowerCase());
+const opt = Type.Optional;
+const pattern = (re: RegExp, message: string) => said(message, Type.String({ pattern: re.source }));
+
+const name = pattern(
+  /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/,
+  "letters, digits and . _ : -, starting with a letter or digit, at most 64 characters",
+);
+const envName = pattern(/^[A-Za-z_][A-Za-z0-9_]*$/, "an environment variable name");
+const sha256 = Type.Codec(pattern(/^[0-9a-fA-F]{64}$/, "64 hexadecimal digits"))
+  .Decode((s) => s.toLowerCase())
+  .Encode((s) => s);
+const httpUrl = said("an http or https address", Type.String({ format: "url", pattern: "^https?:" }));
 
 /** `b12110` (a llama.cpp build) or `v0.9.0` (a release that points at one: `resolveTag`). */
 export const LLAMA_TAG = /^(b\d+|v\d+\.\d+(\.\d+)?)$/;
@@ -20,10 +25,12 @@ export const LLAMA_TAG = /^(b\d+|v\d+\.\d+(\.\d+)?)$/;
 export const BACKENDS = ["auto", "cpu", "cuda", "vulkan", "rocm", "sycl", "openvino", "metal"] as const;
 export type Backend = (typeof BACKENDS)[number];
 
-const nonNegative = z.number().int().min(0);
+const nonNegative = Type.Integer({ minimum: 0 });
+const positive = Type.Integer({ minimum: 1 });
+const nonEmpty = Type.String({ minLength: 1 });
 
 /** What a llama-server option may be given in the preset file: the long option name without dashes. */
-const optionValue = z.union([z.string(), z.number(), z.boolean()]);
+const optionValue = Type.Union([Type.String(), Type.Number(), Type.Boolean()]);
 
 /** The types of speculative decoding (docs/local-models.md, 9.8), named as llama-server's `--spec-type` does. */
 export const SPEC_TYPES = [
@@ -41,196 +48,202 @@ export const SPEC_TYPES = [
 export const DRAFT_TYPES = ["draft-simple", "draft-mtp", "draft-eagle3"] as const;
 export const isDraftType = (t: string): boolean => (DRAFT_TYPES as readonly string[]).includes(t);
 /** `org/repo` or `org/repo:QUANT` on Hugging Face. */
-const hfRef = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9_.-]+)?$/, "org/repo or org/repo:QUANT");
+const hfRef = pattern(/^[A-Za-z0-9][A-Za-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._-]*(:[A-Za-z0-9_.-]+)?$/, "org/repo or org/repo:QUANT");
 
 /**
  * A file that goes with a model and is fetched like it (the multimodal projector, the draft model): `auto`, or one of `url` (a direct
  * address), `file` (a file of the model's own Hugging Face repository), `hf` (another repository, `org/repo` or `org/repo:QUANT`; with a
  * `file` that file, without one the repository's only fitting file). `auto` looks in the model's own repository by the usual names.
  */
-const sidecarFields = {
-  url: z.url({ protocol: /^https?$/ }).optional(),
-  hf: hfRef.optional(),
-  file: z.string().min(1).optional(),
+const sidecarObject = strictObject({
+  url: opt(httpUrl),
+  hf: opt(hfRef),
+  file: opt(nonEmpty),
   /** For `hf`: the revision of that repository (default `main`). */
-  revision: z.string().min(1).optional(),
-  sha256: sha256.optional(),
-};
-const sidecarObject = z.strictObject(sidecarFields);
-const sidecar = z.union([z.literal("auto"), sidecarObject]);
-export type Sidecar = z.infer<typeof sidecar>;
-const sidecarIssues = (what: string, v: Sidecar | undefined, modelHf: boolean, path: (string | number)[], ctx: z.RefinementCtx): void => {
-  if (v === undefined || v === "auto") {
-    if (v === "auto" && !modelHf)
-      ctx.addIssue({ code: "custom", path, message: `${what}: auto looks in the model's Hugging Face repository; this model has a url` });
-    return;
-  }
-  if (v.url !== undefined && (v.hf !== undefined || v.file !== undefined))
-    ctx.addIssue({ code: "custom", path, message: `${what}: give a url, or hf and file, not both` });
-  if (v.url === undefined && v.hf === undefined && v.file === undefined)
-    ctx.addIssue({ code: "custom", path, message: `${what}: give a url, a file, an hf repository, or auto` });
-  if (v.file !== undefined && v.hf === undefined && !modelHf)
-    ctx.addIssue({
-      code: "custom",
-      path: [...path, "file"],
-      message: `${what}: a file belongs to a Hugging Face repository: give hf, or use a url`,
-    });
-  if (v.revision !== undefined && v.hf === undefined)
-    ctx.addIssue({ code: "custom", path: [...path, "revision"], message: `${what}: revision goes with hf` });
-};
+  revision: opt(nonEmpty),
+  sha256: opt(sha256),
+});
+const sidecar = Type.Union([Type.Literal("auto"), sidecarObject]);
+export type Sidecar = StaticDecode<typeof sidecar>;
 
-const speculativeObject = z
-  .strictObject({
-    type: z.enum(SPEC_TYPES),
-    /** The longest draft, and the shortest one worth making (for ngram-mod, its `n-max` and `n-min`). */
-    draft_max: z.number().int().positive().optional(),
-    draft_min: nonNegative.optional(),
-    /** The length of the n-gram looked up in the history (for ngram-mod, `n-match`), and of the run drafted after a match (not used by ngram-mod). */
-    ngram_n: z.number().int().positive().optional(),
-    ngram_m: z.number().int().positive().optional(),
-    /** How many times a key must have been seen before it drafts (ngram-map types). */
-    min_hits: z.number().int().positive().optional(),
-    /** The second model of a draft type: where its file is (a sidecar, as `mmproj`). */
-    draft: sidecar.optional(),
-    /** The least probability a drafted token needs to be kept (draft types). */
-    p_min: z.number().min(0).max(1).optional(),
-  })
-  .superRefine((v, ctx) => {
-    if (v.type === "ngram-mod" && (v.ngram_m !== undefined || v.min_hits !== undefined))
-      ctx.addIssue({ code: "custom", message: "ngram-mod has no ngram_m or min_hits" });
-    if (isDraftType(v.type) && v.draft === undefined)
-      ctx.addIssue({ code: "custom", message: `${v.type} needs a draft: auto, a url, a file, or an hf repository` });
-    if (!isDraftType(v.type) && (v.draft !== undefined || v.p_min !== undefined))
-      ctx.addIssue({ code: "custom", message: `${v.type} has no draft model or p_min` });
-    if (isDraftType(v.type) && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined))
-      ctx.addIssue({ code: "custom", message: `${v.type} has no n-gram options` });
-    if (v.type === "ngram-cache" && (v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined))
-      ctx.addIssue({ code: "custom", message: "ngram-cache has no n-gram options" });
-  });
-export type Speculative = z.infer<typeof speculativeObject>;
+/** What is wrong with a sidecar, given whether its model comes from Hugging Face; the sentences name the sidecar. */
+function sidecarProblems(what: string, v: Sidecar | undefined, modelHf: boolean): string[] {
+  const out: string[] = [];
+  if (v === undefined) return out;
+  if (v === "auto") {
+    if (!modelHf) out.push(`${what}: auto looks in the model's Hugging Face repository; this model has a url`);
+    return out;
+  }
+  if (v.url !== undefined && (v.hf !== undefined || v.file !== undefined)) out.push(`${what}: give a url, or hf and file, not both`);
+  if (v.url === undefined && v.hf === undefined && v.file === undefined) out.push(`${what}: give a url, a file, an hf repository, or auto`);
+  if (v.file !== undefined && v.hf === undefined && !modelHf)
+    out.push(`${what}: a file belongs to a Hugging Face repository: give hf, or use a url`);
+  if (v.revision !== undefined && v.hf === undefined) out.push(`${what}: revision goes with hf`);
+  return out;
+}
+
+const speculativeBase = strictObject({
+  type: Type.Enum(SPEC_TYPES),
+  /** The longest draft, and the shortest one worth making (for ngram-mod, its `n-max` and `n-min`). */
+  draft_max: opt(positive),
+  draft_min: opt(nonNegative),
+  /** The length of the n-gram looked up in the history (for ngram-mod, `n-match`), and of the run drafted after a match (not used by ngram-mod). */
+  ngram_n: opt(positive),
+  ngram_m: opt(positive),
+  /** How many times a key must have been seen before it drafts (ngram-map types). */
+  min_hits: opt(positive),
+  /** The second model of a draft type: where its file is (a sidecar, as `mmproj`). */
+  draft: opt(sidecar),
+  /** The least probability a drafted token needs to be kept (draft types). */
+  p_min: opt(Type.Number({ minimum: 0, maximum: 1 })),
+});
+type SpecFields = Static<typeof speculativeBase>;
+const hasNgram = (v: SpecFields): boolean => v.ngram_n !== undefined || v.ngram_m !== undefined || v.min_hits !== undefined;
+const speculativeObject = rules(speculativeBase, [
+  (v) =>
+    v.type === "ngram-mod" && (v.ngram_m !== undefined || v.min_hits !== undefined) ? "ngram-mod has no ngram_m or min_hits" : undefined,
+  (v) => (isDraftType(v.type) && v.draft === undefined ? `${v.type} needs a draft: auto, a url, a file, or an hf repository` : undefined),
+  (v) => (!isDraftType(v.type) && (v.draft !== undefined || v.p_min !== undefined) ? `${v.type} has no draft model or p_min` : undefined),
+  (v) => (isDraftType(v.type) && hasNgram(v) ? `${v.type} has no n-gram options` : undefined),
+  (v) => (v.type === "ngram-cache" && hasNgram(v) ? "ngram-cache has no n-gram options" : undefined),
+]);
+export type Speculative = StaticDecode<typeof speculativeBase>;
 
 /** Settings that apply to every model (`defaults`) or to one. */
 const params = {
-  ctx_size: z.number().int().positive().optional(),
+  ctx_size: opt(positive),
   /** Layers on the GPU: a number, `auto` or `all`. */
-  n_gpu_layers: z.union([nonNegative, z.enum(["auto", "all"])]).optional(),
-  flash_attn: z.enum(["on", "off", "auto"]).optional(),
-  threads: z.number().int().positive().optional(),
-  parallel: z.number().int().positive().optional(),
+  n_gpu_layers: opt(Type.Union([nonNegative, Type.Enum(["auto", "all"])])),
+  flash_attn: opt(Type.Enum(["on", "off", "auto"])),
+  threads: opt(positive),
+  parallel: opt(positive),
   /** llama-server uses the model's own chat template through its Jinja engine by default; `false` turns that off. */
-  jinja: z.boolean().optional(),
-  cache_type_k: z.string().min(1).optional(),
-  cache_type_v: z.string().min(1).optional(),
+  jinja: opt(Type.Boolean()),
+  cache_type_k: opt(nonEmpty),
+  cache_type_v: opt(nonEmpty),
   /** Seconds idle before the model is unloaded from memory (it is loaded again by the next request). */
-  sleep_idle_seconds: nonNegative.optional(),
+  sleep_idle_seconds: opt(nonNegative),
   /** Speculative decoding: a type (`ngram-mod`) or an object with its tuning. Outputs are the same with it on or off; only speed changes. */
-  speculative: z.union([z.enum(SPEC_TYPES).transform((type): Speculative => ({ type })), speculativeObject]).optional(),
+  speculative: opt(
+    Type.Union([
+      Type.Codec(Type.Enum(SPEC_TYPES))
+        .Decode((type): Speculative => ({ type }))
+        .Encode((s) => s.type),
+      speculativeObject,
+    ]),
+  ),
   /** Any other llama-server option, by its long name without the dashes (`rope-scale: 2`). Written to the preset file as it is. */
-  options: z.record(z.string().regex(/^[a-z][a-z0-9-]*$/, "a long option name without dashes, in lower case"), optionValue).optional(),
-} as const;
+  options: opt(record(pattern(/^[a-z][a-z0-9-]*$/, "a long option name without dashes, in lower case"), optionValue)),
+};
 
-const sampling = z.strictObject({
-  temperature: z.number().min(0).max(5).optional(),
-  top_p: z.number().min(0).max(1).optional(),
-  top_k: nonNegative.optional(),
-  min_p: z.number().min(0).max(1).optional(),
-  repeat_penalty: z.number().min(0).optional(),
-  presence_penalty: z.number().optional(),
-  frequency_penalty: z.number().optional(),
+const sampling = strictObject({
+  temperature: opt(Type.Number({ minimum: 0, maximum: 5 })),
+  top_p: opt(Type.Number({ minimum: 0, maximum: 1 })),
+  top_k: opt(nonNegative),
+  min_p: opt(Type.Number({ minimum: 0, maximum: 1 })),
+  repeat_penalty: opt(Type.Number({ minimum: 0 })),
+  presence_penalty: opt(Type.Number()),
+  frequency_penalty: opt(Type.Number()),
 });
-export type Sampling = z.infer<typeof sampling>;
+export type Sampling = StaticDecode<typeof sampling>;
 
-const modelEntry = z
-  .strictObject({
-    /** Where the GGUF file is: a direct URL, or ... */
-    url: z.url({ protocol: /^https?$/ }).optional(),
-    /** ... a Hugging Face repository (`org/repo:Q4_K_M`; a `file` names the exact file instead of a quantisation). */
-    hf: hfRef.optional(),
-    file: z.string().min(1).optional(),
-    revision: z.string().min(1).default("main"),
-    /** The SHA-256 the file must have. Hugging Face tells it, so it is optional there. */
-    sha256: sha256.optional(),
-    /** The multimodal projector for a vision model: a URL, or a file of the same Hugging Face repository. */
-    mmproj: sidecar.optional(),
-    description: z.string().min(1).optional(),
-    aliases: z.array(name).optional(),
-    /** Start it when the server starts, rather than at the first request. */
-    load_on_startup: z.boolean().optional(),
-    embeddings: z.boolean().optional(),
-    sampling: sampling.optional(),
-    /** How tool definitions must be written for this model (docs/tools.md, 3.7). */
-    tool_convention: z.enum(["full", "flat"]).optional(),
-    /** A chat template file to use instead of the model's own; a relative path is relative to the settings file. */
-    chat_template: z.string().min(1).optional(),
-    ...params,
-  })
-  .superRefine((m, ctx) => {
-    if ((m.url === undefined) === (m.hf === undefined))
-      ctx.addIssue({ code: "custom", message: "give either url or hf, not both and not neither" });
-    if (m.url !== undefined && m.file !== undefined)
-      ctx.addIssue({ code: "custom", path: ["file"], message: "file goes with hf; a url already names the file" });
-    sidecarIssues("the projector", m.mmproj, m.hf !== undefined, ["mmproj"], ctx);
-    sidecarIssues("the draft model", m.speculative?.draft, m.hf !== undefined, ["speculative", "draft"], ctx);
-  });
-export type ModelEntry = z.infer<typeof modelEntry>;
-
-const llamaCpp = z.strictObject({
-  /** The release to run: a build (`b12110`) or a release that points at one (`v0.9.0`). No tag, no download: `chattree models update` picks the newest and writes it here. */
-  tag: z.string().regex(LLAMA_TAG, "a build such as b12110, or a version such as v0.9.0").optional(),
-  backend: z.enum(BACKENDS).default("auto"),
-  /** With the cuda backend, the CUDA version to prefer (`12.8`); default the newest the release has. */
-  cuda: z
-    .string()
-    .regex(/^\d+(\.\d+)?$/)
-    .optional(),
-  /** Use this llama-server instead of fetching one. */
-  path: z.string().min(1).optional(),
+const modelBase = strictObject({
+  /** Where the GGUF file is: a direct URL, or ... */
+  url: opt(httpUrl),
+  /** ... a Hugging Face repository (`org/repo:Q4_K_M`; a `file` names the exact file instead of a quantisation). */
+  hf: opt(hfRef),
+  file: opt(nonEmpty),
+  revision: Type.String({ minLength: 1, default: "main" }),
+  /** The SHA-256 the file must have. Hugging Face tells it, so it is optional there. */
+  sha256: opt(sha256),
+  /** The multimodal projector for a vision model: a URL, or a file of the same Hugging Face repository. */
+  mmproj: opt(sidecar),
+  description: opt(nonEmpty),
+  aliases: opt(Type.Array(name)),
+  /** Start it when the server starts, rather than at the first request. */
+  load_on_startup: opt(Type.Boolean()),
+  embeddings: opt(Type.Boolean()),
+  sampling: opt(sampling),
+  /** How tool definitions must be written for this model (docs/tools.md, 3.7). */
+  tool_convention: opt(Type.Enum(["full", "flat"])),
+  /** A chat template file to use instead of the model's own; a relative path is relative to the settings file. */
+  chat_template: opt(nonEmpty),
+  ...params,
 });
+type ModelFields = Static<typeof modelBase>;
 
-const server = z.strictObject({
-  host: z.string().min(1).default("127.0.0.1"),
-  /** `auto` lets the host choose a free port and record it. */
-  port: z.union([z.literal("auto"), z.number().int().min(1).max(65535)]).default("auto"),
-  /** How many models stay in memory at once; the least recently used is unloaded for the next. 0 is no limit. */
-  models_max: nonNegative.default(1),
-  /** Stop the host when it has had no request for this many minutes. Default: never. */
-  idle_exit_minutes: z.number().int().positive().optional(),
-  /** How long to wait, in seconds, for llama-server to answer after it starts. */
-  health_timeout: z.number().int().positive().default(60),
-  /** Serve llama-server's own web page. */
-  webui: z.boolean().default(false),
-});
+/** The speculative setting as the object it means (it may be written as just a type, which has no draft). */
+const specOf = (s: ModelFields["speculative"]): SpecFields | undefined => (typeof s === "object" ? s : undefined);
 
-export const localModelsSchema = z
-  .strictObject({
-    /** The engine that runs the models. Only `router` (llama-server's own router mode) exists so far; the host is written against an interface so another can be added. */
-    engine: z.literal("router").default("router"),
-    llama_cpp: llamaCpp.default({ backend: "auto" }),
-    server: server.default({ host: "127.0.0.1", port: "auto", models_max: 1, health_timeout: 60, webui: false }),
-    defaults: z.strictObject(params).default({}),
-    /** The environment variable that holds a Hugging Face token, for repositories that need one. */
-    hf_token_env: envName.optional(),
-    models: z.record(name, modelEntry).default({}),
-  })
-  .superRefine((c, ctx) => {
-    if (c.defaults.speculative?.draft !== undefined)
-      ctx.addIssue({
-        code: "custom",
-        path: ["defaults", "speculative", "draft"],
-        message: "a draft model belongs to one model: set speculative on the model",
-      });
-    const seen = new Map<string, string>();
-    for (const [model, m] of Object.entries(c.models)) {
-      for (const n of [model, ...(m.aliases ?? [])]) {
-        const other = seen.get(n);
-        if (other !== undefined && other !== model)
-          ctx.addIssue({ code: "custom", path: ["models", model], message: `the name ${n} is also used by ${other}` });
-        seen.set(n, model);
+/** The rules between a model's fields. They are reported at the model, and the sentence says which field it is about. */
+const modelEntry = rules(modelBase, [
+  (m) => ((m.url === undefined) === (m.hf === undefined) ? "give either url or hf, not both and not neither" : undefined),
+  (m) => (m.url !== undefined && m.file !== undefined ? "file goes with hf; a url already names the file" : undefined),
+  (m) => sidecarProblems("the projector", m.mmproj, m.hf !== undefined).join("; ") || undefined,
+  (m) => sidecarProblems("the draft model", specOf(m.speculative)?.draft, m.hf !== undefined).join("; ") || undefined,
+]);
+export type ModelEntry = StaticDecode<typeof modelEntry>;
+
+const llamaCpp = strictObject(
+  {
+    /** The release to run: a build (`b12110`) or a release that points at one (`v0.9.0`). No tag, no download: `chattree models update` picks the newest and writes it here. */
+    tag: opt(said("a build such as b12110, or a version such as v0.9.0", Type.String({ pattern: LLAMA_TAG.source }))),
+    backend: Type.Enum(BACKENDS, { default: "auto" }),
+    /** With the cuda backend, the CUDA version to prefer (`12.8`); default the newest the release has. */
+    cuda: opt(Type.String({ pattern: "^\\d+(\\.\\d+)?$" })),
+    /** Use this llama-server instead of fetching one. */
+    path: opt(nonEmpty),
+  },
+  { default: {} },
+);
+
+const server = strictObject(
+  {
+    host: Type.String({ minLength: 1, default: "127.0.0.1" }),
+    /** `auto` lets the host choose a free port and record it. */
+    port: Type.Union([Type.Literal("auto"), Type.Integer({ minimum: 1, maximum: 65535 })], { default: "auto" }),
+    /** How many models stay in memory at once; the least recently used is unloaded for the next. 0 is no limit. */
+    models_max: Type.Integer({ minimum: 0, default: 1 }),
+    /** Stop the host when it has had no request for this many minutes. Default: never. */
+    idle_exit_minutes: opt(positive),
+    /** How long to wait, in seconds, for llama-server to answer after it starts. */
+    health_timeout: Type.Integer({ minimum: 1, default: 60 }),
+    /** Serve llama-server's own web page. */
+    webui: Type.Boolean({ default: false }),
+  },
+  { default: {} },
+);
+
+const localModels = strictObject({
+  /** The engine that runs the models. Only `router` (llama-server's own router mode) exists so far; the host is written against an interface so another can be added. */
+  engine: Type.Literal("router", { default: "router" }),
+  llama_cpp: llamaCpp,
+  server,
+  defaults: rules(strictObject(params, { default: {} }), [
+    (d) =>
+      specOf(d.speculative)?.draft !== undefined
+        ? "speculative.draft: a draft model belongs to one model: set speculative on the model"
+        : undefined,
+  ]),
+  /** The environment variable that holds a Hugging Face token, for repositories that need one. */
+  hf_token_env: opt(envName),
+  models: rules(record(name, modelEntry, { default: {} }), [
+    (models) => {
+      const seen = new Map<string, string>();
+      for (const [model, m] of Object.entries(models)) {
+        for (const n of [model, ...(m.aliases ?? [])]) {
+          const other = seen.get(n);
+          if (other !== undefined && other !== model) return `the name ${n} is also used by ${other}`;
+          seen.set(n, model);
+        }
       }
-    }
-  });
+      return undefined;
+    },
+  ]),
+});
 
-export type LocalModels = z.infer<typeof localModelsSchema>;
+export const localModelsSchema = parser(localModels);
+export type LocalModels = StaticDecode<typeof localModels>;
 
 /** Where a model's file comes from, as far as the settings alone say. */
 export type ModelSource =
