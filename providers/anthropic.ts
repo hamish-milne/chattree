@@ -17,6 +17,7 @@ import {
   type StreamRequest,
   type Usage,
 } from "./types.ts";
+import { messageText } from "./wire.ts";
 
 /**
  * The Anthropic Messages API (docs/providers.md). Also what Ollama and other servers speak as their
@@ -403,7 +404,7 @@ export function anthropicMapper(baseUrl: string, version: string, betas: readonl
         const e = (JSON.parse(body) as Json)["error"] as Json | undefined;
         if (e === undefined || typeof e["type"] !== "string") return undefined;
         const known = ERROR_TYPES[e["type"]];
-        return { ...(known === undefined ? {} : known), message: `${status} ${e["type"]}: ${String(e["message"] ?? "")}` };
+        return { ...(known === undefined ? {} : known), message: `${status} ${e["type"]}: ${messageText(e["message"])}` };
       } catch {
         return undefined;
       }

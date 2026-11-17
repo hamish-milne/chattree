@@ -174,7 +174,9 @@ export async function runAgentTask(o: AgentTaskOptions): Promise<AgentTaskResult
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const lastAssistant = entries.findLast((e) => e.$tag === "assistant");
   const answer =
-    lastAssistant?.$tag === "assistant" ? lastAssistant.blocks.flatMap((b) => (b.$tag === "text" ? [b.text] : [])).join("") : "";
+    lastAssistant?.$tag === "assistant"
+      ? lastAssistant.blocks.flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : [])).join("")
+      : "";
   const problems = await verifyHistory(convo).catch((e: unknown) => [String(e)]);
   return { dir, status, requests, steps, used, errors, after, read, answer, problems };
 }

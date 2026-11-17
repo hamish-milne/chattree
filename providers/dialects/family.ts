@@ -38,7 +38,7 @@ export interface CallCodec {
   /** The name, as soon as enough of the body has arrived to say. */
   peek(partial: string): string | undefined;
   /** Whether a body that was cut off is whole anyway (the arguments are all there). */
-  complete?(body: string): boolean;
+  complete?(this: void, body: string): boolean;
   /** Markers inside the body that are tokens of their own (a separator). */
   markers?: readonly string[];
 }

@@ -5,6 +5,7 @@ import { servedModelId } from "../harness/setup.ts";
 import type { HttpMapper, HttpRequestSpec } from "./http.ts";
 import { ProviderError, type Completed, type StreamEvent, type StreamRequest, type Usage } from "./types.ts";
 import type { SseEvent } from "./sse.ts";
+import { messageText } from "./wire.ts";
 
 /**
  * Dialects (docs/local-models.md, section 9): our own prompt rendering and output parsing for a model, in place of the server's chat
@@ -499,5 +500,5 @@ function errorOf(d: unknown): { kind: "server" | "invalid_request" | "overloaded
       : type === "unavailable_error"
         ? "overloaded"
         : "server";
-  return { kind, retryable: kind === "overloaded", message: `${type}: ${String(e["message"] ?? "")}` };
+  return { kind, retryable: kind === "overloaded", message: `${type}: ${messageText(e["message"])}` };
 }

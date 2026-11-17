@@ -28,6 +28,7 @@ import { collectStream } from "../providers/conformance.ts";
 import { AUDIO_KINDS, listenScenario, scenarios, speechScenario, type AudioKind, type AudioScenario } from "./audio-scenarios.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
 import { SOURCE_FORMATS, probeFfmpeg, reencode, throughSink } from "./media-source.ts";
+import { thrownText } from "../providers/wire.ts";
 
 export interface AudioResult {
   id: string;
@@ -233,7 +234,7 @@ async function ask(
       ...(sent === undefined ? {} : { sent }),
       answer: "",
       right: false,
-      error: run.error instanceof Error ? run.error.message : String(run.error),
+      error: thrownText(run.error),
     };
   const blocks = run.completed?.blocks ?? [];
   const answer = blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");

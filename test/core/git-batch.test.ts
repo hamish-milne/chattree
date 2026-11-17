@@ -82,6 +82,7 @@ describe("catFile", () => {
   test("falls back to a process per request when the host cannot spawn", async () => {
     const { git } = await repoWithHistory();
     const { Git } = await import("../../src/index.ts");
+    // oxlint-disable-next-line typescript/unbound-method -- only taken out of the object to leave it out of the copy
     const { spawn: _unused, ...noSpawn } = nodeHost();
     const g = await Git.open(noSpawn, { cwd: git.cwd });
     const s = await g.catFile();

@@ -83,6 +83,7 @@ const numbersIn = (answer: string): number[] => [
   ...NUMBER_WORDS.flatMap((w, n) => (has(answer, w) ? [n] : [])),
 ];
 
+// oxlint-disable-next-line typescript/consistent-return -- the switch covers every case; the compiler checks it
 export function make(kind: Kind, seed: number): Scenario {
   const r = rng(seed * 7919 + KINDS.indexOf(kind) * 104729 + 1);
   const id = `${kind}-${seed}`;

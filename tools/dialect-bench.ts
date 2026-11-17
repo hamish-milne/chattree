@@ -40,6 +40,7 @@ import { blur, selectTasks } from "./live-sample.ts";
 import { localModelsAdapter } from "./local-adapter.ts";
 import type { Task } from "./tasks.ts";
 import { tapFetch, type WireRecord } from "./wire-log.ts";
+import { thrownText } from "../providers/wire.ts";
 
 export interface Arm {
   label: string;
@@ -104,11 +105,10 @@ const describeError = (e: unknown): NonNullable<RequestRecord["error"]> => {
       kind: e.kind,
       ...(e.status === undefined ? {} : { status: e.status }),
       retryable: e.retryable,
-      ...(e.cause === undefined ? {} : { cause: String((e.cause as Error)?.stack ?? e.cause) }),
+      ...(e.cause === undefined ? {} : { cause: causeText(e.cause) }),
     };
-  if (e instanceof Error)
-    return { name: e.name, message: e.message, ...(e.cause === undefined ? {} : { cause: String((e.cause as Error)?.stack ?? e.cause) }) };
-  return { name: "unknown", message: String(e) };
+  if (e instanceof Error) return { name: e.name, message: e.message, ...(e.cause === undefined ? {} : { cause: causeText(e.cause) }) };
+  return { name: "unknown", message: thrownText(e) };
 };
 
 export interface BenchOptions {
@@ -523,3 +523,5 @@ if (import.meta.main) {
     process.exitCode = 2;
   });
 }
+
+const causeText = (cause: unknown): string => (cause instanceof Error ? (cause.stack ?? cause.message) : thrownText(cause));

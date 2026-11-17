@@ -38,6 +38,9 @@
     "typescript/no-for-in-array": "error",
     "typescript/no-base-to-string": "error",
     "eslint/no-await-in-loop": "off",
+    "eslint/no-unmodified-loop-condition": "off",
+    "oxc/no-accumulating-spread": "off",
+    "oxc/no-map-spread": "off",
     "eslint/no-control-regex": "off",
     "eslint/no-underscore-dangle": "off",
     "promise/always-return": "off",
@@ -53,6 +56,7 @@
         "typescript/no-non-null-assertion": "off",
         "typescript/no-floating-promises": "off",
         "typescript/no-unsafe-type-assertion": "off",
+        "typescript/no-base-to-string": "off",
         "eslint/require-yield": "off"
       }
     },
@@ -62,6 +66,7 @@
       ],
       "rules": {
         "typescript/no-explicit-any": "off",
+        "typescript/consistent-return": "off",
         "typescript/no-non-null-assertion": "off",
         "typescript/no-unsafe-argument": "off",
         "typescript/no-unsafe-assignment": "off",

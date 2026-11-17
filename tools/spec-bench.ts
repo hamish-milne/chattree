@@ -55,6 +55,7 @@ def main():
 if __name__ == "__main__":
     main()
 `;
+import { thrownText } from "../providers/wire.ts";
 
 interface Task {
   name: string;
@@ -270,7 +271,7 @@ async function main(): Promise<void> {
             .flatMap((b) => (b.type === "text" ? [b.text] : b.type === "tool_call" ? [`CALL ${b.name} ${JSON.stringify(b.args)}`] : []))
             .join("\n"),
           calls: blocks.filter((b) => b.type === "tool_call").length,
-          ...(run.error === undefined ? {} : { error: run.error instanceof Error ? run.error.message : String(run.error) }),
+          ...(run.error === undefined ? {} : { error: thrownText(run.error) }),
         };
         samples.push(s);
         console.error(

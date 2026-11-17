@@ -416,6 +416,7 @@ function oneLine(s: string, max: number): string {
 }
 
 /** Commit subject for an entry: readable in `git log --oneline`. */
+// oxlint-disable-next-line typescript/consistent-return -- the switch covers every case; the compiler checks it
 export function describeEntry(e: ChatEntry): string {
   switch (e.$tag) {
     case "header":

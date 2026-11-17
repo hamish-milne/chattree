@@ -83,7 +83,7 @@ export interface StartedJob {
      * requests, so it may change the branch). `recorded: true` says the tool committed an entry that reports the job itself (a subagent's
      * merge), so no `job_event` is written. A throw becomes a failed job.
      */
-    settle?(out: ToolOutput): Promise<{ recorded: boolean } | void>;
+    settle?(this: void, out: ToolOutput): Promise<{ recorded: boolean } | void>;
   };
 }
 
@@ -133,7 +133,7 @@ export interface Tool {
   ): string[] | undefined | Promise<string[] | undefined>;
   /** Why a key (one the user typed or edited) is not usable for this tool, or undefined if it is. */
   validateKey?(key: string): string | undefined;
-  execute(args: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutput | StartedJob>;
+  execute(this: void, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolOutput | StartedJob>;
 }
 
 export const isStarted = (r: ToolOutput | StartedJob): r is StartedJob => "started" in r;

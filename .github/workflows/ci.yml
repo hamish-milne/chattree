@@ -17,6 +17,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
       - run: pnpm typecheck
+      - run: pnpm format:check
+      - run: pnpm lint
 
   # The quick group (pnpm test) on both platforms: the Windows paths (busybox, cmd.exe, path handling) only run for real there.
   test:

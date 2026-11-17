@@ -83,6 +83,7 @@ const indent = (s: string, by = "  "): string =>
     .join("\n");
 
 /** One transcript entry as plain text. `max` clips long texts (the full entry is `/show`). */
+// oxlint-disable-next-line typescript/consistent-return -- the switch covers every case; the compiler checks it
 export async function formatEntry(
   convo: Conversation,
   e: ChatEntry,
@@ -193,11 +194,11 @@ export interface PlainSink {
 
 /** How a renderer marks up what it says: plain text by default, ANSI colours on a terminal. */
 export interface Style {
-  dim(s: string): string;
-  bold(s: string): string;
-  cyan(s: string): string;
-  red(s: string): string;
-  yellow(s: string): string;
+  dim(this: void, s: string): string;
+  bold(this: void, s: string): string;
+  cyan(this: void, s: string): string;
+  red(this: void, s: string): string;
+  yellow(this: void, s: string): string;
 }
 export const plainStyle: Style = { dim: (s) => s, bold: (s) => s, cyan: (s) => s, red: (s) => s, yellow: (s) => s };
 export const ansiStyle: Style = {

@@ -5,6 +5,7 @@ import { ThreadRuns, type CycleEnd, type Run, type RunOptions } from "./runs.ts"
 import type { Approval, LoopEvent } from "./loop.ts";
 import { ulidTime } from "./ulid.ts";
 import { decisionsIn, foldTip, unanswered, type CallNeed, type TipState } from "./tip.ts";
+import { thrownText } from "../providers/wire.ts";
 
 /**
  * The pump (docs/tools.md, 5.4). It looks at the threads of a project, works out from each tip what is needed next (`foldTip`) and does
@@ -238,6 +239,7 @@ export class Pump {
   }
 
   /** Whether to start the thread's loop now, and with what user message first. */
+  // oxlint-disable-next-line typescript/consistent-return -- the switch covers every case; the compiler checks it
   async #wants(convo: Conversation, tip: TipState): Promise<{ say?: string; at?: string } | undefined> {
     const at = await this.#lastEntryId(convo);
     switch (tip.kind) {
@@ -302,8 +304,7 @@ export class Pump {
     if (end === undefined || this.#closed) return;
     this.#hooks.onEnd?.(branch, end);
     const status = end.result?.status;
-    if (end.error !== undefined)
-      this.#held.set(branch, `the loop failed: ${end.error instanceof Error ? end.error.message : String(end.error)}`);
+    if (end.error !== undefined) this.#held.set(branch, `the loop failed: ${thrownText(end.error)}`);
     else if (status === "stopped" || status === "deadline" || status === "interrupted" || status === "cancelled")
       this.#held.set(branch, `the loop ended: ${status}`);
     // A thread that finished or is waiting changes what others need (a parent waits for this one), so everything is looked at again.
@@ -324,6 +325,7 @@ export class Pump {
         }
         continue;
       }
+      // oxlint-disable-next-line typescript/await-thenable -- `cycleEnd` is undefined for a run that has gone; Promise.all takes plain values
       await Promise.all(active.map((r) => this.runs.get(r.branch)?.cycleEnd({ next: false })));
     }
     throw new Error("the pump did not settle");

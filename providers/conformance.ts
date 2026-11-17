@@ -1,5 +1,6 @@
 import type { Block } from "../harness/context-builder.ts";
 import { ProviderError, type Completed, type ModelStream, type StreamEvent } from "./types.ts";
+import { thrownText } from "./wire.ts";
 
 /**
  * The checks every adapter's stream must pass (docs/writing-an-adapter.md). Independent of any test runner:
@@ -45,7 +46,7 @@ export function conformanceProblems(run: StreamRun, opts: ConformanceOptions = {
   if (run.completed === undefined && run.error === undefined) out.push("the stream neither returned nor threw");
   if (run.completed !== undefined && run.error !== undefined) out.push("the stream both returned and threw");
   if (run.error !== undefined && !(run.error instanceof ProviderError))
-    out.push(`the stream threw something that is not a ProviderError: ${String(run.error)}`);
+    out.push(`the stream threw something that is not a ProviderError: ${thrownText(run.error)}`);
 
   // `started` is first when present, and only once.
   const started = ev.map((e, i) => (e.type === "started" ? i : -1)).filter((i) => i >= 0);

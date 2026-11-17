@@ -120,6 +120,7 @@ export async function startHttp(opts: { tools?: FakeTool[]; page?: number; sse?:
   });
   const headers: HttpFake["headers"] = [];
   let sessions = 0;
+  // oxlint-disable-next-line typescript/no-misused-promises -- a test server: a failure in the handler fails the test through the client
   const http: Server = createServer(async (req, res) => {
     headers.push({ ...req.headers });
     if (opts.auth !== undefined && req.headers["authorization"] !== opts.auth) {

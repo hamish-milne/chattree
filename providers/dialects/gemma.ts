@@ -37,7 +37,8 @@ export function gemmaValue(v: unknown, escapeKeys: boolean): string {
     return `{${sorted(v)
       .map(([k, x]) => `${escapeKeys ? `${Q}${k}${Q}` : k}:${gemmaValue(x, escapeKeys)}`)
       .join(",")}}`;
-  return String(v);
+  if (typeof v === "number" || typeof v === "bigint") return String(v);
+  throw new TypeError(`a ${typeof v} has no notation in this format`);
 }
 
 const list = (xs: unknown[]): string => `[${xs.map((x) => `${Q}${String(x)}${Q}`).join(",")}]`;

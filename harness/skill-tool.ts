@@ -1,6 +1,7 @@
 import { loadPinned } from "./definitions.ts";
 import { asSkill, skillText } from "./skills.ts";
 import type { Tool, ToolOutput } from "./tools.ts";
+import { optString } from "../providers/wire.ts";
 
 /** How many names an error lists. */
 const LISTED = 200;
@@ -25,7 +26,7 @@ export function skillTool(): Tool {
     },
     allowKeys: () => ["all"],
     execute: async (args, ctx): Promise<ToolOutput> => {
-      const name = String(args["name"] ?? "").trim();
+      const name = optString(args["name"], "name").trim();
       if (ctx.setup === undefined || ctx.blobs === undefined) return { content: "skills are not available here", is_error: true };
       const skills = (await ctx.setup()).skills;
       const pin = skills[name];

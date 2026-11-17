@@ -32,6 +32,7 @@ export interface CommitGraph {
 const flat = (t: unknown): string => (typeof t === "string" ? t : "[large text]").replace(/\s+/g, " ").trim();
 
 /** A few words on what an entry contains, for labels. */
+// oxlint-disable-next-line typescript/consistent-return -- the switch covers every case; the compiler checks it
 export function summarizeEntry(e: ChatEntry | undefined, fallback: string): string {
   if (e === undefined) return fallback;
   switch (e.$tag) {

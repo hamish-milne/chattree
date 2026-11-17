@@ -27,6 +27,7 @@ import {
   type StreamRequest,
   type Usage,
 } from "./types.ts";
+import { messageText, optString } from "./wire.ts";
 
 /**
  * The OpenAI Responses API (docs/providers.md), and the servers that speak it (Ollama and others). Checked against
@@ -389,14 +390,14 @@ function outputBlocks(output: unknown, provider: string): { blocks: Block[]; ref
     if (item["type"] === "message") {
       const p = partsText(item["content"]);
       refused ||= p.refused;
-      blocks.push({ type: "text", text: p.text, ext: { item_id: String(item["id"] ?? "") } });
+      blocks.push({ type: "text", text: p.text, ext: { item_id: optString(item["id"], "item.id") } });
     } else if (item["type"] === "function_call")
       blocks.push(
         toolBlock(
-          String(item["call_id"] ?? item["id"] ?? ""),
-          String(item["name"] ?? ""),
-          String(item["arguments"] ?? ""),
-          String(item["id"] ?? ""),
+          optString(item["call_id"] ?? item["id"], "item.call_id"),
+          optString(item["name"], "item.name"),
+          optString(item["arguments"], "item.arguments"),
+          optString(item["id"], "item.id"),
         ),
       );
     else if (item["type"] === "reasoning") {
@@ -459,13 +460,13 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
         }
         case "response.output_item.added": {
           const item = (d["item"] ?? {}) as Json;
-          if (item["type"] === "message") s.open.set(index, { kind: "message", item_id: String(item["id"] ?? ""), text: "" });
+          if (item["type"] === "message") s.open.set(index, { kind: "message", item_id: optString(item["id"], "item.id"), text: "" });
           else if (item["type"] === "function_call") {
             const o: Open = {
               kind: "call",
-              item_id: String(item["id"] ?? ""),
-              call_id: String(item["call_id"] ?? item["id"] ?? ""),
-              name: String(item["name"] ?? ""),
+              item_id: optString(item["id"], "item.id"),
+              call_id: optString(item["call_id"] ?? item["id"], "item.call_id"),
+              name: optString(item["name"], "item.name"),
               args: "",
             };
             s.open.set(index, o);
@@ -480,7 +481,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
           const o = s.open.get(index);
           if (o === undefined || o.kind === "skip") return [];
           if (o.kind !== "message") throw protocol(`text for output ${index}, which is not a message`);
-          const text = String(d["delta"] ?? "");
+          const text = optString(d["delta"], "d.delta");
           o.text += text;
           if (type === "response.refusal.delta") s.refused = true;
           return [{ type: "text.delta", index, text }];
@@ -489,7 +490,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
         case "response.reasoning_text.delta": {
           const o = s.open.get(index);
           if (o === undefined || o.kind !== "reasoning") return [];
-          const text = String(d["delta"] ?? "");
+          const text = optString(d["delta"], "d.delta");
           o.summary += text;
           return [{ type: "reasoning.delta", index, text }];
         }
@@ -503,7 +504,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
           const o = s.open.get(index);
           if (o === undefined || o.kind === "skip") return [];
           if (o.kind !== "call") throw protocol(`arguments for output ${index}, which is not a function call`);
-          const delta = String(d["delta"] ?? "");
+          const delta = optString(d["delta"], "d.delta");
           o.args += delta;
           return [{ type: "tool_call.delta", index, args_delta: delta }];
         }
@@ -565,7 +566,7 @@ export function openaiResponsesMapper(baseUrl: string, request: RequestOptions):
         if (e === undefined || typeof e !== "object") return undefined;
         const code = typeof e["code"] === "string" ? e["code"] : typeof e["type"] === "string" ? e["type"] : undefined;
         const known = code === undefined ? undefined : ERROR_CODES[code];
-        return { ...(known === undefined ? {} : known), message: `${status} ${code ?? "error"}: ${String(e["message"] ?? "")}` };
+        return { ...(known === undefined ? {} : known), message: `${status} ${code ?? "error"}: ${messageText(e["message"])}` };
       } catch {
         return undefined;
       }
@@ -577,7 +578,7 @@ function errorFrom(code: unknown, message: unknown): ProviderError {
   const known = typeof code === "string" ? ERROR_CODES[code] : undefined;
   return new ProviderError({
     ...(known ?? { kind: "server" as const, retryable: false }),
-    message: `${typeof code === "string" ? code : "error"}: ${String(message ?? "")}`,
+    message: `${typeof code === "string" ? code : "error"}: ${messageText(message)}`,
   });
 }
 

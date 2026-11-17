@@ -25,6 +25,7 @@ import { followSkills, skillsWaiting } from "./skills.ts";
 import { SYSTEM_PROMPT, type HostEnvironment } from "../harness/environment.ts";
 import { hostEnvironment } from "./environment.ts";
 import { editorFor, type Settings } from "./settings.ts";
+import { thrownText } from "../providers/wire.ts";
 
 /** A file staged for the next prompt. Only the path and what was decided about it are kept; the blob is made when the prompt is sent. */
 export interface StagedAttachment {
@@ -293,7 +294,7 @@ export class Engine {
           const status = end.result?.status;
           const why =
             end.error !== undefined
-              ? `failed: ${end.error instanceof Error ? end.error.message : String(end.error)}`
+              ? `failed: ${thrownText(end.error)}`
               : status === "stopped" || status === "deadline" || status === "interrupted" || status === "cancelled"
                 ? status
                 : undefined;
@@ -612,6 +613,7 @@ export class Engine {
 
   /** Run a program with the terminal handed over to it, as for the editor. */
   async exec(stage: readonly string[], cwd: string): Promise<number> {
+    // oxlint-disable-next-line typescript/unbound-method -- it is called with its `io` below
     const exec = this.io.exec;
     if (exec === undefined) throw new CliError("there is no terminal to run a program in", "run `chattree chat` in a terminal");
     const run = (): Promise<number> => exec.call(this.io, stage, cwd);
@@ -620,6 +622,7 @@ export class Engine {
 
   /** Open a file in the user's editor, with the terminal handed over for the duration. */
   async edit(path: string): Promise<boolean> {
+    // oxlint-disable-next-line typescript/unbound-method -- it is called with its `io` below
     const edit = this.io.edit;
     if (edit === undefined) throw new CliError("there is no editor here", "run `chattree chat` in a terminal, or edit the file yourself");
     const run = (): Promise<boolean> => edit.call(this.io, path, editorFor(this.io));

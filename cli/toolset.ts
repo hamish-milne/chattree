@@ -43,11 +43,11 @@ export interface ToolSet {
 
 export interface ToolSetHooks {
   /** A job's event was committed while nothing was running: tell the user. */
-  onCommitted(events: { job: string; status: string; summary: string }[]): void;
+  onCommitted(this: void, events: { job: string; status: string; summary: string }[]): void;
   /** `background.resume` is on and an event was committed while idle: send a request. */
-  onResume(): void;
+  onResume(this: void): void;
   /** A request of this session is running. */
-  busy(): boolean;
+  busy(this: void): boolean;
   /** This session's id, named as the holder of the run lease a background job takes. */
   session?: string;
   /** How a subagent's loop is run: the system prompt, and approvals that name the subagent when they ask the user. */

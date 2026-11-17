@@ -32,11 +32,14 @@ export interface HttpMapper<S> {
   /** Build the result. Called once, after `done`. */
   finish(state: S): Completed;
   /** Override how a non-2xx response is classified. Return nothing to use the default. */
-  classify?(res: {
-    status: number;
-    headers: Headers;
-    body: string;
-  }): Partial<{ kind: ErrorKind; retryable: boolean; message: string; retryAfterMs: number }> | undefined;
+  classify?(
+    this: void,
+    res: {
+      status: number;
+      headers: Headers;
+      body: string;
+    },
+  ): Partial<{ kind: ErrorKind; retryable: boolean; message: string; retryAfterMs: number }> | undefined;
 }
 
 export interface RetryPolicy {
@@ -47,9 +50,9 @@ export interface RetryPolicy {
   /** Cap on a single wait, including a provider's `retry-after`. Default 30 s. */
   maxMs: number;
   /** Randomise a wait. Default: between half and full. */
-  jitter(ms: number): number;
+  jitter(this: void, ms: number): number;
   /** Decide again whether an error is worth retrying. Default: `error.retryable`. */
-  shouldRetry(error: ProviderError, attempt: number): boolean;
+  shouldRetry(this: void, error: ProviderError, attempt: number): boolean;
 }
 
 export interface Timeouts {
@@ -61,8 +64,8 @@ export interface Timeouts {
 
 /** Hooks see redacted views and must not throw; they are for logging, tracing and recording. */
 export interface HttpHooks {
-  onRequest?(view: { url: string; method: string; headers: Record<string, string>; body: string; attempt: number }): void;
-  onResponse?(view: { status: number; headers: Record<string, string>; attempt: number }): void;
+  onRequest?(this: void, view: { url: string; method: string; headers: Record<string, string>; body: string; attempt: number }): void;
+  onResponse?(this: void, view: { status: number; headers: Record<string, string>; attempt: number }): void;
   onSse?(event: SseEvent): void;
   onRetry?(view: { attempt: number; waitMs: number; error: ProviderError }): void;
 }
@@ -109,7 +112,7 @@ export interface HttpOptions {
   limiter?: Limiter;
   hooks?: HttpHooks;
   /** Waits between retries. Default: a timer that ends early when the request is aborted. Tests inject this. */
-  sleep?(ms: number, signal: AbortSignal): Promise<void>;
+  sleep?(this: void, ms: number, signal: AbortSignal): Promise<void>;
 }
 
 /** At most `max` requests at once; the rest wait their turn, in order. */

@@ -242,6 +242,7 @@ async function* toolLoop(
   }
 }
 
+// oxlint-disable-next-line typescript/consistent-return -- the switch covers every case; the compiler checks it
 async function mapLoopEvent(convo: Ctx["convo"], e: LoopEvent, started: () => void): Promise<Output[]> {
   switch (e.type) {
     case "request.start":

@@ -16,7 +16,7 @@ export interface Io {
   interactive: boolean;
   /** Read all of standard input (for `say -`). */
   readStdin(): Promise<Uint8Array>;
-  now(): number;
+  now(this: void): number;
   /** The terminal's streams, present when `interactive`; tests supply their own. */
   tty?: Tty;
   /** Run `fn` when the process is asked to stop (SIGTERM, SIGHUP, SIGINT); returns the way to stop listening. Absent in tests. */

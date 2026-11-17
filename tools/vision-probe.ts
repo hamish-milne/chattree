@@ -25,6 +25,7 @@ import { localModelsAdapter } from "./local-adapter.ts";
 import { SOURCE_FORMATS, probeFfmpeg, reencode, throughSink } from "./media-source.ts";
 import { KINDS, scenarios, type Kind, type Scenario } from "./vision-scenarios.ts";
 import { createHash } from "node:crypto";
+import { thrownText } from "../providers/wire.ts";
 
 export interface Result {
   id: string;
@@ -187,7 +188,7 @@ async function ask(
       ...(sent === undefined ? {} : { sent }),
       answer: "",
       right: false,
-      error: run.error instanceof Error ? run.error.message : String(run.error),
+      error: thrownText(run.error),
     };
   const blocks = run.completed?.blocks ?? [];
   const answer = blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");

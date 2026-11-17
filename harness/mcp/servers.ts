@@ -9,6 +9,7 @@ import { httpTransport, McpClient, McpError, stdioTransport, type McpCallResult,
 import type { McpPool } from "./pool.ts";
 import { toPortableSchema } from "../schema-project.ts";
 import { schemaProblems } from "../tool-schema.ts";
+import { optString } from "../../providers/wire.ts";
 
 /**
  * MCP servers as the harness uses them (docs/context.md, section 2): a server's configuration is **accepted by the thread** (pinned in
@@ -86,7 +87,7 @@ export function resultText(r: McpCallResult): string {
     if (c.type === "text" && typeof c["text"] === "string") parts.push(c["text"]);
     else if (c.type === "image" || c.type === "audio")
       parts.push(
-        `[${c.type} (${String(c["mimeType"] ?? "unknown type")}, ${Math.round(((typeof c["data"] === "string" ? c["data"].length : 0) * 3) / 4)} bytes) was returned and is not shown]`,
+        `[${c.type} (${optString(c["mimeType"], "mimeType") || "unknown type"}, ${Math.round(((typeof c["data"] === "string" ? c["data"].length : 0) * 3) / 4)} bytes) was returned and is not shown]`,
       );
     else if (c.type === "resource" && typeof c["resource"] === "object" && c["resource"] !== null) {
       const res = c["resource"] as { uri?: string; text?: string; mimeType?: string };
@@ -96,7 +97,7 @@ export function resultText(r: McpCallResult): string {
           : `[resource ${res.uri ?? ""}${res.mimeType === undefined ? "" : ` (${res.mimeType})`} was returned and is not shown]`,
       );
     } else if (c.type === "resource_link")
-      parts.push(`[link: ${String(c["uri"] ?? "")}${typeof c["name"] === "string" ? ` (${c["name"]})` : ""}]`);
+      parts.push(`[link: ${optString(c["uri"], "uri")}${typeof c["name"] === "string" ? ` (${c["name"]})` : ""}]`);
     else parts.push(`[${c.type} content was returned and is not shown]`);
   }
   if (parts.length === 0 && r.structuredContent !== undefined) return JSON.stringify(r.structuredContent);

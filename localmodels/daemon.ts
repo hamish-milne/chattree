@@ -271,9 +271,15 @@ export class Daemon implements ControlTarget {
       busy = true;
       void sourceSignature(w.root, w.dirs)
         .then((now) => {
-          if (now === baseline) return void (pending = undefined);
+          if (now === baseline) {
+            pending = undefined;
+            return;
+          }
           // a change must hold for a whole tick before we act, so a checkout or a build that is still writing is waited out
-          if (pending !== now) return void (pending = now);
+          if (pending !== now) {
+            pending = now;
+            return;
+          }
           baseline = now;
           this.#o.log?.("the daemon's code changed on disk: stopping, so that the next use starts the new code");
           void this.close();

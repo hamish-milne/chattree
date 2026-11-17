@@ -388,8 +388,8 @@ describe("stream", () => {
       r.completed?.blocks.map((b) => b.type),
       ["reasoning", "text", "tool_call"],
     );
-    assert.deepEqual((r.completed!.blocks[2] as { args: unknown }).args, { a: 1 });
-    assert.equal((r.completed!.blocks[0] as { visible?: string }).visible, "hm");
+    assert.deepEqual((r.completed.blocks[2] as { args: unknown }).args, { a: 1 });
+    assert.equal((r.completed.blocks[0] as { visible?: string }).visible, "hm");
     assert.equal(r.completed?.stop_reason, "tool_use");
   });
 
@@ -418,7 +418,7 @@ describe("stream", () => {
       ),
     );
     assert.equal(refusal.completed?.stop_reason, "refusal");
-    assert.equal((refusal.completed!.blocks[0] as { text: string }).text, "No.");
+    assert.equal((refusal.completed.blocks[0] as { text: string }).text, "No.");
     const odd = good(
       await run(
         replay([

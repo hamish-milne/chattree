@@ -21,7 +21,7 @@
     "bench": "node --no-warnings bench/bench.ts",
     "catalog": "node --no-warnings scripts/catalog.ts",
     "chattree": "node --no-warnings cli/chattree.ts",
-    "lint": "oxlint",
+    "lint": "oxlint --type-aware",
     "format": "oxfmt",
     "format:check": "oxfmt --check"
   },

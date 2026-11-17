@@ -45,7 +45,10 @@ const server = createServer((req, res) => {
     req.on("data", (c) => (body += c));
     req.on("end", () => {
       const { model } = JSON.parse(body);
-      if (!state.has(model)) return json(res, { error: "no such model" }, 404);
+      if (!state.has(model)) {
+        json(res, { error: "no such model" }, 404);
+        return;
+      }
       if (url.pathname === "/models/load") {
         state.set(model, "loaded");
         if (max > 0) {
@@ -64,7 +67,10 @@ const server = createServer((req, res) => {
     req.on("end", () => {
       const request = JSON.parse(body);
       if (process.env.FAKE_LLAMA_LOG) appendFileSync(process.env.FAKE_LLAMA_LOG, `${body}\n`);
-      if (!state.has(request.model)) return json(res, { error: { message: `no such model ${request.model}` } }, 404);
+      if (!state.has(request.model)) {
+        json(res, { error: { message: `no such model ${request.model}` } }, 404);
+        return;
+      }
       state.set(request.model, "loaded");
       const chunk = (delta, finish = null) =>
         `data: ${JSON.stringify({ id: "chatcmpl-fake", object: "chat.completion.chunk", model: request.model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`;

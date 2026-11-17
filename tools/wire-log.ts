@@ -32,7 +32,7 @@ export function tapFetch(
     const at = new Date().toISOString();
     let request: unknown = init?.body;
     try {
-      request = JSON.parse(String(init?.body));
+      if (typeof init?.body === "string") request = JSON.parse(init.body);
     } catch {
       // not JSON: keep the text
     }

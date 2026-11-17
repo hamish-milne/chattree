@@ -17,6 +17,7 @@ import {
   type StreamRequest,
   type Usage,
 } from "./types.ts";
+import { messageText } from "./wire.ts";
 
 /**
  * The Chat Completions API as llama-server, Ollama, vLLM, LM Studio and similar servers speak it (docs/providers.md,
@@ -266,7 +267,7 @@ function errorFrom(d: unknown): { kind: ErrorKind; retryable: boolean; message: 
   const type = typeof e["type"] === "string" ? e["type"] : undefined;
   const known = (code === undefined ? undefined : ERROR_KINDS[code]) ??
     (type === undefined ? undefined : ERROR_KINDS[type]) ?? { kind: "server" as const, retryable: false };
-  return { ...known, message: `${code ?? type ?? "error"}: ${String(e["message"] ?? "")}` };
+  return { ...known, message: `${code ?? type ?? "error"}: ${messageText(e["message"])}` };
 }
 
 function updateUsage(s: State, raw: Json): void {
