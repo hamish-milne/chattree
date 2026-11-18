@@ -4,7 +4,7 @@
  * It follows the controller's events and sends intents; it knows nothing of VS Code or the DOM.
  */
 import { computed, createModel, signal } from "@preact/signals-core";
-import type { Approval, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
+import type { Approval, ChatBanner, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
 import { FormModel } from "./form-model.ts";
 import type { UiEvent, UiIntent } from "./protocol.ts";
 import type { FileRef } from "./file-ref.ts";
@@ -34,6 +34,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const composer = signal<Composer>({ draft: "", attachments: [] });
   const approval = signal<Approval | undefined>(undefined);
   const models = signal<ModelChoice | undefined>(undefined);
+  const banner = signal<ChatBanner | undefined>(undefined);
   const settings = signal<InstanceType<typeof FormModel> | undefined>(undefined);
   /** Blocks whose open state is the opposite of their default. */
   const toggled = signal<ReadonlySet<string>>(new Set());
@@ -54,7 +55,9 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const rewindable = computed(
     () => new Set(busy.value ? [] : blocks.value.filter((b) => b.commit !== undefined && b.commit !== thread.value?.tip).map((b) => b.id)),
   );
-  const canSend = computed(() => composer.value.draft.trim() !== "" || composer.value.attachments.length > 0);
+  const canSend = computed(
+    () => banner.value === undefined && (composer.value.draft.trim() !== "" || composer.value.attachments.length > 0),
+  );
   /** How full the context is, 0 to 1, when the limit is known. */
   const contextFraction = computed(() => {
     const c = status.value?.context;
@@ -72,6 +75,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     composer,
     approval,
     models,
+    banner,
     settings,
     settingsOpen,
     reveal,
@@ -92,6 +96,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
           status.value = e.state.status;
           composer.value = e.state.composer;
           approval.value = e.state.approval;
+          banner.value = e.state.banner;
           models.value = e.state.model;
           settings.value = e.state.settings === undefined ? undefined : new FormModel(e.state.settings, send);
           toggled.value = new Set();
@@ -129,6 +134,9 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
         case "chat.composer":
           composer.value = e.composer;
           return true;
+        case "chat.banner":
+          banner.value = e.banner;
+          return true;
         case "chat.approval":
           approval.value = e.approval;
           return true;
@@ -161,6 +169,11 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     approve(allow: boolean): void {
       const a = approval.peek();
       if (a !== undefined) send({ type: "chat.approve", callId: a.callId, allow });
+    },
+    /** Approve the thread's `harness.yml` as it is. */
+    trust(): void {
+      const t = name();
+      if (t !== undefined && banner.peek()?.kind === "untrusted") send({ type: "thread.trust", thread: t });
     },
     chooseModel(id: string): void {
       if (id !== models.peek()?.current) send({ type: "chat.model", model: id });

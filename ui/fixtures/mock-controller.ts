@@ -29,6 +29,10 @@ export interface MockOptions {
   sleep?: (ms: number) => Promise<void>;
 }
 
+const hasProviders = (value: Json): boolean => {
+  const p = value["providers"];
+  return typeof p === "object" && p !== null && Object.keys(p).length > 0;
+};
 const strip = (s: string): string => s.replace(/^(user|assistant): /, "").replace(/^tool result: /, "");
 const words = (s: string): string[] => s.match(/\S+\s*/g) ?? [];
 const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
@@ -152,6 +156,14 @@ export class MockController {
       case "thread.unarchive":
         this.mark(intent.thread, intent.type === "thread.archive");
         return;
+      case "thread.trust": {
+        const chat = this.chat(intent.thread);
+        if (chat.banner?.kind !== "untrusted") return;
+        delete chat.banner;
+        if (intent.thread === this.current) this.emit({ type: "chat.banner" });
+        this.notify("info", `Approved harness.yml for ${intent.thread}`);
+        return;
+      }
       case "thread.rewind":
         this.rewind(intent.thread, intent.commit);
         return;
@@ -279,7 +291,8 @@ export class MockController {
     const base = chatFixture();
     const own = this.graph.commits.filter((c) => c.thread === name);
     let blocks: Block[];
-    if (name === THREADS.main) {
+    if (own.length <= 1) blocks = [];
+    else if (name === THREADS.main) {
       const end = base.blocks.findIndex((b) => b.type === "turn_end");
       blocks = base.blocks.slice(0, end + 1);
     } else blocks = this.blocksOf(name, own);
@@ -301,6 +314,8 @@ export class MockController {
       },
       ...(base.settings === undefined ? {} : { settings: this.form("model-settings").working }),
     };
+    // A fork whose harness.yml was edited since the person approved it: the pretend thread that shows the banner.
+    if (name === THREADS.old) state.banner = { kind: "untrusted", state: "changed" };
     this.chats.set(name, state);
     return state;
   }
@@ -570,10 +585,22 @@ export class MockController {
     this.emit({ type: "graph.repos", repos: { repos: this.repos, current: id } });
     this.emit({ type: "graph.data", data: structuredClone(this.graph) });
     this.emit({ type: "graph.selected", thread: this.current });
-    this.emit({ type: "chat.open", state: structuredClone(this.chat(this.current)) });
+    const first = this.chat(this.current);
+    first.banner = { kind: "no_provider" };
+    first.status = { ...first.status, model: "No model yet", provider: "none" };
+    this.emit({ type: "chat.open", state: structuredClone(first) });
     // A new conversation has no providers: the file the person sees is the one init wrote.
     const harness = this.form("harness");
-    const bare: FormSpec = { ...harness.saved, value: { ...harness.saved.value, providers: {} }, dirty: false, issues: [] };
+    const bare: FormSpec = {
+      ...harness.saved,
+      value: {
+        ...harness.saved.value,
+        providers: {},
+        limits: { max_request_usd: 1, max_turn_usd: 5, max_conversation_usd: 50, warn_at: 0.8 },
+      },
+      dirty: false,
+      issues: [],
+    };
     this.forms.set("harness", { saved: bare, working: bare });
     this.emit({ type: "form.set", form: bare });
     this.emit({ type: "settings.open", page: "providers" });
@@ -690,6 +717,11 @@ export class MockController {
   private send(text: string): void {
     const thread = this.current;
     const chat = this.chat(thread);
+    if (chat.banner !== undefined)
+      return this.notify(
+        "warning",
+        chat.banner.kind === "no_provider" ? "Add a provider in the settings first" : "Approve this thread's harness.yml first",
+      );
     const attachments = chat.composer.attachments.map((a) => a.file);
     chat.composer = { draft: "", attachments: [] };
     this.emit({ type: "chat.composer", composer: chat.composer });
@@ -1078,8 +1110,16 @@ export class MockController {
     if (id === "harness") {
       // The file is committed on the trunk like any other change; the person's message is the commit's.
       const subject = `harness.yml: ${message === undefined || message === "" ? "update settings" : message}`;
-      this.commit(THREADS.main, "other", subject);
-      this.publish(THREADS.main);
+      this.commit(this.graph.trunk, "other", subject);
+      this.publish(this.graph.trunk);
+      // A conversation that had no provider can take messages once the file names one.
+      const chat = this.chat(this.current);
+      if (chat.banner?.kind === "no_provider" && hasProviders(f.saved.value)) {
+        delete chat.banner;
+        chat.status = this.statusOf("idle", "Claude Sonnet 5.5", 0, 0);
+        this.emit({ type: "chat.banner" });
+        this.emit({ type: "chat.status", status: chat.status });
+      }
       return this.notify("info", "harness.yml saved and committed");
     }
     // Model settings are part of the conversation: a change is an entry on the thread.

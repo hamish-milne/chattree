@@ -3,6 +3,9 @@ declare const styles: {
   readonly actions: string;
   readonly approval: string;
   readonly assistant: string;
+  readonly banner: string;
+  readonly banner_buttons: string;
+  readonly banner_text: string;
   readonly block: string;
   readonly call_awaiting_approval: string;
   readonly call_did_not_run: string;

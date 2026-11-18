@@ -103,3 +103,74 @@ describe("starting a conversation in a workspace folder", () => {
     void controller;
   });
 });
+
+describe("what keeps a thread from taking a message", () => {
+  const providerForm = (config: InstanceType<typeof ConfigModel>): void => {
+    const f = config.form.value;
+    assert.ok(f);
+    f.set(["providers", "anthropic"], { $tag: "anthropic", api_key_env: "ANTHROPIC_API_KEY" });
+  };
+
+  test("a conversation just started has no provider: sending is off until the file names one", () => {
+    const { graph, chat, config, events } = rig();
+    graph.initRepo("scratch");
+    assert.deepEqual(chat.banner.value, { kind: "no_provider" });
+    assert.equal(chat.status.value?.model, "No model yet");
+    chat.setDraft("hello");
+    assert.equal(chat.canSend.value, false);
+    chat.send();
+    assert.equal(
+      chat.blocks.value.some((b) => b.type === "user"),
+      false,
+      "nothing was sent",
+    );
+    providerForm(config);
+    config.save();
+    assert.equal(chat.banner.value, undefined);
+    assert.equal(chat.canSend.value, true);
+    assert.notEqual(chat.status.value?.model, "No model yet");
+    for (const e of events) assert.equal(parseEvent(e).ok, true, e.type);
+  });
+
+  test("the controller refuses a message too, as the view may be out of date", () => {
+    const { graph, controller, events } = rig();
+    graph.initRepo("scratch");
+    events.length = 0;
+    controller.handle({ type: "chat.send", text: "hello" });
+    assert.deepEqual(
+      events.map((e) => e.type),
+      ["notice"],
+    );
+  });
+
+  test("a thread whose harness.yml was changed shows the banner until it is trusted", () => {
+    const { graph, chat, controller } = rig();
+    graph.open(graph.data.value?.threads.find((t) => t.name === "old-attempt")?.tip ?? "");
+    assert.deepEqual(chat.banner.value, { kind: "untrusted", state: "changed" });
+    assert.equal(chat.canSend.value, false);
+    chat.trust();
+    assert.equal(chat.banner.value, undefined);
+    controller.handle({ type: "thread.open", thread: "main" });
+    controller.handle({ type: "thread.open", thread: "old-attempt" });
+    assert.equal(chat.banner.value, undefined, "the approval is kept");
+  });
+
+  test("trusting asks for nothing when there is no banner", () => {
+    const { chat, controller } = rig();
+    let sent = 0;
+    const handle = controller.handle.bind(controller);
+    controller.handle = (i) => (sent++, handle(i));
+    chat.trust();
+    assert.equal(sent, 0);
+  });
+
+  test("the banners' way into the settings opens the sheet on the page", () => {
+    const { config } = rig();
+    config.show("providers");
+    assert.equal(config.open.value, true);
+    assert.equal(config.page.value, "providers");
+    config.show("limits");
+    assert.equal(config.page.value, "limits");
+    assert.equal(config.open.value, true, "show does not toggle");
+  });
+});

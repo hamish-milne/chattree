@@ -688,3 +688,47 @@
     opacity: 0;
   }
 }
+
+.banner {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin: 0 12px 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground));
+  border-radius: 4px;
+  background: var(--vscode-inputValidation-warningBackground, transparent);
+}
+.banner_text {
+  display: flex;
+  flex: 1 1 200px;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.banner_text span {
+  color: var(--vscode-descriptionForeground);
+}
+.banner_buttons {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.banner_buttons button {
+  padding: 3px 10px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.banner_buttons :global(.primary) {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+}
+.banner_buttons :global(.secondary) {
+  background: var(--vscode-button-secondaryBackground);
+  color: var(--vscode-button-secondaryForeground);
+}

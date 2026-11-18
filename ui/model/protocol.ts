@@ -7,7 +7,7 @@
 import { Type, type Static } from "typebox";
 import { safeParse, strictObject, type ParseResult } from "../../src/validate.ts";
 import { THREAD_STATUSES, graphData, hash, repoList } from "./graph.ts";
-import { approval, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
+import { approval, chatBanner, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
 import { formSpec } from "./form.ts";
 import { instructionState, providerModels, providerStatus } from "./settings.ts";
 import { block } from "./transcript.ts";
@@ -54,6 +54,8 @@ export const event = Type.Union([
   ev("chat.composer", { composer }),
   /** A tool call is waiting for an answer; absent when none is. */
   ev("chat.approval", { approval: Type.Optional(approval) }),
+  /** The thread cannot take messages for this reason; absent when it can. */
+  ev("chat.banner", { banner: Type.Optional(chatBanner) }),
   /** A form's new state: after an edit (with its issues), a save, or when it first opens. */
   ev("form.set", { form: formSpec }),
   /** What trying a provider showed (sent first as `checking`, then the result). */
@@ -108,6 +110,11 @@ export const intent = Type.Union([
   ev("chat.attach", {}),
   ev("chat.detach", { id: name }),
   ev("chat.approve", { callId: name, allow: Type.Boolean() }),
+  /**
+   * Approve the `harness.yml` the thread has now (see the `untrusted` banner), so its providers, tools and commands are
+   * used. The person reviews it first in the settings; the answer is `chat.banner` without a banner.
+   */
+  ev("thread.trust", { thread: name }),
   ev("chat.model", { model: name }),
   /** An edited value for a form; the answer is a `form.set` with the issues found. */
   ev("form.edit", { id: name, value: Type.Record(Type.String(), Type.Unknown()) }),

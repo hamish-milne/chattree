@@ -103,6 +103,7 @@ describe("the protocol", () => {
     },
     { type: "notice", level: "warning", message: "the lock is held by another window" },
     { type: "settings.open", page: "providers" },
+    { type: "chat.banner", banner: { kind: "untrusted", state: "changed" } },
   ];
   const intents: unknown[] = [
     { type: "ready", view: "chat" },
@@ -113,6 +114,7 @@ describe("the protocol", () => {
     { type: "workspace.switch", thread: "idea", uncommitted: "snapshot", remember: true },
     { type: "repo.select", id: "a" },
     { type: "repo.init", id: "scratch" },
+    { type: "thread.trust", thread: "idea" },
     { type: "thread.new", name: "idea" },
     { type: "thread.archive", thread: "idea" },
     { type: "thread.unarchive", thread: "idea" },

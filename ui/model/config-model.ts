@@ -62,6 +62,16 @@ export const ConfigModel = createModel((send: (intent: UiIntent) => void, clock:
     if (page.peek() === "subagents") for (const n of names) if (!listed.has(n)) list(n);
   };
 
+  /** Show the sheet; the first time the file is asked for. */
+  const openSheet = (): void => {
+    open.value = true;
+    if (!asked) {
+      asked = true;
+      send({ type: "ready", view: "config" });
+    }
+    ensure();
+  };
+
   return {
     open,
     /** The time the editor judges expiry by. */
@@ -79,13 +89,8 @@ export const ConfigModel = createModel((send: (intent: UiIntent) => void, clock:
     apply(e: UiEvent): void {
       switch (e.type) {
         case "settings.open":
-          open.value = true;
           page.value = e.page;
-          if (!asked) {
-            asked = true;
-            send({ type: "ready", view: "config" });
-          }
-          ensure();
+          openSheet();
           return;
         case "form.set": {
           if (e.form.id !== "harness") return;
@@ -115,12 +120,16 @@ export const ConfigModel = createModel((send: (intent: UiIntent) => void, clock:
     list,
     /** Open or close the sheet; the first time the file is asked for. */
     toggle(): void {
-      open.value = !open.value;
-      if (open.value && !asked) {
-        asked = true;
-        send({ type: "ready", view: "config" });
+      if (open.peek()) {
+        open.value = false;
+        return;
       }
-      ensure();
+      openSheet();
+    },
+    /** Open the sheet on a page (the banners' "review" and "add a provider"). */
+    show(p: PageId): void {
+      page.value = p;
+      openSheet();
     },
     close(): void {
       open.value = false;

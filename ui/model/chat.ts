@@ -60,12 +60,25 @@ export const chatThread = strictObject({
 });
 export type ChatThread = Static<typeof chatThread>;
 
+/**
+ * Why the thread cannot take a message yet, and what the person does about it. `no_provider`: nothing says where models
+ * come from (a conversation that was just started): add a provider in the settings. `untrusted`: the thread's
+ * `harness.yml` is not the one the person approved (`unknown`: never approved, as after a clone; `changed`: it was
+ * edited since), and the harness will not use it (its keys, tools and commands) until they say so.
+ */
+export const chatBanner = Type.Union([
+  strictObject({ kind: Type.Literal("no_provider") }),
+  strictObject({ kind: Type.Literal("untrusted"), state: Type.Enum(["unknown", "changed"]) }),
+]);
+export type ChatBanner = Static<typeof chatBanner>;
+
 export const chatState = strictObject({
   thread: chatThread,
   blocks: Type.Array(block),
   status: statusBar,
   composer,
   approval: Type.Optional(approval),
+  banner: Type.Optional(chatBanner),
   /** The model picker and the form for its settings, which the view shows in the expandable section. */
   model: modelChoice,
   settings: Type.Optional(formSpec),

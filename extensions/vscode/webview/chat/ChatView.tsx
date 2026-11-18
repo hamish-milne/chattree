@@ -12,6 +12,7 @@ import { FileMenu } from "./FileLink.tsx";
 import { Icon } from "../icons.tsx";
 import type { Block } from "chattree/ui/model/transcript";
 import { BlockView, ToolGroup } from "./blocks.tsx";
+import { Banner } from "./Banner.tsx";
 import { Composer } from "./Composer.tsx";
 import { ModelSettings } from "./ModelSettings.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -138,6 +139,7 @@ export function ChatView({ model, config }: { model: Model; config: InstanceType
         <>
           <Transcript model={model} />
           <ModelSettings model={model} />
+          <Banner model={model} config={config} />
           <Composer model={model} />
           <StatusBar model={model} />
           <FileMenu model={model} />
