@@ -90,15 +90,32 @@ export function Choice({
   );
 }
 
+/** An on/off switch that is not bound to a place in the file (the caller says what changing it does). */
+export function Toggle({
+  on,
+  onChange,
+  label,
+  id,
+  text = true,
+}: {
+  on: boolean;
+  onChange: (on: boolean) => void;
+  label?: string;
+  id?: string;
+  text?: boolean;
+}): JSX.Element {
+  return (
+    <button id={id} role="switch" aria-checked={on} aria-label={label} class={`cf-switch${on ? " on" : ""}`} onClick={() => onChange(!on)}>
+      <span class="cf-knob" />
+      {text && <span class="cf-switch-text">{on ? "On" : "Off"}</span>}
+    </button>
+  );
+}
+
 export function Switch({ form, path, fallback = false }: { form: Form; path: readonly string[]; fallback?: boolean }): JSX.Element {
   const raw = at(form.spec.value.value, path);
   const on = typeof raw === "boolean" ? raw : fallback;
-  return (
-    <button id={idOf(path)} role="switch" aria-checked={on} class={`cf-switch${on ? " on" : ""}`} onClick={() => form.set(path, !on)}>
-      <span class="cf-knob" />
-      <span class="cf-switch-text">{on ? "On" : "Off"}</span>
-    </button>
-  );
+  return <Toggle id={idOf(path)} on={on} onChange={(v) => form.set(path, v)} />;
 }
 
 export function NumberInput({

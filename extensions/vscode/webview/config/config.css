@@ -205,12 +205,14 @@
 .cf-number {
   display: inline-flex;
   align-items: center;
-  height: 24px;
+  width: 150px;
   max-width: 100%;
+  height: 24px;
   overflow: hidden;
 }
 .cf-number input {
-  width: 10ch;
+  flex: 1;
+  width: 0;
   min-width: 0;
   height: 100%;
   padding: 0 6px;
@@ -220,9 +222,6 @@
   background: transparent;
   font: inherit;
   text-align: right;
-}
-.cf-number.wide input {
-  width: 13ch;
 }
 .cf-adorn {
   padding: 0 6px;
@@ -281,6 +280,7 @@ input[aria-invalid="true"] {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  min-height: 24px;
   padding: 0;
   border: none;
   background: none;
@@ -288,7 +288,9 @@ input[aria-invalid="true"] {
 }
 .cf-knob {
   position: relative;
-  width: 30px;
+  box-sizing: border-box;
+  flex: none;
+  width: 32px;
   height: 16px;
   border-radius: 8px;
   background: var(--vscode-input-background);
@@ -297,10 +299,11 @@ input[aria-invalid="true"] {
 .cf-knob::after {
   content: "";
   position: absolute;
-  top: 2px;
+  top: 50%;
   left: 2px;
   width: 10px;
   height: 10px;
+  margin-top: -5px;
   border-radius: 50%;
   background: var(--vscode-descriptionForeground);
   transition: transform 0.12s;
@@ -311,7 +314,7 @@ input[aria-invalid="true"] {
 }
 .cf-switch.on .cf-knob::after {
   background: var(--vscode-button-foreground);
-  transform: translateX(14px);
+  transform: translateX(16px);
 }
 .cf-switch-text {
   font-size: 12px;
@@ -576,4 +579,195 @@ button.secondary:disabled {
   display: inline-block;
   width: 122px;
   padding-left: 6px;
+}
+
+/* Navigation groups */
+.cf-group-title {
+  padding: 8px 10px 2px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--vscode-descriptionForeground);
+}
+.cf-group:first-child .cf-group-title {
+  padding-top: 2px;
+}
+.cf-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+@container (max-width: 560px) {
+  .cf-group {
+    flex-direction: row;
+  }
+  .cf-group-title {
+    display: none;
+  }
+  .cf-group + .cf-group {
+    margin-left: 8px;
+    padding-left: 8px;
+    border-left: 1px solid var(--vscode-panel-border);
+  }
+}
+.cf-foot.note {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Providers: adapter label and connection */
+.pv-adapter {
+  padding: 0 8px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 18px;
+  color: var(--vscode-descriptionForeground);
+}
+.pv-conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.pv-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+}
+.pv-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vscode-descriptionForeground);
+}
+.pv-status.ok .pv-dot {
+  background: var(--vscode-testing-iconPassed, #3fb950);
+}
+.pv-status.error .pv-dot {
+  background: var(--vscode-errorForeground);
+}
+.pv-dot.spin {
+  background: none;
+  border: 2px solid var(--vscode-descriptionForeground);
+  border-top-color: transparent;
+  box-sizing: border-box;
+  animation: cf-spin 0.8s linear infinite;
+}
+@keyframes cf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pv-dot.spin {
+    animation-duration: 3s;
+  }
+}
+.pv-ms {
+  color: var(--vscode-descriptionForeground);
+}
+.pv-head .link {
+  padding: 0;
+}
+
+/* Models grouped by provider */
+.tb .nowrap {
+  white-space: nowrap;
+}
+.mg-head th {
+  white-space: normal;
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  background: color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+.mg-head .link {
+  margin-left: 8px;
+  font-weight: 400;
+}
+.mg-note {
+  margin-left: 10px;
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+.mg-note.bad {
+  color: var(--vscode-errorForeground);
+}
+.mg .mg-switch {
+  width: 1%;
+  padding-right: 0;
+}
+.tb th.num,
+.tb td.num {
+  text-align: right;
+  white-space: nowrap;
+}
+.mg tr:not(.mg-head):not(.mg-on) td:not(.mg-switch) {
+  color: var(--vscode-descriptionForeground);
+}
+.mg tr.mg-on td {
+  color: var(--vscode-foreground);
+}
+.mg .cf-chip {
+  margin-left: 6px;
+}
+tbody.mg + tbody.mg {
+  border-top: 1px solid var(--vscode-panel-border);
+}
+tbody.mg tr:nth-child(even) {
+  background: none;
+}
+.mg-table td:last-child {
+  width: 100%;
+  min-width: 110px;
+}
+.mg-table td,
+.mg-table th {
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.mg-table td.num {
+  padding-left: 14px;
+}
+.mg-table .cf-chip {
+  margin-left: 6px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* Instruction files */
+.if-found {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.if-found li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0 12px;
+  padding: 6px 10px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+}
+.if-found .cf-help {
+  grid-column: 1;
+  margin: 0;
+}
+.if-found button {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.mg-table td.nowrap,
+.mg-table th:nth-child(2) {
+  width: 1%;
 }

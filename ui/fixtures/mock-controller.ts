@@ -14,6 +14,8 @@ import type { Block } from "../model/transcript.ts";
 import { canDragThread, canDropOn } from "../model/graph-actions.ts";
 import { chatFixture } from "./chat.ts";
 import { configFixture } from "./config.ts";
+import { WORKSPACE_FILES, instructionsFixture, mockProviderCheck, withFound } from "./mock-settings.ts";
+import type { InstructionState } from "../model/settings.ts";
 import { THREADS, docsGraphFixture, graphFixture } from "./graph.ts";
 import { validateMock } from "./mock-validate.ts";
 
@@ -74,6 +76,8 @@ export class MockController {
   private turn: Promise<void> | undefined;
   private aborted = false;
   private answer: ((allow: boolean) => void) | undefined;
+  private instructions: InstructionState = withFound(instructionsFixture());
+  private readonly tasks = new Set<Promise<void>>();
   private readonly queue: { thread: string; block: string; text: string }[] = [];
 
   constructor(options: MockOptions) {
@@ -85,7 +89,7 @@ export class MockController {
 
   /** Resolves when no turn is running and nothing is queued. */
   async idle(): Promise<void> {
-    while (this.turn !== undefined) await this.turn;
+    while (this.turn !== undefined || this.tasks.size > 0) await Promise.all([this.turn, ...this.tasks]);
   }
 
   /** Handle what a view sent. Anything that takes time (a turn) carries on after this returns. */
@@ -100,7 +104,10 @@ export class MockController {
           this.emit({ type: "graph.data", data: this.graph });
           this.emit({ type: "graph.selected", thread: this.current });
         } else if (intent.view === "chat") this.emit({ type: "chat.open", state: this.chat(this.current) });
-        else this.emit({ type: "form.set", form: this.form("harness").working });
+        else {
+          this.emit({ type: "form.set", form: this.form("harness").working });
+          this.emit({ type: "instructions.set", state: this.instructions });
+        }
         return;
       case "repo.select":
         this.selectRepo(intent.id);
@@ -180,6 +187,27 @@ export class MockController {
         this.emit({ type: "form.set", form: f.working });
         return;
       }
+      case "provider.test":
+        this.background(this.checkProvider(intent.provider, "status"));
+        return;
+      case "provider.models":
+        this.background(this.checkProvider(intent.provider, "models"));
+        return;
+      case "instructions.add":
+        this.changeInstructions(
+          (files) => (files.some((f) => f.path === intent.path) ? files : [...files, this.fileAt(intent.path)]),
+          `Added ${intent.path} to the instructions`,
+        );
+        return;
+      case "instructions.enable":
+        this.changeInstructions(
+          (files) => files.map((f) => (f.path === intent.path ? { ...f, on: intent.on } : f)),
+          `${intent.on ? "Turned on" : "Turned off"} ${intent.path}`,
+        );
+        return;
+      case "instructions.remove":
+        this.changeInstructions((files) => files.filter((f) => f.path !== intent.path), `Removed ${intent.path} from the instructions`);
+        return;
     }
   }
 
@@ -857,6 +885,40 @@ export class MockController {
   private textOf(thread: string, id: string): string {
     const b = this.chat(thread).blocks.find((x) => x.id === id);
     return b?.type === "assistant" ? b.markdown : b?.type === "reasoning" ? b.text : "";
+  }
+
+  // ---- settings sheet ------------------------------------------------------------------------------------------
+
+  private background(p: Promise<void>): void {
+    this.tasks.add(p);
+    void p.finally(() => this.tasks.delete(p));
+  }
+
+  /** Try a provider as it is in the file being edited: `checking` first, then what was found. */
+  private async checkProvider(name: string, what: "status" | "models"): Promise<void> {
+    const value = this.form("harness").working.value;
+    const providers = value["providers"];
+    const provider: unknown =
+      typeof providers === "object" && providers !== null && !Array.isArray(providers)
+        ? Object.fromEntries(Object.entries(providers))[name]
+        : undefined;
+    if (what === "status") this.emit({ type: "provider.status", provider: name, status: { state: "checking" } });
+    await this.sleep(500);
+    const { status, list } = mockProviderCheck(provider);
+    if (what === "status") this.emit({ type: "provider.status", provider: name, status });
+    else this.emit({ type: "provider.models", provider: name, list });
+  }
+
+  private fileAt(path: string): InstructionState["files"][number] {
+    const bytes = WORKSPACE_FILES[path];
+    return bytes === undefined ? { path, on: true, exists: false } : { path, on: true, exists: true, bytes };
+  }
+
+  /** Instruction files are part of the thread, so a change is recorded on it like a settings change. */
+  private changeInstructions(change: (files: InstructionState["files"]) => InstructionState["files"], what: string): void {
+    this.instructions = withFound({ files: change(this.instructions.files), found: [] });
+    this.emit({ type: "instructions.set", state: this.instructions });
+    this.notify("info", what);
   }
 
   // ---- forms ---------------------------------------------------------------------------------------------------

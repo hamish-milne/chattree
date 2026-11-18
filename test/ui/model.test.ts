@@ -93,6 +93,12 @@ describe("the protocol", () => {
     { type: "chat.composer", composer: { draft: "hi", attachments: [] } },
     { type: "chat.approval", approval: { callId: "c9", name: "run", summary: "run rm -rf build", args: "{}" } },
     { type: "form.set", form: configFixture() },
+    { type: "provider.status", provider: "local", status: { state: "error", detail: "connection refused" } },
+    { type: "provider.models", provider: "anthropic", list: { models: [{ id: "claude-haiku-5-5", context: 200000, input_usd: 1 }] } },
+    {
+      type: "instructions.set",
+      state: { files: [{ path: "AGENTS.md", on: true, exists: true, bytes: 900 }], found: [{ path: "CLAUDE.md", bytes: 300 }] },
+    },
     { type: "notice", level: "warning", message: "the lock is held by another window" },
   ];
   const intents: unknown[] = [
@@ -114,6 +120,11 @@ describe("the protocol", () => {
     { type: "form.edit", id: "harness", value: { limits: {} } },
     { type: "form.save", id: "harness" },
     { type: "form.revert", id: "harness" },
+    { type: "provider.test", provider: "local" },
+    { type: "provider.models", provider: "local" },
+    { type: "instructions.add", path: "CLAUDE.md" },
+    { type: "instructions.enable", path: "AGENTS.md", on: false },
+    { type: "instructions.remove", path: "AGENTS.md" },
   ];
   const typesOf = (schema: { anyOf?: { properties: { type: { const: string } } }[] }): string[] =>
     (schema.anyOf ?? []).map((m) => m.properties.type.const);

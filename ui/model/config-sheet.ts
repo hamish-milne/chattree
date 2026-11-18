@@ -11,19 +11,22 @@ const isObject = (x: unknown): x is Json => typeof x === "object" && x !== null 
 const objectOf = (x: unknown): Json => (isObject(x) ? x : {});
 
 export const PAGES = [
-  { id: "providers", title: "Providers", hint: "Where models come from" },
-  { id: "limits", title: "Limits", hint: "Cost and time ceilings" },
-  {
-    id: "approvals",
-    title: "Approvals",
-    hint: "What is allowed without asking",
-  },
-  { id: "mcp", title: "MCP servers", hint: "Tools from other programs" },
-  { id: "subagents", title: "Subagents", hint: "Delegated threads" },
-  { id: "context", title: "Context", hint: "Compaction, injections, skills" },
-  { id: "repository", title: "Repository", hint: "Housekeeping and sharing" },
+  { id: "providers", title: "Providers", hint: "Where models come from", group: "project" },
+  { id: "limits", title: "Limits", hint: "Cost and time ceilings", group: "project" },
+  { id: "approvals", title: "Approvals", hint: "What is allowed without asking", group: "project" },
+  { id: "mcp", title: "MCP servers", hint: "Tools from other programs", group: "project" },
+  { id: "subagents", title: "Subagents", hint: "Delegated threads and their models", group: "project" },
+  { id: "context", title: "Context", hint: "Compaction, injections, skills", group: "project" },
+  { id: "repository", title: "Repository", hint: "Housekeeping and sharing", group: "project" },
+  { id: "instructions", title: "Instructions", hint: "Files the agent is given", group: "thread" },
 ] as const;
 export type PageId = (typeof PAGES)[number]["id"] | "general";
+
+/** The groups the pages are listed under: `harness.yml` is the project's, the instructions are the thread's. */
+export const GROUPS = [
+  { id: "project", title: "Project (harness.yml)" },
+  { id: "thread", title: "This thread" },
+] as const;
 
 /** The page a setting is on, from its dotted path; `general` for the file as a whole or a key no page shows. */
 export function pageOf(path: string): PageId {
@@ -155,15 +158,6 @@ export function newProvider(tag: string): Json {
   };
 }
 
-/** The same providers with one changed to another adapter: what both have in common is kept. */
-export function changeAdapter(provider: Json, tag: string): Json {
-  const keep = ["api_key_env", "base_url", "max_concurrent", "max_attempts", "models", "pricing", "headers"].filter((k) => k in provider);
-  const out: Json = { $tag: tag };
-  for (const k of keep) out[k] = provider[k];
-  if (!("api_key_env" in out) && KEY_ENV[tag] !== undefined) out["api_key_env"] = KEY_ENV[tag];
-  return out;
-}
-
 // ---- approvals -----------------------------------------------------------------------------------------------------
 
 export const FOREVER = "2999-01-01";
@@ -259,3 +253,33 @@ export function mcpTransport(entry: Json): {
 
 /** The built-in tools, so a grant can be added for one the file does not mention yet. */
 export const BUILTIN_TOOLS: readonly string[] = ["read", "edit", "write", "run", "script", "fetch", "search"];
+
+// ---- models --------------------------------------------------------------------------------------------------------
+
+/** The key a model has in `subagent.models`. */
+export const modelKey = (provider: string, id: string): string => `${provider}/${id}`;
+
+/** Models switched on for subagents, by key. */
+export const enabledModels = (value: Json): Set<string> => new Set(Object.keys(objectOf(objectOf(value["subagent"])["models"])));
+
+/** `provider/id` split at the first slash (a model id may itself contain slashes). */
+export function splitModelKey(key: string): { provider: string; id: string } {
+  const i = key.indexOf("/");
+  return i < 0 ? { provider: "", id: key } : { provider: key.slice(0, i), id: key.slice(i + 1) };
+}
+
+// ---- instruction files ---------------------------------------------------------------------------------------------
+
+/** Files tools commonly read for a project's instructions: what each is, for the "found" list. */
+export const WELL_KNOWN_INSTRUCTIONS: Readonly<Record<string, string>> = {
+  "AGENTS.md": "The common agent guide, read by most tools",
+  "CLAUDE.md": "Claude Code's project instructions",
+  "GEMINI.md": "Gemini CLI's project instructions",
+  ".github/copilot-instructions.md": "GitHub Copilot's repository instructions",
+  ".cursorrules": "Cursor's rules",
+  "CONVENTIONS.md": "Aider's conventions file",
+  "CONTRIBUTING.md": "How to contribute to the project",
+};
+
+/** Rough token count of a file from its size (about four bytes a token). */
+export const estimateTokens = (bytes: number): number => Math.ceil(bytes / 4);

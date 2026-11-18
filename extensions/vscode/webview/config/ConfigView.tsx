@@ -5,8 +5,17 @@
  */
 import type { JSX } from "preact";
 import type { ConfigModel } from "chattree/ui/model/config-model";
-import { BUILTIN_TOOLS, PAGES } from "chattree/ui/model/config-sheet";
-import { ApprovalsPage, ContextPage, LimitsPage, McpPage, ProvidersPage, RepositoryPage, SubagentsPage } from "./pages.tsx";
+import { BUILTIN_TOOLS, GROUPS, PAGES } from "chattree/ui/model/config-sheet";
+import {
+  ApprovalsPage,
+  ContextPage,
+  InstructionsPage,
+  LimitsPage,
+  McpPage,
+  ProvidersPage,
+  RepositoryPage,
+  SubagentsPage,
+} from "./pages.tsx";
 import type { Form } from "./controls.tsx";
 
 type Model = InstanceType<typeof ConfigModel>;
@@ -14,7 +23,7 @@ type Model = InstanceType<typeof ConfigModel>;
 function Page({ model, form }: { model: Model; form: Form }): JSX.Element | null {
   switch (model.page.value) {
     case "providers":
-      return <ProvidersPage form={form} />;
+      return <ProvidersPage form={form} model={model} />;
     case "limits":
       return <LimitsPage form={form} />;
     case "approvals":
@@ -22,11 +31,13 @@ function Page({ model, form }: { model: Model; form: Form }): JSX.Element | null
     case "mcp":
       return <McpPage form={form} />;
     case "subagents":
-      return <SubagentsPage form={form} />;
+      return <SubagentsPage form={form} model={model} />;
     case "context":
       return <ContextPage form={form} />;
     case "repository":
       return <RepositoryPage form={form} />;
+    case "instructions":
+      return <InstructionsPage model={model} />;
     default:
       return null;
   }
@@ -42,25 +53,30 @@ export function ConfigView({ model }: { model: Model }): JSX.Element {
     <div class="config">
       <div class="cf-body">
         <nav class="cf-pages" aria-label="Settings pages">
-          {PAGES.map((p) => {
-            const n = byPage.get(p.id) ?? 0;
-            return (
-              <button
-                key={p.id}
-                class={`cf-page${model.page.value === p.id ? " on" : ""}`}
-                aria-current={model.page.value === p.id ? "page" : undefined}
-                onClick={() => model.setPage(p.id)}
-              >
-                <span class="cf-page-title">{p.title}</span>
-                <span class="cf-page-hint">{p.hint}</span>
-                {n > 0 && (
-                  <span class="cf-badge" title={`${n} ${n === 1 ? "problem" : "problems"}`}>
-                    {n}
-                  </span>
-                )}
-              </button>
-            );
-          })}
+          {GROUPS.map((g) => (
+            <div key={g.id} class="cf-group">
+              <div class="cf-group-title">{g.title}</div>
+              {PAGES.filter((p) => p.group === g.id).map((p) => {
+                const n = byPage.get(p.id) ?? 0;
+                return (
+                  <button
+                    key={p.id}
+                    class={`cf-page${model.page.value === p.id ? " on" : ""}`}
+                    aria-current={model.page.value === p.id ? "page" : undefined}
+                    onClick={() => model.setPage(p.id)}
+                  >
+                    <span class="cf-page-title">{p.title}</span>
+                    <span class="cf-page-hint">{p.hint}</span>
+                    {n > 0 && (
+                      <span class="cf-badge" title={`${n} ${n === 1 ? "problem" : "problems"}`}>
+                        {n}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
         </nav>
         <div class="cf-page-body">
           {general.length > 0 && (
@@ -73,28 +89,32 @@ export function ConfigView({ model }: { model: Model }): JSX.Element {
           <Page model={model} form={form} />
         </div>
       </div>
-      <footer class="cf-foot">
-        <input
-          class="cf-text"
-          aria-label="Commit message"
-          placeholder="Commit message (optional)"
-          disabled={!dirty}
-          value={model.message.value}
-          onInput={(e) => model.setMessage(e.currentTarget.value)}
-          onKeyDown={(e) => e.key === "Enter" && model.save()}
-        />
-        {problems > 0 && (
-          <span class="cf-problems" role="status">
-            {problems} {problems === 1 ? "problem" : "problems"} to fix
-          </span>
-        )}
-        <button class="secondary" disabled={!dirty} onClick={() => model.revert()}>
-          Revert
-        </button>
-        <button class="primary" disabled={!dirty || problems > 0} onClick={() => model.save()}>
-          {form.spec.value.saveLabel}
-        </button>
-      </footer>
+      {model.page.value === "instructions" && !dirty ? (
+        <footer class="cf-foot note">Instruction changes apply to this thread as soon as you make them.</footer>
+      ) : (
+        <footer class="cf-foot">
+          <input
+            class="cf-text"
+            aria-label="Commit message"
+            placeholder="Commit message (optional)"
+            disabled={!dirty}
+            value={model.message.value}
+            onInput={(e) => model.setMessage(e.currentTarget.value)}
+            onKeyDown={(e) => e.key === "Enter" && model.save()}
+          />
+          {problems > 0 && (
+            <span class="cf-problems" role="status">
+              {problems} {problems === 1 ? "problem" : "problems"} to fix
+            </span>
+          )}
+          <button class="secondary" disabled={!dirty} onClick={() => model.revert()}>
+            Revert
+          </button>
+          <button class="primary" disabled={!dirty || problems > 0} onClick={() => model.save()}>
+            {form.spec.value.saveLabel}
+          </button>
+        </footer>
+      )}
     </div>
   );
 }

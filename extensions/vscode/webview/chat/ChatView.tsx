@@ -108,7 +108,7 @@ export function ChatView({ model, config }: { model: Model; config: InstanceType
             <button class="icon-button" title="Back to the chat" aria-label="Back to the chat" onClick={() => config.close()}>
               <Icon name="back" />
             </button>
-            <span class="chat-title">harness.yml</span>
+            <span class="chat-title">Thread settings</span>
             <span class="spacer" />
           </>
         ) : (
@@ -121,8 +121,8 @@ export function ChatView({ model, config }: { model: Model; config: InstanceType
         <button
           class={`icon-button${editing ? " pressed" : ""}`}
           aria-pressed={editing}
-          title={editing ? "Close harness.yml" : "Edit harness.yml"}
-          aria-label="Edit harness.yml"
+          title={editing ? "Close thread settings" : "Thread settings"}
+          aria-label="Thread settings"
           onClick={() => config.toggle()}
         >
           <Icon name="gear" />

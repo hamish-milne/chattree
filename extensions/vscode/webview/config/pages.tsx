@@ -8,9 +8,13 @@ import { useState } from "preact/hooks";
 import {
   ADAPTERS,
   FOREVER,
+  WELL_KNOWN_INSTRUCTIONS,
+  enabledModels,
+  estimateTokens,
+  modelKey,
+  splitModelKey,
   adapterOf,
   addGrant,
-  changeAdapter,
   grantOwners,
   grants,
   inDays,
@@ -22,8 +26,11 @@ import {
   setGrantUntil,
   type Grant,
 } from "chattree/ui/model/config-sheet";
+import type { ConfigModel } from "chattree/ui/model/config-model";
 import { Icon } from "../icons.tsx";
-import { Choice, Issues, Lines, NumberInput, Row, Section, Switch, TextInput, at, type Form } from "./controls.tsx";
+import { Choice, Issues, Lines, NumberInput, Row, Section, Switch, TextInput, Toggle, at, type Form } from "./controls.tsx";
+
+type Model = InstanceType<typeof ConfigModel>;
 
 type Json = Record<string, unknown>;
 const isObject = (x: unknown): x is Json => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -33,7 +40,37 @@ const valueOf = (form: Form): Json => form.spec.value.value;
 
 // ---- providers -----------------------------------------------------------------------------------------------------
 
-function ProviderCard({ form, name }: { form: Form; name: string }): JSX.Element {
+/** Whether a provider can be reached, as a chip, with the test button beside it. */
+function Connection({ model, name }: { model: Model; name: string }): JSX.Element {
+  const s = model.statuses.value[name];
+  const stale = model.isStale(name);
+  const checking = s?.state === "checking";
+  const label =
+    s === undefined
+      ? "Not tested"
+      : checking
+        ? "Checking…"
+        : stale
+          ? "Changed since tested"
+          : s.state === "ok"
+            ? "Connected"
+            : "Not reachable";
+  const tone = s === undefined || checking || stale ? "idle" : s.state;
+  return (
+    <span class="pv-conn">
+      <span class={`pv-status ${tone}`} role="status" title={s?.detail}>
+        <span class={`pv-dot${checking ? " spin" : ""}`} aria-hidden="true" />
+        {label}
+        {s?.state === "ok" && !stale && s.ms !== undefined && <span class="pv-ms">{s.ms} ms</span>}
+      </span>
+      <button class="link" disabled={checking} onClick={() => model.test(name)}>
+        {s === undefined ? "Test" : "Test again"}
+      </button>
+    </span>
+  );
+}
+
+function ProviderCard({ form, model, name }: { form: Form; model: Model; name: string }): JSX.Element {
   const p = objectOf(at(valueOf(form), ["providers", name]));
   const a = adapterOf(p["$tag"]);
   const base = ["providers", name];
@@ -56,26 +93,20 @@ function ProviderCard({ form, name }: { form: Form; name: string }): JSX.Element
             );
           }}
         />
+        <span class="pv-adapter" title={a.hint}>
+          {a.label}
+        </span>
         <span class="spacer" />
+        <Connection model={model} name={name} />
         <button class="icon-button" title={`Remove ${name}`} aria-label={`Remove ${name}`} onClick={() => form.remove(base)}>
           <Icon name="trash" />
         </button>
       </div>
-      <div class="pv-adapters" role="radiogroup" aria-label="Adapter">
-        {ADAPTERS.map((x) => (
-          <button
-            key={x.tag}
-            role="radio"
-            aria-checked={x.tag === a.tag}
-            class={`cf-option${x.tag === a.tag ? " on" : ""}`}
-            title={x.hint}
-            onClick={() => x.tag !== a.tag && form.set(base, changeAdapter(p, x.tag))}
-          >
-            <span class="cf-option-label">{x.label}</span>
-          </button>
-        ))}
-      </div>
-      <div class="cf-hint">{a.hint}</div>
+      {model.statuses.value[name]?.state === "error" && !model.isStale(name) && (
+        <div class="cf-issues" role="alert">
+          {model.statuses.value[name]?.detail}
+        </div>
+      )}
       <Issues form={form} path={[...base, "$tag"]} />
       <div class="pv-fields">
         {(a.key || "api_key_env" in p) && (
@@ -121,7 +152,7 @@ function ProviderCard({ form, name }: { form: Form; name: string }): JSX.Element
   );
 }
 
-export function ProvidersPage({ form }: { form: Form }): JSX.Element {
+export function ProvidersPage({ form, model }: { form: Form; model: Model }): JSX.Element {
   const names = keysOf(valueOf(form)["providers"]);
   const add = (tag: string): void => {
     const name = newProviderName(tag, names);
@@ -132,7 +163,7 @@ export function ProvidersPage({ form }: { form: Form }): JSX.Element {
       <Section title="Providers" hint="Each provider is a place models come from. An agent's model setting names one of these.">
         <div class="pv-list">
           {names.map((n) => (
-            <ProviderCard key={n} form={form} name={n} />
+            <ProviderCard key={n} form={form} model={model} name={n} />
           ))}
           {names.length === 0 && <p class="cf-empty">No providers yet. Add one below.</p>}
         </div>
@@ -553,15 +584,73 @@ export function McpPage({ form }: { form: Form }): JSX.Element {
 
 // ---- subagents -----------------------------------------------------------------------------------------------------
 
-export function SubagentsPage({ form }: { form: Form }): JSX.Element {
-  const models = keysOf(at(valueOf(form), ["subagent", "models"]));
-  const [name, setName] = useState("");
-  const add = (): void => {
-    const n = name.trim();
-    if (n === "" || models.includes(n)) return;
-    form.set(["subagent", "models", n], {});
-    setName("");
-  };
+const fmtContext = (n: number): string => (n >= 1_000_000 ? `${n / 1_000_000}M` : `${Math.round(n / 1000)}k`);
+const fmtUsd = (n: number): string => `$${n}`;
+
+/** One provider's models: a header row with its state, then a row per model with the switch that makes it available. */
+function ModelGroup({ form, model, provider }: { form: Form; model: Model; provider: string }): JSX.Element {
+  const listing = model.models.value[provider];
+  const on = enabledModels(valueOf(form));
+  const listed = listing?.models ?? [];
+  const known = new Set(listed.map((m) => modelKey(provider, m.id)));
+  // Models already switched on that the provider did not list (it is unreachable, or the model has gone).
+  const extra = [...on].filter((k) => k.startsWith(`${provider}/`) && !known.has(k)).map((k) => splitModelKey(k).id);
+  const set = (key: string, enable: boolean): void =>
+    enable ? form.set(["subagent", "models", key], {}) : form.remove(["subagent", "models", key]);
+  const rows = [...listed.map((m) => ({ id: m.id, info: m })), ...extra.map((id) => ({ id, info: undefined }))];
+  return (
+    <tbody class="mg">
+      <tr class="mg-head">
+        <th colSpan={5} scope="colgroup">
+          <span class="mono">{provider}</span>
+          <span class={`mg-note ${listing?.error !== undefined ? "bad" : ""}`}>
+            {listing === undefined
+              ? "Loading models…"
+              : listing.error !== undefined
+                ? `Could not list models: ${listing.error}`
+                : `${listed.length} models`}
+          </span>
+          <button class="link" onClick={() => model.list(provider)}>
+            Refresh
+          </button>
+        </th>
+      </tr>
+      {rows.map(({ id, info }) => {
+        const key = modelKey(provider, id);
+        const enabled = on.has(key);
+        return (
+          <tr key={key} class={enabled ? "mg-on" : ""}>
+            <td class="mg-switch">
+              <Toggle on={enabled} onChange={(v) => set(key, v)} label={`Allow subagents to use ${key}`} text={false} />
+            </td>
+            <td class="mono nowrap" title={info?.reasoning === true ? "Can think before answering" : undefined}>
+              {id}
+              {info === undefined && (
+                <span class="cf-chip static" title="The provider did not list this model">
+                  not listed
+                </span>
+              )}
+            </td>
+            <td class="num">{info?.context === undefined ? "" : fmtContext(info.context)}</td>
+            <td class="num">{info?.input_usd === undefined ? "" : `${fmtUsd(info.input_usd)} / ${fmtUsd(info.output_usd ?? 0)}`}</td>
+            <td>
+              {enabled ? (
+                <>
+                  <TextInput form={form} path={["subagent", "models", key, "description"]} placeholder="What it is good for" />
+                  <Issues form={form} path={["subagent", "models", key]} />
+                </>
+              ) : null}
+            </td>
+          </tr>
+        );
+      })}
+    </tbody>
+  );
+}
+
+export function SubagentsPage({ form, model }: { form: Form; model: Model }): JSX.Element {
+  const providers = keysOf(valueOf(form)["providers"]);
+  const orphans = [...enabledModels(valueOf(form))].filter((k) => !providers.includes(splitModelKey(k).provider));
   return (
     <>
       <Section title="Delegated threads" hint="Work an agent hands to a thread of its own.">
@@ -571,16 +660,8 @@ export function SubagentsPage({ form }: { form: Form }): JSX.Element {
             path={["subagent", "merge"]}
             fallback="auto"
             options={[
-              {
-                value: "auto",
-                label: "Automatically",
-                hint: "A finished thread merges into its parent",
-              },
-              {
-                value: "review",
-                label: "After review",
-                hint: "You merge it when you are happy",
-              },
+              { value: "auto", label: "Automatically", hint: "A finished thread merges into its parent" },
+              { value: "review", label: "After review", hint: "You merge it when you are happy" },
             ]}
           />
         </Row>
@@ -590,71 +671,50 @@ export function SubagentsPage({ form }: { form: Form }): JSX.Element {
             path={["subagent", "mcp"]}
             fallback="inherit"
             options={[
-              {
-                value: "inherit",
-                label: "Same as parent",
-                hint: "Every server the parent has",
-              },
-              {
-                value: "none",
-                label: "None",
-                hint: "No MCP tools in subagents",
-              },
+              { value: "inherit", label: "Same as parent", hint: "Every server the parent has" },
+              { value: "none", label: "None", hint: "No MCP tools in subagents" },
             ]}
           />
         </Row>
       </Section>
-      <Section title="Models a subagent may use" hint="The description is what the parent agent reads when it chooses.">
+      <Section
+        title="Models a subagent may use"
+        hint="Everything your providers offer. Switch on the ones the parent agent may choose from; the description is what it reads when it chooses."
+      >
         <div class="tb-wrap">
-          <table class="tb">
+          <table class="tb mg-table">
             <thead>
               <tr>
-                <th>Model (provider/model)</th>
+                <th aria-label="Allowed" />
+                <th>Model</th>
+                <th class="num">Context</th>
+                <th class="num">$/M in, out</th>
                 <th>Description</th>
-                <th aria-label="Remove" />
               </tr>
             </thead>
-            <tbody>
-              {models.map((m) => (
-                <tr key={m}>
-                  <td class="mono">{m}</td>
-                  <td>
-                    <TextInput form={form} path={["subagent", "models", m, "description"]} placeholder="What it is good for" />
-                    <Issues form={form} path={["subagent", "models", m]} />
-                  </td>
-                  <td class="gr-end">
-                    <button
-                      class="icon-button"
-                      aria-label={`Remove ${m}`}
-                      title="Remove"
-                      onClick={() => form.remove(["subagent", "models", m])}
-                    >
-                      <Icon name="x" size={12} />
-                    </button>
-                  </td>
+            {providers.map((p) => (
+              <ModelGroup key={p} form={form} model={model} provider={p} />
+            ))}
+            {orphans.length > 0 && (
+              <tbody class="mg">
+                <tr class="mg-head">
+                  <th colSpan={5} scope="colgroup">
+                    No such provider
+                    <span class="mg-note bad">These models are switched on but their provider is not in the file.</span>
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr class="tb-add">
-                <td>
-                  <input
-                    class="cf-text mono"
-                    aria-label="Model"
-                    placeholder="anthropic/claude-haiku-5-5"
-                    value={name}
-                    onInput={(e) => setName(e.currentTarget.value)}
-                    onKeyDown={(e) => e.key === "Enter" && add()}
-                  />
-                </td>
-                <td />
-                <td class="gr-end">
-                  <button class="secondary" disabled={name.trim() === ""} onClick={add}>
-                    Add
-                  </button>
-                </td>
-              </tr>
-            </tfoot>
+                {orphans.map((k) => (
+                  <tr key={k} class="mg-on">
+                    <td class="mg-switch">
+                      <Toggle on onChange={() => form.remove(["subagent", "models", k])} label={`Stop allowing ${k}`} text={false} />
+                    </td>
+                    <td class="mono" colSpan={4}>
+                      {k}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            )}
           </table>
         </div>
         <Issues form={form} path={["subagent", "models"]} />
@@ -806,6 +866,113 @@ export function RepositoryPage({ form }: { form: Form }): JSX.Element {
           <Switch form={form} path={["background", "resume"]} />
         </Row>
       </Section>
+    </>
+  );
+}
+
+// ---- instructions --------------------------------------------------------------------------------------------------
+
+const sizeText = (bytes: number): string =>
+  `${bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} kB`} · ~${(estimateTokens(bytes) / 1000).toFixed(1)}k tokens`;
+
+export function InstructionsPage({ model }: { model: Model }): JSX.Element {
+  const { files, found } = model.instructions.value;
+  const [path, setPath] = useState("");
+  const add = (p: string): void => {
+    model.addInstruction(p);
+    setPath("");
+  };
+  const used = files.filter((f) => f.on && f.exists).reduce((n, f) => n + estimateTokens(f.bytes ?? 0), 0);
+  return (
+    <>
+      <Section
+        title="Instruction files"
+        hint="Text the agent is given at the start of every request, in this order. These belong to this thread, not to harness.yml: a change applies at once and is recorded on the thread."
+      >
+        <div class="tb-wrap">
+          <table class="tb">
+            <thead>
+              <tr>
+                <th aria-label="Given to the agent" />
+                <th>File</th>
+                <th>Size</th>
+                <th aria-label="Remove" />
+              </tr>
+            </thead>
+            <tbody>
+              {files.map((f) => (
+                <tr key={f.path} class={f.on ? "mg-on" : ""}>
+                  <td class="mg-switch">
+                    <Toggle
+                      on={f.on}
+                      onChange={(v) => model.enableInstruction(f.path, v)}
+                      label={`Give the agent ${f.path}`}
+                      text={false}
+                    />
+                  </td>
+                  <td class="mono">{f.path}</td>
+                  <td>{f.exists ? sizeText(f.bytes ?? 0) : <span class="gr-state expired">Not found</span>}</td>
+                  <td class="gr-end">
+                    <button
+                      class="icon-button"
+                      aria-label={`Remove ${f.path}`}
+                      title="Remove from the thread"
+                      onClick={() => model.removeInstruction(f.path)}
+                    >
+                      <Icon name="x" size={12} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {files.length === 0 && (
+                <tr>
+                  <td colSpan={4} class="cf-empty">
+                    No instruction files.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr class="tb-add">
+                <td />
+                <td colSpan={2}>
+                  <input
+                    class="cf-text mono"
+                    aria-label="Path of a file to add"
+                    placeholder="path/to/file.md, relative to the workspace"
+                    value={path}
+                    onInput={(e) => setPath(e.currentTarget.value)}
+                    onKeyDown={(e) => e.key === "Enter" && add(path)}
+                  />
+                </td>
+                <td class="gr-end">
+                  <button class="secondary" disabled={path.trim() === ""} onClick={() => add(path)}>
+                    Add
+                  </button>
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+        <p class="cf-hint">About {(used / 1000).toFixed(1)}k tokens of instructions are sent with each request.</p>
+      </Section>
+      {found.length > 0 && (
+        <Section title="Found in your workspace" hint="Files that tools commonly use for instructions.">
+          <ul class="if-found">
+            {found.map((f) => (
+              <li key={f.path}>
+                <span class="mono">{f.path}</span>
+                <span class="cf-help">
+                  {WELL_KNOWN_INSTRUCTIONS[f.path] ?? ""} · {sizeText(f.bytes)}
+                </span>
+                <button class="secondary" onClick={() => add(f.path)}>
+                  <Icon name="plus" size={12} /> Add
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
     </>
   );
 }

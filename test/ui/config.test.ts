@@ -6,9 +6,12 @@ import { validateMock } from "../../ui/fixtures/mock-validate.ts";
 import { ConfigModel } from "../../ui/model/config-model.ts";
 import {
   ADAPTERS,
+  enabledModels,
+  estimateTokens,
+  modelKey,
+  splitModelKey,
   FOREVER,
   addGrant,
-  changeAdapter,
   grantState,
   grants,
   issueCounts,
@@ -100,16 +103,9 @@ describe("providers", () => {
     assert.equal(newProviderName("openai-compatible", ["local", "local-2"]), "local-3");
   });
 
-  test("a new provider is valid, and changing the adapter keeps what both share", () => {
+  test("a new provider is valid for its adapter", () => {
     const { schema } = fixture();
     for (const a of ADAPTERS) assert.deepEqual(validateMock(schema, { providers: { p: newProvider(a.tag) } }), [], a.tag);
-    const moved = changeAdapter({ $tag: "openai-compatible", base_url: "http://x/v1", max_concurrent: 2 }, "openai");
-    assert.deepEqual(moved, {
-      $tag: "openai",
-      base_url: "http://x/v1",
-      max_concurrent: 2,
-      api_key_env: "OPENAI_API_KEY",
-    });
   });
 });
 
@@ -204,11 +200,12 @@ describe("the editor model with the mock controller", () => {
     assert.equal(config.form.value, undefined);
     config.toggle();
     feed();
-    assert.deepEqual(sent, [{ type: "ready", view: "config" }]);
+    const readies = (): number => sent.filter((i) => i.type === "ready").length;
+    assert.equal(readies(), 1);
     assert.ok(config.form.value);
     config.toggle();
     config.toggle();
-    assert.equal(sent.length, 1);
+    assert.equal(readies(), 1);
     assert.equal(config.open.value, true);
   });
 
@@ -294,5 +291,110 @@ describe("the editor model with the mock controller", () => {
     assert.deepEqual(config.form.value?.spec.value.value["skills"], {
       follow: "ask",
     });
+  });
+});
+
+describe("providers' connection, their models and the instruction files", () => {
+  const rig = () => {
+    const sent: UiIntent[] = [];
+    const controller = new MockController({
+      emit: (e) => {
+        const r = parseEvent(e);
+        assert.ok(r.ok);
+        config.apply(r.value);
+      },
+      sleep: async () => {},
+    });
+    const config = new ConfigModel((i) => {
+      sent.push(i);
+      controller.handle(i);
+    });
+    return { config, sent, controller };
+  };
+
+  test("opening the providers page tests each provider once; the result shows, and an edit makes it stale", async () => {
+    const { config, sent, controller } = rig();
+    config.toggle();
+    await controller.idle();
+    const tests = sent.flatMap((i) => (i.type === "provider.test" ? [i.provider] : []));
+    assert.deepEqual(tests, ["anthropic", "openai", "local"]);
+    assert.equal(config.statuses.value["anthropic"]?.state, "ok");
+    assert.equal(config.statuses.value["local"]?.state, "error");
+    assert.match(config.statuses.value["local"]?.detail ?? "", /connection refused/);
+    config.setPage("limits");
+    config.setPage("providers");
+    assert.equal(sent.filter((i) => i.type === "provider.test").length, 3, "not asked again");
+    assert.equal(config.isStale("anthropic"), false);
+    config.form.value?.set(["providers", "anthropic", "api_key_env"], "OTHER_KEY");
+    assert.equal(config.isStale("anthropic"), true);
+    config.test("anthropic");
+    await controller.idle();
+    assert.equal(config.isStale("anthropic"), false);
+  });
+
+  test("the subagents page lists each provider's models, or why it cannot", async () => {
+    const { config, controller } = rig();
+    config.toggle();
+    config.setPage("subagents");
+    await controller.idle();
+    assert.deepEqual(
+      config.models.value["anthropic"]?.models.map((m) => m.id),
+      ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"],
+    );
+    assert.match(config.models.value["local"]?.error ?? "", /connection refused/);
+  });
+
+  test("model keys: the switch is the key's presence in subagent.models", () => {
+    const value = fixture().value;
+    assert.equal(modelKey("anthropic", "claude-haiku-5-5"), "anthropic/claude-haiku-5-5");
+    assert.deepEqual(splitModelKey("local/org/model"), { provider: "local", id: "org/model" });
+    assert.deepEqual([...enabledModels(value)], ["anthropic/claude-haiku-5-5", "local/qwen3-coder"]);
+    assert.equal(enabledModels({}).size, 0);
+  });
+
+  test("instruction files: the well-known ones in the workspace are offered, and adding one takes it off the list", async () => {
+    const { config, controller } = rig();
+    config.toggle();
+    await controller.idle();
+    const first = config.instructions.value;
+    assert.deepEqual(
+      first.files.map((f) => [f.path, f.on]),
+      [
+        ["AGENTS.md", true],
+        ["docs/conventions.md", false],
+      ],
+    );
+    assert.deepEqual(
+      first.found.map((f) => f.path),
+      ["CLAUDE.md", ".github/copilot-instructions.md", "CONTRIBUTING.md"],
+    );
+    config.addInstruction("CLAUDE.md");
+    config.addInstruction("notes/missing.md");
+    config.enableInstruction("docs/conventions.md", true);
+    const after = config.instructions.value;
+    assert.deepEqual(
+      after.files.map((f) => [f.path, f.on, f.exists]),
+      [
+        ["AGENTS.md", true, true],
+        ["docs/conventions.md", true, true],
+        ["CLAUDE.md", true, true],
+        ["notes/missing.md", true, false],
+      ],
+    );
+    assert.equal(
+      after.found.some((f) => f.path === "CLAUDE.md"),
+      false,
+    );
+    config.removeInstruction("AGENTS.md");
+    assert.equal(
+      config.instructions.value.files.some((f) => f.path === "AGENTS.md"),
+      false,
+    );
+    assert.equal(
+      config.instructions.value.found.some((f) => f.path === "AGENTS.md"),
+      true,
+      "a removed well-known file is offered again",
+    );
+    assert.equal(estimateTokens(4210), 1053);
   });
 });
