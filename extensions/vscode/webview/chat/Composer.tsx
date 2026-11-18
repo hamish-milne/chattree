@@ -4,6 +4,7 @@ import { useLayoutEffect, useRef } from "preact/hooks";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import { Icon } from "../icons.tsx";
 import { Chip } from "./blocks.tsx";
+import css from "./chat.module.css";
 
 type Model = InstanceType<typeof ChatModel>;
 
@@ -19,7 +20,7 @@ export function Composer({ model }: { model: Model }): JSX.Element {
     el.style.height = `${Math.min(el.scrollHeight, 220)}px`;
   });
   return (
-    <div class="composer">
+    <div class={css.composer}>
       {c.attachments.length > 0 && (
         <div class="chips">
           {c.attachments.map((a) => (
@@ -41,19 +42,19 @@ export function Composer({ model }: { model: Model }): JSX.Element {
           }
         }}
       />
-      <div class="composer-row">
+      <div class={css["composer-row"]}>
         <button class="icon-button" title="Attach files" aria-label="Attach files" onClick={() => model.attach()}>
           <Icon name="attach" />
         </button>
         <span class="spacer" />
         {busy && (
-          <button class="stop" title="Stop the request" aria-label="Stop" onClick={() => model.stop()}>
+          <button class={css.stop} title="Stop the request" aria-label="Stop" onClick={() => model.stop()}>
             <Icon name="stop" size={12} />
             <span>Stop</span>
           </button>
         )}
         <button
-          class="send"
+          class={css.send}
           disabled={!model.canSend.value}
           title={busy ? "Queue this message" : "Send"}
           aria-label={busy ? "Queue message" : "Send"}

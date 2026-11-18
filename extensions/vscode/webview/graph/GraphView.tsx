@@ -11,6 +11,8 @@ import type { GraphModel } from "chattree/ui/model/graph-model";
 import { Icon } from "../icons.tsx";
 import { ConfirmDialog, SwitchDialog } from "./ConfirmDialog.tsx";
 import { RepoPicker } from "./RepoPicker.tsx";
+import css from "./graph.module.css";
+import { cn } from "../cn.ts";
 
 type Model = InstanceType<typeof GraphModel>;
 
@@ -44,7 +46,7 @@ function edgePath(e: GraphEdge): string {
 function Node({ row, index, color, lit }: { row: GraphRow; index: number; color: string; lit: boolean }): JSX.Element {
   return (
     <g>
-      {lit && <circle class="halo" cx={x(row.lane)} cy={y(index)} r={10} fill={color} />}
+      {lit && <circle class={css.halo} cx={x(row.lane)} cy={y(index)} r={10} fill={color} />}
       <Shape row={row} index={index} color={color} />
     </g>
   );
@@ -58,7 +60,7 @@ function Shape({ row, index, color }: { row: GraphRow; index: number; color: str
     return (
       <g>
         <rect x={cx - 8} y={cy - 6} width={16} height={12} rx={4} fill="var(--vscode-sideBar-background)" {...common} />
-        <text x={cx} y={cy + 3.5} text-anchor="middle" class="node-count" fill={color}>
+        <text x={cx} y={cy + 3.5} text-anchor="middle" class={css["node-count"]} fill={color}>
           {row.calls}
         </text>
       </g>
@@ -92,7 +94,7 @@ const STATUS_LABEL: Record<ThreadStatus, string> = {
 function Status({ status }: { status: ThreadStatus }): JSX.Element | null {
   if (status === "idle") return null;
   return (
-    <span class={`status status-${status}`} role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]}>
+    <span class={cn(css.status, css[`status-${status}`])} role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]}>
       {status === "elsewhere" ? (
         <svg viewBox="0 0 16 16" width="12" height="12">
           <path d="M5 7V5a3 3 0 0 1 6 0v2h1v6H4V7zm1.5 0h3V5a1.5 1.5 0 0 0-3 0z" fill="currentColor" />
@@ -112,7 +114,7 @@ function Status({ status }: { status: ThreadStatus }): JSX.Element | null {
 function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.Element {
   return (
     <span
-      class={`pill${thread.merged === true ? " merged" : ""}${thread.checkedOut === true ? " checked-out" : ""}`}
+      class={cn(css.pill, thread.merged === true && css.merged, thread.checkedOut === true && css["checked-out"])}
       style={{ "--c": color }}
       title={[
         thread.title,
@@ -124,11 +126,11 @@ function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.El
         .join(" · ")}
     >
       {thread.checkedOut === true && (
-        <span class="pill-checkout" role="img" aria-label="Checked out in your workspace">
+        <span class={css["pill-checkout"]} role="img" aria-label="Checked out in your workspace">
           <Icon name="checkout" size={11} />
         </span>
       )}
-      <span class="pill-name">{thread.name}</span>
+      <span class={css["pill-name"]}>{thread.name}</span>
       <Status status={thread.status} />
     </span>
   );
@@ -156,9 +158,9 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
   const data = model.data.value;
   if (layout === undefined || data === undefined)
     return (
-      <div class="graph">
+      <div class={css.graph}>
         <RepoPicker model={model} />
-        <div class="graph-empty">No conversation yet.</div>
+        <div class={css["graph-empty"]}>No conversation yet.</div>
       </div>
     );
   const threads = new Map(data.threads.map((t) => [t.name, t]));
@@ -190,13 +192,13 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
     else model.cancelDrag();
   };
   const move = (from: HTMLElement, delta: number): void => {
-    const rows = [...(from.closest(".graph")?.querySelectorAll<HTMLElement>(".row") ?? [])];
+    const rows = [...(from.closest(`.${css.graph}`)?.querySelectorAll<HTMLElement>(`.${css.row}`) ?? [])];
     rows[Math.max(0, Math.min(rows.length - 1, rows.indexOf(from) + delta))]?.focus();
   };
 
   return (
     <div
-      class={`graph${drag === undefined ? "" : " dragging"}`}
+      class={cn(css.graph, drag !== undefined && css.dragging)}
       role="list"
       aria-label="Threads"
       onKeyDown={(e) => {
@@ -224,27 +226,20 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
       onPointerCancel={(e) => endDrag(e, false)}
     >
       <RepoPicker model={model} />
-      <div class="graph-scroll">
-        <div class="graph-body" style={{ height: `${layout.rows.length * ROW}px` }}>
+      <div class={css["graph-scroll"]}>
+        <div class={css["graph-body"]} style={{ height: `${layout.rows.length * ROW}px` }}>
           {layout.rows.map((r, i) => {
             const isSelected = selected.thread === r.thread && r.tipOf !== undefined;
-            const cls = [
-              "row-bg",
-              isSelected ? "selected" : "",
-              lit.thread === r.thread ? "thread-lit" : "",
-              drag?.thread === r.thread ? "drag-source" : "",
-              drop?.thread === r.thread ? (drop.ok ? "drop-ok" : "drop-no") : "",
-            ];
-            return (
-              <div
-                key={r.id}
-                class={cls.filter(Boolean).join(" ")}
-                style={{ top: `${i * ROW}px`, "--c": colorOf(r.lane) }}
-                aria-hidden="true"
-              />
+            const cls = cn(
+              css["row-bg"],
+              isSelected && css.selected,
+              lit.thread === r.thread && css["thread-lit"],
+              drag?.thread === r.thread && css["drag-source"],
+              drop?.thread === r.thread && (drop.ok ? css["drop-ok"] : css["drop-no"]),
             );
+            return <div key={r.id} class={cls} style={{ top: `${i * ROW}px`, "--c": colorOf(r.lane) }} aria-hidden="true" />;
           })}
-          <svg class="lanes" width={width} height={layout.rows.length * ROW} aria-hidden="true">
+          <svg class={css.lanes} width={width} height={layout.rows.length * ROW} aria-hidden="true">
             {layout.edges.map((e, i) => (
               <path key={i} d={edgePath(e)} stroke={colorOf(e.bend === "bottom" ? e.fromLane : e.toLane)} stroke-width={1.5} fill="none" />
             ))}
@@ -259,7 +254,12 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
             return (
               <div
                 key={r.id}
-                class={`row${r.type === "fold" ? " fold" : ""}${r.type === "commit" && r.foldId !== undefined ? " in-fold" : ""}${drag?.thread === r.thread ? " drag-source" : ""}${drop?.thread === r.thread && !drop.ok ? " no-drop" : ""}`}
+                class={cn(
+                  css.row,
+                  r.type === "commit" && r.foldId !== undefined && css["in-fold"],
+                  drag?.thread === r.thread && css["drag-source"],
+                  drop?.thread === r.thread && !drop.ok && css["no-drop"],
+                )}
                 data-thread={r.thread}
                 style={{ top: `${i * ROW}px`, paddingLeft: `${width + 20}px` }}
                 role="listitem"
@@ -299,7 +299,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
               >
                 {r.type === "fold" && (
                   <button
-                    class="chevron"
+                    class={css.chevron}
                     style={{ left: `${width - 4}px` }}
                     tabIndex={-1}
                     aria-expanded={false}
@@ -316,7 +316,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
                 )}
                 {collapsers.has(r.id) && r.type === "commit" && r.foldId !== undefined && (
                   <button
-                    class="chevron expanded"
+                    class={cn(css.chevron, css.expanded)}
                     style={{ left: `${width - 4}px` }}
                     tabIndex={-1}
                     aria-expanded={true}
@@ -331,9 +331,9 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
                     <Icon name="chevron" size={14} />
                   </button>
                 )}
-                <span class={`label${l.dim ? " dim" : ""}${l.strong ? " strong" : ""}`}>{l.text}</span>
+                <span class={cn(css.label, l.dim && "dim", l.strong && css.strong)}>{l.text}</span>
                 {tip !== undefined && <Pill thread={tip} color={colorOf(r.lane)} />}
-                <span class="time">{r.type === "fold" ? "" : clock(r.commit.time)}</span>
+                <span class={css.time}>{r.type === "fold" ? "" : clock(r.commit.time)}</span>
               </div>
             );
           })}
@@ -341,14 +341,14 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
       </div>
       {drag !== undefined && (
         <div
-          class={`drag-ghost${drop !== undefined && !drop.ok ? " refused" : ""}`}
+          class={cn(css["drag-ghost"], drop !== undefined && !drop.ok && css.refused)}
           style={{ left: `${pointer.x}px`, top: `${pointer.y}px` }}
           aria-hidden="true"
         >
-          <span class="pill" style={{ "--c": colorOf(layout.rows.find((r) => r.thread === drag.thread)?.lane ?? 0) }}>
-            <span class="pill-name">{drag.thread}</span>
+          <span class={css.pill} style={{ "--c": colorOf(layout.rows.find((r) => r.thread === drag.thread)?.lane ?? 0) }}>
+            <span class={css["pill-name"]}>{drag.thread}</span>
           </span>
-          <span class="drag-hint">
+          <span class={css["drag-hint"]}>
             {drop === undefined
               ? "Drop on a thread to merge"
               : drop.ok
@@ -371,7 +371,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
             {model.menuActions.value.map((a) => (
               <button
                 key={a.id}
-                class={`menu-item${a.separator === true ? " separated" : ""}${a.id === "delete" ? " danger" : ""}`}
+                class={cn("menu-item", a.separator === true && "separated", a.id === "delete" && "danger")}
                 role="menuitem"
                 disabled={!a.enabled}
                 aria-disabled={!a.enabled}

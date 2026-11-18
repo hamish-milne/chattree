@@ -5,6 +5,8 @@
  */
 import type { JSX } from "preact";
 import type { Field, FormModel } from "chattree/ui/model/form-model";
+import css from "./form.module.css";
+import { cn, pick } from "../cn.ts";
 
 type Form = InstanceType<typeof FormModel>;
 
@@ -38,7 +40,7 @@ function Control({ form, field }: { form: Form; field: Field }): JSX.Element | n
         <input
           {...common}
           type="checkbox"
-          class="switch"
+          class={css.switch}
           role="switch"
           checked={field.value}
           onChange={(e) => form.set(field.path, e.currentTarget.checked)}
@@ -78,7 +80,7 @@ function Control({ form, field }: { form: Form; field: Field }): JSX.Element | n
         />
       );
     case "raw":
-      return <pre class="form-raw">{JSON.stringify(field.value, null, 2)}</pre>;
+      return <pre class={css["form-raw"]}>{JSON.stringify(field.value, null, 2)}</pre>;
     default:
       return null;
   }
@@ -88,9 +90,9 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
   const id = idOf(field.path);
   if (field.kind === "group") {
     return (
-      <fieldset class="form-group">
+      <fieldset class={css["form-group"]}>
         <legend>{field.key}</legend>
-        {field.description !== undefined && <p class="form-help">{field.description}</p>}
+        {field.description !== undefined && <p class={css["form-help"]}>{field.description}</p>}
         <Fields form={form} fields={field.fields} />
         <Issues id={id} issues={field.issues} />
       </fieldset>
@@ -98,11 +100,11 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
   }
   if (field.kind === "map") {
     return (
-      <fieldset class="form-group">
+      <fieldset class={css["form-group"]}>
         <legend>{field.key}</legend>
-        {field.description !== undefined && <p class="form-help">{field.description}</p>}
+        {field.description !== undefined && <p class={css["form-help"]}>{field.description}</p>}
         {field.entries.map((e) => (
-          <fieldset key={e.key} class="form-group entry">
+          <fieldset key={e.key} class={cn(css["form-group"], css.entry)}>
             <legend>
               {e.key}
               <button
@@ -122,10 +124,10 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
     );
   }
   return (
-    <div class={`form-field kind-${field.kind}${field.issues.length > 0 ? " invalid" : ""}`}>
+    <div class={cn(css["form-field"], pick(css, `kind-${field.kind}`))}>
       <label for={id}>{field.key}</label>
       <Control form={form} field={field} />
-      {field.description !== undefined && <p class="form-help">{field.description}</p>}
+      {field.description !== undefined && <p class={css["form-help"]}>{field.description}</p>}
       <Issues id={id} issues={field.issues} />
     </div>
   );
@@ -134,7 +136,7 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
 function Issues({ id, issues }: { id: string; issues: string[] }): JSX.Element | null {
   if (issues.length === 0) return null;
   return (
-    <p class="form-issues" id={`${id}-issues`} role="alert">
+    <p class={css["form-issues"]} id={`${id}-issues`} role="alert">
       {issues.join("; ")}
     </p>
   );
@@ -156,19 +158,19 @@ export function FormView({ form }: { form: Form }): JSX.Element {
   const tree = form.tree.value;
   return (
     <form
-      class="form"
+      class={css.form}
       onSubmit={(e) => {
         e.preventDefault();
         form.save();
       }}
     >
       {tree.unplaced.length > 0 && (
-        <p class="form-issues" role="alert">
+        <p class={css["form-issues"]} role="alert">
           {tree.unplaced.map((i) => (i.path === "" ? i.message : `${i.path} ${i.message}`)).join("; ")}
         </p>
       )}
       <Fields form={form} fields={tree.fields} />
-      <div class="form-buttons">
+      <div class={css["form-buttons"]}>
         <button
           type="submit"
           class="primary"

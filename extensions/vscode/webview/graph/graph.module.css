@@ -124,7 +124,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.label.dim {
+.label:global(.dim) {
   color: var(--vscode-descriptionForeground);
 }
 .label.strong {
@@ -141,7 +141,7 @@
   border-radius: 4px;
   color: var(--vscode-descriptionForeground);
 }
-.chevron .icon {
+.chevron :global(.icon) {
   transition: transform 0.1s;
 }
 button.chevron {
@@ -150,7 +150,7 @@ button.chevron {
   background: none;
   cursor: pointer;
 }
-button.chevron.expanded .icon {
+button.chevron.expanded :global(.icon) {
   transform: rotate(90deg);
 }
 button.chevron:hover {
@@ -268,7 +268,7 @@ button.chevron:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: -1px;
 }
-.repo-button > .icon:last-child {
+.repo-button > :global(.icon):last-child {
   margin-left: auto;
   transform: rotate(90deg);
   flex: none;
@@ -386,11 +386,11 @@ button.chevron:focus-visible {
   font: inherit;
   cursor: pointer;
 }
-.dialog-buttons .secondary {
+.dialog-buttons :global(.secondary) {
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
 }
-.dialog-buttons .danger {
+.dialog-buttons :global(.danger) {
   background: var(--vscode-inputValidation-errorBackground, #5a1d1d);
   border-color: var(--vscode-inputValidation-errorBorder, #be1100);
   color: var(--vscode-foreground);
@@ -413,6 +413,18 @@ button.chevron:focus-visible {
   margin: 4px 0 10px;
   font-size: 12px;
 }
-.dialog-buttons .primary {
+.dialog-buttons :global(.primary) {
   padding: 4px 12px;
+}
+
+/* Keyframes are local to a stylesheet. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
 }

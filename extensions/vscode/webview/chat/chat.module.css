@@ -108,7 +108,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.user .chips {
+.user :global(.chips) {
   margin-top: 6px;
 }
 .user.queued {
@@ -140,114 +140,6 @@
   background: var(--vscode-foreground);
   animation: blink 1s steps(1) infinite;
 }
-.assistant.streaming .md > :last-child::after {
-  content: "";
-  display: inline-block;
-  width: 6px;
-  height: 13px;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  background: var(--vscode-foreground);
-  animation: blink 1s steps(1) infinite;
-}
-.md > :first-child {
-  margin-top: 0;
-}
-.md > :last-child {
-  margin-bottom: 0;
-}
-.md p {
-  margin: 0 0 8px;
-}
-.md ul,
-.md ol {
-  margin: 0 0 8px;
-  padding-left: 22px;
-}
-.md li > p {
-  margin: 0;
-}
-.md li.task {
-  list-style: none;
-  margin-left: -18px;
-}
-.md a {
-  color: var(--vscode-textLink-foreground);
-}
-.md code {
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-family: var(--vscode-editor-font-family);
-  font-size: 0.92em;
-  background: var(--vscode-textCodeBlock-background);
-}
-.md-code {
-  margin: 0 0 8px;
-  border-radius: 5px;
-  overflow: hidden;
-  border: 1px solid var(--vscode-panel-border);
-  background: var(--vscode-textCodeBlock-background);
-}
-.md-code-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 1px 4px 1px 10px;
-  font-size: 11px;
-  color: var(--vscode-descriptionForeground);
-  border-bottom: 1px solid var(--vscode-panel-border);
-}
-.md-code pre {
-  margin: 0;
-  padding: 8px 10px;
-  overflow-x: auto;
-  font-family: var(--vscode-editor-font-family);
-  font-size: 12px;
-  line-height: 1.45;
-}
-.md-code code {
-  padding: 0;
-  background: none;
-  font-size: inherit;
-}
-.md blockquote {
-  margin: 0 0 8px;
-  padding: 2px 10px;
-  border-left: 3px solid var(--vscode-textBlockQuote-border);
-  background: var(--vscode-textBlockQuote-background);
-}
-.md-h {
-  margin: 10px 0 4px;
-  font-weight: 600;
-}
-.md-h1 {
-  font-size: 1.25em;
-}
-.md-h2 {
-  font-size: 1.12em;
-}
-.md hr {
-  border: none;
-  border-top: 1px solid var(--vscode-textSeparator-foreground);
-}
-.md-table {
-  margin: 0 0 8px;
-  overflow-x: auto;
-}
-.md table {
-  border-collapse: collapse;
-}
-.md th,
-.md td {
-  padding: 3px 10px;
-  border: 1px solid var(--vscode-panel-border);
-}
-.md th {
-  background: var(--vscode-textBlockQuote-background);
-}
-.md-image {
-  color: var(--vscode-descriptionForeground);
-}
 
 .disclosure {
   display: inline-flex;
@@ -260,12 +152,12 @@
   color: var(--vscode-descriptionForeground);
   cursor: pointer;
 }
-.disclosure .icon,
-.tool-head > .icon {
+.disclosure :global(.icon),
+.tool-head > :global(.icon) {
   transition: transform 0.1s;
 }
-.reasoning.open .disclosure .icon,
-.tool.open .tool-head > .icon {
+.reasoning.open .disclosure :global(.icon),
+.tool.open .tool-head > :global(.icon) {
   transform: rotate(90deg);
 }
 .reasoning-text {
@@ -424,7 +316,7 @@
   font-size: 12px;
   color: var(--vscode-descriptionForeground);
 }
-.notice .icon {
+.notice :global(.icon) {
   margin-top: 2px;
 }
 .notice-title {
@@ -433,10 +325,10 @@
 .notice-detail {
   margin-top: 1px;
 }
-.level-warning .icon {
+.level-warning :global(.icon) {
   color: var(--vscode-editorWarning-foreground);
 }
-.level-error .icon,
+.level-error :global(.icon),
 .level-error .notice-title {
   color: var(--vscode-errorForeground);
 }
@@ -596,7 +488,7 @@
   background: var(--vscode-editorWarning-foreground);
 }
 @container (max-width: 480px) {
-  .status-bar .dim,
+  .status-bar :global(.dim),
   .status-bar .gauge {
     display: none;
   }
@@ -758,4 +650,41 @@
 .file-head .file-link {
   font-family: var(--vscode-editor-font-family);
   font-size: 12px;
+}
+
+/* The settings button in the header */
+.chat-head :global(.icon-button).pressed {
+  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
+}
+
+.unsaved-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-focusBorder));
+}
+
+/* Keyframes are local to a stylesheet. */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
 }

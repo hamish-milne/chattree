@@ -502,7 +502,7 @@ tr.gr-expired td:first-child {
   cursor: pointer;
   vertical-align: middle;
 }
-.tb .disclosure[aria-expanded="true"] .icon {
+.tb .disclosure[aria-expanded="true"] :global(.icon) {
   transform: rotate(90deg);
 }
 
@@ -524,8 +524,8 @@ tr.gr-expired td:first-child {
 .cf-foot button {
   white-space: nowrap;
 }
-button.primary:disabled,
-button.secondary:disabled {
+button:global(.primary):disabled,
+button:global(.secondary):disabled {
   opacity: 0.45;
   cursor: default;
 }
@@ -536,21 +536,9 @@ button.secondary:disabled {
 }
 
 /* The gear in the chat header */
-.chat-head .icon-button {
+.chat-head :global(.icon-button) {
   position: relative;
   align-self: center;
-}
-.chat-head .icon-button.pressed {
-  background: var(--vscode-toolbar-activeBackground, var(--vscode-toolbar-hoverBackground));
-}
-.unsaved-dot {
-  position: absolute;
-  top: 2px;
-  right: 2px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--vscode-notificationsInfoIcon-foreground, var(--vscode-focusBorder));
 }
 
 .tb td:first-child,
@@ -615,15 +603,7 @@ button.secondary:disabled {
   color: var(--vscode-descriptionForeground);
 }
 
-/* Providers: adapter label and connection */
-.pv-adapter {
-  padding: 0 8px;
-  border: 1px solid var(--vscode-panel-border);
-  border-radius: 8px;
-  font-size: 11px;
-  line-height: 18px;
-  color: var(--vscode-descriptionForeground);
-}
+/* Providers: connection */
 .pv-status {
   display: inline-flex;
   align-items: center;
@@ -809,7 +789,6 @@ tbody.mg tr:nth-child(even):not(:hover) {
 .cf-adorn,
 .cf-label,
 .cf-problems,
-.pv-adapter,
 .pv-status,
 .pv-name,
 .gr-state,

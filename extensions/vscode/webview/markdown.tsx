@@ -10,6 +10,8 @@ import { useMemo } from "preact/hooks";
 import { parseFileRef } from "chattree/ui/model/file-ref";
 import { FileLink, FileLinkContext, type FileLinks } from "./chat/FileLink.tsx";
 import { Icon } from "./icons.tsx";
+import css from "./markdown.module.css";
+import { cn } from "./cn.ts";
 
 const KNOWN = new Set([
   "blockquote",
@@ -87,7 +89,7 @@ function inline(t: Token, key: number): ComponentChild {
     }
     case "image":
       return (
-        <span key={key} class="md-image">
+        <span key={key} class={css["md-image"]}>
           [image: {t.text === "" ? t.href : t.text}]
         </span>
       );
@@ -105,8 +107,8 @@ function Inline({ tokens }: { tokens: Token[] }): JSX.Element {
 
 function CodeBlock({ lang, text }: { lang: string | undefined; text: string }): JSX.Element {
   return (
-    <div class="md-code">
-      <div class="md-code-head">
+    <div class={css["md-code"]}>
+      <div class={css["md-code-head"]}>
         <span>{lang ?? ""}</span>
         <button class="icon-button" title="Copy" aria-label="Copy code" onClick={() => void navigator.clipboard.writeText(text)}>
           <Icon name="copy" />
@@ -133,7 +135,12 @@ function block(t: Token, key: number): ComponentChild {
     case "heading":
       // Headings in a chat reply are small: a level 1 is only a little bigger than the text.
       return (
-        <div key={key} class={`md-h md-h${Math.min(t.depth, 4)}`} role="heading" aria-level={Math.min(t.depth + 2, 6)}>
+        <div
+          key={key}
+          class={cn(css["md-h"], t.depth === 1 ? css["md-h1"] : t.depth === 2 ? css["md-h2"] : undefined)}
+          role="heading"
+          aria-level={Math.min(t.depth + 2, 6)}
+        >
           <Inline tokens={t.tokens} />
         </div>
       );
@@ -145,7 +152,7 @@ function block(t: Token, key: number): ComponentChild {
       return <hr key={key} />;
     case "list": {
       const items = t.items.map((item, i) => (
-        <li key={i} class={item.task ? "task" : undefined}>
+        <li key={i} class={item.task ? css.task : undefined}>
           {item.tokens.map(block)}
         </li>
       ));
@@ -159,7 +166,7 @@ function block(t: Token, key: number): ComponentChild {
     }
     case "table":
       return (
-        <div key={key} class="md-table">
+        <div key={key} class={css["md-table"]}>
           <table>
             <thead>
               <tr>
@@ -195,11 +202,11 @@ function block(t: Token, key: number): ComponentChild {
 }
 
 /** Markdown as elements. A reply that is still arriving can end mid-fence or mid-list; it is drawn as far as it goes. */
-export function Markdown({ source, files }: { source: string; files?: FileLinks }): JSX.Element {
+export function Markdown({ source, files, caret }: { source: string; files?: FileLinks; caret?: boolean }): JSX.Element {
   const tokens = useMemo(() => Lexer.lex(source), [source]);
   return (
     <FileLinkContext.Provider value={files}>
-      <div class="md">{tokens.map(block)}</div>
+      <div class={cn(css.md, caret === true && css.caret)}>{tokens.map(block)}</div>
     </FileLinkContext.Provider>
   );
 }

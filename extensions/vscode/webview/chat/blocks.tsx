@@ -9,6 +9,8 @@ import { toolView, type DiffRow, type ToolView } from "chattree/ui/model/tool-vi
 import { Icon, type IconName } from "../icons.tsx";
 import { Markdown } from "../markdown.tsx";
 import { FileLink, FileLinkContext } from "./FileLink.tsx";
+import css from "./chat.module.css";
+import { cn, pick } from "../cn.ts";
 
 type Model = InstanceType<typeof ChatModel>;
 type Of<T extends Block["type"]> = Extract<Block, { type: T }>;
@@ -40,7 +42,7 @@ function Actions({ model, block }: { model: Model; block: Block }): JSX.Element 
   const why = model.busy.value ? "Stop the thread first" : commit === model.thread.value?.tip ? "This is already the latest commit" : "";
   const rewindLabel = block.type === "user" ? "Rewind and edit this message" : "Rewind to here";
   return (
-    <div class="actions" role="toolbar" aria-label="Message actions">
+    <div class={css.actions} role="toolbar" aria-label="Message actions">
       <button class="icon-button" title="Fork from here" aria-label="Fork from here" onClick={() => model.fork(commit)}>
         <Icon name="fork" />
       </button>
@@ -59,10 +61,10 @@ function Actions({ model, block }: { model: Model; block: Block }): JSX.Element 
 
 function User({ model, block }: { model: Model; block: Of<"user"> }): JSX.Element {
   return (
-    <section class={`block user${block.queued === true ? " queued" : ""}`} aria-label="You" data-commit={block.commit}>
+    <section class={cn(css.block, css.user, block.queued === true && css.queued)} aria-label="You" data-commit={block.commit}>
       <Actions model={model} block={block} />
-      {block.from !== undefined && <div class="from">from thread {block.from}</div>}
-      <div class="user-text">{block.text}</div>
+      {block.from !== undefined && <div class={css.from}>from thread {block.from}</div>}
+      <div class={css["user-text"]}>{block.text}</div>
       {block.attachments.length > 0 && (
         <div class="chips">
           {block.attachments.map((a, i) => (
@@ -70,17 +72,17 @@ function User({ model, block }: { model: Model; block: Of<"user"> }): JSX.Elemen
           ))}
         </div>
       )}
-      {block.queued === true && <div class="queued-note">Queued: sent with the next request</div>}
+      {block.queued === true && <div class={css["queued-note"]}>Queued: sent with the next request</div>}
     </section>
   );
 }
 
 function Assistant({ model, block }: { model: Model; block: Of<"assistant"> }): JSX.Element {
   return (
-    <section class={`block assistant${block.streaming === true ? " streaming" : ""}`} aria-label="Assistant" data-commit={block.commit}>
+    <section class={cn(css.block, css.assistant)} aria-label="Assistant" data-commit={block.commit}>
       <Actions model={model} block={block} />
-      <Markdown source={block.markdown} files={{ model, commit: block.commit }} />
-      {block.streaming === true && block.markdown === "" && <span class="caret" aria-label="Waiting for the model" />}
+      <Markdown source={block.markdown} files={{ model, commit: block.commit }} caret={block.streaming === true} />
+      {block.streaming === true && block.markdown === "" && <span class={css.caret} aria-label="Waiting for the model" />}
     </section>
   );
 }
@@ -89,12 +91,12 @@ function Reasoning({ model, block }: { model: Model; block: Of<"reasoning"> }): 
   const open = model.openBlocks.value.has(block.id);
   const streaming = block.streaming === true;
   return (
-    <section class={`block reasoning${open ? " open" : ""}${streaming ? " streaming" : ""}`} data-commit={block.commit}>
-      <button class="disclosure" aria-expanded={open} onClick={() => model.toggle(block.id)}>
+    <section class={cn(css.block, css.reasoning, open && css.open)} data-commit={block.commit}>
+      <button class={css.disclosure} aria-expanded={open} onClick={() => model.toggle(block.id)}>
         <Icon name="chevron" size={12} />
-        <span class={streaming ? "shimmer" : ""}>{streaming ? "Thinking…" : "Thought"}</span>
+        <span class={streaming ? css.shimmer : ""}>{streaming ? "Thinking…" : "Thought"}</span>
       </button>
-      {open && <div class="reasoning-text">{block.text}</div>}
+      {open && <div class={css["reasoning-text"]}>{block.text}</div>}
     </section>
   );
 }
@@ -111,18 +113,22 @@ const STATUS_ICON: Record<ToolStatus, { icon: IconName | "spinner" | "dot"; labe
 function Rows({ rows, signs }: { rows: DiffRow[]; signs: boolean }): JSX.Element {
   const width = String(Math.max(0, ...rows.map((r) => r.n ?? 0))).length;
   return (
-    <div class="diff-rows" role="table">
+    <div class={css["diff-rows"]} role="table">
       {rows.map((r, i) => (
-        <div key={i} class={`diff-row sign-${r.sign === "…" ? "gap" : r.sign === "+" ? "add" : r.sign === "-" ? "del" : "ctx"}`} role="row">
-          <span class="diff-n" style={{ minWidth: `${width}ch` }} aria-hidden="true">
+        <div
+          key={i}
+          class={cn(css["diff-row"], pick(css, `sign-${r.sign === "…" ? "gap" : r.sign === "+" ? "add" : r.sign === "-" ? "del" : "ctx"}`))}
+          role="row"
+        >
+          <span class={css["diff-n"]} style={{ minWidth: `${width}ch` }} aria-hidden="true">
             {r.n ?? ""}
           </span>
           {signs && (
-            <span class="diff-mark" aria-label={r.sign === "+" ? "added" : r.sign === "-" ? "removed" : undefined}>
+            <span class={css["diff-mark"]} aria-label={r.sign === "+" ? "added" : r.sign === "-" ? "removed" : undefined}>
               {r.sign === " " || r.sign === "…" ? "" : r.sign}
             </span>
           )}
-          <code class="diff-text">{r.text === "" && r.sign !== "…" ? " " : r.text}</code>
+          <code class={css["diff-text"]}>{r.text === "" && r.sign !== "…" ? " " : r.text}</code>
         </div>
       ))}
     </div>
@@ -130,9 +136,9 @@ function Rows({ rows, signs }: { rows: DiffRow[]; signs: boolean }): JSX.Element
 }
 
 const Stat = ({ added, removed }: { added: number; removed: number }): JSX.Element => (
-  <span class="tool-stat">
-    {added > 0 && <span class="stat-add">+{added}</span>}
-    {removed > 0 && <span class="stat-del">−{removed}</span>}
+  <span class={css["tool-stat"]}>
+    {added > 0 && <span class={css["stat-add"]}>+{added}</span>}
+    {removed > 0 && <span class={css["stat-del"]}>−{removed}</span>}
   </span>
 );
 
@@ -144,47 +150,47 @@ function FileHead({ path, line, bare = false }: { path: string; line?: number | 
       <span>{path}</span>
     </FileLink>
   );
-  return bare ? button : <div class="file-head">{button}</div>;
+  return bare ? button : <div class={css["file-head"]}>{button}</div>;
 }
 
 function ToolBody({ view }: { view: ToolView }): JSX.Element {
   switch (view.kind) {
     case "edit":
       return (
-        <div class="tool-body rich">
+        <div class={cn(css["tool-body"], css.rich)}>
           <FileHead path={view.path} line={view.line} />
-          {view.failed !== undefined && <pre class="error">{view.failed}</pre>}
+          {view.failed !== undefined && <pre class={css.error}>{view.failed}</pre>}
           {view.hunks.map((h, i) => (
-            <div key={i} class="hunk">
-              {h.head !== "" && <div class="hunk-head">{h.head}</div>}
+            <div key={i} class={css.hunk}>
+              {h.head !== "" && <div class={css["hunk-head"]}>{h.head}</div>}
               <Rows rows={h.rows} signs />
             </div>
           ))}
-          {view.note !== undefined && <div class="tool-note">{view.note}</div>}
+          {view.note !== undefined && <div class={css["tool-note"]}>{view.note}</div>}
         </div>
       );
     case "write":
       return (
-        <div class="tool-body rich">
+        <div class={cn(css["tool-body"], css.rich)}>
           <FileHead path={view.path} />
-          {view.failed !== undefined && <pre class="error">{view.failed}</pre>}
-          <div class="hunk">
+          {view.failed !== undefined && <pre class={css.error}>{view.failed}</pre>}
+          <div class={css.hunk}>
             <Rows rows={view.rows} signs />
           </div>
-          {view.note !== undefined && <div class="tool-note">{view.note}</div>}
+          {view.note !== undefined && <div class={css["tool-note"]}>{view.note}</div>}
         </div>
       );
     case "read":
       return (
-        <div class="tool-body rich">
-          <div class="file-head">
+        <div class={cn(css["tool-body"], css.rich)}>
+          <div class={css["file-head"]}>
             <FileHead path={view.path} line={view.line} bare />
-            {view.range !== undefined && <span class="file-meta">{view.range}</span>}
-            {view.version !== undefined && <span class="file-meta">version {view.version}</span>}
+            {view.range !== undefined && <span class={css["file-meta"]}>{view.range}</span>}
+            {view.version !== undefined && <span class={css["file-meta"]}>version {view.version}</span>}
           </div>
-          {view.failed !== undefined && <pre class="error">{view.failed}</pre>}
+          {view.failed !== undefined && <pre class={css.error}>{view.failed}</pre>}
           {view.rows.length > 0 && (
-            <div class="hunk">
+            <div class={css.hunk}>
               <Rows rows={view.rows} signs={false} />
             </div>
           )}
@@ -192,25 +198,25 @@ function ToolBody({ view }: { view: ToolView }): JSX.Element {
       );
     case "run":
       return (
-        <div class="tool-body rich">
-          <pre class="terminal">
-            <span class="prompt">{view.shell === "script" ? "sh" : "$"} </span>
+        <div class={cn(css["tool-body"], css.rich)}>
+          <pre class={css.terminal}>
+            <span class={css.prompt}>{view.shell === "script" ? "sh" : "$"} </span>
             {view.command}
           </pre>
-          {view.output !== "" && <pre class={`terminal output${view.failed ? " error" : ""}`}>{view.output}</pre>}
-          {view.exit !== undefined && view.exit !== 0 && <div class="tool-note exit-bad">exit code {view.exit}</div>}
+          {view.output !== "" && <pre class={cn(css.terminal, css.output, view.failed && css.error)}>{view.output}</pre>}
+          {view.exit !== undefined && view.exit !== 0 && <div class={cn(css["tool-note"], css["exit-bad"])}>exit code {view.exit}</div>}
         </div>
       );
     case "generic":
     default:
       return (
-        <div class="tool-body">
-          <div class="tool-label">Arguments</div>
+        <div class={css["tool-body"]}>
+          <div class={css["tool-label"]}>Arguments</div>
           <pre>{view.args}</pre>
           {view.result !== undefined && (
             <>
-              <div class="tool-label">Result{view.result.truncated ? " (shortened)" : ""}</div>
-              <pre class={view.failed ? "error" : ""}>{view.result.text}</pre>
+              <div class={css["tool-label"]}>Result{view.result.truncated ? " (shortened)" : ""}</div>
+              <pre class={view.failed ? css.error : ""}>{view.result.text}</pre>
             </>
           )}
         </div>
@@ -226,18 +232,18 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
   const stat = view.kind === "edit" ? view : view.kind === "write" ? { added: view.added, removed: 0 } : undefined;
   return (
     <section
-      class={`block tool call-${block.status}${open ? " open" : ""}`}
+      class={cn(css.block, css.tool, pick(css, `call-${block.status}`), open && css.open)}
       aria-label={`Tool call: ${block.summary}`}
       data-commit={block.commit}
     >
-      <button class="tool-head" aria-expanded={open} onClick={() => model.toggle(block.id)}>
-        <span class={`tool-status ${s.icon === "spinner" ? "spin" : ""}`} role="img" aria-label={s.label} title={s.label}>
+      <button class={css["tool-head"]} aria-expanded={open} onClick={() => model.toggle(block.id)}>
+        <span class={cn(css["tool-status"], s.icon === "spinner" && css.spin)} role="img" aria-label={s.label} title={s.label}>
           {s.icon === "spinner" || s.icon === "dot" ? null : <Icon name={s.icon} size={12} />}
         </span>
-        <span class="tool-name">{block.name}</span>
-        <span class="tool-summary">{block.summary}</span>
+        <span class={css["tool-name"]}>{block.name}</span>
+        <span class={css["tool-summary"]}>{block.summary}</span>
         {stat !== undefined && <Stat added={stat.added} removed={stat.removed} />}
-        {block.result !== undefined && <span class="tool-ms">{ms(block.result.ms)}</span>}
+        {block.result !== undefined && <span class={css["tool-ms"]}>{ms(block.result.ms)}</span>}
         <Icon name="chevron" size={14} />
       </button>
       {open && (
@@ -246,7 +252,7 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
         </FileLinkContext.Provider>
       )}
       {asking && (
-        <div class="approval" role="group" aria-label="Approve this call?">
+        <div class={css.approval} role="group" aria-label="Approve this call?">
           <span>Run this call?</span>
           <button class="primary" onClick={() => model.approve(true)}>
             Allow
@@ -256,7 +262,7 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
           </button>
         </div>
       )}
-      {block.thread !== undefined && <div class="tool-thread">runs on thread {block.thread}</div>}
+      {block.thread !== undefined && <div class={css["tool-thread"]}>runs on thread {block.thread}</div>}
     </section>
   );
 }
@@ -264,7 +270,7 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
 /** Adjacent tool calls: one shape, with a single line between the calls. */
 export function ToolGroup({ model, blocks }: { model: Model; blocks: Of<"tool">[] }): JSX.Element {
   return (
-    <div class="tool-group" role="group" aria-label="Tool calls">
+    <div class={css["tool-group"]} role="group" aria-label="Tool calls">
       {blocks.map((b) => (
         <Tool key={b.id} model={model} block={b} />
       ))}
@@ -274,11 +280,15 @@ export function ToolGroup({ model, blocks }: { model: Model; blocks: Of<"tool">[
 
 function Notice({ block }: { block: Of<"notice"> }): JSX.Element {
   return (
-    <section class={`block notice level-${block.level}`} role={block.level === "info" ? "note" : "status"} data-commit={block.commit}>
+    <section
+      class={cn(css.block, css.notice, pick(css, `level-${block.level}`))}
+      role={block.level === "info" ? "note" : "status"}
+      data-commit={block.commit}
+    >
       <Icon name="info" size={12} />
       <div>
-        <div class="notice-title">{block.title}</div>
-        {block.detail !== undefined && <div class="notice-detail">{block.detail}</div>}
+        <div class={css["notice-title"]}>{block.title}</div>
+        {block.detail !== undefined && <div class={css["notice-detail"]}>{block.detail}</div>}
       </div>
     </section>
   );
@@ -293,7 +303,7 @@ function TurnEnd({ block }: { block: Of<"turn_end"> }): JSX.Element {
     block.stop === "end_turn" ? undefined : block.stop,
   ].filter((p): p is string => p !== undefined);
   return (
-    <div class="block turn-end" data-commit={block.commit}>
+    <div class={cn(css.block, css["turn-end"])} data-commit={block.commit}>
       {parts.join(" · ")}
     </div>
   );

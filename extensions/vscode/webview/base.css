@@ -125,26 +125,6 @@ textarea[aria-invalid="true"] {
   color: inherit;
 }
 
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
-@keyframes shimmer {
-  to {
-    background-position: -200% 0;
-  }
-}
-@keyframes blink {
-  50% {
-    opacity: 0;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   * {
     animation-duration: 0.001ms !important;

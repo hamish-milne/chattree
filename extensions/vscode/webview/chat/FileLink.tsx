@@ -8,6 +8,8 @@ import { createContext } from "preact";
 import { useContext } from "preact/hooks";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import { refLabel, type FileRef } from "chattree/ui/model/file-ref";
+import css from "./chat.module.css";
+import { cn } from "../cn.ts";
 
 type Model = InstanceType<typeof ChatModel>;
 
@@ -21,10 +23,10 @@ export const FileLinkContext = createContext<FileLinks | undefined>(undefined);
 export function FileLink({ file, children }: { file: FileRef; children?: ComponentChildren }): JSX.Element {
   const ctx = useContext(FileLinkContext);
   const label = refLabel(file);
-  if (ctx === undefined) return <span class="file-link plain">{children ?? label}</span>;
+  if (ctx === undefined) return <span class={cn(css["file-link"], css.plain)}>{children ?? label}</span>;
   return (
     <button
-      class="file-link"
+      class={css["file-link"]}
       title={label}
       onClick={() => ctx.model.openFile(file, ctx.commit)}
       onContextMenu={(e) => {
@@ -71,7 +73,7 @@ export function FileMenu({ model }: { model: Model }): JSX.Element | null {
           {m.commit === undefined && <span class="reason">This message has no commit yet</span>}
         </button>
         <button
-          class="menu-item separated"
+          class={cn("menu-item", "separated")}
           role="menuitem"
           onClick={() => {
             void navigator.clipboard.writeText(m.ref.path);

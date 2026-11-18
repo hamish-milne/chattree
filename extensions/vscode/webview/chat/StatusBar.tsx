@@ -3,6 +3,8 @@ import type { JSX } from "preact";
 import type { ThreadStatus } from "chattree/ui/model/graph";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import { Icon } from "../icons.tsx";
+import css from "./chat.module.css";
+import { cn, pick } from "../cn.ts";
 
 type Model = InstanceType<typeof ChatModel>;
 
@@ -21,13 +23,13 @@ export function StatusBar({ model }: { model: Model }): JSX.Element | null {
   const frac = model.contextFraction.value;
   const open = model.settingsOpen.value;
   return (
-    <div class="status-bar">
-      <span class={`state state-${s.state}`}>
-        <span class="state-dot" aria-hidden="true" />
+    <div class={css["status-bar"]}>
+      <span class={cn(css.state, pick(css, `state-${s.state}`))}>
+        <span class={css["state-dot"]} aria-hidden="true" />
         {STATE[s.state]}
       </span>
       <button
-        class={`model-chip${open ? " open" : ""}`}
+        class={cn(css["model-chip"], open && css.open)}
         aria-expanded={open}
         aria-controls="model-settings"
         title="Model and its settings"
@@ -44,7 +46,7 @@ export function StatusBar({ model }: { model: Model }): JSX.Element | null {
       <span class="spacer" />
       {s.context !== undefined && (
         <span
-          class="context"
+          class={css.context}
           title={
             s.context.limit === undefined
               ? `${s.context.used} tokens of context`
@@ -53,14 +55,14 @@ export function StatusBar({ model }: { model: Model }): JSX.Element | null {
         >
           {frac !== undefined && (
             <span
-              class="gauge"
+              class={css.gauge}
               role="meter"
               aria-valuenow={Math.round(frac * 100)}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-label="Context used"
             >
-              <span class={`gauge-fill${frac > 0.8 ? " high" : ""}`} style={{ width: `${Math.round(frac * 100)}%` }} />
+              <span class={cn(css["gauge-fill"], frac > 0.8 && css.high)} style={{ width: `${Math.round(frac * 100)}%` }} />
             </span>
           )}
           {kilo(s.context.used)}
@@ -68,10 +70,7 @@ export function StatusBar({ model }: { model: Model }): JSX.Element | null {
         </span>
       )}
       {s.usd !== undefined && (
-        <span
-          class="cost"
-          title={s.unpriced === true ? "Some requests had no known price, so this is a lower bound" : "Cost of this thread"}
-        >
+        <span title={s.unpriced === true ? "Some requests had no known price, so this is a lower bound" : "Cost of this thread"}>
           {s.unpriced === true ? "≥ " : ""}${s.usd.toFixed(2)}
         </span>
       )}

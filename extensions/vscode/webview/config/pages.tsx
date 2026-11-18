@@ -29,6 +29,8 @@ import {
 import type { ConfigModel } from "chattree/ui/model/config-model";
 import { Icon } from "../icons.tsx";
 import { Choice, Issues, Lines, NumberInput, Row, Section, Switch, TextInput, Toggle, at, type Form } from "./controls.tsx";
+import css from "./config.module.css";
+import { cn, pick } from "../cn.ts";
 
 type Model = InstanceType<typeof ConfigModel>;
 
@@ -58,15 +60,15 @@ function Connection({ model, name }: { model: Model; name: string }): JSX.Elemen
   const tone = s === undefined || checking || stale ? "idle" : s.state;
   return (
     <button
-      class={`pv-status ${tone}`}
+      class={cn(css["pv-status"], pick(css, tone))}
       disabled={checking}
       title={`${s?.detail === undefined || stale ? "" : `${s.detail}. `}Click to test again`}
       aria-label={`${name}: ${label}. Test again`}
       onClick={() => model.test(name)}
     >
-      <span class={`pv-dot${checking ? " spin" : ""}`} aria-hidden="true" />
+      <span class={cn(css["pv-dot"], checking && css.spin)} aria-hidden="true" />
       {label}
-      {s?.state === "ok" && !stale && s.ms !== undefined && <span class="pv-ms">{s.ms} ms</span>}
+      {s?.state === "ok" && !stale && s.ms !== undefined && <span class={css["pv-ms"]}>{s.ms} ms</span>}
     </button>
   );
 }
@@ -78,10 +80,10 @@ function ProviderCard({ form, model, name }: { form: Form; model: Model; name: s
   const [more, setMore] = useState(false);
   const bad = [...form.issues.value.keys()].some((k) => k === base.join(".") || k.startsWith(`${base.join(".")}.`));
   return (
-    <div class={`pv-card${bad ? " bad" : ""}`}>
-      <div class="pv-head">
+    <div class={cn(css["pv-card"], bad && css.bad)}>
+      <div class={css["pv-head"]}>
         <input
-          class="pv-name mono"
+          class={cn(css["pv-name"], css.mono)}
           aria-label="Provider name"
           value={name}
           onChange={(e) => {
@@ -100,17 +102,17 @@ function ProviderCard({ form, model, name }: { form: Form; model: Model; name: s
           <Icon name="trash" />
         </button>
       </div>
-      <div class="cf-hint pv-about">
+      <div class={cn(css["cf-hint"], css["pv-about"])}>
         {a.label}
         {a.hint !== "" && ` · ${a.hint}`}
       </div>
       {model.statuses.value[name]?.state === "error" && !model.stale.value.has(name) && (
-        <div class="cf-issues" role="alert">
+        <div class={css["cf-issues"]} role="alert">
           {model.statuses.value[name]?.detail}
         </div>
       )}
       <Issues form={form} path={[...base, "$tag"]} />
-      <div class="pv-fields">
+      <div class={css["pv-fields"]}>
         {(a.key || "api_key_env" in p) && (
           <Row
             form={form}
@@ -127,18 +129,18 @@ function ProviderCard({ form, model, name }: { form: Form; model: Model; name: s
           </Row>
         )}
       </div>
-      <button class="link" aria-expanded={more} onClick={() => setMore(!more)}>
+      <button class={css.link} aria-expanded={more} onClick={() => setMore(!more)}>
         {more ? "Fewer settings" : "More settings"}
       </button>
       {more && (
-        <div class="pv-fields">
+        <div class={css["pv-fields"]}>
           <Row
             form={form}
             path={[...base, "max_concurrent"]}
             label="Parallel requests"
             help="Most requests in flight at once to this provider."
           >
-            <NumberInput form={form} path={[...base, "max_concurrent"]} integer placeholder="no limit" wide />
+            <NumberInput form={form} path={[...base, "max_concurrent"]} integer placeholder="no limit" />
           </Row>
           <Row
             form={form}
@@ -146,7 +148,7 @@ function ProviderCard({ form, model, name }: { form: Form; model: Model; name: s
             label="Attempts"
             help="Tries per request, counting the first, when a request fails in a way that can be retried."
           >
-            <NumberInput form={form} path={[...base, "max_attempts"]} integer placeholder="default" wide />
+            <NumberInput form={form} path={[...base, "max_attempts"]} integer placeholder="default" />
           </Row>
         </div>
       )}
@@ -163,20 +165,20 @@ export function ProvidersPage({ form, model }: { form: Form; model: Model }): JS
   return (
     <>
       <Section title="Providers" hint="Each provider is a place models come from. An agent's model setting names one of these.">
-        <div class="pv-list">
+        <div class={css["pv-list"]}>
           {names.map((n) => (
             <ProviderCard key={n} form={form} model={model} name={n} />
           ))}
-          {names.length === 0 && <p class="cf-empty">No providers yet. Add one below.</p>}
+          {names.length === 0 && <p class={css["cf-empty"]}>No providers yet. Add one below.</p>}
         </div>
         <Issues form={form} path={["providers"]} />
-        <div class="pv-add">
-          <span class="cf-label">Add a provider</span>
-          <div class="pv-adapters">
+        <div class={css["pv-add"]}>
+          <span class={css["cf-label"]}>Add a provider</span>
+          <div class={css["pv-adapters"]}>
             {ADAPTERS.map((a) => (
-              <button key={a.tag} class="cf-option add" title={a.hint} onClick={() => add(a.tag)}>
+              <button key={a.tag} class={cn(css["cf-option"], css.add)} title={a.hint} onClick={() => add(a.tag)}>
                 <Icon name="plus" size={12} />
-                <span class="cf-option-label">{a.label}</span>
+                <span class={css["cf-option-label"]}>{a.label}</span>
               </button>
             ))}
           </div>
@@ -265,11 +267,11 @@ function GrantRow({ form, g }: { form: Form; g: Grant }): JSX.Element {
   const path = g.scope === "tool" ? ["tools", g.owner, "allow", g.key] : ["mcp", g.owner, "allow", g.key];
   const forever = g.state === "forever";
   return (
-    <tr class={`gr-${g.state}`}>
-      <td class="mono">{g.scope === "mcp" ? <span title="MCP server">{g.owner}</span> : g.owner}</td>
+    <tr class={pick(css, `gr-${g.state}`)}>
+      <td class={css.mono}>{g.scope === "mcp" ? <span title="MCP server">{g.owner}</span> : g.owner}</td>
       <td>
         <input
-          class="cf-text mono bare"
+          class={cn(css["cf-text"], css.mono, css.bare)}
           aria-label={`What ${g.owner} may do`}
           title={g.key}
           value={g.key}
@@ -280,19 +282,19 @@ function GrantRow({ form, g }: { form: Form; g: Grant }): JSX.Element {
         />
       </td>
       <td>
-        <div class="gr-date">
-          {STATE_TEXT[g.state] !== "" && <span class={`gr-state ${g.state}`}>{STATE_TEXT[g.state]}</span>}
+        <div class={css["gr-date"]}>
+          {STATE_TEXT[g.state] !== "" && <span class={cn(css["gr-state"], pick(css, g.state))}>{STATE_TEXT[g.state]}</span>}
           {!forever && (
             <input
               type="date"
-              class="cf-text bare"
+              class={cn(css["cf-text"], css.bare)}
               aria-label={`Allowed until, for ${g.key}`}
               value={g.until.slice(0, 10)}
               onChange={(e) => e.currentTarget.value !== "" && form.replace(setGrantUntil(valueOf(form), g, e.currentTarget.value))}
             />
           )}
           <button
-            class={`cf-chip${forever ? " on" : ""}`}
+            class={cn(css["cf-chip"], forever && css.on)}
             aria-pressed={forever}
             title={forever ? "Give it an end date" : "Never expires"}
             onClick={() => form.replace(setGrantUntil(valueOf(form), g, forever ? inDays(new Date(), 30) : FOREVER))}
@@ -301,7 +303,7 @@ function GrantRow({ form, g }: { form: Form; g: Grant }): JSX.Element {
           </button>
         </div>
       </td>
-      <td class="gr-end">
+      <td class={css["gr-end"]}>
         <button
           class="icon-button"
           title="Remove this approval"
@@ -339,12 +341,12 @@ export function ApprovalsPage({ form, tools, now }: { form: Form; tools: readonl
   return (
     <>
       <Section title="Approvals" hint="Calls that match a row run without asking. Everything else asks first. A row can end on a date.">
-        <div class="tb-wrap">
-          <table class="tb">
+        <div class={css["tb-wrap"]}>
+          <table class={css.tb}>
             <thead>
               <tr>
                 <th>Tool or server</th>
-                <th class="wide">Allowed</th>
+                <th>Allowed</th>
                 <th>Ends</th>
                 <th aria-label="Remove" />
               </tr>
@@ -355,16 +357,16 @@ export function ApprovalsPage({ form, tools, now }: { form: Form; tools: readonl
               ))}
               {rows.length === 0 && (
                 <tr>
-                  <td colSpan={4} class="cf-empty">
+                  <td colSpan={4} class={css["cf-empty"]}>
                     Nothing is pre-approved.
                   </td>
                 </tr>
               )}
             </tbody>
             <tfoot>
-              <tr class="tb-add">
+              <tr class={css["tb-add"]}>
                 <td>
-                  <div class="tb-pair">
+                  <div class={css["tb-pair"]}>
                     <select aria-label="Kind" value={scope} onChange={(e) => setScope(e.currentTarget.value === "mcp" ? "mcp" : "tool")}>
                       <option value="tool">tool</option>
                       <option value="mcp">MCP</option>
@@ -380,7 +382,7 @@ export function ApprovalsPage({ form, tools, now }: { form: Form; tools: readonl
                 </td>
                 <td>
                   <input
-                    class="cf-text mono"
+                    class={cn(css["cf-text"], css.mono)}
                     aria-label="What to allow"
                     placeholder="git status, src/**, search_*"
                     value={key}
@@ -397,7 +399,7 @@ export function ApprovalsPage({ form, tools, now }: { form: Form; tools: readonl
                     <option value="90">90 days</option>
                   </select>
                 </td>
-                <td class="gr-end">
+                <td class={css["gr-end"]}>
                   <button class="secondary" disabled={chosen === "" || key.trim() === ""} onClick={add}>
                     Add
                   </button>
@@ -407,7 +409,7 @@ export function ApprovalsPage({ form, tools, now }: { form: Form; tools: readonl
           </table>
         </div>
         {expired > 0 && (
-          <button class="link" onClick={clean}>
+          <button class={css.link} onClick={clean}>
             Remove {expired} expired {expired === 1 ? "row" : "rows"}
           </button>
         )}
@@ -431,17 +433,19 @@ function McpRow({ form, name }: { form: Form; name: string }): JSX.Element {
   const bad = [...form.issues.value.keys()].some((k) => k.startsWith(base.join(".")));
   return (
     <>
-      <tr class={bad ? "bad" : ""}>
+      <tr class={bad ? css.bad : ""}>
         <td>
-          <button class="disclosure" aria-expanded={open} aria-label={`Details of ${name}`} onClick={() => setOpen(!open)}>
+          <button class={css.disclosure} aria-expanded={open} aria-label={`Details of ${name}`} onClick={() => setOpen(!open)}>
             <Icon name="chevron" size={12} />
           </button>
-          <span class="mono">{name}</span>
+          <span class={css.mono}>{name}</span>
         </td>
         <td>
-          <span class={`cf-chip static ${t.kind}`}>{t.kind === "command" ? "program" : t.kind === "url" ? "remote" : "unset"}</span>
+          <span class={cn(css["cf-chip"], css.static, pick(css, t.kind))}>
+            {t.kind === "command" ? "program" : t.kind === "url" ? "remote" : "unset"}
+          </span>
         </td>
-        <td class="mono ellipsis" title={t.text}>
+        <td class={cn(css.mono, css.ellipsis)} title={t.text}>
           {t.text}
         </td>
         <td>
@@ -454,16 +458,16 @@ function McpRow({ form, name }: { form: Form; name: string }): JSX.Element {
             <option value="project">project</option>
           </select>
         </td>
-        <td class="gr-end">
+        <td class={css["gr-end"]}>
           <button class="icon-button" title={`Remove ${name}`} aria-label={`Remove ${name}`} onClick={() => form.remove(base)}>
             <Icon name="trash" size={12} />
           </button>
         </td>
       </tr>
       {open && (
-        <tr class="tb-detail">
+        <tr class={css["tb-detail"]}>
           <td colSpan={5}>
-            <div class="pv-fields">
+            <div class={css["pv-fields"]}>
               {typeof e["url"] === "string" || t.kind === "none" ? (
                 <>
                   <Row form={form} path={[...base, "url"]} label="Address">
@@ -520,8 +524,8 @@ export function McpPage({ form }: { form: Form }): JSX.Element {
       title="MCP servers"
       hint="Programs or services that give the agent more tools. Their calls ask for approval unless a row on the Approvals page allows them."
     >
-      <div class="tb-wrap">
-        <table class="tb">
+      <div class={css["tb-wrap"]}>
+        <table class={css.tb}>
           <thead>
             <tr>
               <th>Name</th>
@@ -537,17 +541,17 @@ export function McpPage({ form }: { form: Form }): JSX.Element {
             ))}
             {names.length === 0 && (
               <tr>
-                <td colSpan={5} class="cf-empty">
+                <td colSpan={5} class={css["cf-empty"]}>
                   No servers.
                 </td>
               </tr>
             )}
           </tbody>
           <tfoot>
-            <tr class="tb-add">
+            <tr class={css["tb-add"]}>
               <td>
                 <input
-                  class="cf-text mono"
+                  class={cn(css["cf-text"], css.mono)}
                   aria-label="Server name"
                   placeholder="name"
                   value={name}
@@ -562,7 +566,7 @@ export function McpPage({ form }: { form: Form }): JSX.Element {
               </td>
               <td colSpan={2}>
                 <input
-                  class="cf-text mono"
+                  class={cn(css["cf-text"], css.mono)}
                   aria-label={kind === "url" ? "Address" : "Command line"}
                   placeholder={kind === "url" ? "https://…" : "npx -y some-server"}
                   value={target}
@@ -570,7 +574,7 @@ export function McpPage({ form }: { form: Form }): JSX.Element {
                   onKeyDown={(e) => e.key === "Enter" && add()}
                 />
               </td>
-              <td class="gr-end">
+              <td class={css["gr-end"]}>
                 <button class="secondary" disabled={name.trim() === "" || target.trim() === ""} onClick={add}>
                   Add
                 </button>
@@ -601,18 +605,18 @@ function ModelGroup({ form, model, provider }: { form: Form; model: Model; provi
     enable ? form.set(["subagent", "models", key], {}) : form.remove(["subagent", "models", key]);
   const rows = [...listed.map((m) => ({ id: m.id, info: m })), ...extra.map((id) => ({ id, info: undefined }))];
   return (
-    <tbody class="mg">
-      <tr class="mg-head">
+    <tbody class={css.mg}>
+      <tr class={css["mg-head"]}>
         <th colSpan={5} scope="colgroup">
-          <span class="mono">{provider}</span>
-          <span class={`mg-note ${listing?.error !== undefined ? "bad" : ""}`}>
+          <span class={css.mono}>{provider}</span>
+          <span class={cn(css["mg-note"], listing?.error !== undefined && css.bad)}>
             {listing === undefined
               ? "Loading models…"
               : listing.error !== undefined
                 ? `Could not list models: ${listing.error}`
                 : `${listed.length} models`}
           </span>
-          <button class="link" onClick={() => model.list(provider)}>
+          <button class={css.link} onClick={() => model.list(provider)}>
             Refresh
           </button>
         </th>
@@ -621,20 +625,20 @@ function ModelGroup({ form, model, provider }: { form: Form; model: Model; provi
         const key = modelKey(provider, id);
         const enabled = on.has(key);
         return (
-          <tr key={key} class={enabled ? "mg-on" : ""}>
-            <td class="mg-switch">
+          <tr key={key} class={enabled ? css["mg-on"] : ""}>
+            <td class={css["mg-switch"]}>
               <Toggle on={enabled} onChange={(v) => set(key, v)} label={`Allow subagents to use ${key}`} text={false} />
             </td>
-            <td class="mono nowrap" title={info?.reasoning === true ? "Can think before answering" : undefined}>
+            <td class={cn(css.mono, css.nowrap)} title={info?.reasoning === true ? "Can think before answering" : undefined}>
               {id}
               {info === undefined && (
-                <span class="cf-chip static" title="The provider did not list this model">
+                <span class={cn(css["cf-chip"], css.static)} title="The provider did not list this model">
                   not listed
                 </span>
               )}
             </td>
-            <td class="num">{info?.context === undefined ? "" : fmtContext(info.context)}</td>
-            <td class="num">{info?.input_usd === undefined ? "" : `${fmtUsd(info.input_usd)} / ${fmtUsd(info.output_usd ?? 0)}`}</td>
+            <td class={css.num}>{info?.context === undefined ? "" : fmtContext(info.context)}</td>
+            <td class={css.num}>{info?.input_usd === undefined ? "" : `${fmtUsd(info.input_usd)} / ${fmtUsd(info.output_usd ?? 0)}`}</td>
             <td>
               {enabled ? (
                 <>
@@ -683,14 +687,14 @@ export function SubagentsPage({ form, model }: { form: Form; model: Model }): JS
         title="Models a subagent may use"
         hint="Everything your providers offer. Switch on the ones the parent agent may choose from; the description is what it reads when it chooses."
       >
-        <div class="tb-wrap">
-          <table class="tb mg-table">
+        <div class={css["tb-wrap"]}>
+          <table class={cn(css.tb, css["mg-table"])}>
             <thead>
               <tr>
                 <th aria-label="Allowed" />
                 <th>Model</th>
-                <th class="num">Context</th>
-                <th class="num">$/M in, out</th>
+                <th class={css.num}>Context</th>
+                <th class={css.num}>$/M in, out</th>
                 <th>Description</th>
               </tr>
             </thead>
@@ -698,19 +702,19 @@ export function SubagentsPage({ form, model }: { form: Form; model: Model }): JS
               <ModelGroup key={p} form={form} model={model} provider={p} />
             ))}
             {orphans.length > 0 && (
-              <tbody class="mg">
-                <tr class="mg-head">
+              <tbody class={css.mg}>
+                <tr class={css["mg-head"]}>
                   <th colSpan={5} scope="colgroup">
                     No such provider
-                    <span class="mg-note bad">These models are switched on but their provider is not in the file.</span>
+                    <span class={cn(css["mg-note"], css.bad)}>These models are switched on but their provider is not in the file.</span>
                   </th>
                 </tr>
                 {orphans.map((k) => (
-                  <tr key={k} class="mg-on">
-                    <td class="mg-switch">
+                  <tr key={k} class={css["mg-on"]}>
+                    <td class={css["mg-switch"]}>
                       <Toggle on onChange={() => form.remove(["subagent", "models", k])} label={`Stop allowing ${k}`} text={false} />
                     </td>
-                    <td class="mono" colSpan={4}>
+                    <td class={css.mono} colSpan={4}>
                       {k}
                     </td>
                   </tr>
@@ -808,8 +812,8 @@ export function ContextPage({ form }: { form: Form }): JSX.Element {
             ))}
           </>
         ) : null}
-        <div class="tb-wrap">
-          <table class="tb">
+        <div class={css["tb-wrap"]}>
+          <table class={css.tb}>
             <thead>
               <tr>
                 <th>Rule</th>
@@ -821,7 +825,7 @@ export function ContextPage({ form }: { form: Form }): JSX.Element {
             <tbody>
               {rules.map((r) => (
                 <tr key={r}>
-                  <td class="mono">{r}</td>
+                  <td class={css.mono}>{r}</td>
                   <td>
                     <NumberInput form={form} path={["injections", "rules", r, "every"]} integer suffix="turns" />
                   </td>
@@ -829,7 +833,7 @@ export function ContextPage({ form }: { form: Form }): JSX.Element {
                     <TextInput form={form} path={["injections", "rules", r, "text"]} />
                     <Issues form={form} path={["injections", "rules", r]} />
                   </td>
-                  <td class="gr-end">
+                  <td class={css["gr-end"]}>
                     <button
                       class="icon-button"
                       aria-label={`Remove ${r}`}
@@ -843,7 +847,7 @@ export function ContextPage({ form }: { form: Form }): JSX.Element {
               ))}
               {rules.length === 0 && (
                 <tr>
-                  <td colSpan={4} class="cf-empty">
+                  <td colSpan={4} class={css["cf-empty"]}>
                     No rules.
                   </td>
                 </tr>
@@ -938,8 +942,8 @@ export function InstructionsPage({ model }: { model: Model }): JSX.Element {
         title="Instruction files"
         hint="Text the agent is given at the start of every request, in this order. These belong to this thread, not to harness.yml: a change applies at once and is recorded on the thread."
       >
-        <div class="tb-wrap">
-          <table class="tb">
+        <div class={css["tb-wrap"]}>
+          <table class={css.tb}>
             <thead>
               <tr>
                 <th aria-label="Given to the agent" />
@@ -950,8 +954,8 @@ export function InstructionsPage({ model }: { model: Model }): JSX.Element {
             </thead>
             <tbody>
               {files.map((f) => (
-                <tr key={f.path} class={f.on ? "mg-on" : ""}>
-                  <td class="mg-switch">
+                <tr key={f.path} class={f.on ? css["mg-on"] : ""}>
+                  <td class={css["mg-switch"]}>
                     <Toggle
                       on={f.on}
                       onChange={(v) => model.enableInstruction(f.path, v)}
@@ -959,9 +963,9 @@ export function InstructionsPage({ model }: { model: Model }): JSX.Element {
                       text={false}
                     />
                   </td>
-                  <td class="mono">{f.path}</td>
-                  <td>{f.exists ? sizeText(f.bytes ?? 0) : <span class="gr-state expired">Not found</span>}</td>
-                  <td class="gr-end">
+                  <td class={css.mono}>{f.path}</td>
+                  <td>{f.exists ? sizeText(f.bytes ?? 0) : <span class={cn(css["gr-state"], css.expired)}>Not found</span>}</td>
+                  <td class={css["gr-end"]}>
                     <button
                       class="icon-button"
                       aria-label={`Remove ${f.path}`}
@@ -975,18 +979,18 @@ export function InstructionsPage({ model }: { model: Model }): JSX.Element {
               ))}
               {files.length === 0 && (
                 <tr>
-                  <td colSpan={4} class="cf-empty">
+                  <td colSpan={4} class={css["cf-empty"]}>
                     No instruction files.
                   </td>
                 </tr>
               )}
             </tbody>
             <tfoot>
-              <tr class="tb-add">
+              <tr class={css["tb-add"]}>
                 <td />
                 <td colSpan={2}>
                   <input
-                    class="cf-text mono"
+                    class={cn(css["cf-text"], css.mono)}
                     aria-label="Path of a file to add"
                     placeholder="path/to/file.md, relative to the workspace"
                     value={path}
@@ -994,7 +998,7 @@ export function InstructionsPage({ model }: { model: Model }): JSX.Element {
                     onKeyDown={(e) => e.key === "Enter" && add(path)}
                   />
                 </td>
-                <td class="gr-end">
+                <td class={css["gr-end"]}>
                   <button class="secondary" disabled={path.trim() === ""} onClick={() => add(path)}>
                     Add
                   </button>
@@ -1003,15 +1007,15 @@ export function InstructionsPage({ model }: { model: Model }): JSX.Element {
             </tfoot>
           </table>
         </div>
-        <p class="cf-hint">About {(used / 1000).toFixed(1)}k tokens of instructions are sent with each request.</p>
+        <p class={css["cf-hint"]}>About {(used / 1000).toFixed(1)}k tokens of instructions are sent with each request.</p>
       </Section>
       {found.length > 0 && (
         <Section title="Found in your workspace" hint="Files that tools commonly use for instructions.">
-          <ul class="if-found">
+          <ul class={css["if-found"]}>
             {found.map((f) => (
               <li key={f.path}>
-                <span class="mono">{f.path}</span>
-                <span class="cf-help">
+                <span class={css.mono}>{f.path}</span>
+                <span class={css["cf-help"]}>
                   {WELL_KNOWN_INSTRUCTIONS[f.path] ?? ""} · {sizeText(f.bytes)}
                 </span>
                 <button class="secondary" onClick={() => add(f.path)}>

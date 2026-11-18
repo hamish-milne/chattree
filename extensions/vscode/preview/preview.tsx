@@ -5,6 +5,9 @@
  * area, so what a click does can be seen.
  */
 import { render } from "preact";
+import "./themes.css";
+import "./preview.css";
+import "../webview/base.css";
 // Importing the package installs the hook that re-renders a component when a signal it read changes.
 import { signal } from "@preact/signals";
 import { THREADS } from "chattree/ui/fixtures/graph";

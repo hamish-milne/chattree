@@ -5,6 +5,8 @@
  */
 import type { JSX, ComponentChildren } from "preact";
 import { dotted, type FormModel } from "chattree/ui/model/form-model";
+import css from "./config.module.css";
+import { cn } from "../cn.ts";
 
 export type Form = InstanceType<typeof FormModel>;
 export function at(value: unknown, path: readonly string[]): unknown {
@@ -19,7 +21,7 @@ export function Issues({ form, path }: { form: Form; path: readonly string[] }):
   const list = form.issues.value.get(dotted(path)) ?? [];
   if (list.length === 0) return null;
   return (
-    <div class="cf-issues" id={`${idOf(path)}-issues`} role="alert">
+    <div class={css["cf-issues"]} id={`${idOf(path)}-issues`} role="alert">
       {list.map((m, i) => (
         <div key={i}>
           {path.at(-1)} {m}
@@ -44,13 +46,13 @@ export function Row({
   children: ComponentChildren;
 }): JSX.Element {
   return (
-    <div class="cf-row">
-      <label class="cf-label" for={idOf(path)}>
+    <div class={css["cf-row"]}>
+      <label class={css["cf-label"]} for={idOf(path)}>
         {label}
       </label>
-      <div class="cf-control">
+      <div>
         {children}
-        {help !== undefined && <div class="cf-help">{help}</div>}
+        {help !== undefined && <div class={css["cf-help"]}>{help}</div>}
         <Issues form={form} path={path} />
       </div>
     </div>
@@ -73,17 +75,17 @@ export function Choice({
   const raw = at(form.spec.value.value, path);
   const current = typeof raw === "string" ? raw : fallback;
   return (
-    <div class="cf-choice" role="radiogroup" id={idOf(path)}>
+    <div class={css["cf-choice"]} role="radiogroup" id={idOf(path)}>
       {options.map((o) => (
         <button
           key={o.value}
           role="radio"
           aria-checked={current === o.value}
-          class={`cf-option${current === o.value ? " on" : ""}`}
+          class={cn(css["cf-option"], current === o.value && css.on)}
           onClick={() => form.set(path, o.value)}
         >
-          <span class="cf-option-label">{o.label}</span>
-          {o.hint !== undefined && <span class="cf-option-hint">{o.hint}</span>}
+          <span class={css["cf-option-label"]}>{o.label}</span>
+          {o.hint !== undefined && <span class={css["cf-option-hint"]}>{o.hint}</span>}
         </button>
       ))}
     </div>
@@ -105,9 +107,16 @@ export function Toggle({
   text?: boolean;
 }): JSX.Element {
   return (
-    <button id={id} role="switch" aria-checked={on} aria-label={label} class={`cf-switch${on ? " on" : ""}`} onClick={() => onChange(!on)}>
-      <span class="cf-knob" />
-      {text && <span class="cf-switch-text">{on ? "On" : "Off"}</span>}
+    <button
+      id={id}
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      class={cn(css["cf-switch"], on && css.on)}
+      onClick={() => onChange(!on)}
+    >
+      <span class={css["cf-knob"]} />
+      {text && <span class={css["cf-switch-text"]}>{on ? "On" : "Off"}</span>}
     </button>
   );
 }
@@ -126,7 +135,6 @@ export function NumberInput({
   placeholder,
   integer = false,
   scale = 1,
-  wide = false,
 }: {
   form: Form;
   path: readonly string[];
@@ -136,14 +144,13 @@ export function NumberInput({
   integer?: boolean;
   /** Shown value = stored value × scale (0.8 stored as 80 %). */
   scale?: number;
-  wide?: boolean;
 }): JSX.Element {
   const raw = at(form.spec.value.value, path);
   const shown = typeof raw === "number" ? String(Math.round(raw * scale * 1e6) / 1e6) : "";
   const bad = (form.issues.value.get(dotted(path)) ?? []).length > 0;
   return (
-    <span class={`cf-number${wide ? " wide" : ""}${bad ? " bad" : ""}`}>
-      {prefix !== undefined && <span class="cf-adorn">{prefix}</span>}
+    <span class={cn(css["cf-number"], bad && css.bad)}>
+      {prefix !== undefined && <span class={css["cf-adorn"]}>{prefix}</span>}
       <input
         id={idOf(path)}
         type="number"
@@ -158,7 +165,7 @@ export function NumberInput({
           else form.set(path, Number(v) / scale);
         }}
       />
-      {suffix !== undefined && <span class="cf-adorn">{suffix}</span>}
+      {suffix !== undefined && <span class={css["cf-adorn"]}>{suffix}</span>}
     </span>
   );
 }
@@ -179,7 +186,7 @@ export function TextInput({
   return (
     <input
       id={idOf(path)}
-      class={`cf-text${mono ? " mono" : ""}`}
+      class={cn(css["cf-text"], mono && css.mono)}
       type="text"
       placeholder={placeholder}
       aria-invalid={bad}
@@ -200,7 +207,7 @@ export function Lines({ form, path, placeholder }: { form: Form; path: readonly 
   return (
     <textarea
       id={idOf(path)}
-      class="cf-lines mono"
+      class={css.mono}
       rows={Math.max(2, list.length + 1)}
       placeholder={placeholder ?? "one per line"}
       value={list.join("\n")}
@@ -218,9 +225,9 @@ export function Lines({ form, path, placeholder }: { form: Form; path: readonly 
 
 export function Section({ title, hint, children }: { title: string; hint?: string; children: ComponentChildren }): JSX.Element {
   return (
-    <section class="cf-section">
+    <section class={css["cf-section"]}>
       <h3>{title}</h3>
-      {hint !== undefined && <p class="cf-hint">{hint}</p>}
+      {hint !== undefined && <p class={css["cf-hint"]}>{hint}</p>}
       {children}
     </section>
   );

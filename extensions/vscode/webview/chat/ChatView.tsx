@@ -15,6 +15,8 @@ import { BlockView, ToolGroup } from "./blocks.tsx";
 import { Composer } from "./Composer.tsx";
 import { ModelSettings } from "./ModelSettings.tsx";
 import { StatusBar } from "./StatusBar.tsx";
+import css from "./chat.module.css";
+import { cn, pick } from "../cn.ts";
 
 type Model = InstanceType<typeof ChatModel>;
 
@@ -37,10 +39,10 @@ function ping(scroller: HTMLElement, el: HTMLElement): void {
   const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
   scroller.scrollTo({ top: Math.max(0, top - (scroller.clientHeight - el.offsetHeight) / 2), behavior: reduce ? "auto" : "smooth" });
-  el.classList.remove("ping");
+  el.classList.remove(css.ping);
   void el.offsetWidth;
-  el.classList.add("ping");
-  setTimeout(() => el.classList.remove("ping"), 1600);
+  el.classList.add(css.ping);
+  setTimeout(() => el.classList.remove(css.ping), 1600);
 }
 
 function Transcript({ model }: { model: Model }): JSX.Element {
@@ -67,9 +69,9 @@ function Transcript({ model }: { model: Model }): JSX.Element {
     setStuck(true);
   };
   return (
-    <div class="transcript-wrap">
+    <div class={css["transcript-wrap"]}>
       <div
-        class="transcript"
+        class={css.transcript}
         ref={scroller}
         role="log"
         aria-live="polite"
@@ -77,8 +79,8 @@ function Transcript({ model }: { model: Model }): JSX.Element {
         tabIndex={0}
         onScroll={(e) => setStuck(e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 48)}
       >
-        <div class="transcript-inner">
-          {blocks.length === 0 && <p class="empty">Nothing here yet. Say something below.</p>}
+        <div class={css["transcript-inner"]}>
+          {blocks.length === 0 && <p class={css.empty}>Nothing here yet. Say something below.</p>}
           {items(blocks).map((item) =>
             "tools" in item ? (
               <ToolGroup key={item.key} model={model} blocks={item.tools} />
@@ -89,7 +91,7 @@ function Transcript({ model }: { model: Model }): JSX.Element {
         </div>
       </div>
       {!stuck && (
-        <button class="jump" title="Jump to the latest" aria-label="Jump to the latest" onClick={jump}>
+        <button class={css.jump} title="Jump to the latest" aria-label="Jump to the latest" onClick={jump}>
           <Icon name="down" />
         </button>
       )}
@@ -100,34 +102,34 @@ function Transcript({ model }: { model: Model }): JSX.Element {
 export function ChatView({ model, config }: { model: Model; config: InstanceType<typeof ConfigModel> }): JSX.Element {
   const thread = model.thread.value;
   const editing = config.open.value;
-  if (thread === undefined && !editing) return <div class="chat chat-empty">Pick a thread in the graph to chat in it.</div>;
+  if (thread === undefined && !editing) return <div class={cn(css.chat, css["chat-empty"])}>Pick a thread in the graph to chat in it.</div>;
   return (
-    <div class="chat">
-      <header class="chat-head">
+    <div class={css.chat}>
+      <header class={css["chat-head"]}>
         {editing ? (
           <>
             <button class="icon-button" title="Back to the chat" aria-label="Back to the chat" onClick={() => config.close()}>
               <Icon name="back" />
             </button>
-            <span class="chat-title">Thread settings</span>
+            <span class={css["chat-title"]}>Thread settings</span>
             <span class="spacer" />
           </>
         ) : (
           <>
-            <span class="chat-title">{thread?.title ?? thread?.name}</span>
-            <span class={`thread-name kind-${thread?.kind ?? ""}`}>{thread?.name}</span>
+            <span class={css["chat-title"]}>{thread?.title ?? thread?.name}</span>
+            <span class={cn(css["thread-name"], thread !== undefined && pick(css, `kind-${thread.kind}`))}>{thread?.name}</span>
             <span class="spacer" />
           </>
         )}
         <button
-          class={`icon-button${editing ? " pressed" : ""}`}
+          class={cn("icon-button", editing && css.pressed)}
           aria-pressed={editing}
           title={editing ? "Close thread settings" : "Thread settings"}
           aria-label="Thread settings"
           onClick={() => config.toggle()}
         >
           <Icon name="gear" />
-          {config.dirty.value && <span class="unsaved-dot" aria-label="Unsaved changes" />}
+          {config.dirty.value && <span class={css["unsaved-dot"]} aria-label="Unsaved changes" />}
         </button>
       </header>
       {editing ? (

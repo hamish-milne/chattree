@@ -29,7 +29,7 @@ test("the browser preview builds, and the views pull in nothing that cannot run 
     // The preview carries the mock and the harness's generated schema (about 65 kB); the extension's views get the schema from the controller.
     assert.ok(js.length < 450_000, `the bundle is ${js.length} bytes`);
     const css = await readFile(join(dir, "preview.css"), "utf8");
-    assert.ok(css.includes("--vscode-scmGraph-foreground1") && css.includes(".graph"), "theme variables and the graph styles are in");
+    assert.ok(css.includes("--vscode-scmGraph-foreground1") && css.includes("graph_graph"), "theme variables and the graph styles are in");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

@@ -21,6 +21,7 @@
     "vendor/**"
   ],
   "rules": {
+    "import/no-unassigned-import": ["error", { "allow": ["**/*.css"] }],
     "typescript/no-explicit-any": "error",
     "typescript/no-non-null-assertion": "error",
     "typescript/no-unsafe-argument": "error",

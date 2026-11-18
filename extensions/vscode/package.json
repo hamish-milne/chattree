@@ -21,8 +21,10 @@
     "esbuild": "0.28.2"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json && tsc -p tools/tsconfig.json",
+    "typecheck": "node --no-warnings tools/gen-css-types.mts && tsc -p tsconfig.json && tsc -p tools/tsconfig.json",
     "build:preview": "node --no-warnings tools/build-preview.mts",
-    "preview": "node --no-warnings tools/serve-preview.mts"
+    "preview": "node --no-warnings tools/serve-preview.mts",
+    "dev": "node --no-warnings tools/dev.mts",
+    "gen:css": "node --no-warnings tools/gen-css-types.mts"
   }
 }
