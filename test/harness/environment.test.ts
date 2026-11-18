@@ -48,6 +48,34 @@ describe("the environment note", () => {
     assert.ok(environmentRule({ ...facts, workspace: "/elsewhere" })(ctx(at("2026-11-04T09:00:00Z"), history)));
   });
 
+  test("each part can be left out; the note is empty when all are", () => {
+    const now = at("2026-11-04T15:00:00Z");
+    const all = { os: false, time_zone: false, date: false, thread: false, workspace: false, commands: false };
+    const without = (k: keyof typeof all) => environmentText({ ...facts, show: { [k]: false } }, now);
+    assert.doesNotMatch(without("os"), /Linux/);
+    assert.match(without("os"), /Time zone Europe\/London; today is/);
+    assert.doesNotMatch(without("date"), /today|Today/);
+    assert.match(without("date"), /Time zone Europe\/London\./);
+    assert.doesNotMatch(without("time_zone"), /Time zone/);
+    assert.match(without("time_zone"), /Today is Wednesday 2026-11-04\./);
+    assert.doesNotMatch(without("thread"), /Thread:/);
+    assert.match(without("thread"), /Workspace: \/work\/p/);
+    assert.doesNotMatch(without("workspace"), /Workspace/);
+    assert.doesNotMatch(without("commands"), /Commands/);
+    assert.equal(environmentText({ ...facts, show: all }, now), "");
+    assert.equal(environmentRule({ ...facts, show: all })(ctx(now)), undefined);
+  });
+
+  test("with the workspace left out, moving it is not news; with it in, the model is told where it went", () => {
+    const now = at("2026-11-04T09:00:00Z");
+    const quiet = { ...facts, show: { workspace: false } };
+    const first = environmentRule(quiet)(ctx(now)) as { text: string };
+    assert.equal(environmentRule({ ...quiet, workspace: "/elsewhere" })(ctx(now, [said(first.text)])), undefined);
+    const loud = environmentRule(facts)(ctx(now)) as { text: string };
+    const again = environmentRule({ ...facts, workspace: "/elsewhere" })(ctx(now, [said(loud.text)])) as { text: string };
+    assert.match(again.text, /Workspace: \/elsewhere/);
+  });
+
   test("the system prompt says what chattree is and ends with its version", () => {
     for (const word of ["thread", "fork", "subagent", "approval", "[Note from the harness]", "](src/net/retry.ts#L42-L58)"])
       assert.ok(SYSTEM_PROMPT.includes(word), word);

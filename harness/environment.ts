@@ -33,11 +33,17 @@ export interface HostEnvironment {
   timeZone: string;
 }
 
+/** What the `environment` note says; each defaults to true (`injections.environment_details` in harness.yml). */
+export const ENVIRONMENT_PARTS = ["os", "time_zone", "date", "thread", "workspace", "commands"] as const;
+export type EnvironmentPart = (typeof ENVIRONMENT_PARTS)[number];
+
 export interface EnvironmentFacts extends HostEnvironment {
   /** The thread: its branch name. */
   thread: string;
-  /** The thread's working directory. */
+  /** The thread's working directory. A change in it is a change in the note, so the model is told again when the workspace moves. */
   workspace: string;
+  /** Parts to leave out: those set to false. */
+  show?: Partial<Record<EnvironmentPart, boolean>>;
 }
 
 const day = (now: number, timeZone: string): string => {
@@ -47,13 +53,19 @@ const day = (now: number, timeZone: string): string => {
   return `${new Intl.DateTimeFormat("en-US", { ...opts, weekday: "long" }).format(d)} ${date}`;
 };
 
-/** The note the model is shown: stable text for the same facts and the same day. */
+/** The note the model is shown: stable text for the same facts and the same day. Empty when every part is left out. */
 export function environmentText(f: EnvironmentFacts, now: number): string {
-  return [
-    `Environment: ${f.os} (${f.platform === "windows" ? "Windows paths use backslashes, but the tools take forward slashes too" : "POSIX"}). Time zone ${f.timeZone}; today is ${day(now, f.timeZone)}.`,
-    `Thread: ${f.thread}. Workspace: ${f.workspace}; tool paths are relative to it.`,
-    `Commands: ${f.utilities}`,
-  ].join("\n");
+  const on = (p: EnvironmentPart): boolean => f.show?.[p] !== false;
+  const platformNote = f.platform === "windows" ? "Windows paths use backslashes, but the tools take forward slashes too" : "POSIX";
+  const first: string[] = [];
+  if (on("os")) first.push(`Environment: ${f.os} (${platformNote}).`);
+  if (on("time_zone") && on("date")) first.push(`Time zone ${f.timeZone}; today is ${day(now, f.timeZone)}.`);
+  else if (on("time_zone")) first.push(`Time zone ${f.timeZone}.`);
+  else if (on("date")) first.push(`Today is ${day(now, f.timeZone)}.`);
+  const second: string[] = [];
+  if (on("thread")) second.push(`Thread: ${f.thread}.`);
+  if (on("workspace")) second.push(`Workspace: ${f.workspace}; tool paths are relative to it.`);
+  return [first.join(" "), second.join(" "), on("commands") ? `Commands: ${f.utilities}` : ""].filter((l) => l !== "").join("\n");
 }
 
 export const ENVIRONMENT_KEY = "environment";
@@ -65,6 +77,7 @@ export const ENVIRONMENT_KEY = "environment";
 export function environmentRule(facts: EnvironmentFacts): InjectionRule {
   return (ctx: InjectionContext) => {
     const text = environmentText(facts, ctx.now);
+    if (text === "") return undefined;
     const last = ctx.entries.findLast((e) => e.$tag === "injection" && e.key === ENVIRONMENT_KEY);
     if (last?.$tag === "injection" && last.text === text) return undefined;
     return { key: ENVIRONMENT_KEY, text };

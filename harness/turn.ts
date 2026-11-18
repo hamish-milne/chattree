@@ -69,7 +69,14 @@ async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promis
   const where =
     opts.environment === undefined || (config?.ok === true && !config.value.injections.environment)
       ? []
-      : [environmentRule({ ...opts.environment, thread: convo.branch, workspace: convo.dir })];
+      : [
+          environmentRule({
+            ...opts.environment,
+            thread: convo.branch,
+            workspace: convo.dir,
+            ...(config?.ok === true ? { show: config.value.injections.environment_details } : {}),
+          }),
+        ];
   return [...where, ...fromConfig, ...(compaction.auto === "off" ? [] : [compactionRule(compaction)]), ...(opts.injections ?? [])];
 }
 

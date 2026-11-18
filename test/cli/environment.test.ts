@@ -54,6 +54,22 @@ describe("the environment note in a chat", () => {
     }
   });
 
+  test("injections.environment_details leaves out single parts", async () => {
+    const { server, dir } = await started(
+      [answer("a1")],
+      "injections:\n  environment_details:\n    workspace: false\n    commands: false\n",
+    );
+    try {
+      await session(dir, ["hello"]);
+      const sent = JSON.stringify(messages(server, 0));
+      assert.match(sent, /Thread: /);
+      assert.doesNotMatch(sent, /Workspace:/);
+      assert.doesNotMatch(sent, /Commands:/);
+    } finally {
+      await server.close();
+    }
+  });
+
   test("a fork says its own thread name", async () => {
     const { server, dir } = await started([answer("a1"), answer("a2")]);
     try {

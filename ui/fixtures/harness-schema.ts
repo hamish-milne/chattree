@@ -1745,6 +1745,37 @@ export const harnessSchema: Record<string, unknown> = {
           type: "boolean",
           default: true,
         },
+        environment_details: {
+          type: "object",
+          properties: {
+            os: {
+              type: "boolean",
+              default: true,
+            },
+            time_zone: {
+              type: "boolean",
+              default: true,
+            },
+            date: {
+              type: "boolean",
+              default: true,
+            },
+            thread: {
+              type: "boolean",
+              default: true,
+            },
+            workspace: {
+              type: "boolean",
+              default: true,
+            },
+            commands: {
+              type: "boolean",
+              default: true,
+            },
+          },
+          additionalProperties: false,
+          default: {},
+        },
         rules: {
           type: "object",
           patternProperties: {

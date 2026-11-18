@@ -27,6 +27,7 @@ limits:
 - **`mcp`** configures MCP servers (see [Skills and MCP servers](../extending/skills-and-mcp.md)).
 - **`skills.follow`** says whether changed skills on disk are reported (`ask`, the default) or taken automatically.
 - **`compaction`** controls trimming and automatic summaries.
+- **`injections.environment`** turns the note that tells the model where it is (system, time zone, date, thread, working directory, commands) on or off, and `injections.environment_details` switches each of those parts (`os`, `time_zone`, `date`, `thread`, `workspace`, `commands`) separately. The working directory is part of the note, so after `/thread switch` moves a thread to another folder the model is told its new path (unless `workspace` is off).
 - **`workspace.switch.ignored`** says what `/thread switch` does with git-ignored files such as `node_modules`: `move` (default) swaps them between the project folder and the thread's folder so nothing needs installing again, `leave` keeps them where they are. Anything that holds an absolute path to its folder (a Python virtual environment, say) will not survive a move.
 - **`background.resume`** lets a finished background job restart an idle thread (default off, because it spends money).
 

@@ -251,6 +251,19 @@ export const harnessConfig = strictObject({
     usage: withDefault(Type.Boolean(), true),
     /** Tell the model where it is (system, thread, date). Default on. */
     environment: withDefault(Type.Boolean(), true),
+    /**
+     * What the `environment` note says, each on by default: `os`, `time_zone`, `date`, `thread`, `workspace` (the working
+     * directory: when it moves, for example after switching the workspace to another thread, the model is told again) and
+     * `commands` (where `run` and `script` get their utilities).
+     */
+    environment_details: section({
+      os: withDefault(Type.Boolean(), true),
+      time_zone: withDefault(Type.Boolean(), true),
+      date: withDefault(Type.Boolean(), true),
+      thread: withDefault(Type.Boolean(), true),
+      workspace: withDefault(Type.Boolean(), true),
+      commands: withDefault(Type.Boolean(), true),
+    }),
     rules: withDefault(record(pattern(/^[a-z0-9][a-z0-9_.-]*$/, "lowercase letters, digits, and . _ -"), injectionRule), {}),
   }),
   /**
