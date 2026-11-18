@@ -20,6 +20,19 @@ const NO_WRITE = ["chat.yml", "harness.yml", ".git", ".chattree", "blobs"];
 /** Not even readable: git's internals and the harness's local state directory. */
 const NO_READ = [".git", ".chattree"];
 
+/**
+ * Why a workspace-relative path cannot be read, or undefined when it can. This is the part of `resolveInWorkspace` that needs
+ * no file system, for a place that reads a file straight from git history.
+ */
+export function unreadableRelative(requested: string): string | undefined {
+  if (requested.trim() === "") return "the path is empty";
+  if (requested.includes("\0")) return "the path contains a NUL character";
+  const parts = requested.replaceAll("\\", "/").split("/");
+  if (requested.startsWith("/") || /^[a-z]:/i.test(requested) || parts.includes("..")) return `${requested} is outside the workspace`;
+  const first = (parts.find((c) => c !== "" && c !== ".") ?? "").toLowerCase();
+  return NO_READ.includes(first) ? `${requested} cannot be read` : undefined;
+}
+
 const within = (rel: string): boolean => rel === "" || (rel !== ".." && !rel.startsWith("../"));
 
 /**

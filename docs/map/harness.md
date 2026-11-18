@@ -36,6 +36,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 | `partial.ts` | Folds stream events into what is known so far, for a turn that ends early. |
 | `estimate.ts`, `ledger.ts`, `limits.ts` | The pessimistic pre-flight estimate; cost derived from usage times the pinned price table; the limits (ADR 20). |
 | `oneshot.ts` | A model call outside the transcript (summaries). |
+| `file-open.ts` | `resolveFileOpen`: where a file a message named is found, worked out when the person clicks: on disk in the thread's worktree (the project folder for the checked-out thread), read-only from history when the thread has no worktree or a commit is asked for, or refused with a reason. Never creates a worktree. |
 | `injections.ts`, `environment.ts`, `renderer.ts` | Recorded injections (ADR 23); the system prompt and environment note; the text a model reads for entries with no provider equivalent. Renderer ids never change meaning. |
 | `compaction.ts`, `trim.ts` | Summaries and trimming, automatic and by hand (ADR 31). |
 

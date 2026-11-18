@@ -197,8 +197,16 @@ textarea[aria-invalid="true"] {
 }
 
 .menu-item.separated {
-  margin-top: 4px;
-  padding-top: 7px;
+  position: relative;
+  margin-top: 9px;
+}
+/* The rule sits in the margin, so a highlighted item is only as tall as its text. */
+.menu-item.separated::before {
+  content: "";
+  position: absolute;
+  top: -5px;
+  left: 0;
+  right: 0;
   border-top: 1px solid var(--vscode-menu-separatorBackground, var(--vscode-panel-border));
 }
 .menu-item.danger:not(:disabled) {

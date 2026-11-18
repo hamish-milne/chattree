@@ -76,6 +76,8 @@ export class MockController {
   private turn: Promise<void> | undefined;
   private aborted = false;
   private answer: ((allow: boolean) => void) | undefined;
+  /** The thread checked out in the project folder; the others have worktrees of their own (or none, once merged). */
+  private readonly checkedOut: string = THREADS.main;
   private instructions: InstructionState = withFound(instructionsFixture());
   private readonly tasks = new Set<Promise<void>>();
   private readonly queue: { thread: string; block: string; text: string }[] = [];
@@ -207,11 +209,13 @@ export class MockController {
         return;
       case "file.open": {
         const where = `${intent.path}${intent.line === undefined ? "" : `:${intent.line}${intent.endLine === undefined ? "" : `-${intent.endLine}`}`}`;
-        this.notify(
-          "info",
-          intent.at === undefined ? `Opened ${where}` : `Opened ${where} as it was at ${intent.at.slice(0, 7)} (read-only)`,
-        );
-        return;
+        const t = this.graph.threads.find((x) => x.name === intent.thread);
+        if (t === undefined) return this.notify("error", `there is no thread named ${intent.thread}`);
+        if (intent.at !== undefined) return this.notify("info", `Opened ${where} as it was at ${intent.at.slice(0, 7)} (read-only)`);
+        // A merged thread has given up its worktree: its files are read from its history.
+        if (t.merged === true) return this.notify("info", `Opened ${where} from the history of ${t.name} (read-only: it has no worktree)`);
+        const here = intent.thread === this.checkedOut ? "" : ` in the worktree of ${t.name}`;
+        return this.notify("info", `Opened ${where}${here}`);
       }
       case "instructions.remove":
         this.changeInstructions((files) => files.filter((f) => f.path !== intent.path), `Removed ${intent.path} from the instructions`);
