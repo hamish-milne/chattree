@@ -10,7 +10,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 
 | File | Role |
 |---|---|
-| `conversation.ts` | The `Conversation` handle: create, open (version check, crash recovery), append and `appendMany`, entry index, fork, subagents, fork merge, compaction, interrupt, rewind, archive, blob GC, worktrees. Every mutation takes the branch lock, appends, commits, and on failure rolls back (ADR 3, 5). Large; the sections follow the order of those operations. |
+| `conversation.ts` | The `Conversation` handle: create, open (version check, crash recovery), append and `appendMany`, entry index, fork, subagents, fork merge, compaction, interrupt, rewind, archive, blob GC, worktrees, `switchWorkspace` (the project folder and a thread's worktree trade branches, with ignored files swapped by `workspace-swap.ts`; refused while either thread is busy or has unsaved changes). Every mutation takes the branch lock, appends, commits, and on failure rolls back (ADR 3, 5). Large; the sections follow the order of those operations. |
 | `entries.ts` | The entry types (TypeBox schemas, strict), the format version, and `EntryReader`, the reader whose state is the version (ADR 9). **Any change to what an entry may hold starts here.** |
 | `blocks.ts` | Provider-neutral blocks from a turn to the entry shapes committed; one path for live, recovered and interrupted responses. |
 | `context.ts` | `contextEntries`: which entries a model is shown (fresh-context markers, compactions, trims). The transcript is never rewritten; this is how it is read. |

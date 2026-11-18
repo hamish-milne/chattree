@@ -199,6 +199,7 @@ describe("JSON Schema", () => {
       "subagent",
       "threads",
       "tools",
+      "workspace",
     ]);
     const variants = schema.properties["providers"]?.additionalProperties?.oneOf ?? [];
     assert.deepEqual(

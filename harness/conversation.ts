@@ -31,6 +31,7 @@ import {
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { addGrants, revokeGrants, untilMs } from "./approvals.ts";
+import { swapIgnored } from "./workspace-swap.ts";
 import { LeaseStore, sharedLeaseStore, type LeaseEnv, type LeaseOwner, type LeaseState } from "./lease.ts";
 import { refLeaseBackend } from "./lease-ref.ts";
 import type { GrantStore } from "./loop.ts";
@@ -393,6 +394,40 @@ export interface BlobGcReport {
   tracked: { path: string; bytes: number }[];
   /** The commit that removed the tracked ones, if there were any. */
   commit: string | undefined;
+}
+
+/** What `Conversation.switchWorkspace` refuses to do on its own: files not yet saved in either folder. */
+export class WorkspaceDirty extends ConversationError {
+  override name = "WorkspaceDirty";
+  /** Per thread, the paths with unsaved changes. */
+  readonly files: { branch: string; paths: string[] }[];
+  constructor(files: { branch: string; paths: string[] }[]) {
+    super(
+      `there are changes not yet saved in ${files.map((f) => `${f.branch} (${f.paths.slice(0, 3).join(", ")}${f.paths.length > 3 ? ", ..." : ""})`).join(" and ")}; pass uncommitted: "snapshot" to save them as a snapshot first`,
+    );
+    this.files = files;
+  }
+}
+
+export interface SwitchWorkspaceOptions {
+  /** What to do with unsaved changes in either folder: `snapshot` saves them on the thread they belong to. Without it, they stop the switch. */
+  uncommitted?: "snapshot";
+  /** Git-ignored files: swap them between the folders (`move`) or leave them. Default: `workspace.switch.ignored` in harness.yml, else `move`. */
+  ignored?: "move" | "leave";
+}
+
+export interface SwitchWorkspaceResult {
+  /** The thread the project folder was on, and the one it is on now. */
+  from: string;
+  to: string;
+  /** The project folder, and where `from` is checked out now (undefined when `to` had no worktree to trade with). */
+  project: string;
+  fromWorktree: string | undefined;
+  /** Snapshots taken on the way. */
+  snapshots: { branch: string; commit: string }[];
+  /** Ignored entries traded, and those left with the reason. */
+  moved: string[];
+  left: { name: string; reason: string }[];
 }
 
 export interface WorktreeCleanup {
@@ -2145,6 +2180,118 @@ export class Conversation {
       this.#size = (await this.host.fs.stat(this.#file))?.size ?? 0;
       return { from, to, ref };
     });
+  }
+
+  /**
+   * Move the workspace (the project folder, which holds `.git`) to another thread, so the person's editor shows its files.
+   * The project folder and the thread's worktree trade branches (a branch can be checked out in one place only): the
+   * thread that was in the project folder moves to the target's worktree, so nothing is lost. Git-ignored top-level
+   * entries trade places too, unless `ignored: "leave"`, so installs and build output follow the thread. A target without
+   * a worktree is simply checked out in the project folder, and the thread that was there has none until it needs one.
+   * Refused while a request is running or a lease is live on either thread, and (without `uncommitted: "snapshot"`)
+   * while either folder has unsaved changes, which is reported as `WorkspaceDirty`. Handles opened on either folder
+   * must be reopened afterwards.
+   */
+  async switchWorkspace(target: string, opts: SwitchWorkspaceOptions = {}): Promise<SwitchWorkspaceResult> {
+    const worktrees = await this.git.worktrees();
+    const main = worktrees[0];
+    if (main === undefined) throw new ConversationError("the repository has no project folder");
+    const projectGit = this.git.withCwd(main.path);
+    const from = await projectGit.currentBranch();
+    if (from === undefined) throw new ConversationError("the project folder has no thread checked out (HEAD is detached)");
+    if (target === from) throw new ConversationError(`${target} is already checked out in the project folder`);
+    if ((await this.git.revParse(`refs/heads/${target}`)) === undefined) throw new ConversationError(`no such thread: ${target}`);
+    const there = worktrees.find((w) => w.branch === `refs/heads/${target}`);
+    const otherPath = there?.path;
+    const otherGit = otherPath === undefined ? undefined : this.git.withCwd(otherPath);
+
+    for (const b of [from, target]) {
+      const journal = this.host.path.join(await this.git.commonDir(), "chattree", "journal", `${encodeURIComponent(b)}.jsonl`);
+      if (await journalIsLive(this.host, journal, this.journalStaleMs, this.#opts.now))
+        throw new ConversationError(`a request is running on ${b}; wait for it or abort it first`);
+      const lease = await this.leaseState(b);
+      if (lease.state === "live") throw new ConversationError(`${b} is held by another window or process`);
+    }
+
+    const sides = [
+      { branch: from, path: main.path, git: projectGit },
+      ...(otherGit === undefined || otherPath === undefined ? [] : [{ branch: target, path: otherPath, git: otherGit }]),
+    ];
+    const dirty: { branch: string; paths: string[] }[] = [];
+    for (const side of sides) {
+      const paths = (await side.git.status()).map((e) => e.path);
+      if (paths.length > 0) dirty.push({ branch: side.branch, paths });
+    }
+    const snapshots: SwitchWorkspaceResult["snapshots"] = [];
+    if (dirty.length > 0) {
+      if (opts.uncommitted !== "snapshot") throw new WorkspaceDirty(dirty);
+      for (const d of dirty) {
+        const side = sides.find((x) => x.branch === d.branch);
+        if (side === undefined) continue;
+        const handle = await Conversation.open(this.host, side.path, this.#opts);
+        try {
+          const commit = await handle.snapshot();
+          if (commit !== undefined) snapshots.push({ branch: d.branch, commit });
+        } finally {
+          await handle.close();
+        }
+      }
+    }
+
+    const cfg = await this.readConfig();
+    const mode = opts.ignored ?? (cfg?.ok === true ? cfg.value.workspace.switch.ignored : "move");
+
+    // Both threads' locks, in a fixed order, so nothing appends to either while the folders change hands.
+    const locks = [];
+    for (const b of [from, target].sort()) {
+      locks.push(
+        await acquireLock(this.host.fs, await Conversation.#lockPathFor(this.host, this.git, b), {
+          ...this.#opts.lock,
+          ...(this.#opts.now === undefined ? {} : { now: this.#opts.now }),
+        }),
+      );
+    }
+    try {
+      let swap: { moved: string[]; left: { name: string; reason: string }[]; undo(): Promise<void> } = {
+        moved: [],
+        left: [],
+        undo: async () => undefined,
+      };
+      if (otherGit !== undefined && otherPath !== undefined && mode === "move") {
+        swap = await swapIgnored(
+          { fs: this.host.fs, path: this.host.path },
+          {
+            a: { dir: main.path, ignored: await projectGit.ignoredTopLevel() },
+            b: { dir: otherPath, ignored: await otherGit.ignoredTopLevel() },
+          },
+        );
+      }
+      let stage = 0;
+      try {
+        if (otherGit !== undefined) await otherGit.detach();
+        stage = 1;
+        await projectGit.switchBranch(target);
+        stage = 2;
+        if (otherGit !== undefined) await otherGit.switchBranch(from);
+      } catch (e) {
+        const undone: string[] = [];
+        try {
+          if (stage === 2 && otherGit !== undefined) {
+            await projectGit.switchBranch(from);
+            await otherGit.switchBranch(target);
+          } else if (stage === 1 && otherGit !== undefined) {
+            await otherGit.switchBranch(target);
+          }
+          await swap.undo();
+        } catch (e2) {
+          undone.push(` (and putting things back failed too: ${e2 instanceof Error ? e2.message : String(e2)})`);
+        }
+        throw new ConversationError(`could not switch to ${target}: ${e instanceof Error ? e.message : String(e)}${undone.join("")}`);
+      }
+      return { from, to: target, project: main.path, fromWorktree: otherPath, snapshots, moved: swap.moved, left: swap.left };
+    } finally {
+      for (const l of locks.reverse()) await l.release();
+    }
   }
 
   static #dateOpt(opts: ConversationOptions): { date?: string } {

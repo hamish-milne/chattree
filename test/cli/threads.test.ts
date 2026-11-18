@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
@@ -126,6 +127,37 @@ describe("threads", () => {
       assert.doesNotMatch(prompt, /ALPHA question/, "what was already merged is not summarised again");
       assert.doesNotMatch(prompt, /hello/, "nor is the main thread's own conversation");
       assert.match(prompt, /already known to the reader/);
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("/thread switch moves the project folder to another thread, and says what it did", async () => {
+    const { server, dir } = await started([answer("main reply")]);
+    try {
+      const r = await session(dir, "hello", "/thread new side", "/thread main", "/thread switch side", "/thread switch main");
+      assert.equal(r.code, 0, r.err);
+      assert.match(r.all, /the project folder is now on side/);
+      assert.match(r.all, /main moved to /);
+      assert.match(r.all, /the project folder is now on main/);
+      const c = await Conversation.open(host, dir);
+      assert.equal(c.branch, "main");
+    } finally {
+      await server.close();
+    }
+  });
+
+  test("/thread switch with unsaved changes says how to save them", async () => {
+    const { server, dir } = await started([answer("main reply")]);
+    try {
+      const r = await session(dir, "hello", "/thread new side", "/thread main");
+      assert.equal(r.code, 0, r.err);
+      await writeFile(join(dir, "scratch.txt"), "not saved\n");
+      const dirty = await session(dir, "/thread switch side");
+      assert.match(dirty.all, /not yet saved in main/);
+      assert.match(dirty.all, /\/thread switch side --snapshot/);
+      const done = await session(dir, "/thread switch side --snapshot");
+      assert.match(done.all, /saved unsaved changes on main as a snapshot/);
     } finally {
       await server.close();
     }

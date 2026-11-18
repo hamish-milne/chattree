@@ -1693,6 +1693,24 @@ export const harnessSchema: Record<string, unknown> = {
       additionalProperties: false,
       default: {},
     },
+    workspace: {
+      type: "object",
+      properties: {
+        switch: {
+          type: "object",
+          properties: {
+            ignored: {
+              enum: ["move", "leave"],
+              default: "move",
+            },
+          },
+          additionalProperties: false,
+          default: {},
+        },
+      },
+      additionalProperties: false,
+      default: {},
+    },
     attachments: {
       type: "object",
       properties: {

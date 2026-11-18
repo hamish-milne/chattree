@@ -6,7 +6,7 @@
  */
 import { parseArgs } from "node:util";
 import type { Conversation } from "../../harness/conversation.ts";
-import { ConversationError } from "../../harness/conversation.ts";
+import { ConversationError, WorkspaceDirty } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { formatTranscript } from "../output.ts";
 import { askModel } from "../oneshot.ts";
@@ -82,14 +82,19 @@ export async function createFork(
 const thread: Command = {
   name: "thread",
   summary: "show or change the thread this session is on; start, archive or unarchive threads",
-  usage: "/thread  |  /thread <name>  |  /thread new <name> [--from <entry>]  |  /thread archive [name]  |  /thread unarchive [name]",
+  usage:
+    "/thread  |  /thread <name>  |  /thread new <name> [--from <entry>]  |  /thread archive [name]  |  /thread unarchive [name]  |  /thread switch <name> [--snapshot] [--leave-ignored]",
   busy: "blocked",
   async complete(ctx, previous, partial) {
     if (previous.length === 0)
-      return ["new", "archive", "unarchive", ...(await ctx.convo.listBranches()).filter((b) => !b.archived).map((b) => b.name)].filter(
-        (n) => n.startsWith(partial),
-      );
-    if (previous[0] === "archive")
+      return [
+        "new",
+        "archive",
+        "unarchive",
+        "switch",
+        ...(await ctx.convo.listBranches()).filter((b) => !b.archived).map((b) => b.name),
+      ].filter((n) => n.startsWith(partial));
+    if (previous[0] === "archive" || previous[0] === "switch")
       return (await ctx.convo.listBranches())
         .filter((b) => !b.archived)
         .map((b) => b.name)
@@ -123,6 +128,46 @@ const thread: Command = {
             ? `${name} is ${sub === "archive" ? "archived: /threads hides it unless asked (/threads archived)" : "no longer archived"}`
             : `${name} was already ${sub === "archive" ? "archived" : "not archived"}`,
         };
+        return;
+      }
+      if (sub === "switch") {
+        const parsed = parseArgs({
+          args: args.slice(1),
+          allowPositionals: true,
+          options: { snapshot: { type: "boolean" }, "leave-ignored": { type: "boolean" } },
+        });
+        const name = parsed.positionals[0];
+        if (name === undefined || parsed.positionals.length !== 1) {
+          yield {
+            type: "error",
+            message: "give the thread to move the project folder to",
+            hint: "/thread switch <name> [--snapshot] [--leave-ignored]",
+          };
+          return;
+        }
+        let r: Awaited<ReturnType<Conversation["switchWorkspace"]>>;
+        try {
+          r = await ctx.convo.switchWorkspace(name, {
+            ...(parsed.values.snapshot === true ? { uncommitted: "snapshot" as const } : {}),
+            ...(parsed.values["leave-ignored"] === true ? { ignored: "leave" as const } : {}),
+          });
+        } catch (e) {
+          if (e instanceof WorkspaceDirty) {
+            yield { type: "error", message: e.message, hint: `/thread switch ${name} --snapshot` };
+            return;
+          }
+          throw e;
+        }
+        const notes = [
+          `the project folder is now on ${r.to}`,
+          r.fromWorktree === undefined ? `${r.from} has no folder until it needs one` : `${r.from} moved to ${r.fromWorktree}`,
+          ...r.snapshots.map((x) => `saved unsaved changes on ${x.branch} as a snapshot`),
+          ...(r.moved.length > 0 ? [`moved ignored files: ${r.moved.join(", ")}`] : []),
+          ...r.left.map((l) => `left ${l.name}: ${l.reason}`),
+        ];
+        // This session's handle may have been on either folder; reopen the thread it is on.
+        const opened = await openThread(ctx.io, engine.project, engine.thread, { providers: "optional" });
+        yield* moveTo(ctx, opened.convo, opened.thread, notes.join("\n"));
         return;
       }
       if (sub === "new") {

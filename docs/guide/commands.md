@@ -19,7 +19,7 @@ Run commands from the shell as `chattree <verb>`, or inside a session as `/<comm
 
 **Reading.** `/history [n]`, `/show <n|id>`, `/log`, `/status`, `/usage`, `/display` (how much reasoning and tool detail to show), `/export <file>`, `/search <query>`.
 
-**Threads.** `/threads`, `/thread [name]`, `/thread new`, `/thread archive`, `/fork`, `/merge`, `/runs`, `/questions`, `/compact`.
+**Threads.** `/threads`, `/thread [name]`, `/thread new`, `/thread archive`, `/thread switch <name>` (give the project folder to another thread; `--snapshot` saves unsaved changes first, `--leave-ignored` keeps ignored files in place), `/fork`, `/merge`, `/runs`, `/questions`, `/compact`.
 
 **Setup.** `/model`, `/set <key> [value]` (model settings), `/instructions`, `/rebuild`, `/skills`, `/skill`, `/mcp`, `/tools` (grant permissions), `/providers`, `/pricing [pin]`, `/accept`, `/config`, `/trust`, `/settings`.
 

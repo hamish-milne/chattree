@@ -27,6 +27,7 @@ limits:
 - **`mcp`** configures MCP servers (see [Skills and MCP servers](../extending/skills-and-mcp.md)).
 - **`skills.follow`** says whether changed skills on disk are reported (`ask`, the default) or taken automatically.
 - **`compaction`** controls trimming and automatic summaries.
+- **`workspace.switch.ignored`** says what `/thread switch` does with git-ignored files such as `node_modules`: `move` (default) swaps them between the project folder and the thread's folder so nothing needs installing again, `leave` keeps them where they are. Anything that holds an absolute path to its folder (a Python virtual environment, say) will not survive a move.
 - **`background.resume`** lets a finished background job restart an idle thread (default off, because it spends money).
 
 `harness.yml` can be edited by hand (comments are kept), with `/config edit`, or with `chattree config edit`. `init` writes a JSON Schema to `.chattree/harness.schema.json` and a `yaml-language-server` comment, so editors that support it validate and complete the file. `/config` validates it and lists problems.

@@ -226,6 +226,13 @@ export const harnessConfig = strictObject({
     /** Look again after this many appends, snapshots and the like. */
     check_every: withDefault(Type.Integer({ minimum: 1 }), 200),
   }),
+  /**
+   * Moving the workspace to another thread (`Conversation.switchWorkspace`): the project folder and that thread's worktree trade
+   * branches. `ignored` says what happens to git-ignored files such as `node_modules`: `move` (default) swaps them
+   * between the two folders so nothing needs installing again (beware of anything holding an absolute path to its
+   * folder, such as a Python virtual environment); `leave` keeps them where they are.
+   */
+  workspace: section({ switch: section({ ignored: withDefault(Type.Enum(["move", "leave"]), "move") }) }),
   /** Files added to messages (`Conversation.attach`). The default cap is 20 MiB. */
   attachments: section({ max_bytes: withDefault(Type.Integer({ minimum: 1 }), 20 * 1024 * 1024) }),
   /**
