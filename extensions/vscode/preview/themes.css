@@ -1,0 +1,93 @@
+/*
+ * The VS Code theme variables the views use, for the browser preview only. Real VS Code defines these itself from the
+ * user's theme. The values below are the defaults of the Dark+ and Light+ themes as best they are known; check any
+ * detail that matters in VS Code itself.
+ */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Ubuntu", "Droid Sans", sans-serif;
+  --vscode-font-size: 13px;
+  --vscode-editor-font-family: "Droid Sans Mono", "Courier New", monospace;
+  --vscode-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-errorForeground: #f48771;
+  --vscode-focusBorder: #007fd4;
+  --vscode-widget-shadow: rgba(0, 0, 0, 0.36);
+  --vscode-widget-border: #454545;
+  --vscode-progressBar-background: #0e70c0;
+  --vscode-editorWarning-foreground: #cca700;
+  --vscode-textLink-foreground: #3794ff;
+  --vscode-sideBar-background: #252526;
+  --vscode-sideBar-foreground: #cccccc;
+  --vscode-sideBarTitle-foreground: #bbbbbb;
+  --vscode-sideBarSectionHeader-background: rgba(128, 128, 128, 0.2);
+  --vscode-panel-background: #1e1e1e;
+  --vscode-panel-border: rgba(128, 128, 128, 0.35);
+  --vscode-editor-background: #1e1e1e;
+  --vscode-list-hoverBackground: #2a2d2e;
+  --vscode-list-inactiveSelectionBackground: #37373d;
+  --vscode-list-activeSelectionBackground: #04395e;
+  --vscode-list-activeSelectionForeground: #ffffff;
+  --vscode-menu-background: #303031;
+  --vscode-menu-foreground: #cccccc;
+  --vscode-menu-selectionBackground: #0078d4;
+  --vscode-menu-selectionForeground: #ffffff;
+  --vscode-menu-border: #454545;
+  --vscode-input-background: #3c3c3c;
+  --vscode-input-foreground: #cccccc;
+  --vscode-input-border: transparent;
+  --vscode-button-background: #0e639c;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #1177bb;
+  --vscode-badge-background: #4d4d4d;
+  --vscode-badge-foreground: #ffffff;
+  --vscode-scmGraph-foreground1: #ffb000;
+  --vscode-scmGraph-foreground2: #dc267f;
+  --vscode-scmGraph-foreground3: #994f00;
+  --vscode-scmGraph-foreground4: #40b0a6;
+  --vscode-scmGraph-foreground5: #b66dff;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, "Ubuntu", "Droid Sans", sans-serif;
+  --vscode-font-size: 13px;
+  --vscode-editor-font-family: "Droid Sans Mono", "Courier New", monospace;
+  --vscode-foreground: #616161;
+  --vscode-descriptionForeground: #717171;
+  --vscode-errorForeground: #a1260d;
+  --vscode-focusBorder: #0090f1;
+  --vscode-widget-shadow: rgba(0, 0, 0, 0.16);
+  --vscode-widget-border: #c8c8c8;
+  --vscode-progressBar-background: #0e70c0;
+  --vscode-editorWarning-foreground: #bf8803;
+  --vscode-textLink-foreground: #006ab1;
+  --vscode-sideBar-background: #f3f3f3;
+  --vscode-sideBar-foreground: #616161;
+  --vscode-sideBarTitle-foreground: #6f6f6f;
+  --vscode-sideBarSectionHeader-background: rgba(128, 128, 128, 0.2);
+  --vscode-panel-background: #ffffff;
+  --vscode-panel-border: rgba(128, 128, 128, 0.35);
+  --vscode-editor-background: #ffffff;
+  --vscode-list-hoverBackground: #e8e8e8;
+  --vscode-list-inactiveSelectionBackground: #e4e6f1;
+  --vscode-list-activeSelectionBackground: #0060c0;
+  --vscode-list-activeSelectionForeground: #ffffff;
+  --vscode-menu-background: #ffffff;
+  --vscode-menu-foreground: #616161;
+  --vscode-menu-selectionBackground: #0060c0;
+  --vscode-menu-selectionForeground: #ffffff;
+  --vscode-menu-border: #d4d4d4;
+  --vscode-input-background: #ffffff;
+  --vscode-input-foreground: #616161;
+  --vscode-input-border: #cecece;
+  --vscode-button-background: #007acc;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #0062a3;
+  --vscode-badge-background: #c4c4c4;
+  --vscode-badge-foreground: #333333;
+  --vscode-scmGraph-foreground1: #ffb000;
+  --vscode-scmGraph-foreground2: #dc267f;
+  --vscode-scmGraph-foreground3: #994f00;
+  --vscode-scmGraph-foreground4: #40b0a6;
+  --vscode-scmGraph-foreground5: #b66dff;
+}

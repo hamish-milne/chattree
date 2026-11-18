@@ -1,0 +1,25 @@
+# `extensions/vscode/`: the VS Code extension
+
+**Purpose.** The first graphical front end: a thread graph in the side bar, a chat in the panel and a form for `harness.yml`. It is a workspace package (`pnpm-workspace.yaml`), separate from the root package because it has its own manifest and dependencies and is bundled for the VSIX. Reasons: ADR 35. The shared logic is in [`ui/`](ui.md).
+
+**Status.** The graph view and the browser preview exist. The chat view, the config form, the extension host code and the real controller do not yet.
+
+**Depends on:** `chattree` (the root package, through its `ui/model/*` and `ui/fixtures/*` exports), `preact`, `@preact/signals`. Webview code imports nothing from Node, `vscode` or the harness.
+
+## Layout
+
+Each directory has its own `tsconfig.json`, because each runs in a different place (the type checker and the linter find the nearest one).
+
+| Path | Role |
+|---|---|
+| `webview/` | The views (Preact). A view takes a model from `ui/model` and draws it; it keeps no state of its own and talks to nothing but its model. `webview/graph/` is the thread graph. |
+| `preview/` | The browser preview: the views over a mock controller in a frame that stands in for VS Code, with a Dark+/Light+ theme switch (`themes.css` defines the `--vscode-*` variables VS Code would), a width slider and a log of the intents a view sends. Not shipped. |
+| `tools/` | `build-preview.mts` bundles the preview with esbuild into `dist/preview/`; `serve-preview.mts` serves it on `127.0.0.1`. `.mts` because the package itself is CommonJS (the extension's output must be). |
+
+## Working on a view
+
+- Run `pnpm --filter chattree-vscode build:preview` then `pnpm --filter chattree-vscode preview` and open the address it prints.
+- A view uses only `var(--vscode-*)` colours and fonts, so it follows the user's theme; add a variable to `preview/themes.css` when the view needs a new one (the values there are approximations of Dark+ and Light+).
+- A page that uses signals must import `@preact/signals` once (the preview does), which installs the hook that re-renders on a change.
+- A view's behaviour that is not drawing (what a click does, which actions apply) belongs in `ui/model` and is tested there.
+- `test/ui/preview.test.ts` builds the bundle and checks it has no Node imports, no typebox and one copy of the signals core.

@@ -2,7 +2,7 @@
 
 **Purpose.** What every graphical front end shares: the shapes of what a view shows, the messages between the controller and the views, and the logic that is not drawing. The first front end is a VS Code extension (`extensions/vscode/`, not yet written). Reasons: ADR 35.
 
-**Depends on:** `src/` (schemas), and `harness/` as types only. `ui/model/` imports no Node or DOM API and is typechecked without Node types, so it can run in a webview as well as in the extension host.
+**Depends on:** `src/` (schemas), `@preact/signals-core` (state models), and `harness/` as types only. `ui/model/` imports no Node or DOM API and is typechecked without Node types, so it can run in a webview as well as in the extension host.
 
 ## Layers
 
@@ -25,6 +25,9 @@ State that matters is in the controller. A view that opens sends `ready` and get
 | `model/chat.ts` | `ChatState`: one open thread: header, blocks, status bar, composer, pending approval, model choice and its settings form. |
 | `model/form.ts` | `FormSpec`: a JSON Schema, a value and the issues found. One shape for the model settings sheet and the `harness.yml` editor; the view builds fields from the schema and the controller validates. |
 | `model/protocol.ts` | `UiEvent` (controller to view) and `UiIntent` (view to controller) as TypeBox schemas, with `parseEvent` and `parseIntent`. Both are validated where received. |
+| `model/graph-layout.ts` | `layoutGraph`: rows newest first, lanes packed (a merged thread gives its lane up), edges (a fork bends at its parent, a merge at its child), and runs of tool calls and results folded into one row unless expanded. A commit another thread points at is never hidden inside a fold. |
+| `model/graph-actions.ts` | `actionsFor`: which of open, fork, rewind and merge a commit offers, and why one is unavailable (a thread that is working, waiting or held by another window is not rewound or merged). |
+| `model/graph-model.ts` | `GraphModel`, a signal model: data, expanded folds, selection, context menu and the layout derived from them; `apply` takes events, actions send intents. |
 | `fixtures/` | Deterministic mock data (a graph with every thread state, a chat session, the config form) for the mock extension and the tests. |
 
 ## Invariants

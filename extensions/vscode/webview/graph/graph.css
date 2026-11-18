@@ -1,0 +1,209 @@
+.graph {
+  position: relative;
+  height: 100%;
+  overflow-y: auto;
+  container-type: inline-size;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
+  background: var(--vscode-sideBar-background);
+  user-select: none;
+}
+.graph-empty {
+  padding: 16px;
+  color: var(--vscode-descriptionForeground);
+}
+.graph-body {
+  position: relative;
+  min-width: max-content;
+}
+.lanes {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  overflow: visible;
+}
+.node-count {
+  font-size: 9px;
+  font-weight: 600;
+}
+.row {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+  outline: none;
+}
+.row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.row.selected {
+  background: var(--vscode-list-inactiveSelectionBackground);
+  color: var(--vscode-list-inactiveSelectionForeground, inherit);
+}
+.row:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+.label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.label.dim {
+  color: var(--vscode-descriptionForeground);
+}
+.label.strong {
+  font-weight: 600;
+}
+.chevron {
+  position: absolute;
+  margin-left: -2px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 10px;
+  line-height: 1;
+}
+button.chevron {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  cursor: pointer;
+  position: static;
+  margin: 0 -4px 0 -8px;
+}
+.row.fold .chevron {
+  display: none;
+}
+.row.in-fold .label {
+  color: var(--vscode-descriptionForeground);
+}
+.time {
+  color: var(--vscode-descriptionForeground);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+  text-align: right;
+}
+@container (max-width: 420px) {
+  .time {
+    display: none;
+  }
+}
+
+/* A thread's name, shown on its newest row, in the thread's colour. */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 45%;
+  padding: 0 6px 0 7px;
+  height: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--c);
+  font-size: 11px;
+  color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
+  background: color-mix(in srgb, var(--c) 18%, transparent);
+}
+.pill.merged {
+  opacity: 0.6;
+  border-style: dashed;
+}
+.pill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status {
+  display: inline-flex;
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+.status-running {
+  border: 2px solid var(--vscode-progressBar-background, #0e70c0);
+  border-right-color: transparent;
+  border-radius: 50%;
+  width: 10px;
+  height: 10px;
+  animation: spin 0.9s linear infinite;
+}
+.status-awaiting {
+  width: 8px;
+  height: 8px;
+  margin: 2px;
+  border-radius: 50%;
+  background: var(--vscode-editorWarning-foreground, #cca700);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.status-error {
+  color: var(--vscode-errorForeground);
+}
+.status-elsewhere {
+  color: var(--vscode-descriptionForeground);
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-running,
+  .status-awaiting {
+    animation: none;
+  }
+}
+
+.menu-scrim {
+  position: fixed;
+  inset: 0;
+}
+.menu {
+  position: fixed;
+  z-index: 10;
+  min-width: 190px;
+  padding: 4px 0;
+  border-radius: 5px;
+  border: 1px solid var(--vscode-menu-border, var(--vscode-widget-border, transparent));
+  background: var(--vscode-menu-background);
+  color: var(--vscode-menu-foreground);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+}
+.menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  padding: 3px 20px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.menu-item:hover:not(:disabled),
+.menu-item:focus-visible:not(:disabled) {
+  background: var(--vscode-menu-selectionBackground);
+  color: var(--vscode-menu-selectionForeground);
+  outline: none;
+}
+.menu-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.reason {
+  font-size: 11px;
+  opacity: 0.8;
+}
