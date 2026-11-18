@@ -14,6 +14,7 @@ button {
   color: inherit;
 }
 .icon-button {
+  white-space: nowrap;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -43,6 +44,7 @@ textarea:focus-visible,
 }
 button.primary,
 button.secondary {
+  white-space: nowrap;
   padding: 4px 12px;
   border: none;
   border-radius: 2px;

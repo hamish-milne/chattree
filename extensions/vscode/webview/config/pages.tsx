@@ -40,7 +40,7 @@ const valueOf = (form: Form): Json => form.spec.value.value;
 
 // ---- providers -----------------------------------------------------------------------------------------------------
 
-/** Whether a provider can be reached, as a chip, with the test button beside it. */
+/** Whether a provider can be reached, as a pill; clicking it tests again. */
 function Connection({ model, name }: { model: Model; name: string }): JSX.Element {
   const s = model.statuses.value[name];
   const stale = model.isStale(name);
@@ -51,22 +51,23 @@ function Connection({ model, name }: { model: Model; name: string }): JSX.Elemen
       : checking
         ? "Checking…"
         : stale
-          ? "Changed since tested"
+          ? "Changed: test again"
           : s.state === "ok"
             ? "Connected"
             : "Not reachable";
   const tone = s === undefined || checking || stale ? "idle" : s.state;
   return (
-    <span class="pv-conn">
-      <span class={`pv-status ${tone}`} role="status" title={s?.detail}>
-        <span class={`pv-dot${checking ? " spin" : ""}`} aria-hidden="true" />
-        {label}
-        {s?.state === "ok" && !stale && s.ms !== undefined && <span class="pv-ms">{s.ms} ms</span>}
-      </span>
-      <button class="link" disabled={checking} onClick={() => model.test(name)}>
-        {s === undefined ? "Test" : "Test again"}
-      </button>
-    </span>
+    <button
+      class={`pv-status ${tone}`}
+      disabled={checking}
+      title={`${s?.detail === undefined || stale ? "" : `${s.detail}. `}Click to test again`}
+      aria-label={`${name}: ${label}. Test again`}
+      onClick={() => model.test(name)}
+    >
+      <span class={`pv-dot${checking ? " spin" : ""}`} aria-hidden="true" />
+      {label}
+      {s?.state === "ok" && !stale && s.ms !== undefined && <span class="pv-ms">{s.ms} ms</span>}
+    </button>
   );
 }
 
@@ -93,14 +94,15 @@ function ProviderCard({ form, model, name }: { form: Form; model: Model; name: s
             );
           }}
         />
-        <span class="pv-adapter" title={a.hint}>
-          {a.label}
-        </span>
         <span class="spacer" />
         <Connection model={model} name={name} />
         <button class="icon-button" title={`Remove ${name}`} aria-label={`Remove ${name}`} onClick={() => form.remove(base)}>
           <Icon name="trash" />
         </button>
+      </div>
+      <div class="cf-hint pv-about">
+        {a.label}
+        {a.hint !== "" && ` · ${a.hint}`}
       </div>
       {model.statuses.value[name]?.state === "error" && !model.isStale(name) && (
         <div class="cf-issues" role="alert">
