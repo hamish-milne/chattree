@@ -598,6 +598,33 @@ export class Git {
       .filter((p) => p !== "");
   }
 
+  /**
+   * The top-level entries of the worktree that git ignores (a directory such as `node_modules` counts as one entry, without
+   * its contents), as names. Entries inside a directory that is not itself ignored are not listed.
+   */
+  async ignoredTopLevel(): Promise<string[]> {
+    const r = await this.run(["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"], { readOnly: true });
+    const names = new Set<string>();
+    for (const p of dec.decode(r.stdout).split("\u0000")) {
+      if (p === "") continue;
+      const top = p.split("/")[0];
+      if (top !== undefined && top !== "") names.add(top);
+    }
+    return [...names].sort();
+  }
+
+  /** Check out an existing local branch in this worktree. Fails if another worktree has it or files would be overwritten. */
+  async switchBranch(name: string): Promise<void> {
+    assertSafeArg("branch name", name);
+    await this.run(["switch", "--quiet", "--", name]);
+  }
+
+  /** Detach HEAD at `rev` (default: where it is), which frees the branch it was on for another worktree. */
+  async detach(rev = "HEAD"): Promise<void> {
+    assertSafeArg("revision", rev);
+    await this.run(["switch", "--quiet", "--detach", rev]);
+  }
+
   /** Make the index match HEAD, leaving the working tree alone. Used after commits were written without the index. */
   async syncIndex(): Promise<void> {
     await this.run(["reset", "--quiet", "--mixed", "HEAD", "--"]);

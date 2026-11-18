@@ -37,6 +37,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 | `estimate.ts`, `ledger.ts`, `limits.ts` | The pessimistic pre-flight estimate; cost derived from usage times the pinned price table; the limits (ADR 20). |
 | `oneshot.ts` | A model call outside the transcript (summaries). |
 | `file-open.ts` | `resolveFileOpen`: where a file a message named is found, worked out when the person clicks: on disk in the thread's worktree (the project folder for the checked-out thread), read-only from history when the thread has no worktree or a commit is asked for, or refused with a reason. Never creates a worktree. |
+| `workspace-swap.ts` | `swapIgnored`: trade the git-ignored top-level entries (`node_modules`, build output) between two worktree folders by rename, so a thread switch needs no install. Never moves `.git` or `.chattree`; leaves a name the other side holds as a tracked entry; rolls back on failure (and returns `undo`); across disks (`EXDEV`) leaves everything and says why. |
 | `injections.ts`, `environment.ts`, `renderer.ts` | Recorded injections (ADR 23); the system prompt and environment note; the text a model reads for entries with no provider equivalent. Renderer ids never change meaning. |
 | `compaction.ts`, `trim.ts` | Summaries and trimming, automatic and by hand (ADR 31). |
 

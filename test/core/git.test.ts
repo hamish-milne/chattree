@@ -756,3 +756,33 @@ describe("staging while another handle writes files", () => {
     assert.equal(isVanishedTempFile(new Error("boom")), false);
   });
 });
+
+describe("switching branches in a worktree", () => {
+  test("detach frees a branch for another worktree; switchBranch takes it", async () => {
+    const git = await newRepo();
+    await commitFile(git, "a", "1\n");
+    await git.createBranch("topic", "HEAD");
+    const p = join(await tempDir(), "wt");
+    await git.addWorktree(p, { branch: "topic" });
+    const wt = git.withCwd(p);
+    await assert.rejects(git.switchBranch("topic"), GitError, "held by the other worktree");
+    await wt.detach();
+    assert.equal(await wt.currentBranch(), undefined);
+    await git.switchBranch("topic");
+    await wt.switchBranch("main");
+    assert.equal(await git.currentBranch(), "topic");
+    assert.equal(await wt.currentBranch(), "main");
+  });
+
+  test("ignoredTopLevel names what git ignores, one entry per directory", async () => {
+    const git = await newRepo();
+    await writeFile(join(git.cwd, ".gitignore"), "node_modules/\n*.log\n/.chattree/\n");
+    await git.add([".gitignore"]);
+    await git.commit({ message: "ignore", date: DATE });
+    await mkdir(join(git.cwd, "node_modules", "x"), { recursive: true });
+    await writeFile(join(git.cwd, "node_modules", "x", "i.js"), "");
+    await writeFile(join(git.cwd, "debug.log"), "");
+    await writeFile(join(git.cwd, "plain.txt"), "");
+    assert.deepEqual(await git.ignoredTopLevel(), ["debug.log", "node_modules"]);
+  });
+});
