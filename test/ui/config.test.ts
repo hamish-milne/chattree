@@ -68,6 +68,8 @@ describe("pages and problems", () => {
     assert.equal(pageOf("limits.warn_at"), "limits");
     assert.equal(pageOf("tools.run.allow.x"), "approvals");
     assert.equal(pageOf("mcp.github.allow.x"), "approvals");
+    assert.equal(pageOf("workspace.switch.ignored"), "repository");
+    assert.equal(pageOf("injections.environment_details.workspace"), "context");
     assert.equal(pageOf("mcp.github.url"), "mcp");
     assert.equal(pageOf("subagent.models"), "subagents");
     assert.equal(pageOf("injections.rules.a.every"), "context");

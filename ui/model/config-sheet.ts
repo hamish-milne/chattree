@@ -49,6 +49,7 @@ export function pageOf(path: string): PageId {
     case "threads":
     case "background":
     case "leases":
+    case "workspace":
       return "repository";
     default:
       return "general";

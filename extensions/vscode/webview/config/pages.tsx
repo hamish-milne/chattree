@@ -785,9 +785,29 @@ export function ContextPage({ form }: { form: Form }): JSX.Element {
         <Row form={form} path={["injections", "usage"]} label="Cost so far">
           <Switch form={form} path={["injections", "usage"]} fallback />
         </Row>
-        <Row form={form} path={["injections", "environment"]} label="Where it is running">
+        <Row
+          form={form}
+          path={["injections", "environment"]}
+          label="Where it is running"
+          help="Tell the model about the system, the date and where it works."
+        >
           <Switch form={form} path={["injections", "environment"]} fallback />
         </Row>
+        {at(valueOf(form), ["injections", "environment"]) !== false ? (
+          <>
+            {ENV_PARTS.map(([key, label, help]) => (
+              <Row
+                key={key}
+                form={form}
+                path={["injections", "environment_details", key]}
+                label={label}
+                {...(help === undefined ? {} : { help })}
+              >
+                <Switch form={form} path={["injections", "environment_details", key]} fallback />
+              </Row>
+            ))}
+          </>
+        ) : null}
         <div class="tb-wrap">
           <table class="tb">
             <thead>
@@ -836,6 +856,15 @@ export function ContextPage({ form }: { form: Form }): JSX.Element {
   );
 }
 
+const ENV_PARTS: readonly (readonly [string, string, string | undefined])[] = [
+  ["os", "Say the system", undefined],
+  ["time_zone", "Say the time zone", undefined],
+  ["date", "Say the date", "Said again each new day."],
+  ["thread", "Say the thread", undefined],
+  ["workspace", "Say the working directory", "When it moves, the model is told again."],
+  ["commands", "Say where commands come from", undefined],
+];
+
 // ---- repository ----------------------------------------------------------------------------------------------------
 
 export function RepositoryPage({ form }: { form: Form }): JSX.Element {
@@ -853,6 +882,24 @@ export function RepositoryPage({ form }: { form: Form }): JSX.Element {
         </Row>
         <Row form={form} path={["maintenance", "check_every"]} label="Check every">
           <NumberInput form={form} path={["maintenance", "check_every"]} integer suffix="commits" placeholder="200" />
+        </Row>
+      </Section>
+      <Section title="Switching threads" hint="Moving your workspace to another thread swaps its branch with the project folder.">
+        <Row
+          form={form}
+          path={["workspace", "switch", "ignored"]}
+          label="Ignored files"
+          help="Files git ignores, such as node_modules, can follow the thread. Anything with an absolute path inside, like a Python virtual environment, may not survive the move."
+        >
+          <Choice
+            form={form}
+            path={["workspace", "switch", "ignored"]}
+            fallback="move"
+            options={[
+              { value: "move", label: "Move them", hint: "Swap them with the thread, so nothing needs installing again" },
+              { value: "leave", label: "Leave them", hint: "Keep them in the project folder" },
+            ]}
+          />
         </Row>
       </Section>
       <Section title="Threads and jobs">
