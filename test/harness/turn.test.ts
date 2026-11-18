@@ -92,6 +92,13 @@ const exists = (p: string) =>
     () => true,
     () => false,
   );
+/** Wait until the journal on disk contains `needle`, so a test does not depend on how fast the machine flushed it. */
+const journalHas = async (c: Conversation, needle: string): Promise<void> => {
+  for (const deadline = Date.now() + 10_000; Date.now() < deadline; await new Promise((r) => setTimeout(r, 5))) {
+    if ((await readFile(await c.journalPath(), "utf8").catch(() => "")).includes(needle)) return;
+  }
+  throw new Error(`the journal never contained ${needle}`);
+};
 const run = (c: Conversation, o: Record<string, unknown> = {}) => runRequest(c, { system: "s", cost: false, ...o });
 const text = (index: number, t: string): StreamEvent[] => [
   { type: "text.delta", index, text: t },
@@ -510,7 +517,7 @@ describe("a request whose journal was recovered under it", () => {
     ending = done([{ type: "text", text: "late answer" }]);
     const running = run(convo, { journal: { flushMs: 1 } });
     running.catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 30)); // the host is "suspended": nothing arrives, the journal goes stale
+    await journalHas(convo, "text.delta"); // then the host is "suspended": nothing more arrives, the journal goes stale
     const other = await reopen(dir); // another process opens the branch and recovers the journal
     assert.equal(other.recovery.journal?.outcome, "interrupted");
     release(); // the first process wakes up and finishes
@@ -527,7 +534,7 @@ describe("a request whose journal was recovered under it", () => {
     steps = [...text(0, "x"), () => new Promise<void>((r) => (release = r)), new ProviderError({ kind: "network", message: "reset" })];
     const running = run(convo, { journal: { flushMs: 1 } });
     running.catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 30));
+    await journalHas(convo, "text.delta");
     await reopen(dir);
     release();
     await assert.rejects(running, (e) => e instanceof RequestSuperseded && e.completed === undefined);
