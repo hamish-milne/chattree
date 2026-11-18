@@ -32,6 +32,7 @@ Dependencies point down. `src/` imports nothing from the rest of the repository 
 | [localmodels.md](localmodels.md) | `localmodels/` | The model host: daemon, install, download, store, sampling. |
 | [cli.md](cli.md) | `cli/` | The `chattree` command: engine, commands, sessions, terminal. |
 | [vscode.md](vscode.md) | `extensions/vscode/` | The VS Code extension: views, the browser preview, tools. |
+| [e2e.md](e2e.md) | `test/e2e/`, `ui/host/` | The end-to-end journey, its driver and the web host it runs against. |
 | [ui.md](ui.md) | `ui/` | The UI core: view-models, the controller/view message protocol, fixtures. |
 | [dev-tooling.md](dev-tooling.md) | `tools/`, `scripts/`, `bench/`, `templates/` | Test runner, live checks, local-model research tools. |
 | [tests.md](tests.md) | `test/` | Test layout, how crash safety is tested, where to add tests. |

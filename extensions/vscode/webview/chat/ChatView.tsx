@@ -118,7 +118,13 @@ export function ChatView({ model, config }: { model: Model; config: InstanceType
         ) : (
           <>
             <span class={css.chat_title}>{thread?.title ?? thread?.name}</span>
-            <span class={cn(css.thread_name, thread !== undefined && pick(css, `kind_${thread.kind}`))}>{thread?.name}</span>
+            <span
+              role="note"
+              aria-label="Open thread"
+              class={cn(css.thread_name, thread !== undefined && pick(css, `kind_${thread.kind}`))}
+            >
+              {thread?.name}
+            </span>
             <span class="spacer" />
           </>
         )}

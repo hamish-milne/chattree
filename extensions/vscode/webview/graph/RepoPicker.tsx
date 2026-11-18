@@ -27,6 +27,7 @@ export function RepoPicker({ model }: { model: Model }): JSX.Element | null {
     >
       <button
         class={css.repo_button}
+        aria-label={`Repository: ${current?.name ?? "none chosen"}`}
         aria-haspopup="listbox"
         aria-expanded={open}
         title={current?.path}

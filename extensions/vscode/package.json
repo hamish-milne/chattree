@@ -22,6 +22,7 @@
   },
   "scripts": {
     "typecheck": "node --no-warnings tools/gen-css-types.mts && tsc -p tsconfig.json && tsc -p tools/tsconfig.json",
+    "build:web": "node --no-warnings tools/build-web.mts",
     "build:preview": "node --no-warnings tools/build-preview.mts",
     "preview": "node --no-warnings tools/serve-preview.mts",
     "dev": "node --no-warnings tools/dev.mts",

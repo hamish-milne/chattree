@@ -11,6 +11,7 @@
 | `test/localmodels/` | The local model host: plan, download, install, store, daemon, sampling. |
 | `test/cli/` | The engine and commands through `submit(line)` with a fake terminal, sessions, drafts, skills, MCP, trust, threads. |
 | `test/ui/` | The UI core: fixtures are valid data, the protocol accepts every message and refuses what a view must not send. |
+| `test/e2e/` | The whole product in a real browser (Playwright, Chromium) over the web host: `journey.ts` is one person's work from an empty folder to delivered files, written against `driver.ts` (roles, names, labels, text; never classes); `playwright-driver.ts` and `world.ts` give it hands and a real disk. A [slow] suite; see [e2e.md](e2e.md). |
 | `test/hosts/` | The Node host, busybox and ffmpeg fetchers. |
 | `test/integration/` | `lifecycle.test.ts`: one conversation through everything, then deep verification and `git fsck --strict`. |
 | `test/tools/` | The dev tools' pure parts (scenario generators, bench logic). |
