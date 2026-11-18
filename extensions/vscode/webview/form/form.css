@@ -1,0 +1,97 @@
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.form-field label,
+.form-group legend {
+  font-weight: 600;
+  font-size: 12px;
+}
+.form-field.kind-boolean {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+}
+.form-field.kind-boolean .form-help,
+.form-field.kind-boolean .form-issues {
+  flex-basis: 100%;
+}
+.form-field.kind-boolean label {
+  order: 1;
+}
+.form-field.kind-boolean input {
+  order: 0;
+}
+.form-help {
+  margin: 0;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+.form-issues {
+  margin: 0;
+  font-size: 12px;
+  color: var(--vscode-errorForeground);
+}
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 10px 10px;
+  border: 1px solid var(--vscode-panel-border);
+  border-radius: 4px;
+}
+.form-group.entry {
+  background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+}
+.form-raw {
+  margin: 0;
+  padding: 6px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 3px;
+  overflow: auto;
+}
+input.switch {
+  appearance: none;
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 16px;
+  margin: 0;
+  border-radius: 8px;
+  background: var(--vscode-checkbox-background);
+  border: 1px solid var(--vscode-checkbox-border);
+  cursor: pointer;
+}
+input.switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--vscode-foreground);
+  transition: transform 0.12s;
+}
+input.switch:checked {
+  background: var(--vscode-button-background);
+  border-color: var(--vscode-button-background);
+}
+input.switch:checked::after {
+  background: var(--vscode-button-foreground);
+  transform: translateX(14px);
+}
+.form-buttons {
+  display: flex;
+  gap: 8px;
+}

@@ -2,9 +2,9 @@
 
 **Purpose.** The first graphical front end: a thread graph in the side bar, a chat in the panel and a form for `harness.yml`. It is a workspace package (`pnpm-workspace.yaml`), separate from the root package because it has its own manifest and dependencies and is bundled for the VSIX. Reasons: ADR 35. The shared logic is in [`ui/`](ui.md).
 
-**Status.** The graph view and the browser preview exist. The chat view, the config form, the extension host code and the real controller do not yet.
+**Status.** The graph view, the chat view (transcript, composer, status bar, model settings), the form field renderer and the browser preview exist, driven by the mock controller. The `harness.yml` editor surface, the extension host code and the real controller do not yet.
 
-**Depends on:** `chattree` (the root package, through its `ui/model/*` and `ui/fixtures/*` exports), `preact`, `@preact/signals`. Webview code imports nothing from Node, `vscode` or the harness.
+**Depends on:** `chattree` (the root package, through its `ui/model/*` and `ui/fixtures/*` exports), `preact`, `@preact/signals`, `marked`. Markdown is rendered from tokens into Preact elements (`webview/markdown.tsx`), never as HTML: raw HTML is shown as text, links are limited to http, https and mailto, images show their alt text. Webview code imports nothing from Node, `vscode` or the harness.
 
 ## Layout
 

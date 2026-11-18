@@ -7,7 +7,7 @@
 import { Type, type Static } from "typebox";
 import { safeParse, strictObject, type ParseResult } from "../../src/validate.ts";
 import { THREAD_STATUSES, graphData, hash } from "./graph.ts";
-import { approval, chatState, composer, statusBar } from "./chat.ts";
+import { approval, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
 import { formSpec } from "./form.ts";
 import { block } from "./transcript.ts";
 
@@ -35,7 +35,11 @@ export const event = Type.Union([
   ev("chat.update", { block }),
   /** Text arrived for a streaming assistant or reasoning block: it is added to the end of its text. */
   ev("chat.delta", { id: name, delta: Type.String() }),
+  /** The thread's header changed (a new commit moved its tip, it was renamed). */
+  ev("chat.thread", { thread: chatThread }),
   ev("chat.status", { status: statusBar }),
+  /** The model choice changed: which is selected, or which are on offer. */
+  ev("chat.models", { models: modelChoice }),
   ev("chat.composer", { composer }),
   /** A tool call is waiting for an answer; absent when none is. */
   ev("chat.approval", { approval: Type.Optional(approval) }),

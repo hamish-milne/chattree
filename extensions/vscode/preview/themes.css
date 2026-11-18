@@ -46,6 +46,26 @@
   --vscode-scmGraph-foreground3: #994f00;
   --vscode-scmGraph-foreground4: #40b0a6;
   --vscode-scmGraph-foreground5: #b66dff;
+  --vscode-textCodeBlock-background: #0a0a0a;
+  --vscode-textBlockQuote-background: #222222;
+  --vscode-textBlockQuote-border: rgba(127, 127, 127, 0.4);
+  --vscode-textSeparator-foreground: #ffffff2e;
+  --vscode-testing-iconPassed: #73c991;
+  --vscode-testing-iconFailed: #f14c4c;
+  --vscode-button-secondaryBackground: #3a3d41;
+  --vscode-button-secondaryForeground: #ffffff;
+  --vscode-button-secondaryHoverBackground: #45494e;
+  --vscode-input-placeholderForeground: #a6a6a6;
+  --vscode-toolbar-hoverBackground: rgba(90, 93, 94, 0.31);
+  --vscode-editorWidget-background: #252526;
+  --vscode-inputValidation-errorBackground: #5a1d1d;
+  --vscode-inputValidation-errorBorder: #be1100;
+  --vscode-editorInfo-foreground: #3794ff;
+  --vscode-checkbox-background: #3c3c3c;
+  --vscode-checkbox-border: #6b6b6b;
+  --vscode-panelTitle-activeForeground: #e7e7e7;
+  --vscode-panelTitle-inactiveForeground: rgba(231, 231, 231, 0.6);
+  --vscode-panelTitle-activeBorder: #e7e7e7;
 }
 :root[data-theme="light"] {
   color-scheme: light;
@@ -90,4 +110,24 @@
   --vscode-scmGraph-foreground3: #994f00;
   --vscode-scmGraph-foreground4: #40b0a6;
   --vscode-scmGraph-foreground5: #b66dff;
+  --vscode-textCodeBlock-background: #dcdcdc;
+  --vscode-textBlockQuote-background: #f2f2f2;
+  --vscode-textBlockQuote-border: rgba(0, 0, 0, 0.2);
+  --vscode-textSeparator-foreground: #0000002e;
+  --vscode-testing-iconPassed: #388a34;
+  --vscode-testing-iconFailed: #e51400;
+  --vscode-button-secondaryBackground: #5f6a79;
+  --vscode-button-secondaryForeground: #ffffff;
+  --vscode-button-secondaryHoverBackground: #4c5561;
+  --vscode-input-placeholderForeground: #767676;
+  --vscode-toolbar-hoverBackground: rgba(184, 184, 184, 0.31);
+  --vscode-editorWidget-background: #f3f3f3;
+  --vscode-inputValidation-errorBackground: #f2dede;
+  --vscode-inputValidation-errorBorder: #be1100;
+  --vscode-editorInfo-foreground: #1a85ff;
+  --vscode-checkbox-background: #ffffff;
+  --vscode-checkbox-border: #919191;
+  --vscode-panelTitle-activeForeground: #424242;
+  --vscode-panelTitle-inactiveForeground: rgba(66, 66, 66, 0.75);
+  --vscode-panelTitle-activeBorder: #424242;
 }

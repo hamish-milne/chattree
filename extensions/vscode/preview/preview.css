@@ -4,6 +4,9 @@ body {
   margin: 0;
   height: 100%;
 }
+#app {
+  height: 100%;
+}
 body {
   font-family: var(--vscode-font-family);
   font-size: var(--vscode-font-size);
@@ -12,7 +15,7 @@ body {
 }
 .shell {
   display: grid;
-  grid-template-rows: auto 1fr;
+  grid-template-rows: auto minmax(0, 1fr);
   height: 100%;
 }
 .toolbar {
@@ -43,10 +46,6 @@ body {
   gap: 6px;
   align-items: center;
 }
-.stage {
-  display: flex;
-  min-height: 0;
-}
 .sidebar {
   display: flex;
   flex-direction: column;
@@ -68,22 +67,108 @@ body {
   flex: 1;
   min-height: 0;
 }
-.log {
+.workbench {
+  display: flex;
+  min-width: 0;
+  overflow: hidden;
+  min-height: 0;
+}
+.main {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+}
+.main.at-bottom {
+  flex-direction: column;
+}
+.main.at-right {
+  flex-direction: row;
+}
+.editor {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   padding: 12px 16px;
   overflow: auto;
+  background: var(--vscode-editor-background);
 }
-.log h2 {
+.editor h2 {
   margin: 0 0 8px;
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--vscode-descriptionForeground);
 }
-.log pre {
+.editor pre {
   margin: 0 0 4px;
   font-family: var(--vscode-editor-font-family);
   font-size: 12px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.panel-slot {
+  flex: none;
+  overflow: hidden;
+  min-height: 0;
+  min-width: 0;
+}
+.main.at-bottom .panel-slot {
+  border-top: 1px solid var(--vscode-panel-border);
+}
+.main.at-right .panel-slot {
+  border-left: 1px solid var(--vscode-panel-border);
+}
+.panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--vscode-panel-background);
+}
+.panel-tabs {
+  display: flex;
+  gap: 16px;
+  padding: 0 12px;
+  height: 35px;
+  flex: none;
+}
+.panel-tab {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: var(--vscode-panelTitle-inactiveForeground);
+  border-bottom: 1px solid transparent;
+}
+.panel-tab.active {
+  color: var(--vscode-panelTitle-activeForeground);
+  border-bottom-color: var(--vscode-panelTitle-activeBorder);
+}
+.panel-view {
+  flex: 1;
+  min-height: 0;
+}
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 20;
+}
+.toast {
+  max-width: 360px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--vscode-editorWidget-background);
+  border: 1px solid var(--vscode-widget-border);
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+}
+.toast.level-error {
+  border-color: var(--vscode-inputValidation-errorBorder);
+}
+.toast.level-warning {
+  border-color: var(--vscode-editorWarning-foreground);
 }

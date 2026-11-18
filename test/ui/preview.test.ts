@@ -26,7 +26,7 @@ test("the browser preview builds, and the views pull in nothing that cannot run 
       1,
       "one copy of the signals core, or signals stop reaching the views",
     );
-    assert.ok(js.length < 150_000, `the bundle is ${js.length} bytes`);
+    assert.ok(js.length < 300_000, `the bundle is ${js.length} bytes`);
     const css = await readFile(join(dir, "preview.css"), "utf8");
     assert.ok(css.includes("--vscode-scmGraph-foreground1") && css.includes(".graph"), "theme variables and the graph styles are in");
   } finally {

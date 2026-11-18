@@ -1,0 +1,151 @@
+/* Controls shared by the views: buttons, inputs, chips, the spinner. Colours come from VS Code theme variables. */
+.icon {
+  flex: none;
+  vertical-align: middle;
+}
+.spacer {
+  flex: 1;
+}
+.dim {
+  color: var(--vscode-descriptionForeground);
+}
+button {
+  font: inherit;
+  color: inherit;
+}
+.icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 3px;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--vscode-icon-foreground, var(--vscode-foreground));
+  cursor: pointer;
+}
+.icon-button:hover:not(:disabled) {
+  background: var(--vscode-toolbar-hoverBackground);
+}
+.icon-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+[tabindex]:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 1px;
+}
+button.primary,
+button.secondary {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+}
+button.primary {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--vscode-button-hoverBackground);
+}
+button.secondary {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+button.secondary:hover:not(:disabled) {
+  background: var(--vscode-button-secondaryHoverBackground);
+}
+button.primary:disabled,
+button.secondary:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+input[type="text"],
+input[type="number"],
+select,
+textarea {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 4px 6px;
+  font: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, transparent);
+  border-radius: 2px;
+}
+textarea {
+  resize: none;
+}
+input::placeholder,
+textarea::placeholder {
+  color: var(--vscode-input-placeholderForeground);
+}
+input[aria-invalid="true"],
+select[aria-invalid="true"],
+textarea[aria-invalid="true"] {
+  border-color: var(--vscode-inputValidation-errorBorder);
+}
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 4px 1px 6px;
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--vscode-badge-background);
+  color: var(--vscode-badge-foreground);
+}
+.chip-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip-size {
+  opacity: 0.7;
+}
+.chip .icon-button {
+  min-width: 16px;
+  height: 16px;
+  color: inherit;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@keyframes shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

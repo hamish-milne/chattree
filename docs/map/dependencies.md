@@ -12,7 +12,7 @@ What the project depends on, why, and the policy for keeping it current. Reviewe
 | `@preact/signals-core` | runtime | Signals and `createModel` for the UI core's state models (`ui/model/`); DOM-free, so the models run in a webview and in tests. Pinned exact | Added 2026-11-18 (ADR 35). The platform has no reactive state; the models are the view logic and are tested without a browser |
 | `preact` | extension | Draws the views (`extensions/vscode/`); about 4 kB in a bundle. Pinned exact | Added 2026-11-18. Transcript and graph are state-heavy; no framework would mean writing a renderer |
 | `@preact/signals` | extension | Re-renders a component when a signal it read changes. Pinned exact | Added 2026-11-18. Its own copy of the signals core is the same package as the root's (pnpm shares it); a test checks the bundle has one |
-| `marked` | extension | Renders assistant Markdown in the chat. Pinned exact | Added 2026-11-18. Output will be sanitised and shown under a strict content security policy. Not yet used |
+| `marked` | extension | Renders assistant Markdown in the chat. Pinned exact | Added 2026-11-18. Output will be sanitised and shown under a strict content security policy. Used by `webview/markdown.tsx` |
 | `esbuild` | extension, dev | Bundles webviews and the extension; its install script is not run (`allowBuilds` in `pnpm-workspace.yaml`), the launcher works without it. Pinned exact | Added 2026-11-18. A VSIX has to be bundled; Node cannot run `.tsx` |
 | `@types/vscode` | extension, dev | Types for the VS Code extension API. Pinned exact | Added 2026-11-18. Types only. Not yet used |
 | `typescript` | dev | Typecheck only; Node runs the `.ts` files directly | Keep |

@@ -148,16 +148,6 @@ button.chevron {
 .status-elsewhere {
   color: var(--vscode-descriptionForeground);
 }
-@keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@keyframes pulse {
-  50% {
-    opacity: 0.35;
-  }
-}
 @media (prefers-reduced-motion: reduce) {
   .status-running,
   .status-awaiting {

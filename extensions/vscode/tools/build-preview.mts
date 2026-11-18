@@ -24,7 +24,14 @@ await build({
 });
 
 // One stylesheet: the theme variables, the frame, then each view's own.
-const css = ["preview/themes.css", "preview/preview.css", "webview/graph/graph.css"];
+const css = [
+  "preview/themes.css",
+  "preview/preview.css",
+  "webview/base.css",
+  "webview/form/form.css",
+  "webview/graph/graph.css",
+  "webview/chat/chat.css",
+];
 await writeFile(join(out, "preview.css"), (await Promise.all(css.map((f) => readFile(join(root, f), "utf8")))).join("\n"));
 await cp(join(root, "preview", "index.html"), join(out, "index.html"));
 console.log(`built ${out}`);

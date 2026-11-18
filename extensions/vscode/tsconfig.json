@@ -1,7 +1,12 @@
 {
   "compilerOptions": {
     "target": "es2025",
-    "lib": ["es2025", "dom", "dom.iterable"],
+    "lib": [
+      "es2025",
+      "dom",
+      "dom.iterable",
+      "esnext.disposable"
+    ],
     "module": "esnext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
@@ -18,5 +23,8 @@
     "isolatedModules": true,
     "skipLibCheck": true
   },
-  "include": ["webview", "preview"]
+  "include": [
+    "webview",
+    "preview"
+  ]
 }

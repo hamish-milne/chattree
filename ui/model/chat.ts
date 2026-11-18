@@ -51,13 +51,17 @@ export const modelChoice = strictObject({
 });
 export type ModelChoice = Static<typeof modelChoice>;
 
+/** The open thread's header. `tip` is its newest commit: what a rewind may not go back to. */
+export const chatThread = strictObject({
+  name: Type.String({ minLength: 1 }),
+  kind: Type.Enum(THREAD_KINDS),
+  title: Type.Optional(Type.String()),
+  tip: hash,
+});
+export type ChatThread = Static<typeof chatThread>;
+
 export const chatState = strictObject({
-  thread: strictObject({
-    name: Type.String({ minLength: 1 }),
-    kind: Type.Enum(THREAD_KINDS),
-    title: Type.Optional(Type.String()),
-    tip: hash,
-  }),
+  thread: chatThread,
   blocks: Type.Array(block),
   status: statusBar,
   composer,

@@ -28,6 +28,9 @@ State that matters is in the controller. A view that opens sends `ready` and get
 | `model/graph-layout.ts` | `layoutGraph`: rows newest first, lanes packed (a merged thread gives its lane up), edges (a fork bends at its parent, a merge at its child), and runs of tool calls and results folded into one row unless expanded. A commit another thread points at is never hidden inside a fold. |
 | `model/graph-actions.ts` | `actionsFor`: which of open, fork, rewind and merge a commit offers, and why one is unavailable (a thread that is working, waiting or held by another window is not rewound or merged). |
 | `model/graph-model.ts` | `GraphModel`, a signal model: data, expanded folds, selection, context menu and the layout derived from them; `apply` takes events, actions send intents. |
+| `model/chat-model.ts` | `ChatModel`, a signal model: the open thread, blocks, status, composer, approval, models and the settings form; derived `busy`, `canSend`, `contextFraction`; actions send, stop, attach, approve, choose model, rewind, fork. Whether a block is open follows a default (reasoning while streaming, a failed or waiting tool) that the person's toggle inverts. |
+| `model/form-model.ts` | `FormModel` and `formFields`: turns a `FormSpec` schema into a field tree (string, number, boolean, choice, list, group, map, raw), applies edits locally and sends `form.edit`, `form.save`, `form.revert`. |
+| `fixtures/mock-controller.ts` | `MockController`: answers every intent with scripted behaviour (a fake turn with streaming, an approval and a failing tool; stop, queue, fork, rewind, merge, model change, settings validation). Its events are checked against the protocol schemas by `mock-validate.ts`. |
 | `fixtures/` | Deterministic mock data (a graph with every thread state, a chat session, the config form) for the mock extension and the tests. |
 
 ## Invariants
