@@ -1,3 +1,4 @@
+import { effect } from "@preact/signals-core";
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { chatFixture } from "../../ui/fixtures/chat.ts";
@@ -77,22 +78,33 @@ describe("the chat model", () => {
     const reasoning = chat.blocks.value.find((b) => b.type === "reasoning" && b.streaming === true) as Block;
     const failed = chat.blocks.value.find((b) => b.type === "tool" && b.status === "error") as Block;
     const fine = chat.blocks.value.find((b) => b.type === "tool" && b.status === "ok") as Block;
-    assert.deepEqual([chat.isOpen(reasoning), chat.isOpen(failed), chat.isOpen(fine)], [true, true, false]);
+    assert.deepEqual(
+      [chat.openBlocks.value.has(reasoning.id), chat.openBlocks.value.has(failed.id), chat.openBlocks.value.has(fine.id)],
+      [true, true, false],
+    );
     chat.toggle(fine.id);
     chat.toggle(failed.id);
-    assert.deepEqual([chat.isOpen(fine), chat.isOpen(failed)], [true, false]);
+    assert.deepEqual([chat.openBlocks.value.has(fine.id), chat.openBlocks.value.has(failed.id)], [true, false]);
     chat.toggle(fine.id);
-    assert.equal(chat.isOpen(fine), false);
+    assert.equal(chat.openBlocks.value.has(fine.id), false);
   });
 
   test("a block can be rewound to when it has a commit that is not the tip and nothing is running", () => {
     const { chat, sent } = make();
     const committed = chat.blocks.value.find((b) => b.commit !== undefined) as Block;
-    assert.equal(chat.canRewind(committed), false, "the thread is busy");
+    assert.equal(chat.rewindable.value.has(committed.id), false, "the thread is busy");
     chat.apply({ type: "chat.status", status: { ...chatFixture().status, state: "idle" } });
-    assert.equal(chat.canRewind(committed), true);
-    assert.equal(chat.canRewind({ ...committed, commit: chat.thread.value?.tip } as Block), false, "that is the tip");
-    assert.equal(chat.canRewind({ type: "assistant", id: "x", markdown: "", model: "m" }), false, "no commit yet");
+    assert.equal(chat.rewindable.value.has(committed.id), true);
+    assert.equal(
+      chat.rewindable.value.has(chat.blocks.value.find((b) => b.commit === chat.thread.value?.tip)?.id ?? ""),
+      false,
+      "that is the tip",
+    );
+    assert.equal(
+      chat.rewindable.value.has(chat.blocks.value.find((b) => b.commit === undefined)?.id ?? "no-such-block"),
+      false,
+      "no commit yet",
+    );
     chat.rewind(committed.commit ?? "");
     chat.fork(committed.commit ?? "");
     assert.deepEqual(
@@ -114,6 +126,28 @@ describe("the chat model", () => {
     chat.apply({ type: "chat.approval" });
     chat.approve(false);
     assert.equal(sent.length, 2, "no pending call, nothing to answer");
+  });
+  test("a block opened or closed by the person redraws whoever read openBlocks, every time", () => {
+    const { chat } = make();
+    const fine = chat.blocks.value.find((b) => b.type === "tool" && b.status === "ok") as Block;
+    const seen: boolean[] = [];
+    const stop = effect(() => void seen.push(chat.openBlocks.value.has(fine.id)));
+    chat.toggle(fine.id);
+    chat.toggle(fine.id);
+    chat.toggle(fine.id);
+    stop();
+    assert.deepEqual(seen, [false, true, false, true]);
+  });
+
+  test("rewindable follows the thread going idle and its tip moving", () => {
+    const { chat } = make();
+    const committed = chat.blocks.value.find((b) => b.commit !== undefined) as Block;
+    const seen: boolean[] = [];
+    const stop = effect(() => void seen.push(chat.rewindable.value.has(committed.id)));
+    chat.apply({ type: "chat.status", status: { ...chatFixture().status, state: "idle" } });
+    chat.apply({ type: "chat.status", status: { ...chatFixture().status, state: "running" } });
+    stop();
+    assert.deepEqual(seen, [false, true, false]);
   });
 });
 

@@ -27,6 +27,15 @@ export const ConfigModel = createModel((send: (intent: UiIntent) => void, clock:
   const message = signal("");
   const form = signal<InstanceType<typeof FormModel> | undefined>(undefined);
   const statuses = signal<Record<string, CheckedStatus>>({});
+  /** Providers whose check was made with settings they no longer have. (A computed, not a method: a model's methods are untracked, so a view calling one would not be redrawn.) */
+  const stale = computed(() => {
+    const now = providersOf(form.value?.spec.value.value ?? {});
+    return new Set(
+      Object.entries(statuses.value)
+        .filter(([name, s]) => s.state !== "checking" && s.of !== JSON.stringify(now[name] ?? null))
+        .map(([name]) => name),
+    );
+  });
   const models = signal<Record<string, ProviderModels>>({});
   const instructions = signal<InstructionState>({ files: [], found: [] });
   let asked = false;
@@ -62,6 +71,7 @@ export const ConfigModel = createModel((send: (intent: UiIntent) => void, clock:
     form,
     counts,
     statuses,
+    stale,
     models,
     instructions,
     dirty: computed(() => form.value?.spec.value.dirty === true),
@@ -89,13 +99,6 @@ export const ConfigModel = createModel((send: (intent: UiIntent) => void, clock:
         default:
           return;
       }
-    },
-    /** Whether a provider's check was made with the settings it has now. */
-    isStale(name: string): boolean {
-      const s = statuses.value[name];
-      return (
-        s !== undefined && s.state !== "checking" && s.of !== JSON.stringify(providersOf(form.value?.spec.value.value ?? {})[name] ?? null)
-      );
     },
     /** Try a provider again (also the way to look again after changing it). */
     test,

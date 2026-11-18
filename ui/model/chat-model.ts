@@ -46,6 +46,14 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const fileMenu = signal<FileMenu | undefined>(undefined);
 
   const busy = computed(() => status.value?.state === "running" || status.value?.state === "awaiting");
+  // What a view asks per block is a computed set, not a method: the methods of a model are actions, which a view that calls one
+  // does not subscribe through, so it would never be redrawn when the answer changed.
+  /** Ids of the blocks that are open: by default, or because the person toggled them. */
+  const openBlocks = computed(() => new Set(blocks.value.filter((b) => toggled.value.has(b.id) !== openByDefault(b)).map((b) => b.id)));
+  /** Ids of the blocks that can be rewound to: they have a commit that is not the tip, and nothing is running. */
+  const rewindable = computed(
+    () => new Set(busy.value ? [] : blocks.value.filter((b) => b.commit !== undefined && b.commit !== thread.value?.tip).map((b) => b.id)),
+  );
   const canSend = computed(() => composer.value.draft.trim() !== "" || composer.value.attachments.length > 0);
   /** How full the context is, 0 to 1, when the limit is known. */
   const contextFraction = computed(() => {
@@ -70,6 +78,8 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     fileClick,
     fileMenu,
     busy,
+    openBlocks,
+    rewindable,
     canSend,
     contextFraction,
     /** Take in an event from the controller; false when it is not one this view follows. */
@@ -155,10 +165,6 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     chooseModel(id: string): void {
       if (id !== models.peek()?.current) send({ type: "chat.model", model: id });
     },
-    /** Rewinding needs a commit that is not the tip and a thread that is not working. */
-    canRewind(b: Block): boolean {
-      return b.commit !== undefined && b.commit !== thread.value?.tip && !busy.value;
-    },
     rewind(commit: string): void {
       const t = name();
       if (t !== undefined) send({ type: "thread.rewind", thread: t, commit });
@@ -188,9 +194,6 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     },
     closeFileMenu(): void {
       fileMenu.value = undefined;
-    },
-    isOpen(b: Block): boolean {
-      return toggled.value.has(b.id) !== openByDefault(b);
     },
     toggle(id: string): void {
       const next = new Set(toggled.peek());

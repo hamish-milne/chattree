@@ -43,7 +43,7 @@ const valueOf = (form: Form): Json => form.spec.value.value;
 /** Whether a provider can be reached, as a pill; clicking it tests again. */
 function Connection({ model, name }: { model: Model; name: string }): JSX.Element {
   const s = model.statuses.value[name];
-  const stale = model.isStale(name);
+  const stale = model.stale.value.has(name);
   const checking = s?.state === "checking";
   const label =
     s === undefined
@@ -104,7 +104,7 @@ function ProviderCard({ form, model, name }: { form: Form; model: Model; name: s
         {a.label}
         {a.hint !== "" && ` · ${a.hint}`}
       </div>
-      {model.statuses.value[name]?.state === "error" && !model.isStale(name) && (
+      {model.statuses.value[name]?.state === "error" && !model.stale.value.has(name) && (
         <div class="cf-issues" role="alert">
           {model.statuses.value[name]?.detail}
         </div>

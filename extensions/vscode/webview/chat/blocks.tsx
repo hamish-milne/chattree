@@ -36,7 +36,7 @@ export function Chip({ file, onRemove }: { file: AttachmentView; onRemove?: () =
 function Actions({ model, block }: { model: Model; block: Block }): JSX.Element | null {
   const commit = block.commit;
   if (commit === undefined) return null;
-  const can = model.canRewind(block);
+  const can = model.rewindable.value.has(block.id);
   const why = model.busy.value ? "Stop the thread first" : commit === model.thread.value?.tip ? "This is already the latest commit" : "";
   const rewindLabel = block.type === "user" ? "Rewind and edit this message" : "Rewind to here";
   return (
@@ -86,7 +86,7 @@ function Assistant({ model, block }: { model: Model; block: Of<"assistant"> }): 
 }
 
 function Reasoning({ model, block }: { model: Model; block: Of<"reasoning"> }): JSX.Element {
-  const open = model.isOpen(block);
+  const open = model.openBlocks.value.has(block.id);
   const streaming = block.streaming === true;
   return (
     <section class={`block reasoning${open ? " open" : ""}${streaming ? " streaming" : ""}`} data-commit={block.commit}>
@@ -219,7 +219,7 @@ function ToolBody({ view }: { view: ToolView }): JSX.Element {
 }
 
 function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Element {
-  const open = model.isOpen(block);
+  const open = model.openBlocks.value.has(block.id);
   const s = STATUS_ICON[block.status];
   const asking = block.status === "awaiting_approval" && model.approval.value?.callId === block.id;
   const view = toolView(block);

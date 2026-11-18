@@ -326,12 +326,12 @@ describe("providers' connection, their models and the instruction files", () => 
     config.setPage("limits");
     config.setPage("providers");
     assert.equal(sent.filter((i) => i.type === "provider.test").length, 3, "not asked again");
-    assert.equal(config.isStale("anthropic"), false);
+    assert.equal(config.stale.value.has("anthropic"), false);
     config.form.value?.set(["providers", "anthropic", "api_key_env"], "OTHER_KEY");
-    assert.equal(config.isStale("anthropic"), true);
+    assert.equal(config.stale.value.has("anthropic"), true);
     config.test("anthropic");
     await controller.idle();
-    assert.equal(config.isStale("anthropic"), false);
+    assert.equal(config.stale.value.has("anthropic"), false);
   });
 
   test("the subagents page lists each provider's models, or why it cannot", async () => {
