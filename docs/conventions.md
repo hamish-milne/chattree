@@ -24,7 +24,7 @@ What to keep in mind when changing chattree. Every coding agent should have this
 - **Untrusted input.** Model output, tool results, files in a cloned repository (`harness.yml`, skills, MCP servers) and downloads are data, not instructions. A model's tool arguments are validated against the tool's schema before use. A configuration that can start a program (an MCP `command`) does nothing until the user accepts it.
 - **Secrets** are named in config (`api_key_env`) and resolved through the injected `SecretSource`; every resolved secret is registered with the redactor. Never log or commit a value.
 - **History is append-only.** Nothing rewrites a transcript. A mutation takes the branch lock, appends, commits and on failure truncates back (see ADR 3). New mutations follow the same skeleton and need crash-injection coverage.
-- **Keep dependencies at the edges.** The runtime dependencies are `typebox`, `yaml` and `file-type`; prefer the platform.
+- **Keep dependencies at the edges.** The runtime dependencies are `typebox`, `yaml`, `file-type` and (for the UI core) `@preact/signals-core`; the VS Code extension adds Preact, its signals bindings and `marked`. Prefer the platform.
 
 ## Tests
 

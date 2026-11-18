@@ -11,13 +11,15 @@
   },
   "exports": {
     ".": "./src/index.ts",
-    "./config": "./src/config.ts"
+    "./config": "./src/config.ts",
+    "./ui/model/*": "./ui/model/*.ts",
+    "./ui/fixtures/*": "./ui/fixtures/*.ts"
   },
   "scripts": {
     "test": "node --no-warnings tools/test.ts",
     "test:slow": "node --no-warnings tools/test.ts slow",
     "test:all": "node --no-warnings tools/test.ts all",
-    "typecheck": "tsc -p tsconfig.src.json && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.src.json && tsc -p tsconfig.json && pnpm --filter chattree-vscode typecheck",
     "bench": "node --no-warnings bench/bench.ts",
     "catalog": "node --no-warnings scripts/catalog.ts",
     "chattree": "node --no-warnings cli/chattree.ts",
@@ -33,6 +35,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
+    "@preact/signals-core": "1.14.5",
     "file-type": "22.3.0",
     "typebox": "^1.4.7",
     "yaml": "^2.9.1"

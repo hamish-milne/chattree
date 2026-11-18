@@ -1,0 +1,28 @@
+{
+  "name": "chattree-vscode",
+  "displayName": "chattree",
+  "description": "A thread graph and chat for chattree conversations",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "publisher": "chattree",
+  "engines": {
+    "vscode": "^1.146.0"
+  },
+  "main": "./dist/extension.js",
+  "dependencies": {
+    "chattree": "workspace:*",
+    "@preact/signals": "2.11.4",
+    "marked": "18.2.1",
+    "preact": "11.2.0"
+  },
+  "devDependencies": {
+    "@types/vscode": "1.146.0",
+    "esbuild": "0.28.2"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tools/tsconfig.json",
+    "build:preview": "node --no-warnings tools/build-preview.mts",
+    "preview": "node --no-warnings tools/serve-preview.mts"
+  }
+}

@@ -1,0 +1,5 @@
+packages:
+  - extensions/*
+# esbuild's install script only swaps its launcher for the native binary, which works without it; we do not run it.
+allowBuilds:
+  esbuild: false
