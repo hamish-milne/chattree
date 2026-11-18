@@ -39,3 +39,4 @@ Format: context, decision, why, notes. A record is not edited when a decision ch
 - [33](0033-dialects-over-completion.md) Dialects: our own prompt rendering and parsing for local models
 - [34](0034-dependency-policy.md) Dependencies are few, justified and pinned
 - [35](0035-ui-architecture.md) The UI is a controller over the harness, with views that only draw
+- [36](0036-app-layer.md) Application services are their own layer, between the hosts and the harness

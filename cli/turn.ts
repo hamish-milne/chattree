@@ -1,3 +1,4 @@
+import { AppError } from "../app/errors.ts";
 import { ChangeNotAllowed } from "../harness/setup.ts";
 import { localOwner } from "./owner.ts";
 import type { ChangeKind } from "../harness/entries.ts";
@@ -10,7 +11,6 @@ import { ConfigNotTrusted } from "../harness/trust.ts";
 import { runLoop, syncTools, ToolsNotSupported, ToolsOutOfSync, type LoopEvent } from "../harness/loop.ts";
 import { summarizeCall } from "./tool-lines.ts";
 import { ProviderError, type StreamEvent } from "../providers/types.ts";
-import { CliError } from "./io.ts";
 import type { Ctx } from "./engine.ts";
 import type { Output } from "./output.ts";
 import { mediaFor } from "./toolset.ts";
@@ -334,6 +334,6 @@ export function failure(e: unknown): Output {
       message: `the provider failed (${e.kind}${e.status === undefined ? "" : ` ${e.status}`}): ${e.message}`,
       hint: "nothing was added to the transcript for this attempt; /retry asks again",
     };
-  if (e instanceof CliError) return { type: "error", message: e.message, ...(e.hint === undefined ? {} : { hint: e.hint }) };
+  if (e instanceof AppError) return { type: "error", message: e.message, ...(e.hint === undefined ? {} : { hint: e.hint }) };
   return { type: "error", message: e instanceof Error ? e.message : String(e) };
 }

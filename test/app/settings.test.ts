@@ -5,11 +5,11 @@ import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
 import { CliError } from "../../cli/io.ts";
 import { FfmpegError } from "../../hosts/ffmpeg.ts";
-import { editorFor, initSettingsFile, loadSettings, settingsPath, settingsTemplate } from "../../cli/settings.ts";
+import { editorFor, initSettingsFile, loadSettings, settingsPath, settingsTemplate } from "../../app/settings.ts";
 import { busyboxFor, resolveFfmpeg } from "../../cli/toolset.ts";
 import { FakeServer } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
-import { answer, host, initArgs, testIo } from "./support.ts";
+import { answer, host, initArgs, testIo } from "../cli/support.ts";
 
 const windows = { ...host, platform: "windows" as const };
 /** Whatever machine runs the tests, this one behaves as a POSIX host (the real host on Windows would take APPDATA and a busybox). */

@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
 import { runModels } from "../../cli/models.ts";
-import { loadSettings } from "../../cli/settings.ts";
+import { loadSettings } from "../../app/settings.ts";
 import { localModelsSchema } from "../../localmodels/config.ts";
 import { Daemon } from "../../localmodels/daemon.ts";
 import { nodeSpawn, RouterEngine } from "../../localmodels/engine.ts";

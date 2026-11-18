@@ -3,7 +3,7 @@ import { catalog, resolveName } from "../localmodels/catalog.ts";
 import { ensureDaemon, launchDetached } from "../localmodels/client.ts";
 import { dataDir } from "../localmodels/plan.ts";
 import { resolveSampling, type ResolvedSampling } from "../localmodels/sampling.ts";
-import type { Io } from "./io.ts";
+import type { AppEnv } from "./env.ts";
 
 /**
  * Adapts the CLI's settings and machine to the provider layer. The local-models provider gets its catalog from the
@@ -11,7 +11,7 @@ import type { Io } from "./io.ts";
  */
 
 /** The local models as a provider sees them: the catalog from the settings, the address from the running host. */
-export function localRuntime(io: Pick<Io, "host" | "env" | "settings">): LocalModelsRuntime {
+export function localRuntime(io: Pick<AppEnv, "host" | "env" | "settings">): LocalModelsRuntime {
   const config = io.settings?.local_models;
   return {
     catalog: () => (config === undefined ? {} : catalog(config)),
@@ -51,7 +51,7 @@ export function localRuntime(io: Pick<Io, "host" | "env" | "settings">): LocalMo
 }
 
 /** The adapters that ship with chattree, and `local-models`, which needs this machine's settings and host. */
-export function cliRegistry(io: Pick<Io, "host" | "env" | "settings">): AdapterRegistry {
+export function providerRegistry(io: Pick<AppEnv, "host" | "env" | "settings">): AdapterRegistry {
   return defaultRegistry().register(localModelsDefinition(localRuntime(io)));
 }
 
@@ -60,7 +60,7 @@ export function cliRegistry(io: Pick<Io, "host" | "env" | "settings">): AdapterR
  * Never throws: a model not in the settings, or metadata that cannot be read, comes back as notes in the result.
  */
 export async function lookupSampling(
-  io: Pick<Io, "env" | "settings">,
+  io: Pick<AppEnv, "env" | "settings">,
   name: string,
   o: { fetch?: typeof fetch | undefined; hfBase?: string | undefined; localFile?: string | undefined } = {},
 ): Promise<ResolvedSampling> {

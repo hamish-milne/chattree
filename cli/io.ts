@@ -5,15 +5,17 @@
  * `Io` from it.
  */
 import type { Host } from "../src/host.ts";
+import { AppError } from "../app/errors.ts";
+import type { AppEnv } from "../app/env.ts";
 import { nodeHost } from "../hosts/node.ts";
-import type { Settings } from "./settings.ts";
+import type { Settings } from "../app/settings.ts";
 import { nth } from "../src/nth.ts";
 
 /**
  * Everything the CLI needs from the process, so tests can run it in-process: where output goes, the environment, the
  * working directory, whether there is a terminal, and the clock. Only `nodeIo` touches `process`.
  */
-export interface Io {
+export interface Io extends AppEnv {
   host: Host;
   out(text: string): void;
   err(text: string): void;
@@ -119,11 +121,6 @@ export function nodeIo(): Io {
 }
 
 /** A failure the user can act on: shown as `error: message` and exit status 1, no stack trace. */
-export class CliError extends Error {
+export class CliError extends AppError {
   override name = "CliError";
-  readonly hint: string | undefined;
-  constructor(message: string, hint?: string) {
-    super(message);
-    this.hint = hint;
-  }
 }

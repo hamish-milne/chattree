@@ -29,7 +29,7 @@ import { openThread } from "./project.ts";
 import { followSkills, skillsWaiting } from "./skills.ts";
 import { SYSTEM_PROMPT, type HostEnvironment } from "../harness/environment.ts";
 import { hostEnvironment } from "./environment.ts";
-import { editorFor, type Settings } from "./settings.ts";
+import { editorFor, type Settings } from "../app/settings.ts";
 import { thrownText } from "../providers/wire.ts";
 
 /** A file staged for the next prompt. Only the path and what was decided about it are kept; the blob is made when the prompt is sent. */

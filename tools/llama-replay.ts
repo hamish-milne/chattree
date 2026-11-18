@@ -20,8 +20,8 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { nodeIo } from "../cli/io.ts";
-import { localRuntime } from "../cli/providers.ts";
-import { loadSettings } from "../cli/settings.ts";
+import { localRuntime } from "../app/providers.ts";
+import { loadSettings } from "../app/settings.ts";
 
 interface Entry {
   n: number;

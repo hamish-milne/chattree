@@ -5,7 +5,7 @@
 import { stringify } from "yaml";
 import type { Io } from "../io.ts";
 import type { Command } from "../registry.ts";
-import { ensureSettingsFile, settingsPath } from "../settings.ts";
+import { ensureSettingsFile, settingsPath } from "../../app/settings.ts";
 
 /** What the settings are now, as text: where the file is (or would be) and what it holds. */
 export function describeSettings(io: Pick<Io, "host" | "env" | "settings">): string {

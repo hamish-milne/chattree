@@ -22,8 +22,8 @@ import type { DaemonStatus } from "../localmodels/control.ts";
 import { samplingYaml } from "../localmodels/sampling.ts";
 import { thisMachine } from "../localmodels/release.ts";
 import { CliError, type Io } from "./io.ts";
-import { lookupSampling } from "./providers.ts";
-import { loadSettings, settingsPath } from "./settings.ts";
+import { lookupSampling } from "../app/providers.ts";
+import { loadSettings, settingsPath } from "../app/settings.ts";
 import { nth } from "../src/nth.ts";
 
 /**

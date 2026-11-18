@@ -2,7 +2,7 @@
 
 **Purpose.** Runs models on the user's machine without the user operating `llama-server` by hand: installs llama.cpp, downloads models, writes the server's preset file, starts and supervises the server, and exposes a control API. A detached *daemon* owns the host so it outlives sessions. Reasons: ADR 32.
 
-**Depends on:** `src/` (validation, locks, host seam). **Used by:** `cli/models.ts` (the `chattree models` verbs), `cli/providers.ts` and `providers/local-models.ts` (the provider's catalog and address come from here at runtime). The user-facing settings are described in [Local models](../guide/local-models.md).
+**Depends on:** `src/` (validation, locks, host seam). **Used by:** `cli/models.ts` (the `chattree models` verbs), `app/providers.ts` and `providers/local-models.ts` (the provider's catalog and address come from here at runtime). The user-facing settings are described in [Local models](../guide/local-models.md).
 
 ## How it fits together
 
@@ -35,7 +35,7 @@ Settings (`config.ts`) go through `plan.ts` to the files to have and the preset 
 
 ## To change X
 
-- *Add a setting:* `config.ts` (strict schema and rules), `plan.ts` if it changes the preset, `cli/settings.ts` template if it needs an example, and the [local models guide](../guide/local-models.md).
+- *Add a setting:* `config.ts` (strict schema and rules), `plan.ts` if it changes the preset, `app/settings.ts` template if it needs an example, and the [local models guide](../guide/local-models.md).
 - *Support another engine:* implement the interface in `engine.ts` and select it by `engine` in the settings.
 - *Change how a model is chosen or described to the provider:* `catalog.ts`.
 - *Add a `chattree models` verb:* a control API route in `control.ts`, a method on `client.ts`, and the verb in `cli/models.ts`.

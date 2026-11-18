@@ -3,10 +3,11 @@
  * `models`, `run`, `chat`) are handled here. Every other verb is turned into a slash-command line and sent through the
  * same `Engine` a session uses, so a verb and its in-session command share one implementation and one set of rules.
  */
+import { AppError } from "../app/errors.ts";
 import { parseArgs } from "node:util";
 import { describeSettings } from "./commands/settings.ts";
-import { editorFor, ensureSettingsFile, loadSettings } from "./settings.ts";
-import { runInit } from "./init.ts";
+import { editorFor, ensureSettingsFile, loadSettings } from "../app/settings.ts";
+import { runInit } from "../app/init.ts";
 import { runModels } from "./models.ts";
 import { CliError, type Io } from "./io.ts";
 import { Engine } from "./engine.ts";
@@ -178,7 +179,7 @@ export async function main(argv: readonly string[], io: Io): Promise<number> {
     } else line = `/${verb}${args.map((a) => ` ${quote(a)}`).join("")}`;
     return await drain(engine, line, io);
   } catch (e) {
-    if (e instanceof CliError) {
+    if (e instanceof AppError) {
       io.err(`error: ${e.message}\n${e.hint === undefined ? "" : `  ${e.hint}\n`}`);
       return 1;
     }

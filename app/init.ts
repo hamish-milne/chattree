@@ -4,16 +4,23 @@ import { Conversation, ConversationError } from "../harness/conversation.ts";
 import { envSource } from "../harness/secrets.ts";
 import { dialectForModel } from "../providers/dialects/index.ts";
 import { catalog, samplingSettings } from "../localmodels/catalog.ts";
-import { cliRegistry, lookupSampling } from "./providers.ts";
+import { providerRegistry, lookupSampling } from "./providers.ts";
 import { initSettingsFile, loadSettings } from "./settings.ts";
 import { Git } from "../src/index.ts";
-import { CliError, type Io } from "./io.ts";
+import { AppError } from "./errors.ts";
+import type { AppEnv } from "./env.ts";
 import { nth } from "../src/nth.ts";
 
 /**
  * `chattree init`'s work: choose a provider, write the project's config, start the conversation (a new repository, or the
  * checked-out branch when adopting one), pin the model setup and prices, and make the settings file on a first run.
  */
+
+/** What init needs: the machine, and (for a terminal) a way to ask. Without `ask` nothing is asked: a choice not made is an error saying how to make it. */
+export interface InitEnv extends AppEnv {
+  interactive?: boolean;
+  ask?(question: string, fallback?: string): Promise<string>;
+}
 
 export interface InitOptions {
   dir?: string | undefined;
@@ -41,10 +48,10 @@ export interface InitResult {
 }
 
 /** Which provider to configure: the flag, else the one whose key is in the environment, else ask (or fail saying how to choose). */
-async function chooseProvider(io: Io, o: InitOptions): Promise<string> {
+async function chooseProvider(io: InitEnv, o: InitOptions): Promise<string> {
   if (o.provider !== undefined) {
     if (!["anthropic", "openai", "compatible", "local-models"].includes(o.provider))
-      throw new CliError(
+      throw new AppError(
         `${o.provider} is not a provider this CLI sets up`,
         "use anthropic, openai, compatible (an OpenAI-compatible server such as Ollama or llama.cpp) or local-models (models chattree runs itself, from `local_models` in the settings file)",
       );
@@ -56,7 +63,7 @@ async function chooseProvider(io: Io, o: InitOptions): Promise<string> {
     const a = await io.ask("Which provider (anthropic, openai, compatible)?", have[0] ?? "anthropic");
     return chooseProvider(io, { ...o, provider: a });
   }
-  throw new CliError(
+  throw new AppError(
     have.length === 0
       ? "no provider chosen, and neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set"
       : "both ANTHROPIC_API_KEY and OPENAI_API_KEY are set; choose one",
@@ -133,25 +140,25 @@ function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; wi
  * refuses unless told how: `adopt` puts the conversation on the branch that is checked out (every entry then also commits the
  * working tree's pending changes, which is how snapshots work), `force` makes a new, nested repository in the directory.
  */
-export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
+export async function runInit(io: InitEnv, o: InitOptions): Promise<InitResult> {
   const dir = resolve(io.cwd, o.dir ?? ".");
   await io.host.fs.mkdir(dir);
   const probe = await Git.open(io.host, { cwd: dir });
   const top = await probe.run(["rev-parse", "--show-toplevel"], { ok: [128], readOnly: true });
   const inRepo = top.exitCode === 0 ? probe.hostPath(new TextDecoder().decode(top.stdout).trim()) : undefined;
-  if (o.adopt === true && o.force === true) throw new CliError("--adopt and --force are different things; choose one");
+  if (o.adopt === true && o.force === true) throw new AppError("--adopt and --force are different things; choose one");
   if (inRepo !== undefined && o.adopt !== true && o.force !== true) {
-    throw new CliError(
+    throw new AppError(
       `${dir} is inside the git repository ${inRepo}`,
       "a conversation shares its branch, and every entry commits the working tree's pending changes with it (that is how snapshots and rollback work). `--adopt` accepts that and starts on the checked-out branch of the repository; `--force` makes a separate, nested repository in this directory",
     );
   }
   if (inRepo === undefined && o.adopt === true)
-    throw new CliError(`${dir} is not inside a git repository, so there is nothing to adopt`, "drop --adopt to create one");
+    throw new AppError(`${dir} is not inside a git repository, so there is nothing to adopt`, "drop --adopt to create one");
 
   const provider = await chooseProvider(io, o);
   if (provider === "compatible" && o.baseUrl === undefined)
-    throw new CliError(
+    throw new AppError(
       "an OpenAI-compatible provider needs its address",
       "pass --base-url http://localhost:11434/v1 (the address of the server, including /v1)",
     );
@@ -160,19 +167,19 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   const local = where.settings?.local_models;
   if (provider === "local-models") {
     if (local === undefined || Object.keys(local.models).length === 0)
-      throw new CliError(
+      throw new AppError(
         "the settings file has no models under local_models",
         "add some with `chattree settings edit` (docs/guide/local-models.md shows what goes in)",
       );
     const names = Object.keys(catalog(local));
     if (o.model === undefined && Object.keys(local.models).length > 1)
-      throw new CliError(`which model? the settings have ${Object.keys(local.models).join(", ")}`, "pass --model <name>");
+      throw new AppError(`which model? the settings have ${Object.keys(local.models).join(", ")}`, "pass --model <name>");
     if (o.model !== undefined && !names.includes(o.model))
-      throw new CliError(`${o.model} is not a model in local_models (known: ${names.join(", ")})`);
+      throw new AppError(`${o.model} is not a model in local_models (known: ${names.join(", ")})`);
   }
   const model = o.model ?? (provider === "local-models" ? Object.keys(local?.models ?? {})[0] : DEFAULT_MODEL[provider]);
   if (model === undefined)
-    throw new CliError("an OpenAI-compatible provider needs a model name", "pass --model <name>, as the server calls it");
+    throw new AppError("an OpenAI-compatible provider needs a model name", "pass --model <name>, as the server calls it");
   const cfg = configText(provider, {
     ...(o.baseUrl === undefined ? {} : { baseUrl: o.baseUrl }),
     ...(o.keyEnv === undefined ? {} : { keyEnv: o.keyEnv }),
@@ -190,7 +197,7 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   }
   const opts = {
     now: io.now,
-    providers: { registry: cliRegistry(where), secrets: envSource(env) },
+    providers: { registry: providerRegistry(where), secrets: envSource(env) },
     config: cfg.text,
     ...(o.branch === undefined ? {} : { branch: o.branch }),
   };
@@ -198,7 +205,7 @@ export async function runInit(io: Io, o: InitOptions): Promise<InitResult> {
   try {
     convo = o.adopt === true ? await Conversation.adopt(io.host, inRepo ?? dir, opts) : await Conversation.create(io.host, dir, opts);
   } catch (e) {
-    if (e instanceof ConversationError) throw new CliError(e.message);
+    if (e instanceof ConversationError) throw new AppError(e.message);
     throw e;
   }
   // Sampling is pinned in the setup as well as being the server's default, so the transcript records what the model was run with.

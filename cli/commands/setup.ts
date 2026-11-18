@@ -10,7 +10,7 @@ import { prefixLags, type AgentSetup, type ModelSetup } from "../../harness/setu
 import { tableHash } from "../../providers/pricing.ts";
 import { IsObject } from "typebox";
 import { settingsProblems, type AdapterRegistry } from "../../providers/index.ts";
-import { cliRegistry } from "../providers.ts";
+import { providerRegistry } from "../../app/providers.ts";
 import { withConfirmation } from "../changes.ts";
 import { openThread } from "../project.ts";
 import type { Command } from "../registry.ts";
@@ -43,7 +43,7 @@ const model: Command = {
   busy: "blocked",
   async complete(ctx, previous, partial) {
     if (previous.length > 0) return [];
-    const registry = cliRegistry(ctx.io);
+    const registry = providerRegistry(ctx.io);
     const out: string[] = [];
     for (const [name, p] of Object.entries(await providersOf(ctx.convo))) {
       const cfg = (await ctx.convo.readConfig())?.ok === true ? p : undefined;
@@ -54,7 +54,7 @@ const model: Command = {
   },
   async *run(ctx, args) {
     try {
-      const registry = cliRegistry(ctx.io);
+      const registry = providerRegistry(ctx.io);
       const setup = await ctx.convo.setup();
       const providers = await providersOf(ctx.convo);
       if (args.length === 0) {
@@ -143,14 +143,14 @@ const set: Command = {
   usage: "/set  |  /set <key>  |  /set <key> <value>  |  /set <key> unset      (values are JSON, or plain text)",
   busy: "blocked",
   async complete(ctx, previous, partial) {
-    const registry = cliRegistry(ctx.io);
+    const registry = providerRegistry(ctx.io);
     const m = (await ctx.convo.setup()).model;
     const tag = m === undefined ? undefined : (await providersOf(ctx.convo))[m.provider]?.$tag;
     return previous.length === 0 && tag !== undefined ? settingKeys(registry, tag).filter((k) => k.startsWith(partial)) : [];
   },
   async *run(ctx, args, rest) {
     try {
-      const registry = cliRegistry(ctx.io);
+      const registry = providerRegistry(ctx.io);
       const m = (await ctx.convo.setup()).model;
       if (m === undefined) {
         yield { type: "error", message: "no model is set", hint: "/model <provider>/<id>" };
@@ -316,7 +316,7 @@ const providers: Command = {
   usage: "/providers",
   busy: "allowed",
   async *run(ctx) {
-    const registry = cliRegistry(ctx.io);
+    const registry = providerRegistry(ctx.io);
     const cfg = await ctx.convo.readConfig();
     if (cfg === undefined) {
       yield { type: "error", message: "this thread has no harness.yml" };

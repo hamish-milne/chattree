@@ -9,8 +9,11 @@ A model-neutral agent harness whose conversation history lives in Git. A convers
 ## Layers
 
 ```
-cli/            the command-line host         ui/   the UI core (graphical hosts)
+cli/            the command-line host         ui/   the UI core and controller (graphical hosts)
   │                                              │
+  └──────────────┬───────────────────────────────┘
+app/            application services both hosts share: settings, providers, init
+  │
 harness/        conversations, turns, tools, limits and cost        providers/   model APIs, prices, dialects
   │                                                                    │
   └───────────────┬────────────────────────────────────────────────────┘
@@ -30,6 +33,7 @@ Dependencies point down. `src/` imports nothing from the rest of the repository 
 | [harness.md](harness.md) | `harness/`, `harness/starter/`, `harness/mcp/` | Conversation, entries, context, setup, turn, loop, tools, subagents, limits, media, MCP. |
 | [providers.md](providers.md) | `providers/` | Adapters, HTTP transport, prices, catalogs, dialects. |
 | [localmodels.md](localmodels.md) | `localmodels/` | The model host: daemon, install, download, store, sampling. |
+| [app.md](app.md) | `app/` | Application services shared by the CLI and the extension: settings file, provider registry, init. |
 | [cli.md](cli.md) | `cli/` | The `chattree` command: engine, commands, sessions, terminal. |
 | [vscode.md](vscode.md) | `extensions/vscode/` | The VS Code extension: views, the browser preview, tools. |
 | [e2e.md](e2e.md) | `test/e2e/`, `ui/host/` | The end-to-end journey, its driver and the web host it runs against. |
@@ -52,7 +56,7 @@ Dependencies point down. `src/` imports nothing from the rest of the repository 
 | Add a slash command | `cli/commands/` | `commands/index.ts`, `test/cli/`, `docs/guide/commands.md` |
 | Add a setting for a thread's model | the adapter's `settings` schema in `providers/` | `cli/commands/setup.ts` if it needs special handling |
 | Add a `harness.yml` key | `harness/config.ts` | `docs/guide/configuration.md`, the generated editor schema updates itself |
-| Add a user setting | `cli/settings.ts` | `docs/guide/configuration.md` |
+| Add a user setting | `app/settings.ts` | `docs/guide/configuration.md` |
 | Change what the model sees of the history | `harness/context.ts`, `harness/context-builder.ts`, `harness/renderer.ts` | renderer id if wording changes |
 | Add a spending limit or price meter | `harness/limits.ts`, `harness/ledger.ts`, `providers/pricing.ts` | `harness/estimate.ts` |
 | Support a new local model family | `providers/dialects/` (see [dialects guide](../extending/dialects.md)) | `localmodels/` catalog entries, `tools/dialect-bench.ts` |

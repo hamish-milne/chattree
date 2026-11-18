@@ -16,7 +16,7 @@ import { searchTool } from "../harness/search-tool.ts";
 import { threadTools } from "../harness/thread-tools.ts";
 import { resolveSubagentModels } from "../harness/subagent-models.ts";
 import { settingsProblems } from "../providers/index.ts";
-import { cliRegistry } from "./providers.ts";
+import { providerRegistry } from "../app/providers.ts";
 import type { McpPool } from "../harness/mcp/pool.ts";
 import { McpServers, type McpDeps } from "../harness/mcp/servers.ts";
 import { ToolRegistry } from "../harness/tools.ts";
@@ -180,7 +180,7 @@ export async function buildToolSet(io: Io, convo: Conversation, hooks: ToolSetHo
   );
   if (chosen.problems.length > 0)
     throw new CliError(chosen.problems.join("\n"), "fix subagent.models in harness.yml, or remove it to give subagents the parent's model");
-  const adapters = cliRegistry(io);
+  const adapters = providerRegistry(io);
   const validateSettings = async (provider: string, settings: unknown): Promise<string[]> => {
     const tag = (config?.providers[provider] as { $tag?: string } | undefined)?.$tag;
     const def = tag === undefined ? undefined : adapters.get(tag);

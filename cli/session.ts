@@ -1,6 +1,6 @@
 import { Type, type StaticDecode } from "typebox";
 import { pattern, strictObject, withDefault } from "../src/validate.ts";
-import type { Settings } from "./settings.ts";
+import type { Settings } from "../app/settings.ts";
 import { Pipeline, acquireLock, defineEntry, emitEntry, parseEntry, LockHeldError, type Lock, type Git, type Host } from "../src/index.ts";
 import { createUlid, ULID_RE } from "../harness/ulid.ts";
 import { hasPendingState, type SessionState, type StagedAttachment } from "./engine.ts";

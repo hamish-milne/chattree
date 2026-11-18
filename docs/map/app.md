@@ -1,0 +1,20 @@
+# `app/`: application services
+
+**Purpose.** What every host needs that is not a turn: the user's settings file, the provider registry (with the local models' runtime), and `init`. The CLI and the extension's controller both use it. Reasons: ADR 36.
+
+**Depends on:** `harness/`, `providers/`, `localmodels/`, `src/`. It imports nothing from `cli/` or `ui/` and nothing terminal-shaped.
+
+## Files
+
+| File | Role |
+|---|---|
+| `env.ts` | `AppEnv`: the host, environment variables, working directory, clock and settings. A terminal's `Io` extends it. |
+| `errors.ts` | `AppError(message, hint)`: a problem the person can fix. The CLI's `CliError` is one. |
+| `settings.ts` | The user-level settings file: schema, load, template, create. |
+| `providers.ts` | The provider registry for this machine; the local models' catalog and address; sampling lookup. |
+| `init.ts` | `runInit`: write the config, start the conversation (new repository or adopt one), pin model setup and prices. `InitEnv` adds `ask` for a terminal. |
+
+## To change X
+
+- *Add something both hosts need:* put it here, take an `AppEnv`, throw `AppError`.
+- *Something only the terminal needs* (drafts, prompt, escape handling) stays in `cli/`.

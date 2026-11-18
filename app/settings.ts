@@ -3,7 +3,8 @@ import { parseConfig } from "../src/config.ts";
 import type { Host } from "../src/host.ts";
 import { localModelsSchema } from "../localmodels/config.ts";
 import { strictObject } from "../src/validate.ts";
-import { CliError, type Io } from "./io.ts";
+import { AppError } from "./errors.ts";
+import type { AppEnv } from "./env.ts";
 
 /**
  * The user-level settings file: things that belong to the person and the machine, not to a thread, so they are not in
@@ -48,15 +49,15 @@ export function settingsPath(host: Host, env: Readonly<Record<string, string | u
   return base === undefined || base === "" ? undefined : host.path.join(base, "chattree", "settings.yml");
 }
 
-/** The settings; empty when there is no file. A file that cannot be read or does not match the schema is a CliError naming it. */
-export async function loadSettings(io: Pick<Io, "host" | "env">): Promise<Settings> {
+/** The settings; empty when there is no file. A file that cannot be read or does not match the schema is an AppError naming it. */
+export async function loadSettings(io: Pick<AppEnv, "host" | "env">): Promise<Settings> {
   const path = settingsPath(io.host, io.env);
   if (path === undefined) return {};
   const bytes = await io.host.fs.read(path).catch(() => undefined);
   if (bytes === undefined) return {};
   const parsed = await parseConfig(new TextDecoder().decode(bytes), settingsSchema);
   if (!parsed.ok) {
-    throw new CliError(
+    throw new AppError(
       `${path} is not valid:\n${parsed.issues.map((i) => `  ${i.path === "" ? "" : `${i.path}: `}${i.message}`).join("\n")}`,
       "fix it with `chattree settings edit`, or move it away",
     );
@@ -86,13 +87,13 @@ ffmpeg: auto           # auto | false | path to ffmpeg: converts pictures and so
 }
 
 /** The editor command: settings, then \`$VISUAL\`, then \`$EDITOR\`; undefined leaves the choice of a default to the host. */
-export const editorFor = (io: Pick<Io, "env" | "settings">): string | undefined =>
+export const editorFor = (io: Pick<AppEnv, "env" | "settings">): string | undefined =>
   io.settings?.editor ?? io.env["VISUAL"] ?? io.env["EDITOR"];
 
 /** The file, created with a commented template when it is not there yet; the path to open. */
-export async function ensureSettingsFile(io: Pick<Io, "host" | "env">): Promise<string> {
+export async function ensureSettingsFile(io: Pick<AppEnv, "host" | "env">): Promise<string> {
   const path = settingsPath(io.host, io.env);
-  if (path === undefined) throw new CliError("there is no settings location on this machine", "set CHATTREE_SETTINGS to a file path");
+  if (path === undefined) throw new AppError("there is no settings location on this machine", "set CHATTREE_SETTINGS to a file path");
   if ((await io.host.fs.stat(path)) === undefined)
     await io.host.fs.writeAtomic(path, new TextEncoder().encode(settingsTemplate(io.host.platform)));
   return path;
@@ -102,7 +103,7 @@ export async function ensureSettingsFile(io: Pick<Io, "host" | "env">): Promise<
  * `chattree init`'s part: when there is no settings file, make one from the template for this platform; a file that is there is left
  * alone, whatever it says. Returns the path when it was made; undefined when there was a file or there is no place for one.
  */
-export async function initSettingsFile(io: Pick<Io, "host" | "env">): Promise<string | undefined> {
+export async function initSettingsFile(io: Pick<AppEnv, "host" | "env">): Promise<string | undefined> {
   const path = settingsPath(io.host, io.env);
   if (path === undefined || (await io.host.fs.stat(path)) !== undefined) return undefined;
   await io.host.fs.writeAtomic(path, new TextEncoder().encode(settingsTemplate(io.host.platform)));

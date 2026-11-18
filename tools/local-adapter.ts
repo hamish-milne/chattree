@@ -1,5 +1,5 @@
 import type { Io } from "../cli/io.ts";
-import { localRuntime } from "../cli/providers.ts";
+import { localRuntime } from "../app/providers.ts";
 import { localModelsDefinition } from "../providers/index.ts";
 import type { ProviderAdapter } from "../providers/types.ts";
 
