@@ -104,6 +104,20 @@ export class ConversationError extends Error {
   override name = "ConversationError";
 }
 
+/**
+ * The agent has no model yet, and what was asked needs one (a request, a compaction, pinning prices). A conversation
+ * can be started without one (its first setup is made when a provider and model are chosen), so this is a refusal at the
+ * mutation, with the way out, not a fault in the history.
+ */
+export class NoModelPinned extends ConversationError {
+  override name = "NoModelPinned";
+  constructor(what: string) {
+    super(
+      `this conversation has no model yet, so it cannot ${what}: add a provider and choose a model first (the \`setup\` entry that pins one)`,
+    );
+  }
+}
+
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
 /** An entry to append. The id is assigned if omitted (headers have none). */
 export type NewEntry = DistributiveOmit<ChatEntry, "id"> & { id?: string };
@@ -1692,7 +1706,7 @@ export class Conversation {
    */
   async pinPricing(provider?: string): Promise<Appended | undefined> {
     const name = provider ?? (await this.setup()).model?.provider;
-    if (name === undefined) throw new ConversationError("this agent has no model, so there is no provider whose prices to pin");
+    if (name === undefined) throw new NoModelPinned("pin prices");
     const table = this.priceTable(name);
     if (table === undefined)
       throw new ConversationError(

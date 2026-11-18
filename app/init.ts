@@ -24,6 +24,7 @@ export interface InitEnv extends AppEnv {
 
 export interface InitOptions {
   dir?: string | undefined;
+  /** anthropic, openai, compatible or local-models; `none` starts the conversation with no provider and no model (a graphical host adds them in its settings; the model is pinned then). */
   provider?: string | undefined;
   baseUrl?: string | undefined;
   model?: string | undefined;
@@ -41,8 +42,9 @@ const KEY_ENV: Record<string, string> = { anthropic: "ANTHROPIC_API_KEY", openai
 export interface InitResult {
   root: string;
   branch: string;
-  provider: string;
-  model: string;
+  /** Absent when started with `provider: "none"`. */
+  provider: string | undefined;
+  model: string | undefined;
   pinned: boolean;
   notes: string[];
 }
@@ -71,13 +73,18 @@ async function chooseProvider(io: InitEnv, o: InitOptions): Promise<string> {
   );
 }
 
-function configText(provider: string, o: { baseUrl?: string; keyEnv?: string; windows?: boolean }): { text: string; name: string } {
+function configText(
+  provider: string | undefined,
+  o: { baseUrl?: string; keyEnv?: string; windows?: boolean },
+): { text: string; name: string } {
   const lines = [
     "# chattree configuration: the outside world (providers, limits). The agent's own setup (model, settings, instructions) is in the transcript.",
-    "providers:",
+    provider === undefined ? "providers: {}" : "providers:",
   ];
-  let name = provider;
-  if (provider === "local-models") {
+  let name = provider ?? "";
+  if (provider === undefined) {
+    // No provider yet: the person adds one in the settings.
+  } else if (provider === "local-models") {
     name = "local-models";
     lines.push("  local-models:", "    $tag: local-models");
   } else if (provider === "compatible") {
@@ -156,6 +163,7 @@ export async function runInit(io: InitEnv, o: InitOptions): Promise<InitResult> 
   if (inRepo === undefined && o.adopt === true)
     throw new AppError(`${dir} is not inside a git repository, so there is nothing to adopt`, "drop --adopt to create one");
 
+  if (o.provider === "none") return startWithoutProvider(io, o, dir, inRepo);
   const provider = await chooseProvider(io, o);
   if (provider === "compatible" && o.baseUrl === undefined)
     throw new AppError(
@@ -250,4 +258,30 @@ export async function runInit(io: InitEnv, o: InitOptions): Promise<InitResult> 
       `made the settings file ${made} (ffmpeg: auto converts pictures and sound a model cannot take, using an installed ffmpeg or, on Windows, a download of about 100 MB the first time it is needed; \`false\` turns that off)`,
     );
   return { root: convo.dir, branch: convo.branch, provider: cfg.name, model, pinned, notes };
+}
+
+/**
+ * A conversation with its header and a `harness.yml` that names no provider, and no model pinned: what a graphical host
+ * starts with, then adds a provider in its settings. Requests, compaction and price pinning refuse (`NoModelPinned`) until
+ * the first setup is made.
+ */
+async function startWithoutProvider(io: InitEnv, o: InitOptions, dir: string, inRepo: string | undefined): Promise<InitResult> {
+  const cfg = configText(undefined, { windows: io.host.platform === "windows" });
+  const opts = {
+    now: io.now,
+    providers: { registry: providerRegistry(io), secrets: envSource(io.env) },
+    config: cfg.text,
+    ...(o.branch === undefined ? {} : { branch: o.branch }),
+  };
+  let convo: Conversation;
+  try {
+    convo = o.adopt === true ? await Conversation.adopt(io.host, inRepo ?? dir, opts) : await Conversation.create(io.host, dir, opts);
+  } catch (e) {
+    if (e instanceof ConversationError) throw new AppError(e.message);
+    throw e;
+  }
+  const notes = ["no provider yet: add one in the settings before you chat"];
+  const made = await initSettingsFile(io).catch(() => undefined);
+  if (made !== undefined) notes.push(`made the settings file ${made}`);
+  return { root: convo.dir, branch: convo.branch, provider: undefined, model: undefined, pinned: false, notes };
 }

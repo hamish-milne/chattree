@@ -1,6 +1,6 @@
 import { contextEntries } from "./context.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
-import type { Conversation } from "./conversation.ts";
+import { NoModelPinned, type Conversation } from "./conversation.ts";
 import { idOf, type ChatEntry } from "./entries.ts";
 import { askModel } from "./oneshot.ts";
 import { prepareContext, type PrepareOptions, type Prepared } from "./request.ts";
@@ -194,7 +194,7 @@ export async function summariseRange(
 ): Promise<{ summary: string; model: string }> {
   const setup = await convo.setup();
   const model = setup.model;
-  if (model === undefined) throw new Error("this thread has no model; set one with /model");
+  if (model === undefined) throw new NoModelPinned("compact");
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
   const dec = new TextDecoder();
   const input = (trims: boolean): Promise<string> =>

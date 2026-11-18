@@ -5,7 +5,7 @@
  * in `converted` and `warnings`.
  */
 import { createHash } from "node:crypto";
-import type { Conversation } from "./conversation.ts";
+import { NoModelPinned, type Conversation } from "./conversation.ts";
 import { buildContext, type ModelContext } from "./context-builder.ts";
 import type { ToolDefinition } from "./definitions.ts";
 import { assertDefinitions, INSTRUCTIONS_NAME, instructionsOf, loadDefinitions, loadPinned, type DefinitionSource } from "./definitions.ts";
@@ -79,13 +79,13 @@ function projectedTools(convo: Conversation, model: AgentSetup["model"], tools: 
  * Everything a request needs, checked: the setup (refusing if a provider-observed change is unacknowledged),
  * definitions that still match their pins, and the context built for the model the setup names (the dated model
  * once the provider has reported it). Throws `ChangeNotAllowed` for anything the host has not accepted, and
- * `ConversationError` if the agent has no model yet. The cost checks (price pin, token count, limits) run last and
+ * `NoModelPinned` if the agent has no model yet. The cost checks (price pin, token count, limits) run last and
  * throw `LimitExceeded` or `ChangeNotAllowed` before anything is sent; they are skipped when `cost` is false or the
  * conversation has no providers.
  */
 export async function prepareContext(convo: Conversation, opts: PrepareOptions): Promise<Prepared> {
   const setup = await convo.checkRequest(opts.standing);
-  if (setup.model === undefined) throw new Error("this agent has no model: set one with setupChange first");
+  if (setup.model === undefined) throw new NoModelPinned("make a request");
   await assertDefinitions(setup, opts.source, opts.allowDrift);
   const defs = await loadDefinitions(setup, { blobs: convo.store, ...(opts.source === undefined ? {} : { source: opts.source }) });
   const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));

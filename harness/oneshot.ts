@@ -1,4 +1,4 @@
-import type { Conversation } from "./conversation.ts";
+import { NoModelPinned, type Conversation } from "./conversation.ts";
 import { estimateRequest } from "./estimate.ts";
 import { usageRecord } from "./ledger.ts";
 import { checkLimits, LimitExceeded } from "./limits.ts";
@@ -33,7 +33,7 @@ export interface OneShotOptions {
  */
 export async function askModel(convo: Conversation, prompt: string, opts: OneShotOptions = {}): Promise<OneShot> {
   const setup = await convo.setup();
-  if (setup.model === undefined) throw new Error("this thread has no model; set one with /model");
+  if (setup.model === undefined) throw new NoModelPinned("answer");
   const model: ModelSetup = opts.model === undefined ? setup.model : { provider: setup.model.provider, id: opts.model };
   const adapter = convo.provider(model.provider);
   const context = {
