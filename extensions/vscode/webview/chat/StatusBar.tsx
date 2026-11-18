@@ -23,13 +23,13 @@ export function StatusBar({ model }: { model: Model }): JSX.Element | null {
   const frac = model.contextFraction.value;
   const open = model.settingsOpen.value;
   return (
-    <div class={css["status-bar"]}>
-      <span class={cn(css.state, pick(css, `state-${s.state}`))}>
-        <span class={css["state-dot"]} aria-hidden="true" />
+    <div class={css.status_bar}>
+      <span class={cn(css.state, pick(css, `state_${s.state}`))}>
+        <span class={css.state_dot} aria-hidden="true" />
         {STATE[s.state]}
       </span>
       <button
-        class={cn(css["model-chip"], open && css.open)}
+        class={cn(css.model_chip, open && css.open)}
         aria-expanded={open}
         aria-controls="model-settings"
         title="Model and its settings"
@@ -62,7 +62,7 @@ export function StatusBar({ model }: { model: Model }): JSX.Element | null {
               aria-valuemax={100}
               aria-label="Context used"
             >
-              <span class={cn(css["gauge-fill"], frac > 0.8 && css.high)} style={{ width: `${Math.round(frac * 100)}%` }} />
+              <span class={cn(css.gauge_fill, frac > 0.8 && css.high)} style={{ width: `${Math.round(frac * 100)}%` }} />
             </span>
           )}
           {kilo(s.context.used)}

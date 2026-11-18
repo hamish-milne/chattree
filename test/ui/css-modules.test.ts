@@ -24,6 +24,7 @@ describe("class names in a CSS module", () => {
     const d = declarationFor("x.module.css", ".a-b { } .c { }");
     assert.match(d, /Generated from x\.module\.css/);
     assert.match(d, /readonly "a-b": string;/);
+    assert.match(declarationFor("x.module.css", ".a_b { }"), /readonly a_b: string;/);
     assert.match(d, /export default styles;/);
   });
 

@@ -21,7 +21,7 @@ export function Issues({ form, path }: { form: Form; path: readonly string[] }):
   const list = form.issues.value.get(dotted(path)) ?? [];
   if (list.length === 0) return null;
   return (
-    <div class={css["cf-issues"]} id={`${idOf(path)}-issues`} role="alert">
+    <div class={css.cf_issues} id={`${idOf(path)}-issues`} role="alert">
       {list.map((m, i) => (
         <div key={i}>
           {path.at(-1)} {m}
@@ -46,13 +46,13 @@ export function Row({
   children: ComponentChildren;
 }): JSX.Element {
   return (
-    <div class={css["cf-row"]}>
-      <label class={css["cf-label"]} for={idOf(path)}>
+    <div class={css.cf_row}>
+      <label class={css.cf_label} for={idOf(path)}>
         {label}
       </label>
       <div>
         {children}
-        {help !== undefined && <div class={css["cf-help"]}>{help}</div>}
+        {help !== undefined && <div class={css.cf_help}>{help}</div>}
         <Issues form={form} path={path} />
       </div>
     </div>
@@ -75,17 +75,17 @@ export function Choice({
   const raw = at(form.spec.value.value, path);
   const current = typeof raw === "string" ? raw : fallback;
   return (
-    <div class={css["cf-choice"]} role="radiogroup" id={idOf(path)}>
+    <div class={css.cf_choice} role="radiogroup" id={idOf(path)}>
       {options.map((o) => (
         <button
           key={o.value}
           role="radio"
           aria-checked={current === o.value}
-          class={cn(css["cf-option"], current === o.value && css.on)}
+          class={cn(css.cf_option, current === o.value && css.on)}
           onClick={() => form.set(path, o.value)}
         >
-          <span class={css["cf-option-label"]}>{o.label}</span>
-          {o.hint !== undefined && <span class={css["cf-option-hint"]}>{o.hint}</span>}
+          <span class={css.cf_option_label}>{o.label}</span>
+          {o.hint !== undefined && <span class={css.cf_option_hint}>{o.hint}</span>}
         </button>
       ))}
     </div>
@@ -112,11 +112,11 @@ export function Toggle({
       role="switch"
       aria-checked={on}
       aria-label={label}
-      class={cn(css["cf-switch"], on && css.on)}
+      class={cn(css.cf_switch, on && css.on)}
       onClick={() => onChange(!on)}
     >
-      <span class={css["cf-knob"]} />
-      {text && <span class={css["cf-switch-text"]}>{on ? "On" : "Off"}</span>}
+      <span class={css.cf_knob} />
+      {text && <span class={css.cf_switch_text}>{on ? "On" : "Off"}</span>}
     </button>
   );
 }
@@ -149,8 +149,8 @@ export function NumberInput({
   const shown = typeof raw === "number" ? String(Math.round(raw * scale * 1e6) / 1e6) : "";
   const bad = (form.issues.value.get(dotted(path)) ?? []).length > 0;
   return (
-    <span class={cn(css["cf-number"], bad && css.bad)}>
-      {prefix !== undefined && <span class={css["cf-adorn"]}>{prefix}</span>}
+    <span class={cn(css.cf_number, bad && css.bad)}>
+      {prefix !== undefined && <span class={css.cf_adorn}>{prefix}</span>}
       <input
         id={idOf(path)}
         type="number"
@@ -165,7 +165,7 @@ export function NumberInput({
           else form.set(path, Number(v) / scale);
         }}
       />
-      {suffix !== undefined && <span class={css["cf-adorn"]}>{suffix}</span>}
+      {suffix !== undefined && <span class={css.cf_adorn}>{suffix}</span>}
     </span>
   );
 }
@@ -186,7 +186,7 @@ export function TextInput({
   return (
     <input
       id={idOf(path)}
-      class={cn(css["cf-text"], mono && css.mono)}
+      class={cn(css.cf_text, mono && css.mono)}
       type="text"
       placeholder={placeholder}
       aria-invalid={bad}
@@ -225,9 +225,9 @@ export function Lines({ form, path, placeholder }: { form: Form; path: readonly 
 
 export function Section({ title, hint, children }: { title: string; hint?: string; children: ComponentChildren }): JSX.Element {
   return (
-    <section class={css["cf-section"]}>
+    <section class={css.cf_section}>
       <h3>{title}</h3>
-      {hint !== undefined && <p class={css["cf-hint"]}>{hint}</p>}
+      {hint !== undefined && <p class={css.cf_hint}>{hint}</p>}
       {children}
     </section>
   );

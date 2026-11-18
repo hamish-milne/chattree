@@ -18,7 +18,7 @@ export function ConfirmDialog({ model }: { model: Model }): JSX.Element | null {
   }, [c?.title]);
   if (c === undefined) return null;
   return (
-    <div class={css["dialog-scrim"]} onClick={() => model.cancelDelete()}>
+    <div class={css.dialog_scrim} onClick={() => model.cancelDelete()}>
       <div
         class={css.dialog}
         role="alertdialog"
@@ -40,7 +40,7 @@ export function ConfirmDialog({ model }: { model: Model }): JSX.Element | null {
         {c.lines.map((l, i) => (
           <p key={i}>{l}</p>
         ))}
-        <div class={css["dialog-buttons"]}>
+        <div class={css.dialog_buttons}>
           <button class="secondary" ref={cancel} onClick={() => model.cancelDelete()}>
             Cancel
           </button>
@@ -70,7 +70,7 @@ export function SwitchDialog({ model }: { model: Model }): JSX.Element | null {
   if (s === undefined) return null;
   const shown = s.files.slice(0, 6);
   return (
-    <div class={css["dialog-scrim"]} onClick={() => model.cancelSwitch()}>
+    <div class={css.dialog_scrim} onClick={() => model.cancelSwitch()}>
       <div
         class={css.dialog}
         role="alertdialog"
@@ -89,18 +89,18 @@ export function SwitchDialog({ model }: { model: Model }): JSX.Element | null {
           You have {s.files.length} {s.files.length === 1 ? "file" : "files"} changed in your workspace that{" "}
           {s.files.length === 1 ? "is" : "are"} not saved in “{s.from}” yet:
         </p>
-        <ul class={css["dialog-files"]}>
+        <ul class={css.dialog_files}>
           {shown.map((f) => (
             <li key={f}>{f}</li>
           ))}
           {s.files.length > shown.length && <li class="dim">and {s.files.length - shown.length} more</li>}
         </ul>
         <p>They will be saved as a snapshot on “{s.from}”, so you can come back to them by switching back.</p>
-        <label class={css["dialog-check"]}>
+        <label class={css.dialog_check}>
           <input type="checkbox" checked={remember} onChange={(e) => setRemember(e.currentTarget.checked)} />
           Do this every time, without asking
         </label>
-        <div class={css["dialog-buttons"]}>
+        <div class={css.dialog_buttons}>
           <button class="secondary" ref={cancel} onClick={() => model.cancelSwitch()}>
             Cancel
           </button>

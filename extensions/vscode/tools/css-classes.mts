@@ -57,7 +57,7 @@ export function localClasses(css: string): string[] {
 /** The declaration file's text for a module. */
 export function declarationFor(file: string, css: string): string {
   const body = localClasses(css)
-    .map((n) => `  readonly ${JSON.stringify(n)}: string;`)
+    .map((n) => `  readonly ${/^[A-Za-z_$][\w$]*$/.test(n) ? n : JSON.stringify(n)}: string;`)
     .join("\n");
   return `// Generated from ${file} by tools/gen-css-types.mts. Do not edit.\ndeclare const styles: {\n${body}\n};\nexport default styles;\n`;
 }

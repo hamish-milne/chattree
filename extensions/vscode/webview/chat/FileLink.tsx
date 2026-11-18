@@ -23,10 +23,10 @@ export const FileLinkContext = createContext<FileLinks | undefined>(undefined);
 export function FileLink({ file, children }: { file: FileRef; children?: ComponentChildren }): JSX.Element {
   const ctx = useContext(FileLinkContext);
   const label = refLabel(file);
-  if (ctx === undefined) return <span class={cn(css["file-link"], css.plain)}>{children ?? label}</span>;
+  if (ctx === undefined) return <span class={cn(css.file_link, css.plain)}>{children ?? label}</span>;
   return (
     <button
-      class={css["file-link"]}
+      class={css.file_link}
       title={label}
       onClick={() => ctx.model.openFile(file, ctx.commit)}
       onContextMenu={(e) => {

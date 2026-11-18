@@ -60,7 +60,7 @@ function Shape({ row, index, color }: { row: GraphRow; index: number; color: str
     return (
       <g>
         <rect x={cx - 8} y={cy - 6} width={16} height={12} rx={4} fill="var(--vscode-sideBar-background)" {...common} />
-        <text x={cx} y={cy + 3.5} text-anchor="middle" class={css["node-count"]} fill={color}>
+        <text x={cx} y={cy + 3.5} text-anchor="middle" class={css.node_count} fill={color}>
           {row.calls}
         </text>
       </g>
@@ -94,7 +94,7 @@ const STATUS_LABEL: Record<ThreadStatus, string> = {
 function Status({ status }: { status: ThreadStatus }): JSX.Element | null {
   if (status === "idle") return null;
   return (
-    <span class={cn(css.status, css[`status-${status}`])} role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]}>
+    <span class={cn(css.status, css[`status_${status}`])} role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]}>
       {status === "elsewhere" ? (
         <svg viewBox="0 0 16 16" width="12" height="12">
           <path d="M5 7V5a3 3 0 0 1 6 0v2h1v6H4V7zm1.5 0h3V5a1.5 1.5 0 0 0-3 0z" fill="currentColor" />
@@ -114,7 +114,7 @@ function Status({ status }: { status: ThreadStatus }): JSX.Element | null {
 function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.Element {
   return (
     <span
-      class={cn(css.pill, thread.merged === true && css.merged, thread.checkedOut === true && css["checked-out"])}
+      class={cn(css.pill, thread.merged === true && css.merged, thread.checkedOut === true && css.checked_out)}
       style={{ "--c": color }}
       title={[
         thread.title,
@@ -126,11 +126,11 @@ function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.El
         .join(" · ")}
     >
       {thread.checkedOut === true && (
-        <span class={css["pill-checkout"]} role="img" aria-label="Checked out in your workspace">
+        <span class={css.pill_checkout} role="img" aria-label="Checked out in your workspace">
           <Icon name="checkout" size={11} />
         </span>
       )}
-      <span class={css["pill-name"]}>{thread.name}</span>
+      <span class={css.pill_name}>{thread.name}</span>
       <Status status={thread.status} />
     </span>
   );
@@ -160,7 +160,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
     return (
       <div class={css.graph}>
         <RepoPicker model={model} />
-        <div class={css["graph-empty"]}>No conversation yet.</div>
+        <div class={css.graph_empty}>No conversation yet.</div>
       </div>
     );
   const threads = new Map(data.threads.map((t) => [t.name, t]));
@@ -226,16 +226,16 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
       onPointerCancel={(e) => endDrag(e, false)}
     >
       <RepoPicker model={model} />
-      <div class={css["graph-scroll"]}>
-        <div class={css["graph-body"]} style={{ height: `${layout.rows.length * ROW}px` }}>
+      <div class={css.graph_scroll}>
+        <div class={css.graph_body} style={{ height: `${layout.rows.length * ROW}px` }}>
           {layout.rows.map((r, i) => {
             const isSelected = selected.thread === r.thread && r.tipOf !== undefined;
             const cls = cn(
-              css["row-bg"],
+              css.row_bg,
               isSelected && css.selected,
-              lit.thread === r.thread && css["thread-lit"],
-              drag?.thread === r.thread && css["drag-source"],
-              drop?.thread === r.thread && (drop.ok ? css["drop-ok"] : css["drop-no"]),
+              lit.thread === r.thread && css.thread_lit,
+              drag?.thread === r.thread && css.drag_source,
+              drop?.thread === r.thread && (drop.ok ? css.drop_ok : css.drop_no),
             );
             return <div key={r.id} class={cls} style={{ top: `${i * ROW}px`, "--c": colorOf(r.lane) }} aria-hidden="true" />;
           })}
@@ -256,9 +256,9 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
                 key={r.id}
                 class={cn(
                   css.row,
-                  r.type === "commit" && r.foldId !== undefined && css["in-fold"],
-                  drag?.thread === r.thread && css["drag-source"],
-                  drop?.thread === r.thread && !drop.ok && css["no-drop"],
+                  r.type === "commit" && r.foldId !== undefined && css.in_fold,
+                  drag?.thread === r.thread && css.drag_source,
+                  drop?.thread === r.thread && !drop.ok && css.no_drop,
                 )}
                 data-thread={r.thread}
                 style={{ top: `${i * ROW}px`, paddingLeft: `${width + 20}px` }}
@@ -341,14 +341,14 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
       </div>
       {drag !== undefined && (
         <div
-          class={cn(css["drag-ghost"], drop !== undefined && !drop.ok && css.refused)}
+          class={cn(css.drag_ghost, drop !== undefined && !drop.ok && css.refused)}
           style={{ left: `${pointer.x}px`, top: `${pointer.y}px` }}
           aria-hidden="true"
         >
           <span class={css.pill} style={{ "--c": colorOf(layout.rows.find((r) => r.thread === drag.thread)?.lane ?? 0) }}>
-            <span class={css["pill-name"]}>{drag.thread}</span>
+            <span class={css.pill_name}>{drag.thread}</span>
           </span>
-          <span class={css["drag-hint"]}>
+          <span class={css.drag_hint}>
             {drop === undefined
               ? "Drop on a thread to merge"
               : drop.ok

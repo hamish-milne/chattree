@@ -38,7 +38,7 @@
   background: var(--vscode-textCodeBlock-background);
 }
 
-.md-code {
+.md_code {
   margin: 0 0 8px;
   border-radius: 5px;
   overflow: hidden;
@@ -46,7 +46,7 @@
   background: var(--vscode-textCodeBlock-background);
 }
 
-.md-code-head {
+.md_code_head {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -56,7 +56,7 @@
   border-bottom: 1px solid var(--vscode-panel-border);
 }
 
-.md-code pre {
+.md_code pre {
   margin: 0;
   padding: 8px 10px;
   overflow-x: auto;
@@ -65,7 +65,7 @@
   line-height: 1.45;
 }
 
-.md-code code {
+.md_code code {
   padding: 0;
   background: none;
   font-size: inherit;
@@ -78,16 +78,16 @@
   background: var(--vscode-textBlockQuote-background);
 }
 
-.md-h {
+.md_h {
   margin: 10px 0 4px;
   font-weight: 600;
 }
 
-.md-h1 {
+.md_h1 {
   font-size: 1.25em;
 }
 
-.md-h2 {
+.md_h2 {
   font-size: 1.12em;
 }
 
@@ -96,7 +96,7 @@
   border-top: 1px solid var(--vscode-textSeparator-foreground);
 }
 
-.md-table {
+.md_table {
   margin: 0 0 8px;
   overflow-x: auto;
 }
@@ -115,7 +115,7 @@
   background: var(--vscode-textBlockQuote-background);
 }
 
-.md-image {
+.md_image {
   color: var(--vscode-descriptionForeground);
 }
 

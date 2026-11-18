@@ -3,43 +3,43 @@
   flex-direction: column;
   gap: 10px;
 }
-.form-field {
+.form_field {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
-.form-field label,
-.form-group legend {
+.form_field label,
+.form_group legend {
   font-weight: 600;
   font-size: 12px;
 }
-.form-field.kind-boolean {
+.form_field.kind_boolean {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
   column-gap: 8px;
 }
-.form-field.kind-boolean .form-help,
-.form-field.kind-boolean .form-issues {
+.form_field.kind_boolean .form_help,
+.form_field.kind_boolean .form_issues {
   flex-basis: 100%;
 }
-.form-field.kind-boolean label {
+.form_field.kind_boolean label {
   order: 1;
 }
-.form-field.kind-boolean input {
+.form_field.kind_boolean input {
   order: 0;
 }
-.form-help {
+.form_help {
   margin: 0;
   font-size: 12px;
   color: var(--vscode-descriptionForeground);
 }
-.form-issues {
+.form_issues {
   margin: 0;
   font-size: 12px;
   color: var(--vscode-errorForeground);
 }
-.form-group {
+.form_group {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -48,10 +48,10 @@
   border: 1px solid var(--vscode-panel-border);
   border-radius: 4px;
 }
-.form-group.entry {
+.form_group.entry {
   background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
 }
-.form-raw {
+.form_raw {
   margin: 0;
   padding: 6px;
   font-family: var(--vscode-editor-font-family);
@@ -91,7 +91,7 @@ input.switch:checked::after {
   background: var(--vscode-button-foreground);
   transform: translateX(14px);
 }
-.form-buttons {
+.form_buttons {
   display: flex;
   gap: 8px;
 }

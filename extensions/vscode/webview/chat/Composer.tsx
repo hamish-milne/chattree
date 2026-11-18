@@ -42,7 +42,7 @@ export function Composer({ model }: { model: Model }): JSX.Element {
           }
         }}
       />
-      <div class={css["composer-row"]}>
+      <div class={css.composer_row}>
         <button class="icon-button" title="Attach files" aria-label="Attach files" onClick={() => model.attach()}>
           <Icon name="attach" />
         </button>

@@ -47,30 +47,30 @@ function Page({ model, form }: { model: Model; form: Form }): JSX.Element | null
 
 export function ConfigView({ model }: { model: Model }): JSX.Element {
   const form = model.form.value;
-  if (form === undefined) return <div class={cn(css.config, css["config-loading"])}>Loading harness.yml…</div>;
+  if (form === undefined) return <div class={cn(css.config, css.config_loading)}>Loading harness.yml…</div>;
   const { byPage, general } = model.counts.value;
   const problems = model.problems.value;
   const dirty = model.dirty.value;
   return (
     <div class={css.config}>
-      <div class={css["cf-body"]}>
-        <nav class={css["cf-pages"]} aria-label="Settings pages">
+      <div class={css.cf_body}>
+        <nav class={css.cf_pages} aria-label="Settings pages">
           {GROUPS.map((g) => (
-            <div key={g.id} class={css["cf-group"]}>
-              <div class={css["cf-group-title"]}>{g.title}</div>
+            <div key={g.id} class={css.cf_group}>
+              <div class={css.cf_group_title}>{g.title}</div>
               {PAGES.filter((p) => p.group === g.id).map((p) => {
                 const n = byPage.get(p.id) ?? 0;
                 return (
                   <button
                     key={p.id}
-                    class={cn(css["cf-page"], model.page.value === p.id && css.on)}
+                    class={cn(css.cf_page, model.page.value === p.id && css.on)}
                     aria-current={model.page.value === p.id ? "page" : undefined}
                     onClick={() => model.setPage(p.id)}
                   >
-                    <span class={css["cf-page-title"]}>{p.title}</span>
-                    <span class={css["cf-page-hint"]}>{p.hint}</span>
+                    <span class={css.cf_page_title}>{p.title}</span>
+                    <span class={css.cf_page_hint}>{p.hint}</span>
                     {n > 0 && (
-                      <span class={css["cf-badge"]} title={`${n} ${n === 1 ? "problem" : "problems"}`}>
+                      <span class={css.cf_badge} title={`${n} ${n === 1 ? "problem" : "problems"}`}>
                         {n}
                       </span>
                     )}
@@ -80,9 +80,9 @@ export function ConfigView({ model }: { model: Model }): JSX.Element {
             </div>
           ))}
         </nav>
-        <div class={css["cf-page-body"]}>
+        <div class={css.cf_page_body}>
           {general.length > 0 && (
-            <div class={css["cf-banner"]} role="alert">
+            <div class={css.cf_banner} role="alert">
               {general.map((i, n) => (
                 <div key={n}>{i.path === "" ? i.message : `${i.path} ${i.message}`}</div>
               ))}
@@ -92,11 +92,11 @@ export function ConfigView({ model }: { model: Model }): JSX.Element {
         </div>
       </div>
       {model.page.value === "instructions" && !dirty ? (
-        <footer class={cn(css["cf-foot"], css.note)}>Instruction changes apply to this thread as soon as you make them.</footer>
+        <footer class={cn(css.cf_foot, css.note)}>Instruction changes apply to this thread as soon as you make them.</footer>
       ) : (
-        <footer class={css["cf-foot"]}>
+        <footer class={css.cf_foot}>
           <input
-            class={css["cf-text"]}
+            class={css.cf_text}
             aria-label="Commit message"
             placeholder="Commit message (optional)"
             disabled={!dirty}
@@ -105,7 +105,7 @@ export function ConfigView({ model }: { model: Model }): JSX.Element {
             onKeyDown={(e) => e.key === "Enter" && model.save()}
           />
           {problems > 0 && (
-            <span class={css["cf-problems"]} role="status">
+            <span class={css.cf_problems} role="status">
               {problems} {problems === 1 ? "problem" : "problems"} to fix
             </span>
           )}

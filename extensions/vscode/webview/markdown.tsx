@@ -89,7 +89,7 @@ function inline(t: Token, key: number): ComponentChild {
     }
     case "image":
       return (
-        <span key={key} class={css["md-image"]}>
+        <span key={key} class={css.md_image}>
           [image: {t.text === "" ? t.href : t.text}]
         </span>
       );
@@ -107,8 +107,8 @@ function Inline({ tokens }: { tokens: Token[] }): JSX.Element {
 
 function CodeBlock({ lang, text }: { lang: string | undefined; text: string }): JSX.Element {
   return (
-    <div class={css["md-code"]}>
-      <div class={css["md-code-head"]}>
+    <div class={css.md_code}>
+      <div class={css.md_code_head}>
         <span>{lang ?? ""}</span>
         <button class="icon-button" title="Copy" aria-label="Copy code" onClick={() => void navigator.clipboard.writeText(text)}>
           <Icon name="copy" />
@@ -137,7 +137,7 @@ function block(t: Token, key: number): ComponentChild {
       return (
         <div
           key={key}
-          class={cn(css["md-h"], t.depth === 1 ? css["md-h1"] : t.depth === 2 ? css["md-h2"] : undefined)}
+          class={cn(css.md_h, t.depth === 1 ? css.md_h1 : t.depth === 2 ? css.md_h2 : undefined)}
           role="heading"
           aria-level={Math.min(t.depth + 2, 6)}
         >
@@ -166,7 +166,7 @@ function block(t: Token, key: number): ComponentChild {
     }
     case "table":
       return (
-        <div key={key} class={css["md-table"]}>
+        <div key={key} class={css.md_table}>
           <table>
             <thead>
               <tr>

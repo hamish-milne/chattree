@@ -80,7 +80,7 @@ function Control({ form, field }: { form: Form; field: Field }): JSX.Element | n
         />
       );
     case "raw":
-      return <pre class={css["form-raw"]}>{JSON.stringify(field.value, null, 2)}</pre>;
+      return <pre class={css.form_raw}>{JSON.stringify(field.value, null, 2)}</pre>;
     default:
       return null;
   }
@@ -90,9 +90,9 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
   const id = idOf(field.path);
   if (field.kind === "group") {
     return (
-      <fieldset class={css["form-group"]}>
+      <fieldset class={css.form_group}>
         <legend>{field.key}</legend>
-        {field.description !== undefined && <p class={css["form-help"]}>{field.description}</p>}
+        {field.description !== undefined && <p class={css.form_help}>{field.description}</p>}
         <Fields form={form} fields={field.fields} />
         <Issues id={id} issues={field.issues} />
       </fieldset>
@@ -100,11 +100,11 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
   }
   if (field.kind === "map") {
     return (
-      <fieldset class={css["form-group"]}>
+      <fieldset class={css.form_group}>
         <legend>{field.key}</legend>
-        {field.description !== undefined && <p class={css["form-help"]}>{field.description}</p>}
+        {field.description !== undefined && <p class={css.form_help}>{field.description}</p>}
         {field.entries.map((e) => (
-          <fieldset key={e.key} class={cn(css["form-group"], css.entry)}>
+          <fieldset key={e.key} class={cn(css.form_group, css.entry)}>
             <legend>
               {e.key}
               <button
@@ -124,10 +124,10 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
     );
   }
   return (
-    <div class={cn(css["form-field"], pick(css, `kind-${field.kind}`))}>
+    <div class={cn(css.form_field, pick(css, `kind_${field.kind}`))}>
       <label for={id}>{field.key}</label>
       <Control form={form} field={field} />
-      {field.description !== undefined && <p class={css["form-help"]}>{field.description}</p>}
+      {field.description !== undefined && <p class={css.form_help}>{field.description}</p>}
       <Issues id={id} issues={field.issues} />
     </div>
   );
@@ -136,7 +136,7 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
 function Issues({ id, issues }: { id: string; issues: string[] }): JSX.Element | null {
   if (issues.length === 0) return null;
   return (
-    <p class={css["form-issues"]} id={`${id}-issues`} role="alert">
+    <p class={css.form_issues} id={`${id}-issues`} role="alert">
       {issues.join("; ")}
     </p>
   );
@@ -165,12 +165,12 @@ export function FormView({ form }: { form: Form }): JSX.Element {
       }}
     >
       {tree.unplaced.length > 0 && (
-        <p class={css["form-issues"]} role="alert">
+        <p class={css.form_issues} role="alert">
           {tree.unplaced.map((i) => (i.path === "" ? i.message : `${i.path} ${i.message}`)).join("; ")}
         </p>
       )}
       <Fields form={form} fields={tree.fields} />
-      <div class={css["form-buttons"]}>
+      <div class={css.form_buttons}>
         <button
           type="submit"
           class="primary"

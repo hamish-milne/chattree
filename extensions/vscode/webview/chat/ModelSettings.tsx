@@ -12,9 +12,9 @@ export function ModelSettings({ model }: { model: Model }): JSX.Element | null {
   const choice = model.models.value;
   const form = model.settings.value;
   return (
-    <section class={css["model-settings"]} id="model-settings" aria-label="Model settings">
+    <section class={css.model_settings} id="model-settings" aria-label="Model settings">
       {choice !== undefined && (
-        <div class={formCss["form-field"]}>
+        <div class={formCss.form_field}>
           <label for="model-select">Model</label>
           <select id="model-select" value={choice.current} onChange={(e) => model.chooseModel(e.currentTarget.value)}>
             {choice.options.map((o) => (
@@ -23,7 +23,7 @@ export function ModelSettings({ model }: { model: Model }): JSX.Element | null {
               </option>
             ))}
           </select>
-          <p class={formCss["form-help"]}>
+          <p class={formCss.form_help}>
             Changing the model starts using it from the next request. Both changes are recorded on the thread.
           </p>
         </div>

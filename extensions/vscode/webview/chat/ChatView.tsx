@@ -69,7 +69,7 @@ function Transcript({ model }: { model: Model }): JSX.Element {
     setStuck(true);
   };
   return (
-    <div class={css["transcript-wrap"]}>
+    <div class={css.transcript_wrap}>
       <div
         class={css.transcript}
         ref={scroller}
@@ -79,7 +79,7 @@ function Transcript({ model }: { model: Model }): JSX.Element {
         tabIndex={0}
         onScroll={(e) => setStuck(e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 48)}
       >
-        <div class={css["transcript-inner"]}>
+        <div class={css.transcript_inner}>
           {blocks.length === 0 && <p class={css.empty}>Nothing here yet. Say something below.</p>}
           {items(blocks).map((item) =>
             "tools" in item ? (
@@ -102,22 +102,22 @@ function Transcript({ model }: { model: Model }): JSX.Element {
 export function ChatView({ model, config }: { model: Model; config: InstanceType<typeof ConfigModel> }): JSX.Element {
   const thread = model.thread.value;
   const editing = config.open.value;
-  if (thread === undefined && !editing) return <div class={cn(css.chat, css["chat-empty"])}>Pick a thread in the graph to chat in it.</div>;
+  if (thread === undefined && !editing) return <div class={cn(css.chat, css.chat_empty)}>Pick a thread in the graph to chat in it.</div>;
   return (
     <div class={css.chat}>
-      <header class={css["chat-head"]}>
+      <header class={css.chat_head}>
         {editing ? (
           <>
             <button class="icon-button" title="Back to the chat" aria-label="Back to the chat" onClick={() => config.close()}>
               <Icon name="back" />
             </button>
-            <span class={css["chat-title"]}>Thread settings</span>
+            <span class={css.chat_title}>Thread settings</span>
             <span class="spacer" />
           </>
         ) : (
           <>
-            <span class={css["chat-title"]}>{thread?.title ?? thread?.name}</span>
-            <span class={cn(css["thread-name"], thread !== undefined && pick(css, `kind-${thread.kind}`))}>{thread?.name}</span>
+            <span class={css.chat_title}>{thread?.title ?? thread?.name}</span>
+            <span class={cn(css.thread_name, thread !== undefined && pick(css, `kind_${thread.kind}`))}>{thread?.name}</span>
             <span class="spacer" />
           </>
         )}
@@ -129,7 +129,7 @@ export function ChatView({ model, config }: { model: Model; config: InstanceType
           onClick={() => config.toggle()}
         >
           <Icon name="gear" />
-          {config.dirty.value && <span class={css["unsaved-dot"]} aria-label="Unsaved changes" />}
+          {config.dirty.value && <span class={css.unsaved_dot} aria-label="Unsaved changes" />}
         </button>
       </header>
       {editing ? (
