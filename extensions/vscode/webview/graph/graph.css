@@ -190,6 +190,14 @@ button.chevron:focus-visible {
   color: var(--vscode-sideBar-foreground, var(--vscode-foreground));
   background: color-mix(in srgb, var(--c) 18%, transparent);
 }
+.pill-checkout {
+  display: inline-flex;
+  flex: none;
+}
+.pill.checked-out {
+  border-width: 2px;
+  padding-left: 5px;
+}
 .pill.merged {
   opacity: 0.6;
   border-style: dashed;
@@ -390,4 +398,21 @@ button.chevron:focus-visible {
 .dialog-buttons button:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
   outline-offset: 2px;
+}
+
+.dialog-files {
+  margin: 0 0 8px;
+  padding-left: 18px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+}
+.dialog-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 4px 0 10px;
+  font-size: 12px;
+}
+.dialog-buttons .primary {
+  padding: 4px 12px;
 }

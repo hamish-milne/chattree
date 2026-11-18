@@ -63,6 +63,12 @@ const PATHS = {
       <circle cx="8" cy="8" r="2.1" />
     </>
   ),
+  checkout: (
+    <>
+      <rect x="2.5" y="3" width="11" height="7.5" rx="1" />
+      <path d="M6 13.5h4M8 10.5v3" />
+    </>
+  ),
   back: <path d="M13 8H3.5M7.5 3.5 3 8l4.5 4.5" />,
   trash: <path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" />,
 } as const;

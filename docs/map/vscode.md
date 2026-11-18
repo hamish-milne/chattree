@@ -12,7 +12,7 @@ Each directory has its own `tsconfig.json`, because each runs in a different pla
 
 | Path | Role |
 |---|---|
-| `webview/` | The views (Preact). A view takes a model from `ui/model` and draws it; it keeps no state of its own and talks to nothing but its model. `webview/graph/` is the thread graph; `webview/config/` is the settings sheet: common choices as buttons and labelled inputs (provider cards with a connection check, limits, compaction), granular settings as dense tables (approvals with expiry, MCP servers, subagent models grouped by provider with a switch each, reminder rules, instruction files). |
+| `webview/` | The views (Preact). A view takes a model from `ui/model` and draws it; it keeps no state of its own and talks to nothing but its model. `webview/graph/` is the thread graph (the checked-out thread is marked with a monitor icon; the context menu can switch the workspace to a thread, asking what to do with uncommitted files); `webview/config/` is the settings sheet: common choices as buttons and labelled inputs (provider cards with a connection check, limits, compaction), granular settings as dense tables (approvals with expiry, MCP servers, subagent models grouped by provider with a switch each, reminder rules, instruction files). |
 | `preview/` | The browser preview: the views over a mock controller in a frame that stands in for VS Code, with a Dark+/Light+ theme switch (`themes.css` defines the `--vscode-*` variables VS Code would), a width slider and a log of the intents a view sends. Not shipped. |
 | `tools/` | `build-preview.mts` bundles the preview with esbuild into `dist/preview/`; `serve-preview.mts` serves it on `127.0.0.1`. `.mts` because the package itself is CommonJS (the extension's output must be). |
 

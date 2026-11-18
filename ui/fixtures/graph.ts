@@ -131,7 +131,7 @@ export function graphFixture(): GraphData {
   return {
     trunk: m,
     threads: [
-      status(m, "idle", { title: "Add retry with backoff", model: "Claude Sonnet 5.5" }, "main"),
+      status(m, "idle", { title: "Add retry with backoff", model: "Claude Sonnet 5.5", checkedOut: true }, "main"),
       status(s, "idle", {
         title: "SQLite cache",
         model: "Claude Sonnet 5.5",
@@ -197,6 +197,7 @@ export function docsGraphFixture(): GraphData {
         tip: tip(m),
         title: "Migration guide",
         model: "Claude Sonnet 5.5",
+        checkedOut: true,
       },
       {
         name: f,

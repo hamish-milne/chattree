@@ -416,3 +416,55 @@ describe("the mock controller, with the models on top of it", () => {
     assert.ok(saved?.type === "notice" && saved.level === "info" && /committed/.test(saved.message));
   });
 });
+
+describe("the mock switches the workspace", () => {
+  const rig = () => {
+    const events: UiEvent[] = [];
+    const graph = new GraphModel((i) => controller.handle(i));
+    const controller: MockController = new MockController({
+      emit: (e) => {
+        events.push(e);
+        graph.apply(e);
+      },
+      sleep: async () => {},
+    });
+    controller.handle({ type: "ready", view: "graph" });
+    return { events, graph, controller };
+  };
+  const checkedOut = (g: InstanceType<typeof GraphModel>): string[] =>
+    (g.data.value?.threads ?? []).filter((t) => t.checkedOut === true).map((t) => t.name);
+
+  test("changes made by hand are asked about first; yes snapshots them on the thread they were on, then switches", () => {
+    const { graph, controller, events } = rig();
+    controller.handle({ type: "workspace.switch", thread: THREADS.old });
+    assert.deepEqual(checkedOut(graph), ["main"], "nothing moved yet");
+    assert.deepEqual(graph.switching.value?.files, ["src/http.ts", "notes.md"]);
+    controller.handle({ type: "workspace.switch", thread: THREADS.old, uncommitted: "snapshot" });
+    assert.deepEqual(checkedOut(graph), [THREADS.old]);
+    const snap = graph.data.value?.commits.findLast((c) => c.thread === "main");
+    assert.match(snap?.summary ?? "", /snapshot: 2 uncommitted files/);
+    // Back again: nothing is uncommitted now, so nothing is asked.
+    events.length = 0;
+    controller.handle({ type: "workspace.switch", thread: "main" });
+    assert.deepEqual(checkedOut(graph), ["main"]);
+    assert.equal(
+      events.some((e) => e.type === "workspace.uncommitted"),
+      false,
+    );
+  });
+
+  test("remembering the choice stops the question being asked again", () => {
+    const { graph, controller, events } = rig();
+    controller.handle({ type: "workspace.switch", thread: THREADS.old, uncommitted: "snapshot", remember: true });
+    assert.deepEqual(checkedOut(graph), [THREADS.old]);
+    assert.ok(events.some((e) => e.type === "notice" && /without asking/.test(e.message)));
+  });
+
+  test("a thread that is working cannot be switched to", () => {
+    const { graph, controller, events } = rig();
+    controller.handle({ type: "workspace.switch", thread: THREADS.lint });
+    assert.deepEqual(checkedOut(graph), ["main"]);
+    const note = events.findLast((e) => e.type === "notice");
+    assert.ok(note?.type === "notice" && note.level === "warning" && /answer/.test(note.message));
+  });
+});

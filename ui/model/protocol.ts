@@ -26,6 +26,11 @@ export const event = Type.Union([
   /** The repositories of the workspace and which one the graph shows. */
   ev("graph.repos", { repos: repoList }),
   ev("graph.data", { data: graphData }),
+  /**
+   * Switching the workspace to a thread would leave files the person changed by hand in the project folder: ask what to
+   * do with them. The answer is another `workspace.switch` carrying `uncommitted`.
+   */
+  ev("workspace.uncommitted", { thread: name, from: name, files: Type.Array(Type.String()) }),
   /** A thread started or stopped working. */
   ev("graph.status", { thread: name, status: Type.Enum(THREAD_STATUSES) }),
   /** The thread the graph highlights as open in the chat. */
@@ -77,6 +82,12 @@ export const intent = Type.Union([
   /** Take `thread` back to `commit`; the old tip is kept under a ref (the conversation's own rewind). */
   ev("thread.rewind", { thread: name, commit: hash }),
   ev("thread.merge", { from: name, into: name }),
+  /**
+   * Check `thread` out in the project folder, in place of the thread that is there. Both must be idle. `uncommitted`
+   * says what to do with changes the person made by hand: `snapshot` commits them to the thread they are on (the
+   * only choice there is, as nothing is thrown away); `remember` makes that the setting from now on.
+   */
+  ev("workspace.switch", { thread: name, uncommitted: Type.Optional(Type.Literal("snapshot")), remember: Type.Optional(Type.Boolean()) }),
   ev("chat.send", { text: Type.String(), queued: Type.Optional(Type.Boolean()) }),
   ev("chat.stop", {}),
   ev("chat.draft", { text: Type.String() }),

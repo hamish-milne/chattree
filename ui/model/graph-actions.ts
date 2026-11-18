@@ -5,7 +5,7 @@
 import type { GraphData, GraphThread } from "./graph.ts";
 
 export interface GraphAction {
-  id: "open" | "fork" | "rewind" | "merge" | "copy" | "delete";
+  id: "open" | "fork" | "rewind" | "merge" | "switch" | "copy" | "delete";
   label: string;
   /** A divider is drawn above it: it starts a new group of actions. */
   separator?: boolean;
@@ -50,6 +50,13 @@ export function actionsFor(data: GraphData, commitHash: string): GraphAction[] {
       ...(reason === undefined ? {} : { reason }),
     });
   }
+  const sw = canSwitch(data, thread.name);
+  actions.push({
+    id: "switch",
+    label: "Switch workspace to this thread",
+    enabled: sw.ok,
+    ...(sw.reason === undefined ? {} : { reason: sw.reason }),
+  });
   const doomed = thread.name === data.trunk ? "the trunk cannot be deleted" : busy;
   actions.push(
     { id: "copy", label: "Copy commit hash", enabled: true, separator: true },
@@ -115,6 +122,21 @@ export interface Verdict {
 }
 
 const no = (reason: string): Verdict => ({ ok: false, reason });
+
+/**
+ * Whether the project folder can be switched to this thread: it must not be the one there already, and neither it nor the
+ * thread there may be working (their files are being changed, or their lock held by another window).
+ */
+export function canSwitch(data: GraphData, name: string): Verdict {
+  const target = data.threads.find((x) => x.name === name);
+  if (target === undefined) return no("no such thread");
+  if (target.checkedOut === true) return no("already checked out in your workspace");
+  const busy = busyReason(target);
+  if (busy !== undefined) return no(busy);
+  const current = data.threads.find((x) => x.checkedOut === true);
+  const currentBusy = current === undefined ? undefined : busyReason(current);
+  return currentBusy === undefined ? { ok: true } : no(`${current?.name ?? "the checked-out thread"}: ${currentBusy}`);
+}
 
 /** Whether a thread can be picked up and dragged to be merged: the trunk is merged into nothing, and a busy thread is not changed. */
 export function canDragThread(data: GraphData, name: string): Verdict {

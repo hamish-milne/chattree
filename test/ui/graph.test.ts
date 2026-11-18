@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { THREADS, graphFixture } from "../../ui/fixtures/graph.ts";
 import type { GraphData } from "../../ui/model/graph.ts";
-import { actionsFor, canDragThread, canDropOn, deleteDialog, deletionImpact } from "../../ui/model/graph-actions.ts";
+import { actionsFor, canDragThread, canSwitch, canDropOn, deleteDialog, deletionImpact } from "../../ui/model/graph-actions.ts";
 import { GraphModel } from "../../ui/model/graph-model.ts";
 import { layoutGraph, type FoldRow } from "../../ui/model/graph-layout.ts";
 import type { UiIntent } from "../../ui/model/protocol.ts";
@@ -160,6 +160,7 @@ describe("the graph model", () => {
         ["fork", true],
         ["rewind", false],
         ["merge", true],
+        ["switch", true],
         ["copy", true],
         ["delete", true],
       ],
@@ -345,5 +346,54 @@ describe("copy, delete and the repository picker", () => {
     g.toggleRepoMenu();
     g.selectRepo("b");
     assert.deepEqual(sent, [{ type: "repo.select", id: "b" }]);
+  });
+});
+
+describe("switching the workspace to a thread", () => {
+  const data = graphFixture();
+
+  test("exactly one thread is checked out, and the graph says which", () => {
+    assert.deepEqual(
+      data.threads.filter((t) => t.checkedOut === true).map((t) => t.name),
+      [data.trunk],
+    );
+  });
+
+  test("it is allowed between idle threads, and refused with the reason otherwise", () => {
+    assert.deepEqual(canSwitch(data, THREADS.old), { ok: true });
+    assert.match(canSwitch(data, data.trunk).reason ?? "", /already checked out/);
+    assert.match(canSwitch(data, THREADS.lint).reason ?? "", /answer/, "the target is waiting for the person");
+    assert.match(canSwitch(data, "nope").reason ?? "", /no such thread/);
+    const busyHere: GraphData = { ...data, threads: data.threads.map((t) => (t.checkedOut === true ? { ...t, status: "running" } : t)) };
+    assert.match(canSwitch(busyHere, THREADS.old).reason ?? "", /main: stop the thread first/, "the thread being left counts too");
+  });
+
+  test("the menu offers it on every commit of another thread, and sends the intent", () => {
+    const sent: UiIntent[] = [];
+    const g = new GraphModel((i) => sent.push(i));
+    g.apply({ type: "graph.data", data });
+    const c = data.commits.find((x) => x.thread === THREADS.old);
+    assert.ok(c);
+    g.act("switch", c.hash);
+    assert.deepEqual(sent, [{ type: "workspace.switch", thread: THREADS.old }]);
+    sent.length = 0;
+    const onTrunk = data.commits.find((x) => x.thread === data.trunk);
+    assert.ok(onTrunk);
+    g.act("switch", onTrunk.hash);
+    assert.deepEqual(sent, [], "already there: nothing is sent");
+  });
+
+  test("the question about uncommitted files is shown, and the answer carries the choice to remember it", () => {
+    const sent: UiIntent[] = [];
+    const g = new GraphModel((i) => sent.push(i));
+    g.apply({ type: "workspace.uncommitted", thread: "idea", from: "main", files: ["a.ts", "b.ts"] });
+    assert.deepEqual(g.switching.value, { thread: "idea", from: "main", files: ["a.ts", "b.ts"] });
+    g.cancelSwitch();
+    assert.equal(g.switching.value, undefined);
+    assert.deepEqual(sent, []);
+    g.apply({ type: "workspace.uncommitted", thread: "idea", from: "main", files: ["a.ts"] });
+    g.confirmSwitch(true);
+    assert.deepEqual(sent, [{ type: "workspace.switch", thread: "idea", uncommitted: "snapshot", remember: true }]);
+    assert.equal(g.switching.value, undefined);
   });
 });

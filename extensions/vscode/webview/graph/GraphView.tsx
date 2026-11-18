@@ -9,7 +9,7 @@ import type { GraphEdge, GraphRow } from "chattree/ui/model/graph-layout";
 import type { GraphThread, ThreadStatus } from "chattree/ui/model/graph";
 import type { GraphModel } from "chattree/ui/model/graph-model";
 import { Icon } from "../icons.tsx";
-import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { ConfirmDialog, SwitchDialog } from "./ConfirmDialog.tsx";
 import { RepoPicker } from "./RepoPicker.tsx";
 
 type Model = InstanceType<typeof GraphModel>;
@@ -112,10 +112,22 @@ function Status({ status }: { status: ThreadStatus }): JSX.Element | null {
 function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.Element {
   return (
     <span
-      class={`pill${thread.merged === true ? " merged" : ""}`}
+      class={`pill${thread.merged === true ? " merged" : ""}${thread.checkedOut === true ? " checked-out" : ""}`}
       style={{ "--c": color }}
-      title={[thread.title, thread.model, thread.merged === true ? "merged" : undefined].filter(Boolean).join(" · ")}
+      title={[
+        thread.title,
+        thread.model,
+        thread.merged === true ? "merged" : undefined,
+        thread.checkedOut === true ? "checked out in your workspace" : undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ")}
     >
+      {thread.checkedOut === true && (
+        <span class="pill-checkout" role="img" aria-label="Checked out in your workspace">
+          <Icon name="checkout" size={11} />
+        </span>
+      )}
       <span class="pill-name">{thread.name}</span>
       <Status status={thread.status} />
     </span>
@@ -374,6 +386,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
         </>
       )}
       <ConfirmDialog model={model} />
+      <SwitchDialog model={model} />
     </div>
   );
 }

@@ -15,6 +15,7 @@ import { canDragThread, canDropOn } from "../model/graph-actions.ts";
 import { chatFixture } from "./chat.ts";
 import { configFixture } from "./config.ts";
 import { WORKSPACE_FILES, instructionsFixture, mockProviderCheck, withFound } from "./mock-settings.ts";
+import { canSwitch } from "../model/graph-actions.ts";
 import type { InstructionState } from "../model/settings.ts";
 import { THREADS, docsGraphFixture, graphFixture } from "./graph.ts";
 import { validateMock } from "./mock-validate.ts";
@@ -77,7 +78,11 @@ export class MockController {
   private aborted = false;
   private answer: ((allow: boolean) => void) | undefined;
   /** The thread checked out in the project folder; the others have worktrees of their own (or none, once merged). */
-  private readonly checkedOut: string = THREADS.main;
+  private checkedOut: string = THREADS.main;
+  /** Files the person changed by hand in the project folder, not yet in any commit. */
+  private dirty: string[] = ["src/http.ts", "notes.md"];
+  /** The extension setting `chattree.switch.uncommittedChanges`: snapshot without asking. */
+  private alwaysSnapshot = false;
   private instructions: InstructionState = withFound(instructionsFixture());
   private readonly tasks = new Set<Promise<void>>();
   private readonly queue: { thread: string; block: string; text: string }[] = [];
@@ -206,6 +211,9 @@ export class MockController {
           (files) => files.map((f) => (f.path === intent.path ? { ...f, on: intent.on } : f)),
           `${intent.on ? "Turned on" : "Turned off"} ${intent.path}`,
         );
+        return;
+      case "workspace.switch":
+        this.switchWorkspace(intent.thread, intent.uncommitted, intent.remember === true);
         return;
       case "file.open": {
         const where = `${intent.path}${intent.line === undefined ? "" : `:${intent.line}${intent.endLine === undefined ? "" : `-${intent.endLine}`}`}`;
@@ -897,6 +905,38 @@ export class MockController {
   private textOf(thread: string, id: string): string {
     const b = this.chat(thread).blocks.find((x) => x.id === id);
     return b?.type === "assistant" ? b.markdown : b?.type === "reasoning" ? b.text : "";
+  }
+
+  // ---- workspace -----------------------------------------------------------------------------------------------
+
+  /** Check a thread out in the project folder, keeping whatever the person changed by hand as a snapshot on the thread it was on. */
+  private switchWorkspace(thread: string, uncommitted: "snapshot" | undefined, remember: boolean): void {
+    const verdict = canSwitch(this.graph, thread);
+    if (!verdict.ok) return this.notify("warning", `Cannot switch to ${thread}: ${verdict.reason ?? "not allowed"}`);
+    const from = this.checkedOut;
+    if (this.dirty.length > 0 && uncommitted === undefined && !this.alwaysSnapshot) {
+      this.emit({ type: "workspace.uncommitted", thread, from, files: this.dirty });
+      return;
+    }
+    if (remember) {
+      this.alwaysSnapshot = true;
+      this.notify("info", "From now on changes are saved as a snapshot without asking (setting: chattree.switch.uncommittedChanges)");
+    }
+    if (this.dirty.length > 0) {
+      this.commit(
+        from,
+        "other",
+        `snapshot: ${this.dirty.length} uncommitted ${this.dirty.length === 1 ? "file" : "files"} in the workspace`,
+      );
+      this.dirty = [];
+    }
+    this.checkedOut = thread;
+    this.graph.threads = this.graph.threads.map((t) => {
+      const { checkedOut: _was, ...rest } = t;
+      return t.name === thread ? { ...rest, checkedOut: true } : rest;
+    });
+    this.publish(from);
+    this.notify("info", `Your workspace is now on ${thread}`);
   }
 
   // ---- settings sheet ------------------------------------------------------------------------------------------

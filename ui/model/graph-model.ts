@@ -32,6 +32,8 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
   const repoMenuOpen = signal(false);
   /** The thread whose deletion is waiting for the person's yes. */
   const deleting = signal<string | undefined>(undefined);
+  /** A switch of the workspace waiting for an answer about the files changed by hand in the project folder. */
+  const switching = signal<{ thread: string; from: string; files: string[] } | undefined>(undefined);
   const confirmation = computed(() => {
     const name = deleting.value;
     const d = data.value;
@@ -71,6 +73,7 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     repoMenuOpen,
     deleting,
     confirmation,
+    switching,
     hover,
     drag,
     dropTarget,
@@ -87,6 +90,9 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
           data.value = e.data;
           // A thread that is gone cannot be waiting for a confirmation.
           if (deleting.peek() !== undefined && !e.data.threads.some((t) => t.name === deleting.peek())) deleting.value = undefined;
+          return true;
+        case "workspace.uncommitted":
+          switching.value = { thread: e.thread, from: e.from, files: e.files };
           return true;
         case "graph.status": {
           const d = data.value;
@@ -154,6 +160,7 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
       else if (id === "open") send({ type: "thread.open", thread, commit });
       else if (id === "fork") send({ type: "thread.fork", thread, commit });
       else if (id === "rewind") send({ type: "thread.rewind", thread, commit });
+      else if (id === "switch") send({ type: "workspace.switch", thread });
       else send({ type: "thread.merge", from: thread, into: d.trunk });
     },
     /** The person said yes to the confirmation: delete the thread. */
@@ -164,6 +171,16 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     },
     cancelDelete(): void {
       deleting.value = undefined;
+    },
+    /** The person chose to keep their changes (as a snapshot on the thread they are on) and switch; `remember` makes that the setting. */
+    confirmSwitch(remember: boolean): void {
+      const s = switching.peek();
+      switching.value = undefined;
+      if (s !== undefined)
+        send({ type: "workspace.switch", thread: s.thread, uncommitted: "snapshot", ...(remember ? { remember: true } : {}) });
+    },
+    cancelSwitch(): void {
+      switching.value = undefined;
     },
     toggleRepoMenu(): void {
       repoMenuOpen.value = !repoMenuOpen.peek();

@@ -53,6 +53,8 @@ export const graphThread = strictObject({
   model: Type.Optional(Type.String()),
   /** Where it was forked from. Absent for the main thread. */
   from: Type.Optional(hash),
+  /** This is the thread checked out in the project folder (exactly one thread has it): its files are the ones open in the editor. */
+  checkedOut: Type.Optional(Type.Boolean()),
   /** It has been merged back (a `fork_merge` or `subagent_result` entry exists). */
   merged: Type.Optional(Type.Boolean()),
 });
