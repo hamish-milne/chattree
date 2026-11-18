@@ -233,6 +233,24 @@ export function chatFixture(): ChatState {
     },
     {
       type: "tool",
+      id: "c7w",
+      commit: at(15),
+      name: "write",
+      summary: "write test/retry-notes.md",
+      args: JSON.stringify(
+        {
+          path: "test/retry-notes.md",
+          content:
+            "# Retry behaviour\n\n- GET, HEAD, PUT and DELETE retry up to 3 times.\n- POST never retries.\n- The delay doubles from 200 ms, capped at 5 s.\n",
+        },
+        null,
+        2,
+      ),
+      status: "ok",
+      result: { text: "wrote test/retry-notes.md (5 lines, version 3c2a9d10)", truncated: false, ms: 6 },
+    },
+    {
+      type: "tool",
       id: "c8",
       commit: at(16),
       name: "run",
