@@ -15,6 +15,7 @@ What the project depends on, why, and the policy for keeping it current. Reviewe
 | `marked` | extension | Renders assistant Markdown in the chat. Pinned exact | Added 2026-11-18. Output will be sanitised and shown under a strict content security policy. Used by `webview/markdown.tsx` |
 | `esbuild` | extension, dev | Bundles webviews and the extension; its install script is not run (`allowBuilds` in `pnpm-workspace.yaml`), the launcher works without it. Pinned exact | Added 2026-11-18. A VSIX has to be bundled; Node cannot run `.tsx` |
 | `playwright` | root, dev | Drives Chromium for the end-to-end journey (`test/e2e/`). Pinned exact; browsers are not downloaded by the install (`PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD`), the machine's own are used | Added 2026-11-18. Only a real browser tests the real bundle; nothing in `node:` drives one |
+| `ws` (+ `@types/ws`) | root, dev | The web host's WebSocket server (`ui/host/web-host.ts`); the page uses the browser's own. Pinned exact | Added 2026-11-18. Node has no WebSocket server; the host is test and development tooling, not shipped |
 | `@types/vscode` | extension, dev | Types for the VS Code extension API. Pinned exact | Added 2026-11-18. Types only. Not yet used |
 | `typescript` | dev | Typecheck only; Node runs the `.ts` files directly | Keep |
 | `@types/node` | dev | Node types for the tests | Stay on the major of the lowest supported Node (22, see `engines`); Dependabot ignores its major bumps |

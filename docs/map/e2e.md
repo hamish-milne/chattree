@@ -8,7 +8,7 @@
 
 | File | Role |
 |---|---|
-| `ui/host/web-host.ts` | A controller behind a loopback HTTP server: `/events` (server-sent events) and `/intent` (POST, validated with `parseIntent`). Plain HTTP rather than a websocket, so it needs no dependency. |
+| `ui/host/web-host.ts` | A controller behind a loopback HTTP server: the page's files, and one WebSocket (`/ws`, only from the page the host served) carrying events out and intents in (validated with `parseIntent`; a refused one comes back as an error `notice`). |
 | `extensions/vscode/web/` | The page: the real views, wired to the host. Built by `tools/build-web.mts`. |
 | `test/e2e/driver.ts` | `Driver`: click, right-click, type, expect visible or gone, read text, screenshot, by role and name, label or text. Never a class name or a position. |
 | `test/e2e/playwright-driver.ts` | The driver over a Playwright page. A second runner (VS Code's own webview) will implement the same interface. |

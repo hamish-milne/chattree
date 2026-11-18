@@ -1,7 +1,7 @@
 /**
  * The web client: the real views in a browser tab, talking to a controller over HTTP (`ui/host/web-host.ts`). The
  * layout is the preview's frame (a side bar of threads, the chat in a panel) without its mock controls. Events
- * arrive as server-sent events and intents are POSTed; nothing else is shared with the host.
+ * and intents are JSON messages on one WebSocket; nothing else is shared with the host.
  */
 import { render } from "preact";
 import "../preview/themes.css";
@@ -17,11 +17,8 @@ import { GraphView } from "../webview/graph/GraphView.tsx";
 
 const toasts = signal<{ level: string; message: string; id: number }[]>([]);
 
-const send = (intent: UiIntent): void => {
-  void fetch("/intent", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(intent) }).then((r) => {
-    if (!r.ok) void r.text().then((t) => show("error", `The host refused ${intent.type}: ${t}`));
-  });
-};
+const socket = new WebSocket(`ws://${location.host}/ws`);
+const send = (intent: UiIntent): void => socket.send(JSON.stringify(intent));
 const graph = new GraphModel(send);
 const chat = new ChatModel(send);
 const config = new ConfigModel(send);
@@ -32,12 +29,12 @@ function show(level: string, message: string): void {
   setTimeout(() => (toasts.value = toasts.value.filter((t) => t.id !== id)), 8000);
 }
 
-const events = new EventSource("/events");
-events.onopen = () => {
+socket.onopen = () => {
   send({ type: "ready", view: "graph" });
   send({ type: "ready", view: "chat" });
 };
-events.onmessage = (m: MessageEvent<string>) => {
+socket.onclose = () => show("error", "Lost the connection to the host");
+socket.onmessage = (m: MessageEvent<string>) => {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the host sends only validated events (the page does not re-check what its own host sent)
   const e = JSON.parse(m.data) as UiEvent;
   graph.apply(e);

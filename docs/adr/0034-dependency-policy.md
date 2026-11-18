@@ -16,6 +16,6 @@ The platform has most of what we need. `yaml` is the only library that keeps com
 
 ## Notes
 
-Dev-only: `playwright` (exact version, pinned in the lockfile) drives the end-to-end journey in Chromium; it adds no runtime dependency.
+Dev-only: `playwright` (drives the end-to-end journey in Chromium) and `ws` (the web host's WebSocket server), both exact versions; neither is a runtime dependency.
 
 Dependabot proposes weekly updates; GitHub Actions are referenced by major tag with the installs in one composite action.
