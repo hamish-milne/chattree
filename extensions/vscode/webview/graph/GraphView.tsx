@@ -4,6 +4,7 @@
  * the user's theme.
  */
 import type { JSX } from "preact";
+import { useRef, useState } from "preact/hooks";
 import type { GraphEdge, GraphRow } from "chattree/ui/model/graph-layout";
 import type { GraphThread, ThreadStatus } from "chattree/ui/model/graph";
 import type { GraphModel } from "chattree/ui/model/graph-model";
@@ -129,7 +130,14 @@ function labelOf(row: GraphRow): { text: string; dim: boolean; strong: boolean }
   };
 }
 
+/** How far the pointer goes with the button down before it is a drag and not a click. */
+const DRAG_THRESHOLD = 5;
+
 export function GraphView({ model }: { model: Model }): JSX.Element {
+  // A press on a row, until it is released or becomes a drag; and whether the click that follows a drag is to be ignored.
+  const press = useRef<{ x: number; y: number; commit: string } | undefined>(undefined);
+  const dragged = useRef(false);
+  const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const layout = model.layout.value;
   const data = model.data.value;
   if (layout === undefined || data === undefined) return <div class="graph-empty">No conversation yet.</div>;
@@ -137,6 +145,8 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
   const selected = model.selected.value;
   const lit = model.lit.value;
   const menu = model.menu.value;
+  const drag = model.drag.value;
+  const drop = model.dropTarget.value;
   const width = PAD * 2 + (layout.lanes - 1) * LANE;
   // The newest row of an expanded fold carries the way to collapse it.
   const collapsers = new Set<string>();
@@ -149,9 +159,15 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
   }
 
   const commitOf = (r: GraphRow): string => (r.type === "fold" ? (r.commits.at(-1)?.hash ?? r.id) : r.id);
-  const activate = (r: GraphRow): void => {
-    if (r.type === "fold") model.toggleFold(r.id);
-    else model.open(r.id);
+  const activate = (r: GraphRow): void => model.open(commitOf(r));
+  const endDrag = (e: PointerEvent & { currentTarget: HTMLElement }, release: boolean): void => {
+    press.current = undefined;
+    if (model.drag.peek() === undefined) return;
+    dragged.current = true;
+    setTimeout(() => (dragged.current = false), 0);
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+    if (release) model.drop();
+    else model.cancelDrag();
   };
   const move = (from: HTMLElement, delta: number): void => {
     const rows = [...(from.closest(".graph")?.querySelectorAll<HTMLElement>(".row") ?? [])];
@@ -160,22 +176,42 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
 
   return (
     <div
-      class="graph"
+      class={`graph${drag === undefined ? "" : " dragging"}`}
       role="list"
       aria-label="Threads"
       onKeyDown={(e) => {
-        if (e.key === "Escape") model.closeMenu();
+        if (e.key === "Escape") {
+          model.closeMenu();
+          model.cancelDrag();
+        }
       }}
+      onPointerMove={(e) => {
+        const p = press.current;
+        if (p !== undefined && model.drag.peek() === undefined) {
+          if (Math.hypot(e.clientX - p.x, e.clientY - p.y) < DRAG_THRESHOLD) return;
+          if (!model.startDrag(p.commit)) {
+            press.current = undefined;
+            return;
+          }
+          e.currentTarget.setPointerCapture(e.pointerId);
+        }
+        if (model.drag.peek() === undefined) return;
+        setPointer({ x: e.clientX, y: e.clientY });
+        const under = document.elementFromPoint(e.clientX, e.clientY)?.closest<HTMLElement>("[data-thread]");
+        model.dragOver(under?.dataset["thread"]);
+      }}
+      onPointerUp={(e) => endDrag(e, true)}
+      onPointerCancel={(e) => endDrag(e, false)}
     >
       <div class="graph-body" style={{ height: `${layout.rows.length * ROW}px` }}>
         {layout.rows.map((r, i) => {
-          const commit = commitOf(r);
           const isSelected = selected.thread === r.thread && r.tipOf !== undefined;
           const cls = [
             "row-bg",
             isSelected ? "selected" : "",
             lit.thread === r.thread ? "thread-lit" : "",
-            lit.commit === commit ? "commit-lit" : "",
+            drag?.thread === r.thread ? "drag-source" : "",
+            drop?.thread === r.thread ? (drop.ok ? "drop-ok" : "drop-no") : "",
           ];
           return (
             <div
@@ -201,13 +237,18 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
           return (
             <div
               key={r.id}
-              class={`row${r.type === "fold" ? " fold" : ""}${r.type === "commit" && r.foldId !== undefined ? " in-fold" : ""}`}
-              style={{ top: `${i * ROW}px`, paddingLeft: `${width + 16}px` }}
+              class={`row${r.type === "fold" ? " fold" : ""}${r.type === "commit" && r.foldId !== undefined ? " in-fold" : ""}${drag?.thread === r.thread ? " drag-source" : ""}${drop?.thread === r.thread && !drop.ok ? " no-drop" : ""}`}
+              data-thread={r.thread}
+              style={{ top: `${i * ROW}px`, paddingLeft: `${width + 20}px` }}
               role="listitem"
               tabIndex={i === 0 ? 0 : -1}
               aria-label={`${l.text}, thread ${r.thread}`}
-              aria-expanded={r.type === "fold" ? false : undefined}
-              onClick={() => activate(r)}
+              onPointerDown={(e) => {
+                if (e.button === 0) press.current = { x: e.clientX, y: e.clientY, commit };
+              }}
+              onClick={() => {
+                if (!dragged.current) activate(r);
+              }}
               onMouseEnter={() => model.setHover(commit)}
               onMouseLeave={() => model.setHover(undefined)}
               onContextMenu={(e) => {
@@ -221,6 +262,12 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
                 } else if (e.key === "Enter" || e.key === " ") {
                   e.preventDefault();
                   activate(r);
+                } else if (e.key === "ArrowRight" && r.type === "fold") {
+                  e.preventDefault();
+                  model.toggleFold(r.id);
+                } else if (e.key === "ArrowLeft" && r.type === "commit" && r.foldId !== undefined) {
+                  e.preventDefault();
+                  model.toggleFold(r.foldId);
                 } else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
                   e.preventDefault();
                   const box = e.currentTarget.getBoundingClientRect();
@@ -229,16 +276,31 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
               }}
             >
               {r.type === "fold" && (
-                <span class="chevron" style={{ left: `${width - 4}px` }} aria-hidden="true">
+                <button
+                  class="chevron"
+                  style={{ left: `${width - 4}px` }}
+                  tabIndex={-1}
+                  aria-expanded={false}
+                  aria-label={`Expand ${r.calls} tool call${r.calls === 1 ? "" : "s"}`}
+                  title="Expand tool calls"
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    model.toggleFold(r.id);
+                  }}
+                >
                   <Icon name="chevron" size={14} />
-                </span>
+                </button>
               )}
               {collapsers.has(r.id) && r.type === "commit" && r.foldId !== undefined && (
                 <button
                   class="chevron expanded"
                   style={{ left: `${width - 4}px` }}
+                  tabIndex={-1}
+                  aria-expanded={true}
                   aria-label="Collapse tool calls"
                   title="Collapse tool calls"
+                  onPointerDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     model.toggleFold(r.foldId ?? "");
@@ -254,6 +316,24 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
           );
         })}
       </div>
+      {drag !== undefined && (
+        <div
+          class={`drag-ghost${drop !== undefined && !drop.ok ? " refused" : ""}`}
+          style={{ left: `${pointer.x}px`, top: `${pointer.y}px` }}
+          aria-hidden="true"
+        >
+          <span class="pill" style={{ "--c": colorOf(layout.rows.find((r) => r.thread === drag.thread)?.lane ?? 0) }}>
+            <span class="pill-name">{drag.thread}</span>
+          </span>
+          <span class="drag-hint">
+            {drop === undefined
+              ? "Drop on a thread to merge"
+              : drop.ok
+                ? `Merge into ${drop.thread}`
+                : (drop.reason ?? "Cannot merge here")}
+          </span>
+        </div>
+      )}
       {menu !== undefined && (
         <>
           <div

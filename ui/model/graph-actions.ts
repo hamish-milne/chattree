@@ -50,3 +50,32 @@ export function actionsFor(data: GraphData, commitHash: string): GraphAction[] {
   }
   return actions;
 }
+
+/** Whether something may be done, and if not, why. */
+export interface Verdict {
+  ok: boolean;
+  reason?: string;
+}
+
+const no = (reason: string): Verdict => ({ ok: false, reason });
+
+/** Whether a thread can be picked up and dragged to be merged: the trunk is merged into nothing, and a busy thread is not changed. */
+export function canDragThread(data: GraphData, name: string): Verdict {
+  const t = data.threads.find((x) => x.name === name);
+  if (t === undefined) return no("no such thread");
+  if (t.name === data.trunk) return no(`${t.name} is the trunk; drag a fork onto it instead`);
+  if (t.merged === true) return no("already merged");
+  const busy = busyReason(t);
+  return busy === undefined ? { ok: true } : no(busy);
+}
+
+/** Whether the dragged thread can be dropped on `into` to merge into it. */
+export function canDropOn(data: GraphData, from: string, into: string): Verdict {
+  const target = data.threads.find((x) => x.name === into);
+  if (target === undefined) return no("no such thread");
+  if (from === into) return no("a thread cannot be merged into itself");
+  if (target.merged === true) return no(`${into} is already merged`);
+  const busy = busyReason(target);
+  if (busy !== undefined) return no(`${into}: ${busy}`);
+  return { ok: true };
+}

@@ -286,6 +286,19 @@ describe("the mock controller, with the models on top of it", () => {
     assert.ok(!chat.blocks.value.some((b) => b.type === "user" && b.text === "do something else"));
   });
 
+  test("dragging a fork onto the trunk merges it, and the trunk's chat and the graph show the merge", async () => {
+    const { graph, controller } = rig();
+    const before = graph.data.value?.commits.length ?? 0;
+    const tip = graph.data.value?.threads.find((t) => t.name === THREADS.old)?.tip ?? "";
+    assert.ok(graph.startDrag(tip));
+    graph.dragOver(graph.data.value?.trunk);
+    assert.ok(graph.drop());
+    await controller.idle();
+    assert.equal(graph.data.value?.commits.length, before + 1);
+    assert.equal(graph.data.value?.threads.find((t) => t.name === THREADS.old)?.merged, true);
+    assert.equal(graph.data.value?.commits.find((c) => c.kind === "fork_merge" && c.summary.includes("undici")) !== undefined, true);
+  });
+
   test("a thread that others were forked from cannot be rewound past them, and says why", () => {
     const { chat, events } = rig();
     const early = chat.blocks.value.find((b) => b.type === "assistant" && b.commit !== undefined);

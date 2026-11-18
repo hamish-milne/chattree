@@ -11,6 +11,7 @@ import type { GraphCommit, GraphData, GraphKind, ThreadStatus } from "../model/g
 import type { FormSpec } from "../model/form.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
 import type { Block } from "../model/transcript.ts";
+import { canDragThread, canDropOn } from "../model/graph-actions.ts";
 import { chatFixture } from "./chat.ts";
 import { configFixture } from "./config.ts";
 import { THREADS, graphFixture } from "./graph.ts";
@@ -382,7 +383,8 @@ export class MockController {
 
   private merge(from: string, into: string): void {
     const f = this.thread(from);
-    if (f.merged === true) return;
+    const refused = [canDragThread(this.graph, from), canDropOn(this.graph, from, into)].find((v) => !v.ok);
+    if (refused !== undefined) return this.notify("warning", `Cannot merge ${from} into ${into}: ${refused.reason ?? "not allowed"}`);
     this.commit(into, "fork_merge", `fork merged: ${f.title ?? from}`, { parents: [this.thread(into).tip, f.tip] });
     f.merged = true;
     this.emit({ type: "graph.data", data: structuredClone(this.graph) });

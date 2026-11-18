@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { THREADS, graphFixture } from "../../ui/fixtures/graph.ts";
 import type { GraphData } from "../../ui/model/graph.ts";
-import { actionsFor } from "../../ui/model/graph-actions.ts";
+import { actionsFor, canDragThread, canDropOn } from "../../ui/model/graph-actions.ts";
 import { GraphModel } from "../../ui/model/graph-model.ts";
 import { layoutGraph, type FoldRow } from "../../ui/model/graph-layout.ts";
 import type { UiIntent } from "../../ui/model/protocol.ts";
@@ -199,5 +199,60 @@ describe("what is lit in the graph", () => {
     assert.deepEqual(lit(), { commit: c.hash, thread: THREADS.lint }, "lit while the menu is open");
     g.closeMenu();
     assert.equal(lit().commit, undefined);
+  });
+});
+
+describe("dragging a thread to merge it", () => {
+  const make = () => {
+    const sent: UiIntent[] = [];
+    const g = new GraphModel((i) => sent.push(i));
+    g.apply({ type: "graph.data", data: graphFixture() });
+    const tip = (name: string): string => g.data.value?.threads.find((t) => t.name === name)?.tip ?? "";
+    return { g, sent, tip };
+  };
+
+  test("the trunk, a merged thread and a busy one cannot be picked up, and the reason says why", () => {
+    const { g } = make();
+    const data = graphFixture();
+    assert.match(canDragThread(data, data.trunk).reason ?? "", /trunk/);
+    const merged = data.threads.find((t) => t.merged === true);
+    assert.ok(merged);
+    assert.match(canDragThread(data, merged.name).reason ?? "", /merged/);
+    assert.match(canDragThread(data, THREADS.lint).reason ?? "", /answer/);
+    assert.equal(canDragThread(data, THREADS.old).ok, true);
+    assert.equal(g.startDrag(graphFixture().commits.find((c) => c.thread === THREADS.lint)?.hash ?? ""), false);
+    assert.equal(g.drag.value, undefined);
+  });
+
+  test("a drop is allowed on another idle thread, not on itself, a merged or a busy thread", () => {
+    const data = graphFixture();
+    assert.equal(canDropOn(data, THREADS.old, data.trunk).ok, true);
+    assert.equal(canDropOn(data, THREADS.old, THREADS.old).ok, false);
+    assert.match(canDropOn(data, THREADS.old, THREADS.lint).reason ?? "", /answer/);
+    const merged = data.threads.find((t) => t.merged === true);
+    assert.match(canDropOn(data, THREADS.old, merged?.name ?? "").reason ?? "", /already merged/);
+  });
+
+  test("dropping on a valid thread sends the merge; dropping elsewhere, or cancelling, sends nothing", () => {
+    const { g, sent, tip } = make();
+    assert.ok(g.startDrag(tip(THREADS.old)));
+    g.setHover(tip(THREADS.old));
+    assert.equal(g.lit.value.commit, undefined, "nothing is lit by the pointer while dragging");
+    g.dragOver(THREADS.lint);
+    assert.equal(g.dropTarget.value?.ok, false);
+    assert.equal(g.drop(), false);
+    assert.deepEqual(sent, []);
+    assert.equal(g.drag.value, undefined, "the drag ends either way");
+
+    assert.ok(g.startDrag(tip(THREADS.old)));
+    g.dragOver(g.data.value?.trunk);
+    assert.deepEqual(g.dropTarget.value, { thread: g.data.value?.trunk, ok: true });
+    assert.equal(g.drop(), true);
+    assert.deepEqual(sent, [{ type: "thread.merge", from: THREADS.old, into: g.data.value?.trunk }]);
+
+    assert.ok(g.startDrag(tip(THREADS.old)));
+    g.cancelDrag();
+    assert.equal(g.drop(), false);
+    assert.equal(sent.length, 1);
   });
 });

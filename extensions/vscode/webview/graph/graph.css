@@ -35,16 +35,57 @@
   height: 24px;
   pointer-events: none;
 }
-/* The thread the pointer is on: what a click would select. */
+/* The thread the pointer is on: what a click would select. The commit itself (what the menu and the jump into the chat
+   apply to) is shown by a halo on its node, which stays while the menu is open. */
 .row-bg.thread-lit {
-  background: color-mix(in srgb, var(--c) 13%, transparent);
-}
-/* The commit itself: what the menu and the jump to the chat apply to. It stays while the menu is open. */
-.row-bg.commit-lit {
-  background-image: linear-gradient(var(--vscode-list-hoverBackground), var(--vscode-list-hoverBackground));
+  background: var(--vscode-list-hoverBackground);
 }
 .row-bg.selected {
   background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+/* Dragging a thread to merge it. */
+.graph.dragging,
+.graph.dragging .row {
+  cursor: grabbing;
+}
+.graph.dragging .row.no-drop {
+  cursor: not-allowed;
+}
+.row.drag-source {
+  opacity: 0.5;
+}
+.row-bg.drop-ok {
+  background: var(--vscode-list-dropBackground, color-mix(in srgb, var(--vscode-focusBorder) 25%, transparent));
+  box-shadow: inset 2px 0 0 var(--vscode-focusBorder);
+}
+.row-bg.drop-no {
+  background: color-mix(in srgb, var(--vscode-errorForeground) 10%, transparent);
+}
+.drag-ghost {
+  position: fixed;
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: max-content;
+  max-width: 280px;
+  margin: 12px 0 0 14px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--vscode-widget-border, var(--vscode-panel-border));
+  background: var(--vscode-editorWidget-background);
+  color: var(--vscode-editorWidget-foreground, var(--vscode-foreground));
+  box-shadow: 0 2px 8px var(--vscode-widget-shadow);
+  font-size: 12px;
+  pointer-events: none;
+}
+.drag-ghost .pill {
+  align-self: flex-start;
+  max-width: none;
+  white-space: nowrap;
+}
+.drag-ghost.refused .drag-hint {
+  color: var(--vscode-errorForeground);
 }
 .halo {
   opacity: 0.28;

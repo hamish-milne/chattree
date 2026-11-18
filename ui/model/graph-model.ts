@@ -6,7 +6,7 @@
 import { computed, createModel, signal } from "@preact/signals-core";
 import type { UiEvent, UiIntent } from "./protocol.ts";
 import type { GraphData } from "./graph.ts";
-import { actionsFor, type GraphAction } from "./graph-actions.ts";
+import { actionsFor, canDragThread, canDropOn, type GraphAction, type Verdict } from "./graph-actions.ts";
 import { layoutGraph } from "./graph-layout.ts";
 
 export interface OpenMenu {
@@ -17,11 +17,24 @@ export interface OpenMenu {
   y: number;
 }
 
+/** A thread being dragged to merge it, and the thread it is over. */
+export interface Drag {
+  thread: string;
+  over: string | undefined;
+}
+
 export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
   const data = signal<GraphData | undefined>(undefined);
   const expanded = signal<ReadonlySet<string>>(new Set());
   const selected = signal<{ thread: string | undefined; commit: string | undefined }>({ thread: undefined, commit: undefined });
   const menu = signal<OpenMenu | undefined>(undefined);
+  const drag = signal<Drag | undefined>(undefined);
+  /** The thread the drag is over and whether dropping there merges: what the view draws while dragging. */
+  const dropTarget = computed((): ({ thread: string } & Verdict) | undefined => {
+    const d = drag.value;
+    const g = data.value;
+    return d === undefined || d.over === undefined || g === undefined ? undefined : { thread: d.over, ...canDropOn(g, d.thread, d.over) };
+  });
   /** The commit under the pointer. */
   const hover = signal<string | undefined>(undefined);
   const layout = computed(() => (data.value === undefined ? undefined : layoutGraph(data.value, expanded.value)));
@@ -46,6 +59,8 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     selected,
     menu,
     hover,
+    drag,
+    dropTarget,
     lit,
     layout,
     menuActions,
@@ -68,7 +83,35 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
       }
     },
     setHover(commit: string | undefined): void {
-      hover.value = commit;
+      // While a thread is carried the pointer is not choosing a commit, so nothing is lit by it.
+      hover.value = drag.peek() === undefined ? commit : undefined;
+    },
+    /** Pick up the thread of a commit, if it can be merged; false when it cannot (the reason is `canDragThread`'s). */
+    startDrag(commit: string): boolean {
+      const d = data.peek();
+      const thread = threadOf(commit);
+      if (d === undefined || thread === undefined || !canDragThread(d, thread).ok) return false;
+      menu.value = undefined;
+      hover.value = undefined;
+      drag.value = { thread, over: undefined };
+      return true;
+    },
+    /** The thread the carried one is over (or none). */
+    dragOver(thread: string | undefined): void {
+      const d = drag.peek();
+      if (d !== undefined && d.over !== thread) drag.value = { ...d, over: thread };
+    },
+    /** Let go: merge into the thread under the pointer if that is allowed. True when a merge was asked for. */
+    drop(): boolean {
+      const d = drag.peek();
+      const g = data.peek();
+      drag.value = undefined;
+      if (d === undefined || d.over === undefined || g === undefined || !canDropOn(g, d.thread, d.over).ok) return false;
+      send({ type: "thread.merge", from: d.thread, into: d.over });
+      return true;
+    },
+    cancelDrag(): void {
+      drag.value = undefined;
     },
     toggleFold(id: string): void {
       const next = new Set(expanded.value);
