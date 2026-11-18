@@ -7,12 +7,38 @@ import type { JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import { Icon } from "../icons.tsx";
-import { BlockView } from "./blocks.tsx";
+import type { Block } from "chattree/ui/model/transcript";
+import { BlockView, ToolGroup } from "./blocks.tsx";
 import { Composer } from "./Composer.tsx";
 import { ModelSettings } from "./ModelSettings.tsx";
 import { StatusBar } from "./StatusBar.tsx";
 
 type Model = InstanceType<typeof ChatModel>;
+
+type Item = { key: string; block: Block } | { key: string; tools: Extract<Block, { type: "tool" }>[] };
+
+/** The blocks as the transcript draws them: runs of tool calls become one group. */
+function items(blocks: readonly Block[]): Item[] {
+  const out: Item[] = [];
+  for (const b of blocks) {
+    const last = out.at(-1);
+    if (b.type !== "tool") out.push({ key: b.id, block: b });
+    else if (last !== undefined && "tools" in last) last.tools.push(b);
+    else out.push({ key: b.id, tools: [b] });
+  }
+  return out;
+}
+
+/** Scroll the transcript (and only it) to a block and draw the eye to it for a moment. */
+function ping(scroller: HTMLElement, el: HTMLElement): void {
+  const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
+  scroller.scrollTo({ top: Math.max(0, top - (scroller.clientHeight - el.offsetHeight) / 2), behavior: reduce ? "auto" : "smooth" });
+  el.classList.remove("ping");
+  void el.offsetWidth;
+  el.classList.add("ping");
+  setTimeout(() => el.classList.remove("ping"), 1600);
+}
 
 function Transcript({ model }: { model: Model }): JSX.Element {
   const scroller = useRef<HTMLDivElement>(null);
@@ -22,6 +48,16 @@ function Transcript({ model }: { model: Model }): JSX.Element {
     const el = scroller.current;
     if (el !== null && stuck) el.scrollTop = el.scrollHeight;
   });
+  const reveal = model.reveal.value;
+  useLayoutEffect(() => {
+    if (reveal === undefined) return;
+    const sc = scroller.current;
+    // Several blocks can share a commit (a reply and its tool calls); the last is the one the commit ended at.
+    const el = sc === null ? undefined : [...sc.querySelectorAll<HTMLElement>(`[data-commit="${CSS.escape(reveal.commit)}"]`)].at(-1);
+    if (sc === null || el === undefined) return;
+    setStuck(false);
+    ping(sc, el);
+  }, [reveal]);
   const jump = (): void => {
     const el = scroller.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
@@ -40,9 +76,13 @@ function Transcript({ model }: { model: Model }): JSX.Element {
       >
         <div class="transcript-inner">
           {blocks.length === 0 && <p class="empty">Nothing here yet. Say something below.</p>}
-          {blocks.map((b) => (
-            <BlockView key={b.id} model={model} block={b} />
-          ))}
+          {items(blocks).map((item) =>
+            "tools" in item ? (
+              <ToolGroup key={item.key} model={model} blocks={item.tools} />
+            ) : (
+              <BlockView key={item.key} model={model} block={item.block} />
+            ),
+          )}
         </div>
       </div>
       {!stuck && (

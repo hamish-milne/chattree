@@ -26,6 +26,8 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   /** Blocks whose open state is the opposite of their default. */
   const toggled = signal<ReadonlySet<string>>(new Set());
   const settingsOpen = signal(false);
+  /** The block to scroll to and ping. `n` counts, so asking for the same commit again still shows. */
+  const reveal = signal<{ commit: string; n: number } | undefined>(undefined);
 
   const busy = computed(() => status.value?.state === "running" || status.value?.state === "awaiting");
   const canSend = computed(() => composer.value.draft.trim() !== "" || composer.value.attachments.length > 0);
@@ -48,6 +50,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     models,
     settings,
     settingsOpen,
+    reveal,
     busy,
     canSend,
     contextFraction,
@@ -65,6 +68,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
           settings.value = e.state.settings === undefined ? undefined : new FormModel(e.state.settings, send);
           toggled.value = new Set();
           settingsOpen.value = false;
+          reveal.value = undefined;
           return true;
         case "chat.append":
           blocks.value = [...blocks.value, ...e.blocks];
@@ -87,6 +91,9 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
           return true;
         case "chat.status":
           status.value = e.status;
+          return true;
+        case "chat.reveal":
+          reveal.value = { commit: e.commit, n: (reveal.peek()?.n ?? 0) + 1 };
           return true;
         case "chat.models":
           models.value = e.models;

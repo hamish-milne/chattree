@@ -7,7 +7,32 @@ import type { ChatState } from "../model/chat.ts";
 import type { Block } from "../model/transcript.ts";
 import { graphFixture, THREADS } from "./graph.ts";
 
-const edit = (path: string, from: string, to: string): string => JSON.stringify({ path, old: from, new: to }, null, 2);
+/** The rows of an edit result, as the edit tool writes them: removed lines, the line before, added lines, the line after. */
+const ctx = (n: number, t: string): string => `  ${n}\t${t}`;
+const add = (n: number, t: string): string => `+ ${n}\t${t}`;
+const del = (n: number, t: string): string => `- ${n}\t${t}`;
+const numbered = (first: number, lines: string[]): string => lines.map((t, i) => `${first + i}\t${t}`).join("\n");
+
+const RETRY = [
+  "  const max = init?.retries ?? 3;",
+  "  for (let attempt = 0; ; attempt++) {",
+  "    try {",
+  "      const res = await fetch(url, init);",
+  "      if (res.ok || attempt >= max) return res;",
+  "    } catch (err) {",
+  "      if (attempt >= max) throw err;",
+  "    }",
+  "    await sleep(Math.min(200 * 2 ** attempt, 5000));",
+  "  }",
+];
+const SIGNATURE = "export async function request(url: string, init?: RequestInit): Promise<Response> {";
+const TEST = ["import { test } from './harness.ts';", "import { request } from '../src/http.ts';"];
+const NEW_TESTS = [
+  "test('retries a 503', async () => {",
+  "  // fails the first two calls, then answers",
+  "});",
+  "test('does not retry POST', async () => {});",
+];
 
 export function chatFixture(): ChatState {
   const graph = graphFixture();
@@ -48,12 +73,12 @@ export function chatFixture(): ChatState {
       type: "tool",
       id: "c1",
       commit: at(4),
-      name: "read_file",
+      name: "read",
       summary: "read src/http.ts",
       args: JSON.stringify({ path: "src/http.ts" }, null, 2),
       status: "ok",
       result: {
-        text: "export async function request(url: string, init?: RequestInit): Promise<Response> {\n  return fetch(url, init);\n}\n",
+        text: `=== src/http.ts (3 lines, version 3a9f0c21) ===\n${numbered(1, [SIGNATURE, "  return fetch(url, init);", "}"])}`,
         truncated: false,
         ms: 6,
       },
@@ -72,11 +97,11 @@ export function chatFixture(): ChatState {
       type: "tool",
       id: "c3",
       commit: at(6),
-      name: "read_file",
+      name: "read",
       summary: "read test/http.test.ts",
       args: JSON.stringify({ path: "test/http.test.ts" }, null, 2),
       status: "ok",
-      result: { text: "import { request } from '../src/http.ts';\n// …\n", truncated: false, ms: 5 },
+      result: { text: `=== test/http.test.ts (2 lines, version 91c2e7aa) ===\n${numbered(1, TEST)}`, truncated: false, ms: 5 },
     },
     {
       type: "assistant",
@@ -92,9 +117,20 @@ export function chatFixture(): ChatState {
       commit: at(9),
       name: "edit",
       summary: "edit src/http.ts",
-      args: edit("src/http.ts", "return fetch(url, init);", "// retry loop"),
+      args: JSON.stringify({ path: "src/http.ts", version: "3a9f0c21", start: 2, end: 2, content: RETRY.join("\n") }, null, 2),
       status: "ok",
-      result: { text: "edited src/http.ts (+24 -1)", truncated: false, ms: 12 },
+      result: {
+        text: [
+          "edited src/http.ts (now 12 lines, version 7be41d90)",
+          "change 1: replaced lines 2-2 with 10 lines; now lines 2-11; the lines after it moved down by 9",
+          del(2, "  return fetch(url, init);"),
+          ctx(1, SIGNATURE),
+          ...RETRY.map((t, i) => add(2 + i, t)),
+          ctx(12, "}"),
+        ].join("\n"),
+        truncated: false,
+        ms: 12,
+      },
     },
     {
       type: "tool",
@@ -102,9 +138,18 @@ export function chatFixture(): ChatState {
       commit: at(10),
       name: "edit",
       summary: "edit test/http.test.ts",
-      args: edit("test/http.test.ts", "// …", "// retry tests"),
+      args: JSON.stringify({ path: "test/http.test.ts", version: "91c2e7aa", after: 2, content: NEW_TESTS.join("\n") }, null, 2),
       status: "ok",
-      result: { text: "edited test/http.test.ts (+31 -0)", truncated: false, ms: 9 },
+      result: {
+        text: [
+          "edited test/http.test.ts (now 6 lines, version c04a77b3)",
+          "change 1: inserted 4 lines after line 2; now lines 3-6",
+          ctx(2, TEST[1] ?? ""),
+          ...NEW_TESTS.map((t, i) => add(3 + i, t)),
+        ].join("\n"),
+        truncated: false,
+        ms: 9,
+      },
     },
     {
       type: "tool",
@@ -115,7 +160,7 @@ export function chatFixture(): ChatState {
       args: JSON.stringify({ command: "npm test" }, null, 2),
       status: "error",
       result: {
-        text: "not ok 2 - retries a 503\n  expected 3 calls, got 1\nnot ok 3 - does not retry POST\n# fail 2",
+        text: "exit 1\nnot ok 2 - retries a 503\n  expected 3 calls, got 1\nnot ok 3 - does not retry POST\n# fail 2",
         truncated: false,
         ms: 2140,
       },
@@ -134,9 +179,30 @@ export function chatFixture(): ChatState {
       commit: at(14),
       name: "edit",
       summary: "edit src/http.ts",
-      args: edit("src/http.ts", "if (!res.ok) throw", "if (res.status >= 500) retry"),
+      args: JSON.stringify(
+        {
+          path: "src/http.ts",
+          version: "7be41d90",
+          start: 6,
+          end: 6,
+          content: "      if (res.status < 500 || attempt >= max) return res;",
+        },
+        null,
+        2,
+      ),
       status: "ok",
-      result: { text: "edited src/http.ts (+3 -2)", truncated: false, ms: 8 },
+      result: {
+        text: [
+          "edited src/http.ts (now 12 lines, version e1d90a42)",
+          "change 1: replaced lines 6-6 with 1 line; now lines 6-6",
+          del(6, "      if (res.ok || attempt >= max) return res;"),
+          ctx(5, "      const res = await fetch(url, init);"),
+          add(6, "      if (res.status < 500 || attempt >= max) return res;"),
+          ctx(7, "    } catch (err) {"),
+        ].join("\n"),
+        truncated: false,
+        ms: 8,
+      },
     },
     {
       type: "tool",
@@ -146,7 +212,7 @@ export function chatFixture(): ChatState {
       summary: "run npm test",
       args: JSON.stringify({ command: "npm test" }, null, 2),
       status: "ok",
-      result: { text: "# pass 12\n# fail 0", truncated: false, ms: 1980 },
+      result: { text: "exit 0\n# pass 12\n# fail 0", truncated: false, ms: 1980 },
     },
     {
       type: "assistant",

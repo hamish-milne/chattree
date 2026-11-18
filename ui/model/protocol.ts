@@ -40,6 +40,8 @@ export const event = Type.Union([
   ev("chat.status", { status: statusBar }),
   /** The model choice changed: which is selected, or which are on offer. */
   ev("chat.models", { models: modelChoice }),
+  /** Bring a block into view and draw the eye to it: the person picked its commit in the graph. */
+  ev("chat.reveal", { commit: hash }),
   ev("chat.composer", { composer }),
   /** A tool call is waiting for an answer; absent when none is. */
   ev("chat.approval", { approval: Type.Optional(approval) }),

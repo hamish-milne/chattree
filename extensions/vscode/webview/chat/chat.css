@@ -290,13 +290,13 @@
 }
 
 /* A tool call: a row that opens into its arguments and result. */
-.tool {
+.tool-group {
   border: 1px solid var(--vscode-panel-border);
   border-radius: 6px;
   overflow: hidden;
 }
-.tool + .tool {
-  margin-top: -6px;
+.tool-group > .tool + .tool {
+  border-top: 1px solid var(--vscode-panel-border);
 }
 .tool-head {
   display: flex;
@@ -329,20 +329,20 @@
   border-right-color: transparent;
   animation: spin 0.9s linear infinite;
 }
-.status-ok .tool-status {
+.call-ok .tool-status {
   color: var(--vscode-testing-iconPassed);
 }
-.status-error .tool-status {
+.call-error .tool-status {
   color: var(--vscode-testing-iconFailed);
 }
-.status-awaiting_approval .tool-status {
+.call-awaiting_approval .tool-status {
   color: var(--vscode-editorWarning-foreground);
 }
-.status-did_not_run .tool-status,
-.status-pending .tool-status {
+.call-did_not_run .tool-status,
+.call-pending .tool-status {
   color: var(--vscode-descriptionForeground);
 }
-.status-pending .tool-status::after {
+.call-pending .tool-status::after {
   content: "";
   width: 6px;
   height: 6px;
@@ -399,8 +399,8 @@
   font-size: 11px;
   color: var(--vscode-descriptionForeground);
 }
-.tool.status-awaiting_approval {
-  border-color: var(--vscode-editorWarning-foreground);
+.tool.call-awaiting_approval {
+  box-shadow: inset 3px 0 0 var(--vscode-editorWarning-foreground);
 }
 .approval {
   display: flex;
@@ -597,5 +597,140 @@
   .status-bar .dim,
   .status-bar .gauge {
     display: none;
+  }
+}
+
+/* The tools with a shape of their own: a diff for a change, numbered lines for a file, a terminal for a command. */
+.tool-stat {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.stat-add {
+  color: var(--vscode-gitDecoration-addedResourceForeground, #587c0c);
+}
+.stat-del {
+  color: var(--vscode-gitDecoration-deletedResourceForeground, #ad0707);
+}
+.tool-body.rich {
+  padding: 0;
+}
+.file-head {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  padding: 5px 10px;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+  background: var(--vscode-textCodeBlock-background);
+}
+.file-meta {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+.hunk + .hunk {
+  border-top: 1px dashed var(--vscode-panel-border);
+}
+.hunk-head {
+  padding: 3px 10px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  background: color-mix(in srgb, var(--vscode-textCodeBlock-background) 55%, transparent);
+}
+.diff-rows {
+  max-height: 260px;
+  overflow: auto;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.diff-row {
+  display: flex;
+  min-width: max-content;
+}
+.diff-n {
+  flex: none;
+  padding: 0 8px 0 10px;
+  text-align: right;
+  color: var(--vscode-editorLineNumber-foreground);
+  user-select: none;
+}
+.diff-mark {
+  flex: none;
+  width: 1.5ch;
+  user-select: none;
+}
+.diff-text {
+  flex: 1;
+  padding-right: 10px;
+  font: inherit;
+  white-space: pre;
+}
+.sign-add {
+  background: var(--vscode-diffEditor-insertedLineBackground, color-mix(in srgb, #3fb950 18%, transparent));
+}
+.sign-add .diff-mark {
+  color: var(--vscode-gitDecoration-addedResourceForeground, #587c0c);
+}
+.sign-del {
+  background: var(--vscode-diffEditor-removedLineBackground, color-mix(in srgb, #f85149 18%, transparent));
+}
+.sign-del .diff-mark {
+  color: var(--vscode-gitDecoration-deletedResourceForeground, #ad0707);
+}
+.sign-gap {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+.tool-note {
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  border-top: 1px solid var(--vscode-panel-border);
+}
+.tool-note.exit-bad {
+  color: var(--vscode-errorForeground);
+}
+.tool-body.rich pre.terminal {
+  margin: 0;
+  border-radius: 0;
+  background: var(--vscode-textCodeBlock-background);
+}
+.tool-body.rich pre.terminal.output {
+  border-top: 1px solid var(--vscode-panel-border);
+  background: transparent;
+}
+.prompt {
+  color: var(--vscode-descriptionForeground);
+  user-select: none;
+}
+.tool-body.rich pre.error {
+  margin: 0;
+  border-radius: 0;
+}
+
+/* A block the person jumped to from the graph. */
+.block.ping::after {
+  content: "";
+  position: absolute;
+  inset: -4px -6px;
+  border-radius: 6px;
+  pointer-events: none;
+  animation: ping 1.5s ease-out forwards;
+}
+.tool.ping::after {
+  inset: 0;
+  border-radius: 0;
+}
+@keyframes ping {
+  0% {
+    box-shadow: inset 0 0 0 2px var(--vscode-focusBorder);
+    background: color-mix(in srgb, var(--vscode-focusBorder) 26%, transparent);
+  }
+  100% {
+    box-shadow: inset 0 0 0 2px transparent;
+    background: transparent;
   }
 }

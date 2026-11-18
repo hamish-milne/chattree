@@ -5,6 +5,7 @@
 import type { JSX } from "preact";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import type { AttachmentView, Block, ToolStatus } from "chattree/ui/model/transcript";
+import { toolView, type DiffRow, type ToolView } from "chattree/ui/model/tool-view";
 import { Icon, type IconName } from "../icons.tsx";
 import { Markdown } from "../markdown.tsx";
 
@@ -57,7 +58,7 @@ function Actions({ model, block }: { model: Model; block: Block }): JSX.Element 
 
 function User({ model, block }: { model: Model; block: Of<"user"> }): JSX.Element {
   return (
-    <section class={`block user${block.queued === true ? " queued" : ""}`} aria-label="You">
+    <section class={`block user${block.queued === true ? " queued" : ""}`} aria-label="You" data-commit={block.commit}>
       <Actions model={model} block={block} />
       {block.from !== undefined && <div class="from">from thread {block.from}</div>}
       <div class="user-text">{block.text}</div>
@@ -75,7 +76,7 @@ function User({ model, block }: { model: Model; block: Of<"user"> }): JSX.Elemen
 
 function Assistant({ model, block }: { model: Model; block: Of<"assistant"> }): JSX.Element {
   return (
-    <section class={`block assistant${block.streaming === true ? " streaming" : ""}`} aria-label="Assistant">
+    <section class={`block assistant${block.streaming === true ? " streaming" : ""}`} aria-label="Assistant" data-commit={block.commit}>
       <Actions model={model} block={block} />
       <Markdown source={block.markdown} />
       {block.streaming === true && block.markdown === "" && <span class="caret" aria-label="Waiting for the model" />}
@@ -87,7 +88,7 @@ function Reasoning({ model, block }: { model: Model; block: Of<"reasoning"> }): 
   const open = model.isOpen(block);
   const streaming = block.streaming === true;
   return (
-    <section class={`block reasoning${open ? " open" : ""}${streaming ? " streaming" : ""}`}>
+    <section class={`block reasoning${open ? " open" : ""}${streaming ? " streaming" : ""}`} data-commit={block.commit}>
       <button class="disclosure" aria-expanded={open} onClick={() => model.toggle(block.id)}>
         <Icon name="chevron" size={12} />
         <span class={streaming ? "shimmer" : ""}>{streaming ? "Thinking…" : "Thought"}</span>
@@ -106,33 +107,128 @@ const STATUS_ICON: Record<ToolStatus, { icon: IconName | "spinner" | "dot"; labe
   did_not_run: { icon: "ban", label: "Did not run" },
 };
 
+function Rows({ rows, signs }: { rows: DiffRow[]; signs: boolean }): JSX.Element {
+  const width = String(Math.max(0, ...rows.map((r) => r.n ?? 0))).length;
+  return (
+    <div class="diff-rows" role="table">
+      {rows.map((r, i) => (
+        <div key={i} class={`diff-row sign-${r.sign === "…" ? "gap" : r.sign === "+" ? "add" : r.sign === "-" ? "del" : "ctx"}`} role="row">
+          <span class="diff-n" style={{ minWidth: `${width}ch` }} aria-hidden="true">
+            {r.n ?? ""}
+          </span>
+          {signs && (
+            <span class="diff-mark" aria-label={r.sign === "+" ? "added" : r.sign === "-" ? "removed" : undefined}>
+              {r.sign === " " || r.sign === "…" ? "" : r.sign}
+            </span>
+          )}
+          <code class="diff-text">{r.text === "" && r.sign !== "…" ? " " : r.text}</code>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const Stat = ({ added, removed }: { added: number; removed: number }): JSX.Element => (
+  <span class="tool-stat">
+    {added > 0 && <span class="stat-add">+{added}</span>}
+    {removed > 0 && <span class="stat-del">−{removed}</span>}
+  </span>
+);
+
+function ToolBody({ view }: { view: ToolView }): JSX.Element {
+  switch (view.kind) {
+    case "edit":
+      return (
+        <div class="tool-body rich">
+          <div class="file-head">{view.path}</div>
+          {view.failed !== undefined && <pre class="error">{view.failed}</pre>}
+          {view.hunks.map((h, i) => (
+            <div key={i} class="hunk">
+              {h.head !== "" && <div class="hunk-head">{h.head}</div>}
+              <Rows rows={h.rows} signs />
+            </div>
+          ))}
+          {view.note !== undefined && <div class="tool-note">{view.note}</div>}
+        </div>
+      );
+    case "write":
+      return (
+        <div class="tool-body rich">
+          <div class="file-head">{view.path}</div>
+          {view.failed !== undefined && <pre class="error">{view.failed}</pre>}
+          <div class="hunk">
+            <Rows rows={view.rows} signs />
+          </div>
+          {view.note !== undefined && <div class="tool-note">{view.note}</div>}
+        </div>
+      );
+    case "read":
+      return (
+        <div class="tool-body rich">
+          <div class="file-head">
+            {view.path}
+            {view.range !== undefined && <span class="file-meta">{view.range}</span>}
+            {view.version !== undefined && <span class="file-meta">version {view.version}</span>}
+          </div>
+          {view.failed !== undefined && <pre class="error">{view.failed}</pre>}
+          {view.rows.length > 0 && (
+            <div class="hunk">
+              <Rows rows={view.rows} signs={false} />
+            </div>
+          )}
+        </div>
+      );
+    case "run":
+      return (
+        <div class="tool-body rich">
+          <pre class="terminal">
+            <span class="prompt">{view.shell === "script" ? "sh" : "$"} </span>
+            {view.command}
+          </pre>
+          {view.output !== "" && <pre class={`terminal output${view.failed ? " error" : ""}`}>{view.output}</pre>}
+          {view.exit !== undefined && view.exit !== 0 && <div class="tool-note exit-bad">exit code {view.exit}</div>}
+        </div>
+      );
+    case "generic":
+    default:
+      return (
+        <div class="tool-body">
+          <div class="tool-label">Arguments</div>
+          <pre>{view.args}</pre>
+          {view.result !== undefined && (
+            <>
+              <div class="tool-label">Result{view.result.truncated ? " (shortened)" : ""}</div>
+              <pre class={view.failed ? "error" : ""}>{view.result.text}</pre>
+            </>
+          )}
+        </div>
+      );
+  }
+}
+
 function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Element {
   const open = model.isOpen(block);
   const s = STATUS_ICON[block.status];
   const asking = block.status === "awaiting_approval" && model.approval.value?.callId === block.id;
+  const view = toolView(block);
+  const stat = view.kind === "edit" ? view : view.kind === "write" ? { added: view.added, removed: 0 } : undefined;
   return (
-    <section class={`block tool status-${block.status}${open ? " open" : ""}`} aria-label={`Tool call: ${block.summary}`}>
+    <section
+      class={`block tool call-${block.status}${open ? " open" : ""}`}
+      aria-label={`Tool call: ${block.summary}`}
+      data-commit={block.commit}
+    >
       <button class="tool-head" aria-expanded={open} onClick={() => model.toggle(block.id)}>
         <span class={`tool-status ${s.icon === "spinner" ? "spin" : ""}`} role="img" aria-label={s.label} title={s.label}>
           {s.icon === "spinner" || s.icon === "dot" ? null : <Icon name={s.icon} size={12} />}
         </span>
         <span class="tool-name">{block.name}</span>
         <span class="tool-summary">{block.summary}</span>
+        {stat !== undefined && <Stat added={stat.added} removed={stat.removed} />}
         {block.result !== undefined && <span class="tool-ms">{ms(block.result.ms)}</span>}
-        <Icon name="chevron" size={12} />
+        <Icon name="chevron" size={14} />
       </button>
-      {open && (
-        <div class="tool-body">
-          <div class="tool-label">Arguments</div>
-          <pre>{block.args}</pre>
-          {block.result !== undefined && (
-            <>
-              <div class="tool-label">Result{block.result.truncated ? " (shortened)" : ""}</div>
-              <pre class={block.status === "error" ? "error" : ""}>{block.result.text}</pre>
-            </>
-          )}
-        </div>
-      )}
+      {open && <ToolBody view={view} />}
       {asking && (
         <div class="approval" role="group" aria-label="Approve this call?">
           <span>Run this call?</span>
@@ -149,9 +245,20 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
   );
 }
 
+/** Adjacent tool calls: one shape, with a single line between the calls. */
+export function ToolGroup({ model, blocks }: { model: Model; blocks: Of<"tool">[] }): JSX.Element {
+  return (
+    <div class="tool-group" role="group" aria-label="Tool calls">
+      {blocks.map((b) => (
+        <Tool key={b.id} model={model} block={b} />
+      ))}
+    </div>
+  );
+}
+
 function Notice({ block }: { block: Of<"notice"> }): JSX.Element {
   return (
-    <section class={`block notice level-${block.level}`} role={block.level === "info" ? "note" : "status"}>
+    <section class={`block notice level-${block.level}`} role={block.level === "info" ? "note" : "status"} data-commit={block.commit}>
       <Icon name="info" size={12} />
       <div>
         <div class="notice-title">{block.title}</div>
@@ -169,7 +276,11 @@ function TurnEnd({ block }: { block: Of<"turn_end"> }): JSX.Element {
     block.usd !== undefined ? `$${block.usd.toFixed(3)}` : block.unpriced === true ? "price unknown" : undefined,
     block.stop === "end_turn" ? undefined : block.stop,
   ].filter((p): p is string => p !== undefined);
-  return <div class="block turn-end">{parts.join(" · ")}</div>;
+  return (
+    <div class="block turn-end" data-commit={block.commit}>
+      {parts.join(" · ")}
+    </div>
+  );
 }
 
 export function BlockView({ model, block }: { model: Model; block: Block }): JSX.Element {

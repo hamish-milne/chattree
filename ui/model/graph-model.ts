@@ -22,10 +22,21 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
   const expanded = signal<ReadonlySet<string>>(new Set());
   const selected = signal<{ thread: string | undefined; commit: string | undefined }>({ thread: undefined, commit: undefined });
   const menu = signal<OpenMenu | undefined>(undefined);
+  /** The commit under the pointer. */
+  const hover = signal<string | undefined>(undefined);
   const layout = computed(() => (data.value === undefined ? undefined : layoutGraph(data.value, expanded.value)));
   const menuActions = computed((): GraphAction[] => {
     const m = menu.value;
     return m === undefined || data.value === undefined ? [] : actionsFor(data.value, m.commit);
+  });
+  /**
+   * What is lit: the commit an action would apply to (the pointer's, or the one a context menu is open on, so it stays
+   * lit while the menu covers the rows) and its thread, which is what a click would select.
+   */
+  const lit = computed(() => {
+    const commit = menu.value?.commit ?? hover.value;
+    const thread = commit === undefined ? undefined : data.value?.commits.find((c) => c.hash === commit)?.thread;
+    return { commit, thread };
   });
   const threadOf = (commit: string): string | undefined => data.peek()?.commits.find((c) => c.hash === commit)?.thread;
 
@@ -34,6 +45,8 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     expanded,
     selected,
     menu,
+    hover,
+    lit,
     layout,
     menuActions,
     /** Take in an event from the controller; false when it is not one this view follows. */
@@ -53,6 +66,9 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
         default:
           return false;
       }
+    },
+    setHover(commit: string | undefined): void {
+      hover.value = commit;
     },
     toggleFold(id: string): void {
       const next = new Set(expanded.value);

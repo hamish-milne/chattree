@@ -65,7 +65,7 @@ export class MockController {
         else this.emit({ type: "form.set", form: this.form("harness").working });
         return;
       case "thread.open":
-        this.open(intent.thread);
+        this.open(intent.thread, intent.commit);
         return;
       case "thread.fork":
         this.fork(intent.thread, intent.commit, intent.name);
@@ -290,11 +290,27 @@ export class MockController {
     if (thread === this.current) this.emit({ type: "chat.status", status: c.status });
   }
 
-  private open(thread: string): void {
+  private open(thread: string, commit?: string, reload = false): void {
     if (!this.graph.threads.some((t) => t.name === thread)) return;
+    const changed = thread !== this.current;
     this.current = thread;
-    this.emit({ type: "chat.open", state: structuredClone(this.chat(thread)) });
-    this.emit({ type: "graph.selected", thread });
+    // Opening the thread that is already open must not reset the chat under the person's hands, unless it changed (`reload`).
+    if (changed || reload) this.emit({ type: "chat.open", state: structuredClone(this.chat(thread)) });
+    this.emit({ type: "graph.selected", thread, ...(commit === undefined ? {} : { commit }) });
+    const target = commit === undefined ? undefined : this.blockCommit(thread, commit);
+    if (target !== undefined) this.emit({ type: "chat.reveal", commit: target });
+  }
+
+  /** The commit of the block that shows `commit`: itself, or the nearest earlier one that has a block (a fold of tool results has none of its own). */
+  private blockCommit(thread: string, commit: string): string | undefined {
+    const have = new Set(this.chat(thread).blocks.map((b) => b.commit));
+    let h: string | undefined = commit;
+    while (h !== undefined) {
+      if (have.has(h)) return h;
+      const at: string = h;
+      h = this.graph.commits.find((c) => c.hash === at)?.parents[0];
+    }
+    return undefined;
   }
 
   private notify(level: "info" | "warning" | "error", message: string): void {
@@ -360,7 +376,7 @@ export class MockController {
     chat.thread = { ...chat.thread, tip: target };
     chat.composer = { ...chat.composer, draft: block?.type === "user" ? block.text : chat.composer.draft };
     this.emit({ type: "graph.data", data: structuredClone(this.graph) });
-    this.open(thread);
+    this.open(thread, undefined, true);
     this.notify("info", `Rewound ${thread}; the old tip ${old.slice(0, 7)} is kept at refs/chattree/rewound/${old.slice(0, 7)}`);
   }
 
@@ -503,7 +519,11 @@ export class MockController {
       id: `c${n}a`,
       name: "edit",
       summary: "edit src/http.ts",
-      args: JSON.stringify({ path: "src/http.ts", old: "retries = 3", new: "retries = 5" }, null, 2),
+      args: JSON.stringify(
+        { path: "src/http.ts", version: "e1d90a42", start: 2, end: 2, content: "  const max = init?.retries ?? 5;" },
+        null,
+        2,
+      ),
       status: "pending",
     };
     this.put(thread, edit, "append");
@@ -525,7 +545,26 @@ export class MockController {
     } else {
       this.put(thread, { ...edit, status: "running" }, "update");
       await this.sleep(600);
-      this.put(thread, { ...edit, status: "ok", result: { text: "edited src/http.ts (+2 -1)", truncated: false, ms: 11 } }, "update");
+      this.put(
+        thread,
+        {
+          ...edit,
+          status: "ok",
+          result: {
+            text: [
+              "edited src/http.ts (now 12 lines, version 4c2b8e11)",
+              "change 1: replaced lines 2-2 with 1 line; now lines 2-2",
+              "- 2\t  const max = init?.retries ?? 3;",
+              "  1\texport async function request(url: string, init?: RequestInit): Promise<Response> {",
+              "+ 2\t  const max = init?.retries ?? 5;",
+              "  3\t  for (let attempt = 0; ; attempt++) {",
+            ].join("\n"),
+            truncated: false,
+            ms: 11,
+          },
+        },
+        "update",
+      );
     }
     if (this.aborted) return interrupted();
 
@@ -548,7 +587,7 @@ export class MockController {
       {
         ...run,
         status: "error",
-        result: { text: "not ok 4 - retries a 503\n  expected 5 calls, got 3\n# pass 11\n# fail 1", truncated: false, ms: 1180 },
+        result: { text: "exit 1\nnot ok 4 - retries a 503\n  expected 5 calls, got 3\n# pass 11\n# fail 1", truncated: false, ms: 1180 },
       },
       "update",
     );

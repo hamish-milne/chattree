@@ -79,6 +79,7 @@ describe("the protocol", () => {
     { type: "chat.thread", thread: chatFixture().thread },
     { type: "chat.status", status: chatFixture().status },
     { type: "chat.models", models: chatFixture().model },
+    { type: "chat.reveal", commit: "abc1234" },
     { type: "chat.composer", composer: { draft: "hi", attachments: [] } },
     { type: "chat.approval", approval: { callId: "c9", name: "run", summary: "run rm -rf build", args: "{}" } },
     { type: "form.set", form: configFixture() },

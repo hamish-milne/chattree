@@ -7,6 +7,7 @@ import type { JSX } from "preact";
 import type { GraphEdge, GraphRow } from "chattree/ui/model/graph-layout";
 import type { GraphThread, ThreadStatus } from "chattree/ui/model/graph";
 import type { GraphModel } from "chattree/ui/model/graph-model";
+import { Icon } from "../icons.tsx";
 
 type Model = InstanceType<typeof GraphModel>;
 
@@ -37,7 +38,16 @@ function edgePath(e: GraphEdge): string {
     : `M${x1} ${y1}C${x1} ${y1 + k / 2} ${x2} ${y1 + k / 3} ${x2} ${y1 + k}V${y2}`;
 }
 
-function Node({ row, index, color }: { row: GraphRow; index: number; color: string }): JSX.Element {
+function Node({ row, index, color, lit }: { row: GraphRow; index: number; color: string; lit: boolean }): JSX.Element {
+  return (
+    <g>
+      {lit && <circle class="halo" cx={x(row.lane)} cy={y(index)} r={10} fill={color} />}
+      <Shape row={row} index={index} color={color} />
+    </g>
+  );
+}
+
+function Shape({ row, index, color }: { row: GraphRow; index: number; color: string }): JSX.Element {
   const cx = x(row.lane);
   const cy = y(index);
   const common = { stroke: color, "stroke-width": 1.5 };
@@ -125,6 +135,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
   if (layout === undefined || data === undefined) return <div class="graph-empty">No conversation yet.</div>;
   const threads = new Map(data.threads.map((t) => [t.name, t]));
   const selected = model.selected.value;
+  const lit = model.lit.value;
   const menu = model.menu.value;
   const width = PAD * 2 + (layout.lanes - 1) * LANE;
   // The newest row of an expanded fold carries the way to collapse it.
@@ -157,30 +168,48 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
       }}
     >
       <div class="graph-body" style={{ height: `${layout.rows.length * ROW}px` }}>
+        {layout.rows.map((r, i) => {
+          const commit = commitOf(r);
+          const isSelected = selected.thread === r.thread && r.tipOf !== undefined;
+          const cls = [
+            "row-bg",
+            isSelected ? "selected" : "",
+            lit.thread === r.thread ? "thread-lit" : "",
+            lit.commit === commit ? "commit-lit" : "",
+          ];
+          return (
+            <div
+              key={r.id}
+              class={cls.filter(Boolean).join(" ")}
+              style={{ top: `${i * ROW}px`, "--c": colorOf(r.lane) }}
+              aria-hidden="true"
+            />
+          );
+        })}
         <svg class="lanes" width={width} height={layout.rows.length * ROW} aria-hidden="true">
           {layout.edges.map((e, i) => (
             <path key={i} d={edgePath(e)} stroke={colorOf(e.bend === "bottom" ? e.fromLane : e.toLane)} stroke-width={1.5} fill="none" />
           ))}
           {layout.rows.map((r, i) => (
-            <Node key={r.id} row={r} index={i} color={colorOf(r.lane)} />
+            <Node key={r.id} row={r} index={i} color={colorOf(r.lane)} lit={lit.commit !== undefined && commitOf(r) === lit.commit} />
           ))}
         </svg>
         {layout.rows.map((r, i) => {
           const l = labelOf(r);
           const tip = r.tipOf === undefined ? undefined : threads.get(r.tipOf);
           const commit = commitOf(r);
-          const isSelected =
-            selected.commit === commit || (selected.commit === undefined && selected.thread === r.thread && r.tipOf !== undefined);
           return (
             <div
               key={r.id}
-              class={`row${isSelected ? " selected" : ""}${r.type === "fold" ? " fold" : ""}${r.type === "commit" && r.foldId !== undefined ? " in-fold" : ""}`}
-              style={{ top: `${i * ROW}px`, paddingLeft: `${width + 6}px` }}
+              class={`row${r.type === "fold" ? " fold" : ""}${r.type === "commit" && r.foldId !== undefined ? " in-fold" : ""}`}
+              style={{ top: `${i * ROW}px`, paddingLeft: `${width + 16}px` }}
               role="listitem"
               tabIndex={i === 0 ? 0 : -1}
               aria-label={`${l.text}, thread ${r.thread}`}
               aria-expanded={r.type === "fold" ? false : undefined}
               onClick={() => activate(r)}
+              onMouseEnter={() => model.setHover(commit)}
+              onMouseLeave={() => model.setHover(undefined)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 model.openMenu(commit, e.clientX, e.clientY);
@@ -200,13 +229,14 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
               }}
             >
               {r.type === "fold" && (
-                <span class="chevron" aria-hidden="true">
-                  ▸
+                <span class="chevron" style={{ left: `${width - 4}px` }} aria-hidden="true">
+                  <Icon name="chevron" size={14} />
                 </span>
               )}
               {collapsers.has(r.id) && r.type === "commit" && r.foldId !== undefined && (
                 <button
                   class="chevron expanded"
+                  style={{ left: `${width - 4}px` }}
                   aria-label="Collapse tool calls"
                   title="Collapse tool calls"
                   onClick={(e) => {
@@ -214,7 +244,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
                     model.toggleFold(r.foldId ?? "");
                   }}
                 >
-                  ▾
+                  <Icon name="chevron" size={14} />
                 </button>
               )}
               <span class={`label${l.dim ? " dim" : ""}${l.strong ? " strong" : ""}`}>{l.text}</span>

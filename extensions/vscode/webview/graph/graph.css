@@ -28,7 +28,32 @@
   font-size: 9px;
   font-weight: 600;
 }
+.row-bg {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 24px;
+  pointer-events: none;
+}
+/* The thread the pointer is on: what a click would select. */
+.row-bg.thread-lit {
+  background: color-mix(in srgb, var(--c) 13%, transparent);
+}
+/* The commit itself: what the menu and the jump to the chat apply to. It stays while the menu is open. */
+.row-bg.commit-lit {
+  background-image: linear-gradient(var(--vscode-list-hoverBackground), var(--vscode-list-hoverBackground));
+}
+.row-bg.selected {
+  background-color: var(--vscode-list-inactiveSelectionBackground);
+}
+.halo {
+  opacity: 0.28;
+}
+.lanes {
+  z-index: 1;
+}
 .row {
+  z-index: 2;
   position: absolute;
   left: 0;
   right: 0;
@@ -40,13 +65,6 @@
   white-space: nowrap;
   cursor: pointer;
   outline: none;
-}
-.row:hover {
-  background: var(--vscode-list-hoverBackground);
-}
-.row.selected {
-  background: var(--vscode-list-inactiveSelectionBackground);
-  color: var(--vscode-list-inactiveSelectionForeground, inherit);
 }
 .row:focus-visible {
   outline: 1px solid var(--vscode-focusBorder);
@@ -66,21 +84,33 @@
 }
 .chevron {
   position: absolute;
-  margin-left: -2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  border-radius: 4px;
   color: var(--vscode-descriptionForeground);
-  font-size: 10px;
-  line-height: 1;
+}
+.chevron .icon {
+  transition: transform 0.1s;
 }
 button.chevron {
-  background: none;
+  padding: 0;
   border: none;
-  padding: 2px 4px;
+  background: none;
   cursor: pointer;
-  position: static;
-  margin: 0 -4px 0 -8px;
 }
-.row.fold .chevron {
-  display: none;
+button.chevron.expanded .icon {
+  transform: rotate(90deg);
+}
+button.chevron:hover {
+  background: var(--vscode-toolbar-hoverBackground);
+  color: var(--vscode-foreground);
+}
+button.chevron:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
 }
 .row.in-fold .label {
   color: var(--vscode-descriptionForeground);

@@ -242,6 +242,27 @@ describe("the mock controller, with the models on top of it", () => {
     await controller.idle();
   });
 
+  test("clicking a commit reveals its block in the chat, also in the thread that is already open", () => {
+    const { graph, chat } = rig();
+    const toolBlock = chat.blocks.value.find((b) => b.type === "tool" && b.commit !== undefined);
+    assert.ok(toolBlock?.commit);
+    graph.open(toolBlock.commit);
+    assert.equal(chat.reveal.value?.commit, toolBlock.commit);
+    const first = chat.reveal.value?.n ?? 0;
+    graph.open(toolBlock.commit);
+    assert.equal(chat.reveal.value?.n, first + 1, "asking again shows again");
+    assert.equal(chat.thread.value?.name, THREADS.main, "the open chat was not reset");
+  });
+
+  test("a commit that has no block of its own reveals the nearest block before it", () => {
+    const { graph, chat } = rig();
+    const result = graph.data.value?.commits.find((c) => c.thread === THREADS.main && c.kind === "tool_result");
+    assert.ok(result);
+    graph.open(result.hash);
+    const shown = chat.reveal.value?.commit;
+    assert.ok(shown !== undefined && chat.blocks.value.some((b) => b.commit === shown));
+  });
+
   test("fork makes a thread from a block's commit and opens it; rewinding a message puts its text back in the draft", async () => {
     const { graph, chat, controller } = rig();
     const msg = chat.blocks.value.find((b) => b.type === "user" && b.commit !== undefined);

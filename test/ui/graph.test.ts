@@ -183,3 +183,21 @@ describe("the graph model", () => {
 });
 
 const THREAD_OLD = THREADS.old;
+
+describe("what is lit in the graph", () => {
+  test("the commit under the pointer and its thread are lit, and a context menu keeps them lit when the pointer leaves", () => {
+    const g = new GraphModel(() => {});
+    g.apply({ type: "graph.data", data: graphFixture() });
+    const c = g.data.value?.commits.find((x) => x.thread === THREADS.lint);
+    assert.ok(c);
+    const lit = () => g.lit.value;
+    assert.deepEqual(lit(), { commit: undefined, thread: undefined });
+    g.setHover(c.hash);
+    assert.deepEqual(lit(), { commit: c.hash, thread: THREADS.lint });
+    g.openMenu(c.hash, 5, 5);
+    g.setHover(undefined);
+    assert.deepEqual(lit(), { commit: c.hash, thread: THREADS.lint }, "lit while the menu is open");
+    g.closeMenu();
+    assert.equal(lit().commit, undefined);
+  });
+});
