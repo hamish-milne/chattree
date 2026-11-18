@@ -31,6 +31,7 @@ const css = [
   "webview/form/form.css",
   "webview/graph/graph.css",
   "webview/chat/chat.css",
+  "webview/config/config.css",
 ];
 await writeFile(join(out, "preview.css"), (await Promise.all(css.map((f) => readFile(join(root, f), "utf8")))).join("\n"));
 await cp(join(root, "preview", "index.html"), join(out, "index.html"));

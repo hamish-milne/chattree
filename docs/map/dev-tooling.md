@@ -13,6 +13,7 @@
 | `live-check.ts` | Runs an adapter through scenarios against a real or local server and applies the conformance checks. Add a flavor in `makeAdapter` when adding an adapter. |
 | `live-sample.ts`, `tasks.ts`, `agent-task.ts` | Measure how reliably a model uses the starter tools: each task (prompt, starting files, outcome check) is run many times in fresh workspaces through the real loop. |
 | `record-fixture.ts` | Record one real provider response as a scrubbed test fixture. Read the fixture before committing it. |
+| `gen-ui-schema.ts` | Writes `ui/fixtures/harness-schema.ts` from `configJsonSchema(defaultRegistry())`, the schema the `harness.yml` editor mock edits. Run it after a config change; `test/ui/harness-schema.test.ts` fails when the file is stale. |
 | `local-adapter.ts` | The `local-models` provider as the CLI builds it, for the live tools. |
 | `wire-log.ts` | Logging helper for wire-level debugging. |
 

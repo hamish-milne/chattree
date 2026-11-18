@@ -6,6 +6,8 @@
 import type { JSX } from "preact";
 import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ChatModel } from "chattree/ui/model/chat-model";
+import type { ConfigModel } from "chattree/ui/model/config-model";
+import { ConfigView } from "../config/ConfigView.tsx";
 import { Icon } from "../icons.tsx";
 import type { Block } from "chattree/ui/model/transcript";
 import { BlockView, ToolGroup } from "./blocks.tsx";
@@ -94,19 +96,49 @@ function Transcript({ model }: { model: Model }): JSX.Element {
   );
 }
 
-export function ChatView({ model }: { model: Model }): JSX.Element {
+export function ChatView({ model, config }: { model: Model; config: InstanceType<typeof ConfigModel> }): JSX.Element {
   const thread = model.thread.value;
-  if (thread === undefined) return <div class="chat chat-empty">Pick a thread in the graph to chat in it.</div>;
+  const editing = config.open.value;
+  if (thread === undefined && !editing) return <div class="chat chat-empty">Pick a thread in the graph to chat in it.</div>;
   return (
     <div class="chat">
       <header class="chat-head">
-        <span class="chat-title">{thread.title ?? thread.name}</span>
-        <span class={`thread-name kind-${thread.kind}`}>{thread.name}</span>
+        {editing ? (
+          <>
+            <button class="icon-button" title="Back to the chat" aria-label="Back to the chat" onClick={() => config.close()}>
+              <Icon name="back" />
+            </button>
+            <span class="chat-title">harness.yml</span>
+            <span class="spacer" />
+          </>
+        ) : (
+          <>
+            <span class="chat-title">{thread?.title ?? thread?.name}</span>
+            <span class={`thread-name kind-${thread?.kind ?? ""}`}>{thread?.name}</span>
+            <span class="spacer" />
+          </>
+        )}
+        <button
+          class={`icon-button${editing ? " pressed" : ""}`}
+          aria-pressed={editing}
+          title={editing ? "Close harness.yml" : "Edit harness.yml"}
+          aria-label="Edit harness.yml"
+          onClick={() => config.toggle()}
+        >
+          <Icon name="gear" />
+          {config.dirty.value && <span class="unsaved-dot" aria-label="Unsaved changes" />}
+        </button>
       </header>
-      <Transcript model={model} />
-      <ModelSettings model={model} />
-      <Composer model={model} />
-      <StatusBar model={model} />
+      {editing ? (
+        <ConfigView model={config} />
+      ) : (
+        <>
+          <Transcript model={model} />
+          <ModelSettings model={model} />
+          <Composer model={model} />
+          <StatusBar model={model} />
+        </>
+      )}
     </div>
   );
 }

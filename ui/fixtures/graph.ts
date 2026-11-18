@@ -54,7 +54,10 @@ export function graphFixture(): GraphData {
   g.add(m, "header", "conversation starts");
   g.add(m, "agent_setup", "setup (start): claude-sonnet-5-5");
   g.add(m, "user", "user: Add retry with backoff to the HTTP client in src/http.ts");
-  g.add(m, "assistant", "assistant: calls read_file", { toolCalls: 3, usd: 0.012 });
+  g.add(m, "assistant", "assistant: calls read_file", {
+    toolCalls: 3,
+    usd: 0.012,
+  });
   g.add(m, "tool_result", "tool result: export async function request(...)");
   g.add(m, "tool_result", "tool result: 14 matches");
   g.add(m, "tool_result", "tool result: ok");
@@ -91,7 +94,9 @@ export function graphFixture(): GraphData {
 
   // A subagent still working, and forks in the other states.
   const a = THREADS.auth;
-  g.add(a, "branch_start", "subagent starts: map how authentication is wired", { parents: [g.tip(m)] });
+  g.add(a, "branch_start", "subagent starts: map how authentication is wired", {
+    parents: [g.tip(m)],
+  });
   g.add(a, "assistant", "assistant: calls grep", { toolCalls: 4, usd: 0.009 });
   g.add(a, "tool_result", "tool result: 9 matches");
   g.add(a, "tool_result", "tool result: 3 matches");
@@ -127,11 +132,37 @@ export function graphFixture(): GraphData {
     trunk: m,
     threads: [
       status(m, "idle", { title: "Add retry with backoff", model: "Claude Sonnet 5.5" }, "main"),
-      status(s, "idle", { title: "SQLite cache", model: "Claude Sonnet 5.5", from: first(s), merged: true }),
-      status(a, "running", { title: "Map authentication", model: "Claude Haiku 5.5", from: first(a) }, "subagent"),
-      status(l, "awaiting", { title: "Lint cleanup", model: "Claude Sonnet 5.5", from: first(l) }),
-      status(b, "elsewhere", { title: "Benchmark retries", model: "Qwen3 Coder 30B (local)", from: first(b) }),
-      status(o, "error", { title: "undici rewrite", model: "GPT-5.1", from: first(o) }),
+      status(s, "idle", {
+        title: "SQLite cache",
+        model: "Claude Sonnet 5.5",
+        from: first(s),
+        merged: true,
+      }),
+      status(
+        a,
+        "running",
+        {
+          title: "Map authentication",
+          model: "Claude Haiku 5.5",
+          from: first(a),
+        },
+        "subagent",
+      ),
+      status(l, "awaiting", {
+        title: "Lint cleanup",
+        model: "Claude Sonnet 5.5",
+        from: first(l),
+      }),
+      status(b, "elsewhere", {
+        title: "Benchmark retries",
+        model: "Qwen3 Coder 30B (local)",
+        from: first(b),
+      }),
+      status(o, "error", {
+        title: "undici rewrite",
+        model: "GPT-5.1",
+        from: first(o),
+      }),
     ],
     commits: g.commits,
   };
@@ -152,13 +183,30 @@ export function docsGraphFixture(): GraphData {
   g.add(m, "user", "user: Add a section on rolling back");
   g.add(f, "branch_start", "fork starts", { parents: [done] });
   g.add(f, "user", "user: Tighten the wording of the intro");
-  g.add(f, "assistant", "assistant: Shorter intro, same content.", { usd: 0.006 });
+  g.add(f, "assistant", "assistant: Shorter intro, same content.", {
+    usd: 0.006,
+  });
   const tip = (t: string): string => g.tip(t);
   return {
     trunk: m,
     threads: [
-      { name: m, kind: "main", status: "idle", tip: tip(m), title: "Migration guide", model: "Claude Sonnet 5.5" },
-      { name: f, kind: "fork", status: "idle", tip: tip(f), title: "Tighter intro", model: "Claude Sonnet 5.5", from: done },
+      {
+        name: m,
+        kind: "main",
+        status: "idle",
+        tip: tip(m),
+        title: "Migration guide",
+        model: "Claude Sonnet 5.5",
+      },
+      {
+        name: f,
+        kind: "fork",
+        status: "idle",
+        tip: tip(f),
+        title: "Tighter intro",
+        model: "Claude Sonnet 5.5",
+        from: done,
+      },
     ],
     commits: g.commits,
   };

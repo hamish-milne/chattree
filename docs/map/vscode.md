@@ -2,7 +2,7 @@
 
 **Purpose.** The first graphical front end: a thread graph in the side bar, a chat in the panel and a form for `harness.yml`. It is a workspace package (`pnpm-workspace.yaml`), separate from the root package because it has its own manifest and dependencies and is bundled for the VSIX. Reasons: ADR 35. The shared logic is in [`ui/`](ui.md).
 
-**Status.** The graph view, the chat view (transcript, composer, status bar, model settings), the form field renderer and the browser preview exist, driven by the mock controller. The `harness.yml` editor surface, the extension host code and the real controller do not yet.
+**Status.** The graph view, the chat view (transcript, composer, status bar, model settings), the form field renderer and the browser preview exist, driven by the mock controller. The `harness.yml` editor (a gear in the chat header replaces the transcript with it: pages for providers, limits, approvals, MCP servers, subagents, context and repository) exists in the preview too. The extension host code and the real controller do not yet.
 
 **Depends on:** `chattree` (the root package, through its `ui/model/*` and `ui/fixtures/*` exports), `preact`, `@preact/signals`, `marked`. The graph has a repository picker above it, a context menu (open, fork, rewind, merge, copy hash, delete thread) and a confirmation dialog for delete. Runs of tool calls are drawn as one bordered group; each built-in tool has its own body (diff, numbered lines, terminal) chosen by `toolView`. Markdown is rendered from tokens into Preact elements (`webview/markdown.tsx`), never as HTML: raw HTML is shown as text, links are limited to http, https and mailto, images show their alt text. Webview code imports nothing from Node, `vscode` or the harness.
 
@@ -12,7 +12,7 @@ Each directory has its own `tsconfig.json`, because each runs in a different pla
 
 | Path | Role |
 |---|---|
-| `webview/` | The views (Preact). A view takes a model from `ui/model` and draws it; it keeps no state of its own and talks to nothing but its model. `webview/graph/` is the thread graph. |
+| `webview/` | The views (Preact). A view takes a model from `ui/model` and draws it; it keeps no state of its own and talks to nothing but its model. `webview/graph/` is the thread graph; `webview/config/` is the `harness.yml` editor: common choices as buttons and labelled inputs (provider cards, limits, compaction), granular settings as dense tables (approvals with expiry, MCP servers, subagent models, reminder rules). |
 | `preview/` | The browser preview: the views over a mock controller in a frame that stands in for VS Code, with a Dark+/Light+ theme switch (`themes.css` defines the `--vscode-*` variables VS Code would), a width slider and a log of the intents a view sends. Not shipped. |
 | `tools/` | `build-preview.mts` bundles the preview with esbuild into `dist/preview/`; `serve-preview.mts` serves it on `127.0.0.1`. `.mts` because the package itself is CommonJS (the extension's output must be). |
 

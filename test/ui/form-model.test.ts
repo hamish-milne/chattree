@@ -1,8 +1,106 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { configFixture } from "../../ui/fixtures/config.ts";
 import { FormModel, formFields, removeIn, setIn, type Field } from "../../ui/model/form-model.ts";
+import type { FormSpec } from "../../ui/model/form.ts";
 import type { UiIntent } from "../../ui/model/protocol.ts";
+
+/** A small form with one of each kind of field: the harness's own file is tested through the sheet. */
+function smallForm(): FormSpec {
+  return {
+    id: "harness",
+    title: "harness.yml",
+    saveLabel: "Save and commit",
+    schema: {
+      type: "object",
+      properties: {
+        providers: {
+          type: "object",
+          description: "The model services this project can reach, each named by a key you choose.",
+          additionalProperties: {
+            type: "object",
+            properties: {
+              $tag: {
+                enum: ["anthropic", "openai", "openai-compatible", "gemini", "local-models"],
+              },
+              api_key_env: {
+                type: "string",
+                description: "The NAME of an environment variable, never a key.",
+              },
+              base_url: { type: "string" },
+            },
+            required: ["$tag"],
+          },
+        },
+        limits: {
+          type: "object",
+          description: "Enforced before a request is sent.",
+          properties: {
+            max_request_usd: { type: "number", minimum: 0 },
+            max_turn_usd: { type: "number", minimum: 0 },
+            max_conversation_usd: { type: "number", minimum: 0 },
+            warn_at: {
+              type: "number",
+              minimum: 0,
+              maximum: 1,
+              description: "Fraction of a limit at which a warning is shown.",
+            },
+          },
+        },
+        skills: {
+          type: "object",
+          properties: {
+            follow: {
+              enum: ["auto", "ask", "off"],
+              description: "Whether changed skills on disk are taken automatically.",
+            },
+          },
+        },
+        compaction: {
+          type: "object",
+          properties: {
+            auto: { type: "boolean" },
+            keep_recent: { type: "integer", minimum: 0 },
+          },
+        },
+        background: {
+          type: "object",
+          properties: {
+            resume: {
+              type: "boolean",
+              description: "Let a finished background job restart an idle thread (spends money).",
+            },
+          },
+        },
+        allow_hosts: {
+          type: "array",
+          items: { type: "string" },
+          description: "Hosts the fetch tool may reach.",
+        },
+      },
+    },
+    value: {
+      providers: {
+        anthropic: { $tag: "anthropic", api_key_env: "ANTHROPIC_API_KEY" },
+        local: {
+          $tag: "openai-compatible",
+          base_url: "http://localhost:8080/v1",
+        },
+      },
+      limits: {
+        max_request_usd: 1,
+        max_turn_usd: 80,
+        max_conversation_usd: 50,
+        warn_at: 0.8,
+      },
+      skills: { follow: "ask" },
+      compaction: { auto: true, keep_recent: 12 },
+      background: { resume: false },
+      allow_hosts: ["registry.npmjs.org", "github.com"],
+    },
+    issues: [{ path: "limits.max_turn_usd", message: "is above max_conversation_usd" }],
+    dirty: false,
+  };
+}
 
 const find = (fields: Field[], ...path: string[]): Field | undefined => {
   let level = fields;
@@ -15,7 +113,7 @@ const find = (fields: Field[], ...path: string[]): Field | undefined => {
 };
 
 describe("fields from a schema", () => {
-  const tree = formFields(configFixture());
+  const tree = formFields(smallForm());
 
   test("each kind of schema becomes the field a person would expect", () => {
     assert.equal(find(tree.fields, "skills", "follow")?.kind, "choice");
@@ -60,7 +158,7 @@ describe("fields from a schema", () => {
   });
 
   test("something the schema does not describe is kept as it is, and an issue about nowhere is not lost", () => {
-    const spec = configFixture();
+    const spec = smallForm();
     spec.value = { ...spec.value, mystery: { a: 1 } };
     spec.issues = [
       { path: "", message: "the file is wrong" },
@@ -81,14 +179,18 @@ describe("editing a value", () => {
     const after = setIn(before, ["a", "b"], 9);
     assert.deepEqual(after, { a: { b: 9, c: 2 }, d: 3 });
     assert.deepEqual(before, { a: { b: 1, c: 2 }, d: 3 });
-    assert.deepEqual(setIn(before, ["x", "y"], 1), { a: { b: 1, c: 2 }, d: 3, x: { y: 1 } });
+    assert.deepEqual(setIn(before, ["x", "y"], 1), {
+      a: { b: 1, c: 2 },
+      d: 3,
+      x: { y: 1 },
+    });
     assert.deepEqual(removeIn(before, ["a", "c"]), { a: { b: 1 }, d: 3 });
     assert.deepEqual(before.a, { b: 1, c: 2 });
   });
 
   test("an edit shows at once and is sent; save and revert are sent by name", () => {
     const sent: UiIntent[] = [];
-    const form = new FormModel(configFixture(), (i) => sent.push(i));
+    const form = new FormModel(smallForm(), (i) => sent.push(i));
     form.set(["skills", "follow"], "auto");
     assert.equal(
       find(form.tree.value.fields, "skills", "follow")?.kind === "choice" &&
@@ -114,8 +216,12 @@ describe("editing a value", () => {
   });
 
   test("it takes the controller's answer, and only for its own form", () => {
-    const form = new FormModel(configFixture(), () => {});
-    const answer = { ...configFixture(), issues: [{ path: "skills.follow", message: "no" }], dirty: true };
+    const form = new FormModel(smallForm(), () => {});
+    const answer = {
+      ...smallForm(),
+      issues: [{ path: "skills.follow", message: "no" }],
+      dirty: true,
+    };
     assert.equal(form.apply({ type: "form.set", form: { ...answer, id: "other" } }), false);
     assert.equal(form.apply({ type: "form.set", form: answer }), true);
     assert.deepEqual(find(form.tree.value.fields, "skills", "follow")?.issues, ["no"]);

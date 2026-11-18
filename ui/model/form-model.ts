@@ -86,15 +86,21 @@ function fieldOf(key: string, schema: Json, value: unknown, path: string[], issu
       return { ...common, kind: "raw", value };
     }
     case "object": {
-      const extra = schema["additionalProperties"];
+      // A map's entry schema: `additionalProperties`, or the one `patternProperties` entry a record is written with.
+      const patterns = Object.values(objectOf(schema["patternProperties"]));
+      const extra = isObject(schema["additionalProperties"])
+        ? schema["additionalProperties"]
+        : patterns.length === 1
+          ? patterns[0]
+          : undefined;
       if (isObject(extra) && !isObject(schema["properties"])) {
         const entries = Object.keys(objectOf(value)).map((k) => ({
           key: k,
-          fields: groupFields(extra, objectOf(objectOf(value)[k]), [...path, k], issues),
+          fields: objectFields(extra, objectOf(objectOf(value)[k]), [...path, k], issues),
         }));
-        return { ...common, kind: "map", entries, template: groupFields(extra, {}, [...path, ""], new Map()) };
+        return { ...common, kind: "map", entries, template: objectFields(extra, {}, [...path, ""], new Map()) };
       }
-      return { ...common, kind: "group", fields: groupFields(schema, objectOf(value), path, issues) };
+      return { ...common, kind: "group", fields: objectFields(schema, objectOf(value), path, issues) };
     }
     default:
       return { ...common, kind: "raw", value };
@@ -102,7 +108,7 @@ function fieldOf(key: string, schema: Json, value: unknown, path: string[], issu
 }
 
 /** The fields of an object schema, in the schema's order, then anything in the value the schema does not describe (as raw). */
-function groupFields(schema: Json, value: Json, path: string[], issues: Map<string, string[]>): Field[] {
+export function objectFields(schema: Json, value: Json, path: string[], issues: Map<string, string[]>): Field[] {
   const props = objectOf(schema["properties"]);
   const fields = Object.entries(props).map(([k, s]) => fieldOf(k, objectOf(s), value[k], [...path, k], issues));
   for (const k of Object.keys(value))
@@ -118,6 +124,13 @@ function groupFields(schema: Json, value: Json, path: string[], issues: Map<stri
   return fields;
 }
 
+/** The issues of a form by dotted path. */
+export function issueMap(issues: readonly FormIssue[]): Map<string, string[]> {
+  const out = new Map<string, string[]>();
+  for (const i of issues) out.set(i.path, [...(out.get(i.path) ?? []), i.message]);
+  return out;
+}
+
 export interface FormTree {
   fields: Field[];
   /** Issues about a place no field shows (the whole value, or a key the schema does not know). */
@@ -125,9 +138,8 @@ export interface FormTree {
 }
 
 export function formFields(spec: FormSpec): FormTree {
-  const issues = new Map<string, string[]>();
-  for (const i of spec.issues) issues.set(i.path, [...(issues.get(i.path) ?? []), i.message]);
-  const fields = groupFields(spec.schema, spec.value, [], issues);
+  const issues = issueMap(spec.issues);
+  const fields = objectFields(spec.schema, spec.value, [], issues);
   const shown = new Set<string>();
   const walk = (fs: Field[]): void => {
     for (const f of fs) {
@@ -144,6 +156,7 @@ export function formFields(spec: FormSpec): FormTree {
 export const FormModel = createModel((initial: FormSpec, send: (intent: UiIntent) => void) => {
   const spec = signal(initial);
   const tree = computed(() => formFields(spec.value));
+  const issues = computed(() => issueMap(spec.value.issues));
   const edit = (value: Json): void => {
     spec.value = { ...spec.value, value, dirty: true };
     send({ type: "form.edit", id: spec.peek().id, value });
@@ -151,6 +164,7 @@ export const FormModel = createModel((initial: FormSpec, send: (intent: UiIntent
   return {
     spec,
     tree,
+    issues,
     /** Take in an event; true when it was this form's own state. */
     apply(e: UiEvent): boolean {
       if (e.type !== "form.set" || e.form.id !== spec.peek().id) return false;
@@ -163,8 +177,13 @@ export const FormModel = createModel((initial: FormSpec, send: (intent: UiIntent
     remove(path: readonly string[]): void {
       edit(removeIn(spec.peek().value, path));
     },
-    save(): void {
-      send({ type: "form.save", id: spec.peek().id });
+    /** Put a whole new value in place of the current one (an edit that changes more than one path). */
+    replace(value: Json): void {
+      edit(value);
+    },
+    /** Save; for a form that is committed (`harness.yml`) `message` is the commit message. */
+    save(message?: string): void {
+      send({ type: "form.save", id: spec.peek().id, ...(message === undefined || message === "" ? {} : { message }) });
     },
     revert(): void {
       send({ type: "form.revert", id: spec.peek().id });

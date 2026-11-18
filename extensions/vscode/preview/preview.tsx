@@ -9,6 +9,7 @@ import { render } from "preact";
 import { signal } from "@preact/signals";
 import { THREADS } from "chattree/ui/fixtures/graph";
 import { MockController } from "chattree/ui/fixtures/mock-controller";
+import { ConfigModel } from "chattree/ui/model/config-model";
 import { ChatModel } from "chattree/ui/model/chat-model";
 import { GraphModel } from "chattree/ui/model/graph-model";
 import type { UiEvent, UiIntent } from "chattree/ui/model/protocol";
@@ -26,6 +27,7 @@ let controller: MockController;
 const emit = (e: UiEvent): void => {
   graph.apply(e);
   chat.apply(e);
+  config.apply(e);
   if (e.type === "notice") {
     const id = Date.now() + Math.random();
     toasts.value = [...toasts.value, { level: e.level, message: e.message, id }];
@@ -38,11 +40,13 @@ const send = (i: UiIntent): void => {
 };
 const graph = new GraphModel(send);
 const chat = new ChatModel(send);
+const config = new ConfigModel(send);
 const reset = (): void => {
   controller = new MockController({ emit });
   intents.value = [];
   controller.handle({ type: "ready", view: "graph" });
   controller.handle({ type: "ready", view: "chat" });
+  if (config.form.peek() !== undefined) controller.handle({ type: "ready", view: "config" });
 };
 reset();
 
@@ -59,7 +63,7 @@ function Panel() {
         ))}
       </div>
       <div class="panel-view">
-        <ChatView model={chat} />
+        <ChatView model={chat} config={config} />
       </div>
     </div>
   );

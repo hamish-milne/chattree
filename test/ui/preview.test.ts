@@ -26,7 +26,8 @@ test("the browser preview builds, and the views pull in nothing that cannot run 
       1,
       "one copy of the signals core, or signals stop reaching the views",
     );
-    assert.ok(js.length < 300_000, `the bundle is ${js.length} bytes`);
+    // The preview carries the mock and the harness's generated schema (about 65 kB); the extension's views get the schema from the controller.
+    assert.ok(js.length < 400_000, `the bundle is ${js.length} bytes`);
     const css = await readFile(join(dir, "preview.css"), "utf8");
     assert.ok(css.includes("--vscode-scmGraph-foreground1") && css.includes(".graph"), "theme variables and the graph styles are in");
   } finally {

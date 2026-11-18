@@ -91,7 +91,11 @@ export function chatFixture(): ChatState {
       summary: "grep request( in src/",
       args: JSON.stringify({ pattern: "request\\(", path: "src" }, null, 2),
       status: "ok",
-      result: { text: "src/http.ts:1\nsrc/api/client.ts:22\nsrc/api/client.ts:48\n… 11 more", truncated: true, ms: 41 },
+      result: {
+        text: "src/http.ts:1\nsrc/api/client.ts:22\nsrc/api/client.ts:48\n… 11 more",
+        truncated: true,
+        ms: 41,
+      },
     },
     {
       type: "tool",
@@ -101,7 +105,11 @@ export function chatFixture(): ChatState {
       summary: "read test/http.test.ts",
       args: JSON.stringify({ path: "test/http.test.ts" }, null, 2),
       status: "ok",
-      result: { text: `=== test/http.test.ts (2 lines, version 91c2e7aa) ===\n${numbered(1, TEST)}`, truncated: false, ms: 5 },
+      result: {
+        text: `=== test/http.test.ts (2 lines, version 91c2e7aa) ===\n${numbered(1, TEST)}`,
+        truncated: false,
+        ms: 5,
+      },
     },
     {
       type: "assistant",
@@ -117,7 +125,17 @@ export function chatFixture(): ChatState {
       commit: at(9),
       name: "edit",
       summary: "edit src/http.ts",
-      args: JSON.stringify({ path: "src/http.ts", version: "3a9f0c21", start: 2, end: 2, content: RETRY.join("\n") }, null, 2),
+      args: JSON.stringify(
+        {
+          path: "src/http.ts",
+          version: "3a9f0c21",
+          start: 2,
+          end: 2,
+          content: RETRY.join("\n"),
+        },
+        null,
+        2,
+      ),
       status: "ok",
       result: {
         text: [
@@ -138,7 +156,16 @@ export function chatFixture(): ChatState {
       commit: at(10),
       name: "edit",
       summary: "edit test/http.test.ts",
-      args: JSON.stringify({ path: "test/http.test.ts", version: "91c2e7aa", after: 2, content: NEW_TESTS.join("\n") }, null, 2),
+      args: JSON.stringify(
+        {
+          path: "test/http.test.ts",
+          version: "91c2e7aa",
+          after: 2,
+          content: NEW_TESTS.join("\n"),
+        },
+        null,
+        2,
+      ),
       status: "ok",
       result: {
         text: [
@@ -212,7 +239,11 @@ export function chatFixture(): ChatState {
       summary: "run npm test",
       args: JSON.stringify({ command: "npm test" }, null, 2),
       status: "ok",
-      result: { text: "exit 0\n# pass 12\n# fail 0", truncated: false, ms: 1980 },
+      result: {
+        text: "exit 0\n# pass 12\n# fail 0",
+        truncated: false,
+        ms: 1980,
+      },
     },
     {
       type: "assistant",
@@ -222,12 +253,26 @@ export function chatFixture(): ChatState {
         "Retries are in.\n\n- Idempotent requests (`GET`, `HEAD`, `PUT`, `DELETE`) retry up to 3 times on network errors and `5xx`.\n- The delay doubles from 200 ms, capped at 5 s.\n- `POST` is never retried.\n\nAll 12 tests pass.",
       model: "claude-sonnet-5-5",
     },
-    { type: "turn_end", id: "t1", commit: at(17), usage: { input: 18420, output: 1130, cached: 12800 }, usd: 0.119, stop: "end_turn" },
+    {
+      type: "turn_end",
+      id: "t1",
+      commit: at(17),
+      usage: { input: 18420, output: 1130, cached: 12800 },
+      usd: 0.119,
+      stop: "end_turn",
+    },
     {
       type: "user",
       id: "u2",
       text: "Also add jitter to the delay, and make the cap configurable.",
-      attachments: [{ name: "backoff-notes.md", mime: "text/markdown", kind: "text", bytes: 2310 }],
+      attachments: [
+        {
+          name: "backoff-notes.md",
+          mime: "text/markdown",
+          kind: "text",
+          bytes: 2310,
+        },
+      ],
       queued: false,
     },
     {
@@ -238,7 +283,12 @@ export function chatFixture(): ChatState {
     },
   ];
   return {
-    thread: { name: THREADS.main, kind: "main", title: "Add retry with backoff", tip },
+    thread: {
+      name: THREADS.main,
+      kind: "main",
+      title: "Add retry with backoff",
+      tip,
+    },
     blocks,
     status: {
       state: "running",
@@ -252,10 +302,22 @@ export function chatFixture(): ChatState {
     model: {
       current: "anthropic/claude-sonnet-5-5",
       options: [
-        { id: "anthropic/claude-sonnet-5-5", label: "Claude Sonnet 5.5", provider: "anthropic" },
-        { id: "anthropic/claude-haiku-5-5", label: "Claude Haiku 5.5", provider: "anthropic" },
+        {
+          id: "anthropic/claude-sonnet-5-5",
+          label: "Claude Sonnet 5.5",
+          provider: "anthropic",
+        },
+        {
+          id: "anthropic/claude-haiku-5-5",
+          label: "Claude Haiku 5.5",
+          provider: "anthropic",
+        },
         { id: "openai/gpt-5.1", label: "GPT-5.1", provider: "openai" },
-        { id: "local/qwen3-coder-30b", label: "Qwen3 Coder 30B (local)", provider: "local" },
+        {
+          id: "local/qwen3-coder-30b",
+          label: "Qwen3 Coder 30B (local)",
+          provider: "local",
+        },
       ],
     },
     settings: {
@@ -264,13 +326,33 @@ export function chatFixture(): ChatState {
       schema: {
         type: "object",
         properties: {
-          temperature: { type: "number", minimum: 0, maximum: 2, description: "Randomness of the output." },
-          max_tokens: { type: "integer", minimum: 1, description: "The most the model may write in one reply." },
-          thinking: { enum: ["off", "brief", "on"], description: "How much of the model's reasoning to ask for." },
-          cache: { type: "boolean", description: "Reuse the prompt cache between requests." },
+          temperature: {
+            type: "number",
+            minimum: 0,
+            maximum: 2,
+            description: "Randomness of the output.",
+          },
+          max_tokens: {
+            type: "integer",
+            minimum: 1,
+            description: "The most the model may write in one reply.",
+          },
+          thinking: {
+            enum: ["off", "brief", "on"],
+            description: "How much of the model's reasoning to ask for.",
+          },
+          cache: {
+            type: "boolean",
+            description: "Reuse the prompt cache between requests.",
+          },
         },
       },
-      value: { temperature: 1, max_tokens: 8192, thinking: "brief", cache: true },
+      value: {
+        temperature: 1,
+        max_tokens: 8192,
+        thinking: "brief",
+        cache: true,
+      },
       issues: [],
       dirty: false,
       saveLabel: "Apply to thread",

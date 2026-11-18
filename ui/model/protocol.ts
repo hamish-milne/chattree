@@ -80,7 +80,8 @@ export const intent = Type.Union([
   ev("chat.model", { model: name }),
   /** An edited value for a form; the answer is a `form.set` with the issues found. */
   ev("form.edit", { id: name, value: Type.Record(Type.String(), Type.Unknown()) }),
-  ev("form.save", { id: name }),
+  /** Save a form. `message` is the commit message for one that is committed (`harness.yml`). */
+  ev("form.save", { id: name, message: Type.Optional(Type.String()) }),
   ev("form.revert", { id: name }),
 ]);
 export type UiIntent = Static<typeof intent>;

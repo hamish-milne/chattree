@@ -32,8 +32,18 @@ const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON
 
 /** The repositories of the pretend workspace: two conversations, and two that cannot be opened. */
 const REPOS: RepoEntry[] = [
-  { id: "retry-client", name: "retry-client", path: "~/work/retry-client", chattree: true },
-  { id: "docs-site", name: "docs-site", path: "~/work/docs-site", chattree: true },
+  {
+    id: "retry-client",
+    name: "retry-client",
+    path: "~/work/retry-client",
+    chattree: true,
+  },
+  {
+    id: "docs-site",
+    name: "docs-site",
+    path: "~/work/docs-site",
+    chattree: true,
+  },
   {
     id: "legacy-api",
     name: "legacy-api",
@@ -83,7 +93,10 @@ export class MockController {
     switch (intent.type) {
       case "ready":
         if (intent.view === "graph") {
-          this.emit({ type: "graph.repos", repos: { repos: REPOS, current: this.repoId } });
+          this.emit({
+            type: "graph.repos",
+            repos: { repos: REPOS, current: this.repoId },
+          });
           this.emit({ type: "graph.data", data: this.graph });
           this.emit({ type: "graph.selected", thread: this.current });
         } else if (intent.view === "chat") this.emit({ type: "chat.open", state: this.chat(this.current) });
@@ -127,8 +140,18 @@ export class MockController {
           id: `f${++this.seq}`,
           file:
             n % 2 === 0
-              ? { name: "error-log.txt", mime: "text/plain", kind: "text", bytes: 4210 }
-              : { name: "screenshot.png", mime: "image/png", kind: "image", bytes: 183_000 },
+              ? {
+                  name: "error-log.txt",
+                  mime: "text/plain",
+                  kind: "text",
+                  bytes: 4210,
+                }
+              : {
+                  name: "screenshot.png",
+                  mime: "image/png",
+                  kind: "image",
+                  bytes: 183_000,
+                },
         });
         this.emit({ type: "chat.composer", composer: c });
         return;
@@ -149,7 +172,7 @@ export class MockController {
         this.editForm(intent.id, intent.value);
         return;
       case "form.save":
-        this.saveForm(intent.id);
+        this.saveForm(intent.id, intent.message);
         return;
       case "form.revert": {
         const f = this.form(intent.id);
@@ -194,11 +217,19 @@ export class MockController {
     const usd = own.reduce((n, c) => n + (c.usd ?? 0), 0);
     const options = base.model.options;
     const state: ChatState = {
-      thread: { name, kind: t.kind, ...(t.title === undefined ? {} : { title: t.title }), tip: t.tip },
+      thread: {
+        name,
+        kind: t.kind,
+        ...(t.title === undefined ? {} : { title: t.title }),
+        tip: t.tip,
+      },
       blocks,
       status: this.statusOf(t.status, t.model ?? "Claude Sonnet 5.5", blocks.length, usd),
       composer: { draft: "", attachments: [] },
-      model: { current: options.find((o) => o.label === t.model)?.id ?? "anthropic/claude-sonnet-5-5", options },
+      model: {
+        current: options.find((o) => o.label === t.model)?.id ?? "anthropic/claude-sonnet-5-5",
+        options,
+      },
       ...(base.settings === undefined ? {} : { settings: this.form("model-settings").working }),
     };
     this.chats.set(name, state);
@@ -237,7 +268,13 @@ export class MockController {
           });
           break;
         case "user":
-          blocks.push({ type: "user", id, commit: c.hash, text: strip(c.summary), attachments: [] });
+          blocks.push({
+            type: "user",
+            id,
+            commit: c.hash,
+            text: strip(c.summary),
+            attachments: [],
+          });
           break;
         case "assistant":
           if ((c.toolCalls ?? 0) > 0) {
@@ -254,12 +291,24 @@ export class MockController {
               };
             });
             blocks.push(...waiting);
-          } else blocks.push({ type: "assistant", id, commit: c.hash, markdown: strip(c.summary), model });
+          } else
+            blocks.push({
+              type: "assistant",
+              id,
+              commit: c.hash,
+              markdown: strip(c.summary),
+              model,
+            });
           break;
         case "tool_result": {
           const call = waiting.shift();
           if (call !== undefined) {
-            const done: ToolBlock = { ...call, commit: c.hash, status: "ok", result: { text: strip(c.summary), truncated: false, ms: 40 } };
+            const done: ToolBlock = {
+              ...call,
+              commit: c.hash,
+              status: "ok",
+              result: { text: strip(c.summary), truncated: false, ms: 40 },
+            };
             blocks.splice(blocks.indexOf(call), 1, done);
           }
           break;
@@ -329,8 +378,16 @@ export class MockController {
     const changed = thread !== this.current;
     this.current = thread;
     // Opening the thread that is already open must not reset the chat under the person's hands, unless it changed (`reload`).
-    if (changed || reload) this.emit({ type: "chat.open", state: structuredClone(this.chat(thread)) });
-    this.emit({ type: "graph.selected", thread, ...(commit === undefined ? {} : { commit }) });
+    if (changed || reload)
+      this.emit({
+        type: "chat.open",
+        state: structuredClone(this.chat(thread)),
+      });
+    this.emit({
+      type: "graph.selected",
+      thread,
+      ...(commit === undefined ? {} : { commit }),
+    });
     const target = commit === undefined ? undefined : this.blockCommit(thread, commit);
     if (target !== undefined) this.emit({ type: "chat.reveal", commit: target });
   }
@@ -369,7 +426,12 @@ export class MockController {
     const kept = (cut < 0 ? source.blocks : source.blocks.slice(0, cut + 1)).map((b) => structuredClone(b));
     this.chats.set(fork, {
       ...structuredClone(source),
-      thread: { name: fork, kind: "fork", title: `Fork of ${from}`, tip: this.thread(fork).tip },
+      thread: {
+        name: fork,
+        kind: "fork",
+        title: `Fork of ${from}`,
+        tip: this.thread(fork).tip,
+      },
       blocks: [
         ...kept,
         {
@@ -408,7 +470,10 @@ export class MockController {
     const keep = chat.blocks.findLastIndex((b) => b.commit !== undefined && !dropped.includes(b.commit));
     chat.blocks = chat.blocks.slice(0, keep + 1);
     chat.thread = { ...chat.thread, tip: target };
-    chat.composer = { ...chat.composer, draft: block?.type === "user" ? block.text : chat.composer.draft };
+    chat.composer = {
+      ...chat.composer,
+      draft: block?.type === "user" ? block.text : chat.composer.draft,
+    };
     this.emit({ type: "graph.data", data: structuredClone(this.graph) });
     this.open(thread, undefined, true);
     this.notify("info", `Rewound ${thread}; the old tip ${old.slice(0, 7)} is kept at refs/chattree/rewound/${old.slice(0, 7)}`);
@@ -419,8 +484,16 @@ export class MockController {
     if (repo === undefined || id === this.repoId) return;
     if (!repo.chattree) return this.notify("warning", `${repo.name}: ${repo.reason ?? "cannot be opened"}`);
     if (this.turn !== undefined) return this.notify("warning", "A turn is running here; stop it before switching repository");
-    this.stored.set(this.repoId, { graph: this.graph, chats: this.chats, current: this.current });
-    const next = this.stored.get(id) ?? { graph: docsGraphFixture(), chats: new Map<string, ChatState>(), current: "master" };
+    this.stored.set(this.repoId, {
+      graph: this.graph,
+      chats: this.chats,
+      current: this.current,
+    });
+    const next = this.stored.get(id) ?? {
+      graph: docsGraphFixture(),
+      chats: new Map<string, ChatState>(),
+      current: "master",
+    };
     this.repoId = id;
     this.graph = next.graph;
     this.chats = next.chats;
@@ -428,7 +501,10 @@ export class MockController {
     this.emit({ type: "graph.repos", repos: { repos: REPOS, current: id } });
     this.emit({ type: "graph.data", data: structuredClone(this.graph) });
     this.emit({ type: "graph.selected", thread: this.current });
-    this.emit({ type: "chat.open", state: structuredClone(this.chat(this.current)) });
+    this.emit({
+      type: "chat.open",
+      state: structuredClone(this.chat(this.current)),
+    });
   }
 
   private deleteThread(name: string): void {
@@ -459,7 +535,9 @@ export class MockController {
     const f = this.thread(from);
     const refused = [canDragThread(this.graph, from), canDropOn(this.graph, from, into)].find((v) => !v.ok);
     if (refused !== undefined) return this.notify("warning", `Cannot merge ${from} into ${into}: ${refused.reason ?? "not allowed"}`);
-    this.commit(into, "fork_merge", `fork merged: ${f.title ?? from}`, { parents: [this.thread(into).tip, f.tip] });
+    this.commit(into, "fork_merge", `fork merged: ${f.title ?? from}`, {
+      parents: [this.thread(into).tip, f.tip],
+    });
     f.merged = true;
     this.emit({ type: "graph.data", data: structuredClone(this.graph) });
     this.notify("info", `Merged ${from} into ${into}`);
@@ -472,7 +550,11 @@ export class MockController {
     const option = chat.model.options.find((o) => o.id === id);
     if (option === undefined) return;
     chat.model = { ...chat.model, current: id };
-    chat.status = { ...chat.status, model: option.label, provider: option.provider };
+    chat.status = {
+      ...chat.status,
+      model: option.label,
+      provider: option.provider,
+    };
     const t = this.thread(this.current);
     t.model = option.label;
     const hash = this.commit(this.current, "agent_setup", `setup (model_changed): ${id}`);
@@ -500,7 +582,13 @@ export class MockController {
     this.emit({ type: "chat.composer", composer: chat.composer });
     const id = `u${++this.seq}`;
     const queued = this.turn !== undefined;
-    const block: Block = { type: "user", id, text, attachments, ...(queued ? { queued: true } : {}) };
+    const block: Block = {
+      type: "user",
+      id,
+      text,
+      attachments,
+      ...(queued ? { queued: true } : {}),
+    };
     chat.blocks = [...chat.blocks, block];
     this.emit({ type: "chat.append", blocks: [block] });
     if (queued) this.queue.push({ thread, block: id, text });
@@ -549,7 +637,15 @@ export class MockController {
     const user = chat.blocks.find((b) => b.id === userBlock);
     if (user?.type === "user") {
       const hash = this.commit(thread, "user", `user: ${text}`);
-      this.put(thread, { ...user, commit: hash, ...(user.queued === true ? { queued: false } : {}) }, "update");
+      this.put(
+        thread,
+        {
+          ...user,
+          commit: hash,
+          ...(user.queued === true ? { queued: false } : {}),
+        },
+        "update",
+      );
       this.publish(thread);
     }
     this.setStatus(thread, "running");
@@ -583,11 +679,29 @@ export class MockController {
       ))
     )
       return interrupted();
-    this.put(thread, { type: "reasoning", id: `r${n}`, text: this.textOf(thread, `r${n}`), streaming: false }, "update");
+    this.put(
+      thread,
+      {
+        type: "reasoning",
+        id: `r${n}`,
+        text: this.textOf(thread, `r${n}`),
+        streaming: false,
+      },
+      "update",
+    );
 
     this.put(thread, { type: "assistant", id: `a${n}`, markdown: "", model, streaming: true }, "append");
     if (!(await this.stream(thread, `a${n}`, "I'll start by editing the client, then run the test suite."))) return interrupted();
-    this.put(thread, { type: "assistant", id: `a${n}`, markdown: this.textOf(thread, `a${n}`), model }, "update");
+    this.put(
+      thread,
+      {
+        type: "assistant",
+        id: `a${n}`,
+        markdown: this.textOf(thread, `a${n}`),
+        model,
+      },
+      "update",
+    );
 
     // A tool call that needs a decision.
     const edit: ToolBlock = {
@@ -596,7 +710,13 @@ export class MockController {
       name: "edit",
       summary: "edit src/http.ts",
       args: JSON.stringify(
-        { path: "src/http.ts", version: "e1d90a42", start: 2, end: 2, content: "  const max = init?.retries ?? 5;" },
+        {
+          path: "src/http.ts",
+          version: "e1d90a42",
+          start: 2,
+          end: 2,
+          content: "  const max = init?.retries ?? 5;",
+        },
         null,
         2,
       ),
@@ -605,7 +725,12 @@ export class MockController {
     this.put(thread, edit, "append");
     await this.sleep(400);
     this.put(thread, { ...edit, status: "awaiting_approval" }, "update");
-    const approval = { callId: edit.id, name: edit.name, summary: edit.summary, args: edit.args };
+    const approval = {
+      callId: edit.id,
+      name: edit.name,
+      summary: edit.summary,
+      args: edit.args,
+    };
     this.setStatus(thread, "awaiting");
     if (thread === this.current) this.emit({ type: "chat.approval", approval });
     const allow = await new Promise<boolean>((resolve) => (this.answer = resolve));
@@ -617,7 +742,15 @@ export class MockController {
     }
     this.setStatus(thread, "running");
     if (!allow) {
-      this.put(thread, { ...edit, status: "did_not_run", result: { text: "You declined this call.", truncated: false, ms: 0 } }, "update");
+      this.put(
+        thread,
+        {
+          ...edit,
+          status: "did_not_run",
+          result: { text: "You declined this call.", truncated: false, ms: 0 },
+        },
+        "update",
+      );
     } else {
       this.put(thread, { ...edit, status: "running" }, "update");
       await this.sleep(600);
@@ -663,7 +796,11 @@ export class MockController {
       {
         ...run,
         status: "error",
-        result: { text: "exit 1\nnot ok 4 - retries a 503\n  expected 5 calls, got 3\n# pass 11\n# fail 1", truncated: false, ms: 1180 },
+        result: {
+          text: "exit 1\nnot ok 4 - retries a 503\n  expected 5 calls, got 3\n# pass 11\n# fail 1",
+          truncated: false,
+          ms: 1180,
+        },
       },
       "update",
     );
@@ -673,16 +810,35 @@ export class MockController {
       ? "One test fails: it still expects the **old retry count**. I changed the code but not the test.\n\n```ts\nexpect(calls).toBe(3); // should be 5\n```\n\nSay the word and I'll update it."
       : "Without the edit, the tests fail the way they did before. I did not change anything.\n\n- The failing test is `retries a 503`.\n- Tell me if you'd rather I change the test instead.";
     if (!(await this.stream(thread, `f${n}`, reply))) return interrupted();
-    this.put(thread, { type: "assistant", id: `f${n}`, markdown: this.textOf(thread, `f${n}`), model }, "update");
+    this.put(
+      thread,
+      {
+        type: "assistant",
+        id: `f${n}`,
+        markdown: this.textOf(thread, `f${n}`),
+        model,
+      },
+      "update",
+    );
 
     const calls = allow ? 2 : 1;
-    this.commit(thread, "assistant", "assistant: calls edit", { toolCalls: calls, usd: 0.021 });
+    this.commit(thread, "assistant", "assistant: calls edit", {
+      toolCalls: calls,
+      usd: 0.021,
+    });
     for (let i = 0; i < calls; i++)
       this.commit(thread, "tool_result", i === 0 && allow ? "tool result: edited src/http.ts" : "tool result: 1 failing");
     const last = this.commit(thread, "assistant", `assistant: ${reply.split("\n")[0] ?? ""}`, { usd: 0.018 });
     this.put(
       thread,
-      { type: "turn_end", id: `t${n}`, commit: last, usage: { input: 21_300, output: 640, cached: 14_900 }, usd: 0.039, stop: "end_turn" },
+      {
+        type: "turn_end",
+        id: `t${n}`,
+        commit: last,
+        usage: { input: 21_300, output: 640, cached: 14_900 },
+        usd: 0.039,
+        stop: "end_turn",
+      },
       "append",
     );
     const c = this.chat(thread);
@@ -720,19 +876,33 @@ export class MockController {
       typeof limits.max_conversation_usd === "number" &&
       limits.max_turn_usd > limits.max_conversation_usd
     ) {
-      issues.push({ path: "limits.max_turn_usd", message: "is above max_conversation_usd" });
+      issues.push({
+        path: "limits.max_turn_usd",
+        message: "is above max_conversation_usd",
+      });
     }
-    f.working = { ...f.working, value, issues, dirty: !sameJson(value, f.saved.value) };
+    f.working = {
+      ...f.working,
+      value,
+      issues,
+      dirty: !sameJson(value, f.saved.value),
+    };
     this.emit({ type: "form.set", form: f.working });
   }
 
-  private saveForm(id: string): void {
+  private saveForm(id: string, message?: string): void {
     const f = this.form(id);
     if (f.working.issues.length > 0) return this.notify("error", `${f.working.title} has problems; fix them first`);
     f.saved = { ...f.working, dirty: false };
     f.working = f.saved;
     this.emit({ type: "form.set", form: f.working });
-    if (id === "harness") return this.notify("info", "harness.yml saved and committed");
+    if (id === "harness") {
+      // The file is committed on the trunk like any other change; the person's message is the commit's.
+      const subject = `harness.yml: ${message === undefined || message === "" ? "update settings" : message}`;
+      this.commit(THREADS.main, "other", subject);
+      this.publish(THREADS.main);
+      return this.notify("info", "harness.yml saved and committed");
+    }
     // Model settings are part of the conversation: a change is an entry on the thread.
     const chat = this.chat(this.current);
     const hash = this.commit(this.current, "agent_setup", "setup (settings_changed)");
