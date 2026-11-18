@@ -9,8 +9,8 @@ A model-neutral agent harness whose conversation history lives in Git. A convers
 ## Layers
 
 ```
-cli/            the command-line host: engine, commands, terminal
-  │
+cli/            the command-line host         ui/   the UI core (graphical hosts)
+  │                                              │
 harness/        conversations, turns, tools, limits and cost        providers/   model APIs, prices, dialects
   │                                                                    │
   └───────────────┬────────────────────────────────────────────────────┘
@@ -31,6 +31,7 @@ Dependencies point down. `src/` imports nothing from the rest of the repository 
 | [providers.md](providers.md) | `providers/` | Adapters, HTTP transport, prices, catalogs, dialects. |
 | [localmodels.md](localmodels.md) | `localmodels/` | The model host: daemon, install, download, store, sampling. |
 | [cli.md](cli.md) | `cli/` | The `chattree` command: engine, commands, sessions, terminal. |
+| [ui.md](ui.md) | `ui/` | The UI core: view-models, the controller/view message protocol, fixtures. |
 | [dev-tooling.md](dev-tooling.md) | `tools/`, `scripts/`, `bench/`, `templates/` | Test runner, live checks, local-model research tools. |
 | [tests.md](tests.md) | `test/` | Test layout, how crash safety is tested, where to add tests. |
 | [dependencies.md](dependencies.md) | `package.json` | Packages, why each is here, the update policy. |

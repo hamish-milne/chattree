@@ -10,6 +10,7 @@
 | `test/providers/` | Each adapter against recorded fixtures at many chunk sizes, conformance, HTTP base, SSE, pricing, dialects. |
 | `test/localmodels/` | The local model host: plan, download, install, store, daemon, sampling. |
 | `test/cli/` | The engine and commands through `submit(line)` with a fake terminal, sessions, drafts, skills, MCP, trust, threads. |
+| `test/ui/` | The UI core: fixtures are valid data, the protocol accepts every message and refuses what a view must not send. |
 | `test/hosts/` | The Node host, busybox and ffmpeg fetchers. |
 | `test/integration/` | `lifecycle.test.ts`: one conversation through everything, then deep verification and `git fsck --strict`. |
 | `test/tools/` | The dev tools' pure parts (scenario generators, bench logic). |
