@@ -88,6 +88,11 @@ export const intent = Type.Union([
   /** Start a new thread from `commit` on `thread`; the controller picks a name when none is given. */
   ev("thread.fork", { thread: name, commit: hash, name: Type.Optional(name) }),
   /** Take `thread` back to `commit`; the old tip is kept under a ref (the conversation's own rewind). */
+  /** Start an empty thread from the trunk's latest commit; the controller picks a name when none is given. The chat opens on it. */
+  ev("thread.new", { name: Type.Optional(name) }),
+  /** Put a thread away (it is left out of the graph) or bring it back. Any new entry on an archived thread also brings it back. */
+  ev("thread.archive", { thread: name }),
+  ev("thread.unarchive", { thread: name }),
   ev("thread.rewind", { thread: name, commit: hash }),
   ev("thread.merge", { from: name, into: name }),
   /**

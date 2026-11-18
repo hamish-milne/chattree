@@ -114,7 +114,12 @@ function Status({ status }: { status: ThreadStatus }): JSX.Element | null {
 function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.Element {
   return (
     <span
-      class={cn(css.pill, thread.merged === true && css.merged, thread.checkedOut === true && css.checked_out)}
+      class={cn(
+        css.pill,
+        thread.merged === true && css.merged,
+        thread.checkedOut === true && css.checked_out,
+        thread.archived === true && css.archived,
+      )}
       style={{ "--c": color }}
       title={[
         thread.title,
@@ -155,7 +160,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
   const dragged = useRef(false);
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const layout = model.layout.value;
-  const data = model.data.value;
+  const data = model.shown.value;
   if (layout === undefined || data === undefined)
     return (
       <div class={css.graph}>
@@ -239,6 +244,18 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
       onPointerCancel={(e) => endDrag(e, false)}
     >
       <RepoPicker model={model} />
+      <div class={css.graph_tools}>
+        <button class="secondary" title="Start a new thread from the trunk" onClick={() => model.newThread()}>
+          <Icon name="plus" size={12} />
+          New thread
+        </button>
+        {model.archivedCount.value > 0 && (
+          <label class={css.show_archived}>
+            <input type="checkbox" checked={model.showArchived.value} onChange={() => model.toggleArchived()} />
+            Show archived ({model.archivedCount.value})
+          </label>
+        )}
+      </div>
       <div class={css.graph_scroll}>
         <div class={css.graph_body} style={{ height: `${layout.rows.length * ROW}px` }}>
           {layout.rows.map((r, i) => {

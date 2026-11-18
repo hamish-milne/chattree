@@ -6,7 +6,16 @@
 import { computed, createModel, signal } from "@preact/signals-core";
 import type { UiEvent, UiIntent } from "./protocol.ts";
 import type { GraphData, RepoEntry, RepoList } from "./graph.ts";
-import { actionsFor, canDragThread, canDropOn, deleteDialog, initDialog, type GraphAction, type Verdict } from "./graph-actions.ts";
+import {
+  withoutArchived,
+  actionsFor,
+  canDragThread,
+  canDropOn,
+  deleteDialog,
+  initDialog,
+  type GraphAction,
+  type Verdict,
+} from "./graph-actions.ts";
 import { layoutGraph } from "./graph-layout.ts";
 
 export interface OpenMenu {
@@ -56,7 +65,14 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
   });
   /** The commit under the pointer. */
   const hover = signal<string | undefined>(undefined);
-  const layout = computed(() => (data.value === undefined ? undefined : layoutGraph(data.value, expanded.value)));
+  const showArchived = signal(false);
+  /** What is drawn: the graph without its archived threads, unless asked for. */
+  const shown = computed(() => {
+    const d = data.value;
+    return d === undefined ? undefined : showArchived.value ? { data: d, hidden: 0 } : withoutArchived(d);
+  });
+  const archivedCount = computed(() => data.value?.threads.filter((t) => t.archived === true).length ?? 0);
+  const layout = computed(() => (shown.value === undefined ? undefined : layoutGraph(shown.value.data, expanded.value)));
   const menuActions = computed((): GraphAction[] => {
     const m = menu.value;
     return m === undefined || data.value === undefined ? [] : actionsFor(data.value, m.commit);
@@ -85,6 +101,10 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     initializing,
     initConfirmation,
     switching,
+    showArchived,
+    archivedCount,
+    /** The data the layout is drawn from: `data` less the archived threads, unless they are shown. */
+    shown: computed(() => shown.value?.data),
     hover,
     drag,
     dropTarget,
@@ -170,6 +190,8 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
       if (d === undefined || thread === undefined || action?.enabled !== true) return;
       if (id === "copy") send({ type: "commit.copy", commit });
       else if (id === "delete") deleting.value = thread;
+      else if (id === "archive") send({ type: "thread.archive", thread });
+      else if (id === "unarchive") send({ type: "thread.unarchive", thread });
       else if (id === "open") send({ type: "thread.open", thread, commit });
       else if (id === "fork") send({ type: "thread.fork", thread, commit });
       else if (id === "rewind") send({ type: "thread.rewind", thread, commit });
@@ -210,6 +232,13 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     },
     cancelInit(): void {
       initializing.value = undefined;
+    },
+    /** Start an empty thread from the trunk. */
+    newThread(): void {
+      if (data.peek() !== undefined) send({ type: "thread.new" });
+    },
+    toggleArchived(): void {
+      showArchived.value = !showArchived.peek();
     },
     toggleRepoMenu(): void {
       repoMenuOpen.value = !repoMenuOpen.peek();

@@ -1,5 +1,6 @@
 // Generated from graph.module.css by tools/gen-css-types.mts. Do not edit.
 declare const styles: {
+  readonly archived: string;
   readonly checked_out: string;
   readonly chevron: string;
   readonly dialog: string;
@@ -18,6 +19,7 @@ declare const styles: {
   readonly graph_body: string;
   readonly graph_empty: string;
   readonly graph_scroll: string;
+  readonly graph_tools: string;
   readonly halo: string;
   readonly in_fold: string;
   readonly label: string;
@@ -42,6 +44,7 @@ declare const styles: {
   readonly row: string;
   readonly row_bg: string;
   readonly selected: string;
+  readonly show_archived: string;
   readonly status: string;
   readonly status_awaiting: string;
   readonly status_elsewhere: string;

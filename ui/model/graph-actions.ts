@@ -5,7 +5,7 @@
 import type { GraphData, GraphThread, RepoEntry } from "./graph.ts";
 
 export interface GraphAction {
-  id: "open" | "fork" | "rewind" | "merge" | "switch" | "copy" | "delete";
+  id: "open" | "fork" | "rewind" | "merge" | "switch" | "copy" | "archive" | "unarchive" | "delete";
   label: string;
   /** A divider is drawn above it: it starts a new group of actions. */
   separator?: boolean;
@@ -57,9 +57,19 @@ export function actionsFor(data: GraphData, commitHash: string): GraphAction[] {
     enabled: sw.ok,
     ...(sw.reason === undefined ? {} : { reason: sw.reason }),
   });
+  const keep =
+    thread.name === data.trunk ? "the trunk cannot be archived" : thread.checkedOut === true ? "it is checked out in your workspace" : busy;
   const doomed = thread.name === data.trunk ? "the trunk cannot be deleted" : busy;
   actions.push(
     { id: "copy", label: "Copy commit hash", enabled: true, separator: true },
+    thread.archived === true
+      ? { id: "unarchive", label: `Unarchive thread “${thread.name}”`, enabled: true }
+      : {
+          id: "archive",
+          label: `Archive thread “${thread.name}”`,
+          enabled: keep === undefined,
+          ...(keep === undefined ? {} : { reason: keep }),
+        },
     {
       id: "delete",
       label: `Delete thread “${thread.name}”…`,
@@ -172,4 +182,31 @@ export function canDropOn(data: GraphData, from: string, into: string): Verdict 
   const busy = busyReason(target);
   if (busy !== undefined) return no(`${into}: ${busy}`);
   return { ok: true };
+}
+
+/**
+ * The graph without the threads that were archived: their commits go, and a commit that had one of them as a parent is
+ * drawn without that parent. A thread that a shown thread was forked from stays, as the fork would hang from nothing.
+ * `hidden` is how many threads were left out, for the "show archived" switch.
+ */
+export function withoutArchived(data: GraphData): { data: GraphData; hidden: number } {
+  const owner = new Map(data.commits.map((c) => [c.hash, c.thread]));
+  const hidden = new Set(data.threads.filter((t) => t.archived === true && t.name !== data.trunk).map((t) => t.name));
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const t of data.threads) {
+      const parent = t.from === undefined ? undefined : owner.get(t.from);
+      if (!hidden.has(t.name) && parent !== undefined && hidden.delete(parent)) changed = true;
+    }
+  }
+  if (hidden.size === 0) return { data, hidden: 0 };
+  const shown = new Set(data.commits.filter((c) => !hidden.has(c.thread)).map((c) => c.hash));
+  return {
+    hidden: hidden.size,
+    data: {
+      ...data,
+      threads: data.threads.filter((t) => !hidden.has(t.name)),
+      commits: data.commits.filter((c) => shown.has(c.hash)).map((c) => ({ ...c, parents: c.parents.filter((p) => shown.has(p)) })),
+    },
+  };
 }

@@ -11,7 +11,7 @@ import type { GraphCommit, GraphData, GraphKind, RepoEntry, ThreadStatus } from 
 import type { FormSpec } from "../model/form.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
 import type { Block } from "../model/transcript.ts";
-import { canDragThread, canDropOn } from "../model/graph-actions.ts";
+import { actionsFor, canDragThread, canDropOn } from "../model/graph-actions.ts";
 import { chatFixture } from "./chat.ts";
 import { configFixture } from "./config.ts";
 import { WORKSPACE_FILES, instructionsFixture, mockProviderCheck, withFound } from "./mock-settings.ts";
@@ -144,6 +144,13 @@ export class MockController {
         return;
       case "thread.fork":
         this.fork(intent.thread, intent.commit, intent.name);
+        return;
+      case "thread.new":
+        this.fork(this.graph.trunk, this.thread(this.graph.trunk).tip, intent.name, "New thread");
+        return;
+      case "thread.archive":
+      case "thread.unarchive":
+        this.mark(intent.thread, intent.type === "thread.archive");
         return;
       case "thread.rewind":
         this.rewind(intent.thread, intent.commit);
@@ -415,6 +422,8 @@ export class MockController {
       ...(more.usd === undefined ? {} : { usd: more.usd }),
     });
     t.tip = hash;
+    // Any new entry brings an archived thread back.
+    delete t.archived;
     return hash;
   }
 
@@ -470,16 +479,16 @@ export class MockController {
     this.emit({ type: "notice", level, message });
   }
 
-  private fork(from: string, at: string, name: string | undefined): void {
+  private fork(from: string, at: string, name: string | undefined, title?: string): void {
     const source = this.chat(from);
-    const fork = name ?? `fork-${++this.seq}`;
+    const fork = name ?? `${title === undefined ? "fork" : "thread"}-${++this.seq}`;
     if (this.graph.threads.some((t) => t.name === fork)) return this.notify("warning", `a thread named ${fork} already exists`);
     this.graph.threads.push({
       name: fork,
       kind: "fork",
       status: "idle",
       tip: at,
-      title: `Fork of ${from}`,
+      title: title ?? `Fork of ${from}`,
       from: at,
       ...(this.thread(from).model === undefined ? {} : { model: this.thread(from).model }),
     });
@@ -491,7 +500,7 @@ export class MockController {
       thread: {
         name: fork,
         kind: "fork",
-        title: `Fork of ${from}`,
+        title: title ?? `Fork of ${from}`,
         tip: this.thread(fork).tip,
       },
       blocks: [
@@ -502,7 +511,7 @@ export class MockController {
           commit: this.thread(fork).tip,
           kind: "branch",
           level: "info",
-          title: `Forked from ${from}`,
+          title: title === undefined ? `Forked from ${from}` : `Started from the tip of ${from}`,
         },
       ],
       composer: { draft: "", attachments: [] },
@@ -569,6 +578,18 @@ export class MockController {
     this.emit({ type: "form.set", form: bare });
     this.emit({ type: "settings.open", page: "providers" });
     this.notify("info", `Started a conversation in ${repo.path}${repo.init === "adopt" ? ` on its branch ${trunk}` : ""}`);
+  }
+
+  /** Archive a thread or bring it back, as `Conversation.archive` does: not the trunk, not one that is working or checked out. */
+  private mark(name: string, archived: boolean): void {
+    const t = this.graph.threads.find((x) => x.name === name);
+    if (t === undefined || (t.archived === true) === archived) return;
+    if (archived) {
+      const why = actionsFor(this.graph, t.tip).find((a) => a.id === "archive")?.reason;
+      if (why !== undefined) return this.notify("warning", `Cannot archive ${name}: ${why}`);
+      t.archived = true;
+    } else delete t.archived;
+    this.emit({ type: "graph.data", data: structuredClone(this.graph) });
   }
 
   private selectRepo(id: string): void {

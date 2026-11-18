@@ -162,6 +162,7 @@ describe("the graph model", () => {
         ["merge", true],
         ["switch", true],
         ["copy", true],
+        ["archive", true],
         ["delete", true],
       ],
       "an unavailable action stays in the menu, greyed out",

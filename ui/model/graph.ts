@@ -55,6 +55,8 @@ export const graphThread = strictObject({
   from: Type.Optional(hash),
   /** This is the thread checked out in the project folder (exactly one thread has it): its files are the ones open in the editor. */
   checkedOut: Type.Optional(Type.Boolean()),
+  /** The person put it away (see `Conversation.archive`): the graph leaves it out unless asked. Any new entry on it brings it back. */
+  archived: Type.Optional(Type.Boolean()),
   /** It has been merged back (a `fork_merge` or `subagent_result` entry exists). */
   merged: Type.Optional(Type.Boolean()),
 });
