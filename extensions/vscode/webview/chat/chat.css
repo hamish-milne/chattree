@@ -736,3 +736,26 @@
     background: transparent;
   }
 }
+
+/* A reference to a file: a button that reads as a link. */
+.file-link {
+  display: inline;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: var(--vscode-textLink-foreground);
+  text-align: left;
+  cursor: pointer;
+}
+.file-link:hover {
+  text-decoration: underline;
+  color: var(--vscode-textLink-activeForeground);
+}
+.file-link.plain {
+  color: inherit;
+}
+.file-head .file-link {
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+}

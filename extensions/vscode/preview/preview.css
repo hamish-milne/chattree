@@ -172,3 +172,7 @@ body {
 .toast.level-warning {
   border-color: var(--vscode-editorWarning-foreground);
 }
+
+.toolbar label {
+  white-space: nowrap;
+}

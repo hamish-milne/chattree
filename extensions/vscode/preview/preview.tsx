@@ -109,6 +109,16 @@ function App() {
             onInput={(e) => (panelSize.value = Number(e.currentTarget.value))}
           />
         </label>
+        <label>
+          Click on a file
+          <select
+            value={chat.fileClick.value}
+            onChange={(e) => (chat.fileClick.value = e.currentTarget.value === "after" ? "after" : "current")}
+          >
+            <option value="current">opens the current file</option>
+            <option value="after">views it after the change</option>
+          </select>
+        </label>
         <button class="secondary" onClick={() => controller.setThreadStatus(THREADS.auth, "idle")}>
           Subagent finishes
         </button>

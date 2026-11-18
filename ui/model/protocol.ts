@@ -99,6 +99,18 @@ export const intent = Type.Union([
   /** Turn a file on or off for the thread without removing it. */
   ev("instructions.enable", { path: name, on: Type.Boolean() }),
   ev("instructions.remove", { path: name }),
+  /**
+   * Open a file a message or a tool call named. `path` is relative to the thread's workspace; the controller resolves
+   * it when this arrives (the thread may be checked out here, in a worktree of its own, or in neither). `at` asks for
+   * the file as the thread had it at that commit, read-only, instead of as it is now.
+   */
+  ev("file.open", {
+    thread: name,
+    path: name,
+    line: Type.Optional(Type.Integer({ minimum: 1 })),
+    endLine: Type.Optional(Type.Integer({ minimum: 1 })),
+    at: Type.Optional(hash),
+  }),
 ]);
 export type UiIntent = Static<typeof intent>;
 

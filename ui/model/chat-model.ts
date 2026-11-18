@@ -7,6 +7,7 @@ import { computed, createModel, signal } from "@preact/signals-core";
 import type { Approval, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
 import { FormModel } from "./form-model.ts";
 import type { UiEvent, UiIntent } from "./protocol.ts";
+import type { FileRef } from "./file-ref.ts";
 import type { Block } from "./transcript.ts";
 
 type Thread = ChatState["thread"];
@@ -14,6 +15,17 @@ type Thread = ChatState["thread"];
 /** Whether a block is open when the person has not touched it: reasoning while it streams, a call that needs a decision or failed. */
 const openByDefault = (b: Block): boolean =>
   b.type === "reasoning" ? b.streaming === true : b.type === "tool" ? b.status === "error" || b.status === "awaiting_approval" : false;
+
+/** What clicking a file reference does: open it as it is now, or as the thread had it after the change the reference is in. */
+export type FileClick = "current" | "after";
+
+/** A file reference with a menu open on it, and the commit of the block it is in (absent while that block is arriving). */
+export interface FileMenu {
+  ref: FileRef;
+  commit: string | undefined;
+  x: number;
+  y: number;
+}
 
 export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const thread = signal<Thread | undefined>(undefined);
@@ -28,6 +40,10 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const settingsOpen = signal(false);
   /** The block to scroll to and ping. `n` counts, so asking for the same commit again still shows. */
   const reveal = signal<{ commit: string; n: number } | undefined>(undefined);
+
+  /** The extension's setting for a plain click on a file reference. */
+  const fileClick = signal<FileClick>("current");
+  const fileMenu = signal<FileMenu | undefined>(undefined);
 
   const busy = computed(() => status.value?.state === "running" || status.value?.state === "awaiting");
   const canSend = computed(() => composer.value.draft.trim() !== "" || composer.value.attachments.length > 0);
@@ -51,6 +67,8 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     settings,
     settingsOpen,
     reveal,
+    fileClick,
+    fileMenu,
     busy,
     canSend,
     contextFraction,
@@ -148,6 +166,28 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     fork(commit: string): void {
       const t = name();
       if (t !== undefined) send({ type: "thread.fork", thread: t, commit });
+    },
+    /** Open a file a message or a tool call named. `how` says which version; a click uses the setting. */
+    openFile(ref: FileRef, commit: string | undefined, how: FileClick = fileClick.peek()): void {
+      const t = name();
+      if (t === undefined) return;
+      fileMenu.value = undefined;
+      // A block that has no commit yet cannot be asked for "after"; the current file is the honest answer.
+      const at = how === "after" ? commit : undefined;
+      send({
+        type: "file.open",
+        thread: t,
+        path: ref.path,
+        ...(ref.line === undefined ? {} : { line: ref.line }),
+        ...(ref.endLine === undefined ? {} : { endLine: ref.endLine }),
+        ...(at === undefined ? {} : { at }),
+      });
+    },
+    openFileMenu(ref: FileRef, commit: string | undefined, x: number, y: number): void {
+      fileMenu.value = { ref, commit, x, y };
+    },
+    closeFileMenu(): void {
+      fileMenu.value = undefined;
     },
     isOpen(b: Block): boolean {
       return toggled.value.has(b.id) !== openByDefault(b);

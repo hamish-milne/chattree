@@ -205,6 +205,14 @@ export class MockController {
           `${intent.on ? "Turned on" : "Turned off"} ${intent.path}`,
         );
         return;
+      case "file.open": {
+        const where = `${intent.path}${intent.line === undefined ? "" : `:${intent.line}${intent.endLine === undefined ? "" : `-${intent.endLine}`}`}`;
+        this.notify(
+          "info",
+          intent.at === undefined ? `Opened ${where}` : `Opened ${where} as it was at ${intent.at.slice(0, 7)} (read-only)`,
+        );
+        return;
+      }
       case "instructions.remove":
         this.changeInstructions((files) => files.filter((f) => f.path !== intent.path), `Removed ${intent.path} from the instructions`);
         return;

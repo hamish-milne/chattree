@@ -49,7 +49,8 @@ describe("the environment note", () => {
   });
 
   test("the system prompt says what chattree is and ends with its version", () => {
-    for (const word of ["thread", "fork", "subagent", "approval", "[Note from the harness]"]) assert.ok(SYSTEM_PROMPT.includes(word), word);
-    assert.match(SYSTEM_PROMPT, /\(chattree system prompt, version 3\)$/);
+    for (const word of ["thread", "fork", "subagent", "approval", "[Note from the harness]", "](src/net/retry.ts#L42-L58)"])
+      assert.ok(SYSTEM_PROMPT.includes(word), word);
+    assert.match(SYSTEM_PROMPT, /\(chattree system prompt, version 4\)$/);
   });
 });

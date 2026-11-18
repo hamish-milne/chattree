@@ -8,6 +8,7 @@ import type { AttachmentView, Block, ToolStatus } from "chattree/ui/model/transc
 import { toolView, type DiffRow, type ToolView } from "chattree/ui/model/tool-view";
 import { Icon, type IconName } from "../icons.tsx";
 import { Markdown } from "../markdown.tsx";
+import { FileLink, FileLinkContext } from "./FileLink.tsx";
 
 type Model = InstanceType<typeof ChatModel>;
 type Of<T extends Block["type"]> = Extract<Block, { type: T }>;
@@ -78,7 +79,7 @@ function Assistant({ model, block }: { model: Model; block: Of<"assistant"> }): 
   return (
     <section class={`block assistant${block.streaming === true ? " streaming" : ""}`} aria-label="Assistant" data-commit={block.commit}>
       <Actions model={model} block={block} />
-      <Markdown source={block.markdown} />
+      <Markdown source={block.markdown} files={{ model, commit: block.commit }} />
       {block.streaming === true && block.markdown === "" && <span class="caret" aria-label="Waiting for the model" />}
     </section>
   );
@@ -135,12 +136,23 @@ const Stat = ({ added, removed }: { added: number; removed: number }): JSX.Eleme
   </span>
 );
 
+/** The path of a file a tool call touched, as a button that opens it (at its first change, when there is one). */
+function FileHead({ path, line, bare = false }: { path: string; line?: number | undefined; bare?: boolean }): JSX.Element {
+  const ref = { path, ...(line === undefined ? {} : { line }) };
+  const button = (
+    <FileLink file={ref}>
+      <span>{path}</span>
+    </FileLink>
+  );
+  return bare ? button : <div class="file-head">{button}</div>;
+}
+
 function ToolBody({ view }: { view: ToolView }): JSX.Element {
   switch (view.kind) {
     case "edit":
       return (
         <div class="tool-body rich">
-          <div class="file-head">{view.path}</div>
+          <FileHead path={view.path} line={view.line} />
           {view.failed !== undefined && <pre class="error">{view.failed}</pre>}
           {view.hunks.map((h, i) => (
             <div key={i} class="hunk">
@@ -154,7 +166,7 @@ function ToolBody({ view }: { view: ToolView }): JSX.Element {
     case "write":
       return (
         <div class="tool-body rich">
-          <div class="file-head">{view.path}</div>
+          <FileHead path={view.path} />
           {view.failed !== undefined && <pre class="error">{view.failed}</pre>}
           <div class="hunk">
             <Rows rows={view.rows} signs />
@@ -166,7 +178,7 @@ function ToolBody({ view }: { view: ToolView }): JSX.Element {
       return (
         <div class="tool-body rich">
           <div class="file-head">
-            {view.path}
+            <FileHead path={view.path} line={view.line} bare />
             {view.range !== undefined && <span class="file-meta">{view.range}</span>}
             {view.version !== undefined && <span class="file-meta">version {view.version}</span>}
           </div>
@@ -228,7 +240,11 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
         {block.result !== undefined && <span class="tool-ms">{ms(block.result.ms)}</span>}
         <Icon name="chevron" size={14} />
       </button>
-      {open && <ToolBody view={view} />}
+      {open && (
+        <FileLinkContext.Provider value={{ model, commit: block.commit }}>
+          <ToolBody view={view} />
+        </FileLinkContext.Provider>
+      )}
       {asking && (
         <div class="approval" role="group" aria-label="Approve this call?">
           <span>Run this call?</span>

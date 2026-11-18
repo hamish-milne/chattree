@@ -125,6 +125,7 @@ describe("the protocol", () => {
     { type: "instructions.add", path: "CLAUDE.md" },
     { type: "instructions.enable", path: "AGENTS.md", on: false },
     { type: "instructions.remove", path: "AGENTS.md" },
+    { type: "file.open", thread: "main", path: "src/http.ts", line: 3, endLine: 9, at: "abc1234" },
   ];
   const typesOf = (schema: { anyOf?: { properties: { type: { const: string } } }[] }): string[] =>
     (schema.anyOf ?? []).map((m) => m.properties.type.const);

@@ -1,11 +1,14 @@
 /**
  * Draws Markdown as Preact elements, from `marked`'s tokens. No HTML string is ever built or inserted, so nothing in
  * a model's output (a script tag, an event handler, a `javascript:` link) can run: raw HTML in the text is shown as
- * text, a link must be http, https or mailto, and a remote image is shown as its description, not loaded.
+ * text, a link must be http, https or mailto (or a path in the workspace, which becomes a button that asks the
+ * controller to open it), and a remote image is shown as its description, not loaded.
  */
 import { Lexer, type MarkedToken, type Token } from "marked";
 import type { ComponentChild, JSX } from "preact";
 import { useMemo } from "preact/hooks";
+import { parseFileRef } from "chattree/ui/model/file-ref";
+import { FileLink, FileLinkContext, type FileLinks } from "./chat/FileLink.tsx";
 import { Icon } from "./icons.tsx";
 
 const KNOWN = new Set([
@@ -64,7 +67,14 @@ function inline(t: Token, key: number): ComponentChild {
       return <code key={key}>{t.text}</code>;
     case "br":
       return <br key={key} />;
-    case "link":
+    case "link": {
+      const file = parseFileRef(t.href);
+      if (file !== undefined)
+        return (
+          <FileLink key={key} file={file}>
+            <Inline tokens={t.tokens} />
+          </FileLink>
+        );
       return SAFE_LINK.test(t.href) ? (
         <a key={key} href={t.href} title={t.title ?? undefined} target="_blank" rel="noopener noreferrer">
           <Inline tokens={t.tokens} />
@@ -74,6 +84,7 @@ function inline(t: Token, key: number): ComponentChild {
           <Inline tokens={t.tokens} />
         </span>
       );
+    }
     case "image":
       return (
         <span key={key} class="md-image">
@@ -184,7 +195,11 @@ function block(t: Token, key: number): ComponentChild {
 }
 
 /** Markdown as elements. A reply that is still arriving can end mid-fence or mid-list; it is drawn as far as it goes. */
-export function Markdown({ source }: { source: string }): JSX.Element {
+export function Markdown({ source, files }: { source: string; files?: FileLinks }): JSX.Element {
   const tokens = useMemo(() => Lexer.lex(source), [source]);
-  return <div class="md">{tokens.map(block)}</div>;
+  return (
+    <FileLinkContext.Provider value={files}>
+      <div class="md">{tokens.map(block)}</div>
+    </FileLinkContext.Provider>
+  );
 }

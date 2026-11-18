@@ -116,7 +116,7 @@ export function chatFixture(): ChatState {
       id: "a2",
       commit: at(7),
       markdown:
-        "`request` is a thin wrapper over `fetch`, so the retry loop belongs there. I'll add a `retries` option (default 3) with exponential backoff, and skip the loop for non-idempotent methods.",
+        "[`request`](src/http.ts#L1-L3) is a thin wrapper over `fetch`, so the retry loop belongs there. I'll add a `retries` option (default 3) with exponential backoff, and skip the loop for non-idempotent methods.",
       model: "claude-sonnet-5-5",
     },
     {

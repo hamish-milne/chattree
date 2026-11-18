@@ -23,9 +23,9 @@ export interface DiffHunk {
 }
 
 export type ToolView =
-  | { kind: "edit"; path: string; added: number; removed: number; note?: string; failed?: string; hunks: DiffHunk[] }
+  | { kind: "edit"; path: string; line?: number; added: number; removed: number; note?: string; failed?: string; hunks: DiffHunk[] }
   | { kind: "write"; path: string; added: number; note?: string; failed?: string; rows: DiffRow[] }
-  | { kind: "read"; path: string; range?: string; version?: string; failed?: string; rows: DiffRow[] }
+  | { kind: "read"; path: string; line?: number; range?: string; version?: string; failed?: string; rows: DiffRow[] }
   | { kind: "run"; shell: "command" | "script"; command: string; exit?: number; output: string; failed: boolean }
   | { kind: "generic"; args: string; result?: { text: string; truncated: boolean }; failed: boolean };
 
@@ -46,6 +46,15 @@ const int = (a: Record<string, unknown>, k: string): number | undefined => {
   return typeof v === "number" && Number.isInteger(v) ? v : undefined;
 };
 const isSign = (x: string | undefined): x is "+" | "-" | " " => x === "+" || x === "-" || x === " ";
+
+/** The line of the first change in a set of hunks, for a button that opens the file there. */
+const firstChange = (hunks: DiffHunk[]): { line: number } | Record<string, never> => {
+  for (const h of hunks) {
+    const row = h.rows.find((r) => (r.sign === "+" || r.sign === "-") && r.n !== undefined);
+    if (row?.n !== undefined) return { line: row.n };
+  }
+  return {};
+};
 
 /** The lines of text, without the one newline that ends it. */
 const linesOf = (text: string): string[] => (text === "" ? [] : text.replace(/\r?\n$/, "").split(/\r?\n/));
@@ -73,7 +82,16 @@ function editView(t: Tool, a: Record<string, unknown>): ToolView {
           : `replace lines ${start ?? "?"}-${end ?? "?"}`;
     const rows: DiffRow[] = content.slice(0, PREVIEW_ROWS).map((text, i) => ({ sign: "+", n: first + i, text }));
     if (content.length > PREVIEW_ROWS) rows.push({ sign: "…", text: `${content.length - PREVIEW_ROWS} more lines` });
-    return { kind: "edit", path, added: content.length, removed, hunks: [{ head, rows }], ...(failed === undefined ? {} : { failed }) };
+    const hunks = [{ head, rows }];
+    return {
+      kind: "edit",
+      path,
+      ...firstChange(hunks),
+      added: content.length,
+      removed,
+      hunks,
+      ...(failed === undefined ? {} : { failed }),
+    };
   }
   const lines = t.result.text.split("\n");
   const note = lines[0]?.startsWith("edited ") === true ? lines[0] : undefined;
@@ -100,7 +118,7 @@ function editView(t: Tool, a: Record<string, unknown>): ToolView {
       hunk?.rows.push({ sign: "…", text: e[2] ?? "" });
     }
   }
-  return { kind: "edit", path, added, removed, ...(note === undefined ? {} : { note }), hunks };
+  return { kind: "edit", path, ...firstChange(hunks), added, removed, ...(note === undefined ? {} : { note }), hunks };
 }
 
 function writeView(t: Tool, a: Record<string, unknown>): ToolView {
@@ -133,9 +151,11 @@ function readView(t: Tool, a: Record<string, unknown>): ToolView {
     else if (line.startsWith("... ")) rows.push({ sign: "…", text: line.slice(4) });
     else if (line !== "") rows.push({ sign: " ", text: line });
   }
+  const first = int(a, "offset");
   return {
     kind: "read",
     path,
+    ...(first === undefined || first < 1 ? {} : { line: first }),
     ...(range === undefined || range === "" ? {} : { range }),
     ...(version === undefined ? {} : { version }),
     rows,

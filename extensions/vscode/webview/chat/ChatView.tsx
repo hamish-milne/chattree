@@ -8,6 +8,7 @@ import { useLayoutEffect, useRef, useState } from "preact/hooks";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import type { ConfigModel } from "chattree/ui/model/config-model";
 import { ConfigView } from "../config/ConfigView.tsx";
+import { FileMenu } from "./FileLink.tsx";
 import { Icon } from "../icons.tsx";
 import type { Block } from "chattree/ui/model/transcript";
 import { BlockView, ToolGroup } from "./blocks.tsx";
@@ -137,6 +138,7 @@ export function ChatView({ model, config }: { model: Model; config: InstanceType
           <ModelSettings model={model} />
           <Composer model={model} />
           <StatusBar model={model} />
+          <FileMenu model={model} />
         </>
       )}
     </div>
