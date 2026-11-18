@@ -10,6 +10,7 @@
 | `test/providers/` | Each adapter against recorded fixtures at many chunk sizes, conformance, HTTP base, SSE, pricing, dialects. |
 | `test/localmodels/` | The local model host: plan, download, install, store, daemon, sampling. |
 | `test/cli/` | The engine and commands through `submit(line)` with a fake terminal, sessions, drafts, skills, MCP, trust, threads. |
+| `test/app/` | `app/`: the settings file, init (with and without a provider), what can be done with a workspace folder. |
 | `test/ui/` | The UI core: fixtures are valid data, the protocol accepts every message and refuses what a view must not send. |
 | `test/e2e/` | The whole product in a real browser (Playwright, Chromium) over the web host: `journey.ts` is one person's work from an empty folder to delivered files, written against `driver.ts` (roles, names, labels, text; never classes); `playwright-driver.ts` and `world.ts` give it hands and a real disk. A [slow] suite; see [e2e.md](e2e.md). |
 | `test/hosts/` | The Node host, busybox and ffmpeg fetchers. |

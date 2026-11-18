@@ -12,7 +12,8 @@
 | `errors.ts` | `AppError(message, hint)`: a problem the person can fix. The CLI's `CliError` is one. |
 | `settings.ts` | The user-level settings file: schema, load, template, create. |
 | `providers.ts` | The provider registry for this machine; the local models' catalog and address; sampling lookup. |
-| `init.ts` | `runInit`: write the config, start the conversation (new repository or adopt one), pin model setup and prices. `InitEnv` adds `ask` for a terminal. |
+| `init.ts` | `runInit`: write the config, start the conversation (new repository or adopt one), pin model setup and prices. `InitEnv` adds `ask` for a terminal. `provider: "none"` starts with no provider and no model pinned (a graphical host adds them in its settings): requests, compaction and price pinning then refuse with `NoModelPinned` until the first setup is made. |
+| `workspace.ts` | `inspectFolder`/`inspectWorkspace`: what can be done with each folder of a workspace: it holds a conversation (found from the folder or one inside it; the header's format version is read, the thread is not locked), a conversation can be started in it (`new` repository, or `adopt` a repository it is the top of), or it is unusable and why. |
 
 ## To change X
 
