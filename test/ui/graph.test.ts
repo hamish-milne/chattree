@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { THREADS, graphFixture } from "../../ui/fixtures/graph.ts";
 import type { GraphData } from "../../ui/model/graph.ts";
-import { actionsFor, canDragThread, canDropOn } from "../../ui/model/graph-actions.ts";
+import { actionsFor, canDragThread, canDropOn, deleteDialog, deletionImpact } from "../../ui/model/graph-actions.ts";
 import { GraphModel } from "../../ui/model/graph-model.ts";
 import { layoutGraph, type FoldRow } from "../../ui/model/graph-layout.ts";
 import type { UiIntent } from "../../ui/model/protocol.ts";
@@ -160,6 +160,8 @@ describe("the graph model", () => {
         ["fork", true],
         ["rewind", false],
         ["merge", true],
+        ["copy", true],
+        ["delete", true],
       ],
       "an unavailable action stays in the menu, greyed out",
     );
@@ -254,5 +256,94 @@ describe("dragging a thread to merge it", () => {
     g.cancelDrag();
     assert.equal(g.drop(), false);
     assert.equal(sent.length, 1);
+  });
+});
+
+describe("copy, delete and the repository picker", () => {
+  const make = () => {
+    const sent: UiIntent[] = [];
+    const g = new GraphModel((i) => sent.push(i));
+    g.apply({ type: "graph.data", data: graphFixture() });
+    const data = graphFixture();
+    return { g, sent, data };
+  };
+  const repos = {
+    repos: [
+      { id: "a", name: "a", path: "~/a", chattree: true },
+      { id: "b", name: "b", path: "~/b", chattree: true },
+      { id: "c", name: "c", path: "~/c", chattree: false, reason: "not a chattree repository" },
+    ],
+    current: "a",
+  };
+
+  test("every commit offers copy, and delete names the thread; the trunk and busy threads refuse with a reason", () => {
+    const { data } = make();
+    const on = (thread: string) => actionsFor(data, data.commits.find((c) => c.thread === thread)?.hash ?? "");
+    const trunk = on(data.trunk);
+    assert.equal(trunk.find((a) => a.id === "copy")?.enabled, true);
+    assert.equal(trunk.find((a) => a.id === "copy")?.separator, true, "the group starts with a divider");
+    assert.match(trunk.find((a) => a.id === "delete")?.reason ?? "", /trunk/);
+    assert.match(on(THREADS.lint).find((a) => a.id === "delete")?.reason ?? "", /answer/);
+    const old = on(THREADS.old).find((a) => a.id === "delete");
+    assert.equal(old?.enabled, true);
+    assert.ok(old?.label.includes(THREADS.old));
+  });
+
+  test("copy sends the hash; delete asks first, and only the yes sends it", () => {
+    const { g, sent, data } = make();
+    const c = data.commits.find((x) => x.thread === THREADS.old);
+    assert.ok(c);
+    g.act("copy", c.hash);
+    assert.deepEqual(sent.pop(), { type: "commit.copy", commit: c.hash });
+    g.act("delete", c.hash);
+    assert.deepEqual(sent, [], "nothing is sent before the answer");
+    assert.equal(g.deleting.value, THREADS.old);
+    assert.match(g.confirmation.value?.title ?? "", /old-attempt/);
+    g.cancelDelete();
+    assert.equal(g.deleting.value, undefined);
+    assert.deepEqual(sent, []);
+    g.act("delete", c.hash);
+    g.confirmDelete();
+    assert.deepEqual(sent, [{ type: "thread.delete", thread: THREADS.old }]);
+    assert.equal(g.confirmation.value, undefined);
+  });
+
+  test("a delete of a refused thread never reaches the confirmation", () => {
+    const { g, sent, data } = make();
+    g.act("delete", data.commits.find((x) => x.thread === data.trunk)?.hash ?? "");
+    assert.equal(g.deleting.value, undefined);
+    assert.deepEqual(sent, []);
+  });
+
+  test("the confirmation says what is only here, what stays, and how to recover; a thread that is gone closes it", () => {
+    const { g, data } = make();
+    const d = deleteDialog(data, THREADS.old);
+    assert.ok(d);
+    assert.ok(d.lines.some((l) => /4 commits are only in this thread/.test(l)));
+    assert.ok(d.lines.some((l) => /reflog/.test(l) && /garbage/.test(l)));
+    const tip = data.threads.find((t) => t.name === THREADS.old)?.tip.slice(0, 7);
+    assert.ok(d.lines.some((l) => l.includes(`git branch ${THREADS.old} ${tip}`)));
+    const merged = deleteDialog(data, THREADS.sqlite);
+    assert.match(merged?.lines[0] ?? "", /merged into main/);
+    const impact = deletionImpact(data, THREADS.old);
+    assert.deepEqual(impact, { only: 4, shared: 0 });
+    g.act("delete", data.commits.find((x) => x.thread === THREADS.old)?.hash ?? "");
+    g.apply({ type: "graph.data", data: { ...data, threads: data.threads.filter((t) => t.name !== THREADS.old) } });
+    assert.equal(g.deleting.value, undefined);
+  });
+
+  test("the picker lists repositories, refuses one that is not a conversation, and ignores the current one", () => {
+    const { g, sent } = make();
+    g.apply({ type: "graph.repos", repos });
+    g.toggleRepoMenu();
+    assert.equal(g.repoMenuOpen.value, true);
+    g.selectRepo("c");
+    g.selectRepo("a");
+    g.selectRepo("nope");
+    assert.deepEqual(sent, []);
+    assert.equal(g.repoMenuOpen.value, false);
+    g.toggleRepoMenu();
+    g.selectRepo("b");
+    assert.deepEqual(sent, [{ type: "repo.select", id: "b" }]);
   });
 });

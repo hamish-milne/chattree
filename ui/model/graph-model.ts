@@ -5,8 +5,8 @@
  */
 import { computed, createModel, signal } from "@preact/signals-core";
 import type { UiEvent, UiIntent } from "./protocol.ts";
-import type { GraphData } from "./graph.ts";
-import { actionsFor, canDragThread, canDropOn, type GraphAction, type Verdict } from "./graph-actions.ts";
+import type { GraphData, RepoList } from "./graph.ts";
+import { actionsFor, canDragThread, canDropOn, deleteDialog, type GraphAction, type Verdict } from "./graph-actions.ts";
 import { layoutGraph } from "./graph-layout.ts";
 
 export interface OpenMenu {
@@ -28,6 +28,15 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
   const expanded = signal<ReadonlySet<string>>(new Set());
   const selected = signal<{ thread: string | undefined; commit: string | undefined }>({ thread: undefined, commit: undefined });
   const menu = signal<OpenMenu | undefined>(undefined);
+  const repos = signal<RepoList | undefined>(undefined);
+  const repoMenuOpen = signal(false);
+  /** The thread whose deletion is waiting for the person's yes. */
+  const deleting = signal<string | undefined>(undefined);
+  const confirmation = computed(() => {
+    const name = deleting.value;
+    const d = data.value;
+    return name === undefined || d === undefined ? undefined : deleteDialog(d, name);
+  });
   const drag = signal<Drag | undefined>(undefined);
   /** The thread the drag is over and whether dropping there merges: what the view draws while dragging. */
   const dropTarget = computed((): ({ thread: string } & Verdict) | undefined => {
@@ -58,6 +67,10 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     expanded,
     selected,
     menu,
+    repos,
+    repoMenuOpen,
+    deleting,
+    confirmation,
     hover,
     drag,
     dropTarget,
@@ -67,8 +80,13 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     /** Take in an event from the controller; false when it is not one this view follows. */
     apply(e: UiEvent): boolean {
       switch (e.type) {
+        case "graph.repos":
+          repos.value = e.repos;
+          return true;
         case "graph.data":
           data.value = e.data;
+          // A thread that is gone cannot be waiting for a confirmation.
+          if (deleting.peek() !== undefined && !e.data.threads.some((t) => t.name === deleting.peek())) deleting.value = undefined;
           return true;
         case "graph.status": {
           const d = data.value;
@@ -131,10 +149,35 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
       const action = d === undefined ? undefined : actionsFor(d, commit).find((a) => a.id === id);
       menu.value = undefined;
       if (d === undefined || thread === undefined || action?.enabled !== true) return;
-      if (id === "open") send({ type: "thread.open", thread, commit });
+      if (id === "copy") send({ type: "commit.copy", commit });
+      else if (id === "delete") deleting.value = thread;
+      else if (id === "open") send({ type: "thread.open", thread, commit });
       else if (id === "fork") send({ type: "thread.fork", thread, commit });
       else if (id === "rewind") send({ type: "thread.rewind", thread, commit });
       else send({ type: "thread.merge", from: thread, into: d.trunk });
+    },
+    /** The person said yes to the confirmation: delete the thread. */
+    confirmDelete(): void {
+      const thread = deleting.peek();
+      deleting.value = undefined;
+      if (thread !== undefined) send({ type: "thread.delete", thread });
+    },
+    cancelDelete(): void {
+      deleting.value = undefined;
+    },
+    toggleRepoMenu(): void {
+      repoMenuOpen.value = !repoMenuOpen.peek();
+    },
+    closeRepoMenu(): void {
+      repoMenuOpen.value = false;
+    },
+    /** Choose another repository, if it can be chosen; the controller answers with its graph. */
+    selectRepo(id: string): void {
+      const list = repos.peek();
+      const repo = list?.repos.find((r) => r.id === id);
+      repoMenuOpen.value = false;
+      if (repo === undefined || !repo.chattree || list?.current === id) return;
+      send({ type: "repo.select", id });
     },
     /** Open a thread (a click on its commit or its name). */
     open(commit: string): void {

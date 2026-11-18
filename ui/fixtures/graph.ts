@@ -136,3 +136,30 @@ export function graphFixture(): GraphData {
     commits: g.commits,
   };
 }
+
+/** A second, small conversation for the mock's repository picker: a trunk called `master` and one fork. */
+export function docsGraphFixture(): GraphData {
+  const g = new Builder();
+  const m = "master";
+  const f = "tighten-wording";
+  g.add(m, "header", "conversation starts");
+  g.add(m, "agent_setup", "setup (start): claude-sonnet-5-5");
+  g.add(m, "user", "user: Draft a migration guide for the v2 API");
+  g.add(m, "assistant", "assistant: calls write", { toolCalls: 2, usd: 0.014 });
+  g.add(m, "tool_result", "tool result: wrote docs/migrate.md");
+  g.add(m, "tool_result", "tool result: wrote docs/changes.md");
+  const done = g.add(m, "assistant", "assistant: The guide is drafted in docs/migrate.md.", { usd: 0.009 });
+  g.add(m, "user", "user: Add a section on rolling back");
+  g.add(f, "branch_start", "fork starts", { parents: [done] });
+  g.add(f, "user", "user: Tighten the wording of the intro");
+  g.add(f, "assistant", "assistant: Shorter intro, same content.", { usd: 0.006 });
+  const tip = (t: string): string => g.tip(t);
+  return {
+    trunk: m,
+    threads: [
+      { name: m, kind: "main", status: "idle", tip: tip(m), title: "Migration guide", model: "Claude Sonnet 5.5" },
+      { name: f, kind: "fork", status: "idle", tip: tip(f), title: "Tighter intro", model: "Claude Sonnet 5.5", from: done },
+    ],
+    commits: g.commits,
+  };
+}

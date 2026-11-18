@@ -21,6 +21,11 @@ const PATHS = {
   send: <path d="M8 13V3.2M3.5 7.5 8 3l4.5 4.5" />,
   stop: <rect x="4" y="4" width="8" height="8" rx="1" />,
   chevron: <path d="m6 3.5 4.5 4.5L6 12.5" />,
+  repo: (
+    <>
+      <path d="M3 13V3.5A1.5 1.5 0 0 1 4.5 2H13v10H4.5A1.5 1.5 0 0 0 3 13.5 1.5 1.5 0 0 0 4.5 15H13" />
+    </>
+  ),
   check: <path d="m3 8.5 3.2 3L13 4.5" />,
   x: <path d="m3.5 3.5 9 9m0-9-9 9" />,
   ban: (

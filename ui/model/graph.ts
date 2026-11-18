@@ -84,3 +84,23 @@ export const graphData = strictObject({
   commits: Type.Array(graphCommit),
 });
 export type GraphData = Static<typeof graphData>;
+
+/** One git repository in the workspace, as the repository picker lists it. */
+export const repoEntry = strictObject({
+  id: Type.String({ minLength: 1 }),
+  name: Type.String({ minLength: 1 }),
+  /** Where it is, shortened for display. */
+  path: Type.String(),
+  /** Whether it holds a chattree conversation; a repository that does not is listed but cannot be chosen. */
+  chattree: Type.Boolean(),
+  /** Why it cannot be chosen. */
+  reason: Type.Optional(Type.String()),
+});
+export type RepoEntry = Static<typeof repoEntry>;
+
+export const repoList = strictObject({
+  repos: Type.Array(repoEntry),
+  /** The repository whose graph is shown. */
+  current: Type.Optional(Type.String()),
+});
+export type RepoList = Static<typeof repoList>;

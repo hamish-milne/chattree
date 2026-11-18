@@ -9,6 +9,8 @@ import type { GraphEdge, GraphRow } from "chattree/ui/model/graph-layout";
 import type { GraphThread, ThreadStatus } from "chattree/ui/model/graph";
 import type { GraphModel } from "chattree/ui/model/graph-model";
 import { Icon } from "../icons.tsx";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
+import { RepoPicker } from "./RepoPicker.tsx";
 
 type Model = InstanceType<typeof GraphModel>;
 
@@ -140,7 +142,13 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const layout = model.layout.value;
   const data = model.data.value;
-  if (layout === undefined || data === undefined) return <div class="graph-empty">No conversation yet.</div>;
+  if (layout === undefined || data === undefined)
+    return (
+      <div class="graph">
+        <RepoPicker model={model} />
+        <div class="graph-empty">No conversation yet.</div>
+      </div>
+    );
   const threads = new Map(data.threads.map((t) => [t.name, t]));
   const selected = model.selected.value;
   const lit = model.lit.value;
@@ -203,118 +211,121 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
       onPointerUp={(e) => endDrag(e, true)}
       onPointerCancel={(e) => endDrag(e, false)}
     >
-      <div class="graph-body" style={{ height: `${layout.rows.length * ROW}px` }}>
-        {layout.rows.map((r, i) => {
-          const isSelected = selected.thread === r.thread && r.tipOf !== undefined;
-          const cls = [
-            "row-bg",
-            isSelected ? "selected" : "",
-            lit.thread === r.thread ? "thread-lit" : "",
-            drag?.thread === r.thread ? "drag-source" : "",
-            drop?.thread === r.thread ? (drop.ok ? "drop-ok" : "drop-no") : "",
-          ];
-          return (
-            <div
-              key={r.id}
-              class={cls.filter(Boolean).join(" ")}
-              style={{ top: `${i * ROW}px`, "--c": colorOf(r.lane) }}
-              aria-hidden="true"
-            />
-          );
-        })}
-        <svg class="lanes" width={width} height={layout.rows.length * ROW} aria-hidden="true">
-          {layout.edges.map((e, i) => (
-            <path key={i} d={edgePath(e)} stroke={colorOf(e.bend === "bottom" ? e.fromLane : e.toLane)} stroke-width={1.5} fill="none" />
-          ))}
-          {layout.rows.map((r, i) => (
-            <Node key={r.id} row={r} index={i} color={colorOf(r.lane)} lit={lit.commit !== undefined && commitOf(r) === lit.commit} />
-          ))}
-        </svg>
-        {layout.rows.map((r, i) => {
-          const l = labelOf(r);
-          const tip = r.tipOf === undefined ? undefined : threads.get(r.tipOf);
-          const commit = commitOf(r);
-          return (
-            <div
-              key={r.id}
-              class={`row${r.type === "fold" ? " fold" : ""}${r.type === "commit" && r.foldId !== undefined ? " in-fold" : ""}${drag?.thread === r.thread ? " drag-source" : ""}${drop?.thread === r.thread && !drop.ok ? " no-drop" : ""}`}
-              data-thread={r.thread}
-              style={{ top: `${i * ROW}px`, paddingLeft: `${width + 20}px` }}
-              role="listitem"
-              tabIndex={i === 0 ? 0 : -1}
-              aria-label={`${l.text}, thread ${r.thread}`}
-              onPointerDown={(e) => {
-                if (e.button === 0) press.current = { x: e.clientX, y: e.clientY, commit };
-              }}
-              onClick={() => {
-                if (!dragged.current) activate(r);
-              }}
-              onMouseEnter={() => model.setHover(commit)}
-              onMouseLeave={() => model.setHover(undefined)}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                model.openMenu(commit, e.clientX, e.clientY);
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      <RepoPicker model={model} />
+      <div class="graph-scroll">
+        <div class="graph-body" style={{ height: `${layout.rows.length * ROW}px` }}>
+          {layout.rows.map((r, i) => {
+            const isSelected = selected.thread === r.thread && r.tipOf !== undefined;
+            const cls = [
+              "row-bg",
+              isSelected ? "selected" : "",
+              lit.thread === r.thread ? "thread-lit" : "",
+              drag?.thread === r.thread ? "drag-source" : "",
+              drop?.thread === r.thread ? (drop.ok ? "drop-ok" : "drop-no") : "",
+            ];
+            return (
+              <div
+                key={r.id}
+                class={cls.filter(Boolean).join(" ")}
+                style={{ top: `${i * ROW}px`, "--c": colorOf(r.lane) }}
+                aria-hidden="true"
+              />
+            );
+          })}
+          <svg class="lanes" width={width} height={layout.rows.length * ROW} aria-hidden="true">
+            {layout.edges.map((e, i) => (
+              <path key={i} d={edgePath(e)} stroke={colorOf(e.bend === "bottom" ? e.fromLane : e.toLane)} stroke-width={1.5} fill="none" />
+            ))}
+            {layout.rows.map((r, i) => (
+              <Node key={r.id} row={r} index={i} color={colorOf(r.lane)} lit={lit.commit !== undefined && commitOf(r) === lit.commit} />
+            ))}
+          </svg>
+          {layout.rows.map((r, i) => {
+            const l = labelOf(r);
+            const tip = r.tipOf === undefined ? undefined : threads.get(r.tipOf);
+            const commit = commitOf(r);
+            return (
+              <div
+                key={r.id}
+                class={`row${r.type === "fold" ? " fold" : ""}${r.type === "commit" && r.foldId !== undefined ? " in-fold" : ""}${drag?.thread === r.thread ? " drag-source" : ""}${drop?.thread === r.thread && !drop.ok ? " no-drop" : ""}`}
+                data-thread={r.thread}
+                style={{ top: `${i * ROW}px`, paddingLeft: `${width + 20}px` }}
+                role="listitem"
+                tabIndex={i === 0 ? 0 : -1}
+                aria-label={`${l.text}, thread ${r.thread}`}
+                onPointerDown={(e) => {
+                  if (e.button === 0) press.current = { x: e.clientX, y: e.clientY, commit };
+                }}
+                onClick={() => {
+                  if (!dragged.current) activate(r);
+                }}
+                onMouseEnter={() => model.setHover(commit)}
+                onMouseLeave={() => model.setHover(undefined)}
+                onContextMenu={(e) => {
                   e.preventDefault();
-                  move(e.currentTarget, e.key === "ArrowDown" ? 1 : -1);
-                } else if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  activate(r);
-                } else if (e.key === "ArrowRight" && r.type === "fold") {
-                  e.preventDefault();
-                  model.toggleFold(r.id);
-                } else if (e.key === "ArrowLeft" && r.type === "commit" && r.foldId !== undefined) {
-                  e.preventDefault();
-                  model.toggleFold(r.foldId);
-                } else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
-                  e.preventDefault();
-                  const box = e.currentTarget.getBoundingClientRect();
-                  model.openMenu(commit, box.left + 24, box.bottom);
-                }
-              }}
-            >
-              {r.type === "fold" && (
-                <button
-                  class="chevron"
-                  style={{ left: `${width - 4}px` }}
-                  tabIndex={-1}
-                  aria-expanded={false}
-                  aria-label={`Expand ${r.calls} tool call${r.calls === 1 ? "" : "s"}`}
-                  title="Expand tool calls"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
+                  model.openMenu(commit, e.clientX, e.clientY);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    move(e.currentTarget, e.key === "ArrowDown" ? 1 : -1);
+                  } else if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    activate(r);
+                  } else if (e.key === "ArrowRight" && r.type === "fold") {
+                    e.preventDefault();
                     model.toggleFold(r.id);
-                  }}
-                >
-                  <Icon name="chevron" size={14} />
-                </button>
-              )}
-              {collapsers.has(r.id) && r.type === "commit" && r.foldId !== undefined && (
-                <button
-                  class="chevron expanded"
-                  style={{ left: `${width - 4}px` }}
-                  tabIndex={-1}
-                  aria-expanded={true}
-                  aria-label="Collapse tool calls"
-                  title="Collapse tool calls"
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    model.toggleFold(r.foldId ?? "");
-                  }}
-                >
-                  <Icon name="chevron" size={14} />
-                </button>
-              )}
-              <span class={`label${l.dim ? " dim" : ""}${l.strong ? " strong" : ""}`}>{l.text}</span>
-              {tip !== undefined && <Pill thread={tip} color={colorOf(r.lane)} />}
-              <span class="time">{r.type === "fold" ? "" : clock(r.commit.time)}</span>
-            </div>
-          );
-        })}
+                  } else if (e.key === "ArrowLeft" && r.type === "commit" && r.foldId !== undefined) {
+                    e.preventDefault();
+                    model.toggleFold(r.foldId);
+                  } else if (e.key === "ContextMenu" || (e.key === "F10" && e.shiftKey)) {
+                    e.preventDefault();
+                    const box = e.currentTarget.getBoundingClientRect();
+                    model.openMenu(commit, box.left + 24, box.bottom);
+                  }
+                }}
+              >
+                {r.type === "fold" && (
+                  <button
+                    class="chevron"
+                    style={{ left: `${width - 4}px` }}
+                    tabIndex={-1}
+                    aria-expanded={false}
+                    aria-label={`Expand ${r.calls} tool call${r.calls === 1 ? "" : "s"}`}
+                    title="Expand tool calls"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      model.toggleFold(r.id);
+                    }}
+                  >
+                    <Icon name="chevron" size={14} />
+                  </button>
+                )}
+                {collapsers.has(r.id) && r.type === "commit" && r.foldId !== undefined && (
+                  <button
+                    class="chevron expanded"
+                    style={{ left: `${width - 4}px` }}
+                    tabIndex={-1}
+                    aria-expanded={true}
+                    aria-label="Collapse tool calls"
+                    title="Collapse tool calls"
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      model.toggleFold(r.foldId ?? "");
+                    }}
+                  >
+                    <Icon name="chevron" size={14} />
+                  </button>
+                )}
+                <span class={`label${l.dim ? " dim" : ""}${l.strong ? " strong" : ""}`}>{l.text}</span>
+                {tip !== undefined && <Pill thread={tip} color={colorOf(r.lane)} />}
+                <span class="time">{r.type === "fold" ? "" : clock(r.commit.time)}</span>
+              </div>
+            );
+          })}
+        </div>
       </div>
       {drag !== undefined && (
         <div
@@ -348,7 +359,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
             {model.menuActions.value.map((a) => (
               <button
                 key={a.id}
-                class="menu-item"
+                class={`menu-item${a.separator === true ? " separated" : ""}${a.id === "delete" ? " danger" : ""}`}
                 role="menuitem"
                 disabled={!a.enabled}
                 aria-disabled={!a.enabled}
@@ -362,6 +373,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
           </div>
         </>
       )}
+      <ConfirmDialog model={model} />
     </div>
   );
 }

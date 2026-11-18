@@ -69,6 +69,16 @@ describe("the fixtures are valid data", () => {
 describe("the protocol", () => {
   const tip = graphFixture().threads[0]?.tip ?? "";
   const events: unknown[] = [
+    {
+      type: "graph.repos",
+      repos: {
+        repos: [
+          { id: "a", name: "a", path: "~/a", chattree: true },
+          { id: "b", name: "b", path: "~/b", chattree: false, reason: "no conversation" },
+        ],
+        current: "a",
+      },
+    },
     { type: "graph.data", data: graphFixture() },
     { type: "graph.status", thread: "main", status: "running" },
     { type: "graph.selected", thread: "main", commit: tip },
@@ -91,6 +101,9 @@ describe("the protocol", () => {
     { type: "thread.fork", thread: "main", commit: tip, name: "idea" },
     { type: "thread.rewind", thread: "main", commit: tip },
     { type: "thread.merge", from: "idea", into: "main" },
+    { type: "repo.select", id: "a" },
+    { type: "commit.copy", commit: "abc1234" },
+    { type: "thread.delete", thread: "idea" },
     { type: "chat.send", text: "go" },
     { type: "chat.stop" },
     { type: "chat.draft", text: "wip" },

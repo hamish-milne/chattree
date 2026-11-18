@@ -6,7 +6,7 @@
  */
 import { Type, type Static } from "typebox";
 import { safeParse, strictObject, type ParseResult } from "../../src/validate.ts";
-import { THREAD_STATUSES, graphData, hash } from "./graph.ts";
+import { THREAD_STATUSES, graphData, hash, repoList } from "./graph.ts";
 import { approval, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
 import { formSpec } from "./form.ts";
 import { block } from "./transcript.ts";
@@ -22,6 +22,8 @@ const ev = <T extends string, P extends Parameters<typeof strictObject>[0]>(type
 
 export const event = Type.Union([
   /** The whole graph; sent when a view opens and when threads or commits change shape. */
+  /** The repositories of the workspace and which one the graph shows. */
+  ev("graph.repos", { repos: repoList }),
   ev("graph.data", { data: graphData }),
   /** A thread started or stopped working. */
   ev("graph.status", { thread: name, status: Type.Enum(THREAD_STATUSES) }),
@@ -57,6 +59,11 @@ export type UiEvent = Static<typeof event>;
 export const intent = Type.Union([
   /** A view has loaded and wants its snapshot. */
   ev("ready", { view: Type.Enum(VIEWS) }),
+  /** Show another repository's conversations; the answer is a fresh `graph.data` (and the chat follows). */
+  ev("repo.select", { id: name }),
+  ev("commit.copy", { commit: hash }),
+  /** Remove a thread's branch; its commits stay until git collects garbage, so it can be recovered from the reflog. */
+  ev("thread.delete", { thread: name }),
   ev("thread.open", { thread: name, commit: Type.Optional(hash) }),
   /** Start a new thread from `commit` on `thread`; the controller picks a name when none is given. */
   ev("thread.fork", { thread: name, commit: hash, name: Type.Optional(name) }),

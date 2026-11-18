@@ -7,14 +7,14 @@
  * Time comes from an injected `sleep`, so a test runs a whole turn at once and reads the events afterwards.
  */
 import type { ChatState, StatusBar } from "../model/chat.ts";
-import type { GraphCommit, GraphData, GraphKind, ThreadStatus } from "../model/graph.ts";
+import type { GraphCommit, GraphData, GraphKind, RepoEntry, ThreadStatus } from "../model/graph.ts";
 import type { FormSpec } from "../model/form.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
 import type { Block } from "../model/transcript.ts";
 import { canDragThread, canDropOn } from "../model/graph-actions.ts";
 import { chatFixture } from "./chat.ts";
 import { configFixture } from "./config.ts";
-import { THREADS, graphFixture } from "./graph.ts";
+import { THREADS, docsGraphFixture, graphFixture } from "./graph.ts";
 import { validateMock } from "./mock-validate.ts";
 
 type Json = Record<string, unknown>;
@@ -30,11 +30,34 @@ const strip = (s: string): string => s.replace(/^(user|assistant): /, "").replac
 const words = (s: string): string[] => s.match(/\S+\s*/g) ?? [];
 const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
+/** The repositories of the pretend workspace: two conversations, and two that cannot be opened. */
+const REPOS: RepoEntry[] = [
+  { id: "retry-client", name: "retry-client", path: "~/work/retry-client", chattree: true },
+  { id: "docs-site", name: "docs-site", path: "~/work/docs-site", chattree: true },
+  {
+    id: "legacy-api",
+    name: "legacy-api",
+    path: "~/work/legacy-api",
+    chattree: false,
+    reason: "not a chattree repository (no conversation found)",
+  },
+  {
+    id: "vendor-lib",
+    name: "vendor-lib",
+    path: "~/work/vendor/lib",
+    chattree: false,
+    reason: "made by an older chattree (format 0), which this version cannot open",
+  },
+];
+
 export class MockController {
   private readonly emit: (e: UiEvent) => void;
   private readonly sleep: (ms: number) => Promise<void>;
   private graph: GraphData = graphFixture();
-  private readonly chats = new Map<string, ChatState>();
+  private chats = new Map<string, ChatState>();
+  private repoId = "retry-client";
+  /** What each repository was left as, for when the person comes back to it. */
+  private readonly stored = new Map<string, { graph: GraphData; chats: Map<string, ChatState>; current: string }>();
   private current: string = THREADS.main;
   private readonly forms = new Map<string, { saved: FormSpec; working: FormSpec }>();
   private seq = 0;
@@ -60,10 +83,20 @@ export class MockController {
     switch (intent.type) {
       case "ready":
         if (intent.view === "graph") {
+          this.emit({ type: "graph.repos", repos: { repos: REPOS, current: this.repoId } });
           this.emit({ type: "graph.data", data: this.graph });
           this.emit({ type: "graph.selected", thread: this.current });
         } else if (intent.view === "chat") this.emit({ type: "chat.open", state: this.chat(this.current) });
         else this.emit({ type: "form.set", form: this.form("harness").working });
+        return;
+      case "repo.select":
+        this.selectRepo(intent.id);
+        return;
+      case "commit.copy":
+        this.notify("info", `Copied ${intent.commit.slice(0, 7)} to the clipboard`);
+        return;
+      case "thread.delete":
+        this.deleteThread(intent.thread);
         return;
       case "thread.open":
         this.open(intent.thread, intent.commit);
@@ -379,6 +412,47 @@ export class MockController {
     this.emit({ type: "graph.data", data: structuredClone(this.graph) });
     this.open(thread, undefined, true);
     this.notify("info", `Rewound ${thread}; the old tip ${old.slice(0, 7)} is kept at refs/chattree/rewound/${old.slice(0, 7)}`);
+  }
+
+  private selectRepo(id: string): void {
+    const repo = REPOS.find((r) => r.id === id);
+    if (repo === undefined || id === this.repoId) return;
+    if (!repo.chattree) return this.notify("warning", `${repo.name}: ${repo.reason ?? "cannot be opened"}`);
+    if (this.turn !== undefined) return this.notify("warning", "A turn is running here; stop it before switching repository");
+    this.stored.set(this.repoId, { graph: this.graph, chats: this.chats, current: this.current });
+    const next = this.stored.get(id) ?? { graph: docsGraphFixture(), chats: new Map<string, ChatState>(), current: "master" };
+    this.repoId = id;
+    this.graph = next.graph;
+    this.chats = next.chats;
+    this.current = next.current;
+    this.emit({ type: "graph.repos", repos: { repos: REPOS, current: id } });
+    this.emit({ type: "graph.data", data: structuredClone(this.graph) });
+    this.emit({ type: "graph.selected", thread: this.current });
+    this.emit({ type: "chat.open", state: structuredClone(this.chat(this.current)) });
+  }
+
+  private deleteThread(name: string): void {
+    const t = this.graph.threads.find((x) => x.name === name);
+    if (t === undefined) return;
+    const refused = canDragThread(this.graph, name);
+    // The same reasons that stop a merge stop a delete: the trunk, and a thread that is working or held elsewhere.
+    if (name === this.graph.trunk) return this.notify("warning", "The trunk cannot be deleted");
+    if (!refused.ok && t.merged !== true) return this.notify("warning", `Cannot delete ${name}: ${refused.reason ?? "not allowed"}`);
+    this.graph.threads = this.graph.threads.filter((x) => x.name !== name);
+    // Commits that no remaining thread can reach are no longer in the graph (git keeps them until garbage collection).
+    const parents = new Map(this.graph.commits.map((c) => [c.hash, c.parents]));
+    const keep = new Set<string>();
+    const todo = this.graph.threads.map((x) => x.tip);
+    for (let h = todo.pop(); h !== undefined; h = todo.pop()) {
+      if (keep.has(h)) continue;
+      keep.add(h);
+      todo.push(...(parents.get(h) ?? []));
+    }
+    this.graph.commits = this.graph.commits.filter((c) => keep.has(c.hash));
+    this.chats.delete(name);
+    this.emit({ type: "graph.data", data: structuredClone(this.graph) });
+    if (this.current === name) this.open(this.graph.trunk, undefined, true);
+    this.notify("info", `Deleted ${name}. Its tip ${t.tip.slice(0, 7)} can be recovered from the reflog until git next collects garbage`);
   }
 
   private merge(from: string, into: string): void {

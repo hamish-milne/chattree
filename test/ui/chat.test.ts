@@ -299,6 +299,40 @@ describe("the mock controller, with the models on top of it", () => {
     assert.equal(graph.data.value?.commits.find((c) => c.kind === "fork_merge" && c.summary.includes("undici")) !== undefined, true);
   });
 
+  test("deleting a thread removes it and the commits only it had, and the chat falls back to the trunk", async () => {
+    const { graph, chat, controller } = rig();
+    graph.open(graph.data.value?.commits.find((c) => c.thread === THREADS.old)?.hash ?? "");
+    assert.equal(chat.thread.value?.name, THREADS.old);
+    const before = graph.data.value?.commits.length ?? 0;
+    const tip = graph.data.value?.threads.find((t) => t.name === THREADS.old)?.tip ?? "";
+    graph.act("delete", tip);
+    graph.confirmDelete();
+    await controller.idle();
+    assert.ok(!graph.data.value?.threads.some((t) => t.name === THREADS.old));
+    assert.equal(before - (graph.data.value?.commits.length ?? 0), 4, "its own commits, but not the history it forked from");
+    assert.equal(chat.thread.value?.name, THREADS.main);
+  });
+
+  test("choosing another repository swaps the graph and the chat, and coming back finds the first as it was", async () => {
+    const { events, graph, chat, controller } = rig();
+    assert.equal(graph.repos.value?.current, "retry-client");
+    graph.selectRepo("legacy-api");
+    assert.equal(graph.repos.value?.current, "retry-client", "a repository that is not a conversation cannot be chosen");
+    graph.selectRepo("docs-site");
+    assert.equal(graph.repos.value?.current, "docs-site");
+    assert.equal(graph.data.value?.trunk, "master");
+    assert.equal(chat.thread.value?.name, "master");
+    chat.setDraft("hello");
+    chat.send();
+    await tick();
+    chat.stop();
+    await controller.idle();
+    graph.selectRepo("retry-client");
+    assert.equal(graph.data.value?.trunk, THREADS.main);
+    assert.equal(chat.thread.value?.name, THREADS.main);
+    assert.ok(events.every((e) => parseEvent(e) !== undefined));
+  });
+
   test("a thread that others were forked from cannot be rewound past them, and says why", () => {
     const { chat, events } = rig();
     const early = chat.blocks.value.find((b) => b.type === "assistant" && b.commit !== undefined);

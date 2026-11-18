@@ -5,8 +5,10 @@
 import type { GraphData, GraphThread } from "./graph.ts";
 
 export interface GraphAction {
-  id: "open" | "fork" | "rewind" | "merge";
+  id: "open" | "fork" | "rewind" | "merge" | "copy" | "delete";
   label: string;
+  /** A divider is drawn above it: it starts a new group of actions. */
+  separator?: boolean;
   enabled: boolean;
   /** Why it is unavailable. */
   reason?: string;
@@ -48,7 +50,62 @@ export function actionsFor(data: GraphData, commitHash: string): GraphAction[] {
       ...(reason === undefined ? {} : { reason }),
     });
   }
+  const doomed = thread.name === data.trunk ? "the trunk cannot be deleted" : busy;
+  actions.push(
+    { id: "copy", label: "Copy commit hash", enabled: true, separator: true },
+    {
+      id: "delete",
+      label: `Delete thread “${thread.name}”…`,
+      enabled: doomed === undefined,
+      ...(doomed === undefined ? {} : { reason: doomed }),
+    },
+  );
   return actions;
+}
+
+/** The hashes of these commits and everything before them. */
+function ancestry(data: GraphData, tips: string[]): Set<string> {
+  const parents = new Map(data.commits.map((c) => [c.hash, c.parents]));
+  const seen = new Set<string>();
+  const todo = [...tips];
+  for (let h = todo.pop(); h !== undefined; h = todo.pop()) {
+    if (seen.has(h)) continue;
+    seen.add(h);
+    todo.push(...(parents.get(h) ?? []));
+  }
+  return seen;
+}
+
+/** What deleting a thread's branch takes out of reach: the commits no other thread has. */
+export function deletionImpact(data: GraphData, name: string): { only: number; shared: number } {
+  const thread = data.threads.find((t) => t.name === name);
+  if (thread === undefined) return { only: 0, shared: 0 };
+  const mine = ancestry(data, [thread.tip]);
+  const others = ancestry(
+    data,
+    data.threads.filter((t) => t.name !== name).map((t) => t.tip),
+  );
+  // Only a thread's own commits count; the history it was forked from is still in the thread it came from.
+  const own = [...mine].filter((h) => data.commits.find((c) => c.hash === h)?.thread === name);
+  const only = own.filter((h) => !others.has(h)).length;
+  return { only, shared: own.length - only };
+}
+
+/** The words of the confirmation before a thread is deleted. */
+export function deleteDialog(data: GraphData, name: string): { title: string; lines: string[]; confirm: string } | undefined {
+  const thread = data.threads.find((t) => t.name === name);
+  if (thread === undefined) return undefined;
+  const { only, shared } = deletionImpact(data, name);
+  const plural = (n: number): string => `${n} commit${n === 1 ? "" : "s"}`;
+  const lines = [
+    only === 0
+      ? "Every commit in this thread is also reachable from another thread, so nothing is lost."
+      : `${plural(only)} ${only === 1 ? "is" : "are"} only in this thread.${shared > 0 ? ` ${plural(shared)} stay${shared === 1 ? "s" : ""} because other threads build on ${shared === 1 ? "it" : "them"}.` : ""}`,
+    "Deleting removes the thread's branch. Its commits stay in the repository until git next collects garbage, so until then you can recover it from the reflog.",
+    `Its latest commit is ${thread.tip.slice(0, 7)}; to bring it back: git branch ${name} ${thread.tip.slice(0, 7)}`,
+  ];
+  if (thread.merged === true) lines.unshift(`It was merged into ${data.trunk}, so its changes stay in ${data.trunk}'s history.`);
+  return { title: `Delete thread “${name}”?`, lines, confirm: "Delete thread" };
 }
 
 /** Whether something may be done, and if not, why. */
