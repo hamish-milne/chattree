@@ -37,6 +37,7 @@ declare const styles: {
   readonly repo_name: string;
   readonly repo_path: string;
   readonly repo_picker: string;
+  readonly repo_separated: string;
   readonly repo_text: string;
   readonly row: string;
   readonly row_bg: string;

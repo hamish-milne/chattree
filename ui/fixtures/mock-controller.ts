@@ -17,7 +17,7 @@ import { configFixture } from "./config.ts";
 import { WORKSPACE_FILES, instructionsFixture, mockProviderCheck, withFound } from "./mock-settings.ts";
 import { canSwitch } from "../model/graph-actions.ts";
 import type { InstructionState } from "../model/settings.ts";
-import { THREADS, docsGraphFixture, graphFixture } from "./graph.ts";
+import { THREADS, docsGraphFixture, freshGraphFixture, graphFixture } from "./graph.ts";
 import { validateMock } from "./mock-validate.ts";
 
 type Json = Record<string, unknown>;
@@ -34,7 +34,7 @@ const words = (s: string): string[] => s.match(/\S+\s*/g) ?? [];
 const sameJson = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
 
 /** The repositories of the pretend workspace: two conversations, and two that cannot be opened. */
-const REPOS: RepoEntry[] = [
+const REPO_FIXTURES: readonly RepoEntry[] = [
   {
     id: "retry-client",
     name: "retry-client",
@@ -53,6 +53,15 @@ const REPOS: RepoEntry[] = [
     path: "~/work/legacy-api",
     chattree: false,
     reason: "not a chattree repository (no conversation found)",
+    init: "adopt",
+  },
+  {
+    id: "scratch",
+    name: "scratch",
+    path: "~/work/scratch",
+    chattree: false,
+    reason: "no conversation here yet",
+    init: "new",
   },
   {
     id: "vendor-lib",
@@ -69,6 +78,8 @@ export class MockController {
   private graph: GraphData = graphFixture();
   private chats = new Map<string, ChatState>();
   private repoId = "retry-client";
+  /** The workspace's folders; one that is initialized here becomes a conversation. */
+  private repos: RepoEntry[] = structuredClone([...REPO_FIXTURES]);
   /** What each repository was left as, for when the person comes back to it. */
   private readonly stored = new Map<string, { graph: GraphData; chats: Map<string, ChatState>; current: string }>();
   private current: string = THREADS.main;
@@ -106,7 +117,7 @@ export class MockController {
         if (intent.view === "graph") {
           this.emit({
             type: "graph.repos",
-            repos: { repos: REPOS, current: this.repoId },
+            repos: { repos: this.repos, current: this.repoId },
           });
           this.emit({ type: "graph.data", data: this.graph });
           this.emit({ type: "graph.selected", thread: this.current });
@@ -118,6 +129,9 @@ export class MockController {
         return;
       case "repo.select":
         this.selectRepo(intent.id);
+        return;
+      case "repo.init":
+        this.initRepo(intent.id);
         return;
       case "commit.copy":
         this.notify("info", `Copied ${intent.commit.slice(0, 7)} to the clipboard`);
@@ -527,8 +541,38 @@ export class MockController {
     this.notify("info", `Rewound ${thread}; the old tip ${old.slice(0, 7)} is kept at refs/chattree/rewound/${old.slice(0, 7)}`);
   }
 
+  /** Make a conversation in a workspace folder: a trunk with its header, no provider (the person adds one next). */
+  private initRepo(id: string): void {
+    const repo = this.repos.find((r) => r.id === id);
+    if (repo === undefined) return;
+    if (repo.init === undefined) return this.notify("warning", `${repo.name}: ${repo.reason ?? "cannot be initialized"}`);
+    if (this.turn !== undefined) return this.notify("warning", "A turn is running here; stop it before switching repository");
+    const trunk = repo.init === "adopt" ? "master" : "main";
+    this.repos = this.repos.map((r) => {
+      if (r.id !== id) return r;
+      const { init: _, reason: __, ...rest } = r;
+      return { ...rest, chattree: true };
+    });
+    this.stored.set(this.repoId, { graph: this.graph, chats: this.chats, current: this.current });
+    this.repoId = id;
+    this.graph = freshGraphFixture(trunk);
+    this.chats = new Map();
+    this.current = trunk;
+    this.emit({ type: "graph.repos", repos: { repos: this.repos, current: id } });
+    this.emit({ type: "graph.data", data: structuredClone(this.graph) });
+    this.emit({ type: "graph.selected", thread: this.current });
+    this.emit({ type: "chat.open", state: structuredClone(this.chat(this.current)) });
+    // A new conversation has no providers: the file the person sees is the one init wrote.
+    const harness = this.form("harness");
+    const bare: FormSpec = { ...harness.saved, value: { ...harness.saved.value, providers: {} }, dirty: false, issues: [] };
+    this.forms.set("harness", { saved: bare, working: bare });
+    this.emit({ type: "form.set", form: bare });
+    this.emit({ type: "settings.open", page: "providers" });
+    this.notify("info", `Started a conversation in ${repo.path}${repo.init === "adopt" ? ` on its branch ${trunk}` : ""}`);
+  }
+
   private selectRepo(id: string): void {
-    const repo = REPOS.find((r) => r.id === id);
+    const repo = this.repos.find((r) => r.id === id);
     if (repo === undefined || id === this.repoId) return;
     if (!repo.chattree) return this.notify("warning", `${repo.name}: ${repo.reason ?? "cannot be opened"}`);
     if (this.turn !== undefined) return this.notify("warning", "A turn is running here; stop it before switching repository");
@@ -546,7 +590,7 @@ export class MockController {
     this.graph = next.graph;
     this.chats = next.chats;
     this.current = next.current;
-    this.emit({ type: "graph.repos", repos: { repos: REPOS, current: id } });
+    this.emit({ type: "graph.repos", repos: { repos: this.repos, current: id } });
     this.emit({ type: "graph.data", data: structuredClone(this.graph) });
     this.emit({ type: "graph.selected", thread: this.current });
     this.emit({

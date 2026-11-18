@@ -97,6 +97,12 @@ export const repoEntry = strictObject({
   chattree: Type.Boolean(),
   /** Why it cannot be chosen. */
   reason: Type.Optional(Type.String()),
+  /**
+   * A workspace folder that can be made into one: `new` makes a git repository in the folder, `adopt` starts the
+   * conversation on the checked-out branch of the repository that already holds it (every entry then also commits the
+   * working tree's pending changes, which is why the person is asked first). Absent when it cannot be done.
+   */
+  init: Type.Optional(Type.Enum(["new", "adopt"])),
 });
 export type RepoEntry = Static<typeof repoEntry>;
 

@@ -168,6 +168,17 @@ export function graphFixture(): GraphData {
   };
 }
 
+/** A conversation that has just been made: a trunk with its header and nothing else. */
+export function freshGraphFixture(trunk: string): GraphData {
+  const g = new Builder();
+  g.add(trunk, "header", "conversation starts");
+  return {
+    trunk,
+    threads: [{ name: trunk, kind: "main", status: "idle", tip: g.tip(trunk), checkedOut: true }],
+    commits: g.commits,
+  };
+}
+
 /** A second, small conversation for the mock's repository picker: a trunk called `master` and one fork. */
 export function docsGraphFixture(): GraphData {
   const g = new Builder();

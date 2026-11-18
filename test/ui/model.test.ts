@@ -75,6 +75,7 @@ describe("the protocol", () => {
         repos: [
           { id: "a", name: "a", path: "~/a", chattree: true },
           { id: "b", name: "b", path: "~/b", chattree: false, reason: "no conversation" },
+          { id: "c", name: "c", path: "~/c", chattree: false, init: "adopt" },
         ],
         current: "a",
       },
@@ -101,6 +102,7 @@ describe("the protocol", () => {
       state: { files: [{ path: "AGENTS.md", on: true, exists: true, bytes: 900 }], found: [{ path: "CLAUDE.md", bytes: 300 }] },
     },
     { type: "notice", level: "warning", message: "the lock is held by another window" },
+    { type: "settings.open", page: "providers" },
   ];
   const intents: unknown[] = [
     { type: "ready", view: "chat" },
@@ -110,6 +112,7 @@ describe("the protocol", () => {
     { type: "thread.merge", from: "idea", into: "main" },
     { type: "workspace.switch", thread: "idea", uncommitted: "snapshot", remember: true },
     { type: "repo.select", id: "a" },
+    { type: "repo.init", id: "scratch" },
     { type: "commit.copy", commit: "abc1234" },
     { type: "thread.delete", thread: "idea" },
     { type: "chat.send", text: "go" },

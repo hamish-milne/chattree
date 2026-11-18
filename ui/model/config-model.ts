@@ -78,6 +78,15 @@ export const ConfigModel = createModel((send: (intent: UiIntent) => void, clock:
     problems: computed(() => form.value?.spec.value.issues.length ?? 0),
     apply(e: UiEvent): void {
       switch (e.type) {
+        case "settings.open":
+          open.value = true;
+          page.value = e.page;
+          if (!asked) {
+            asked = true;
+            send({ type: "ready", view: "config" });
+          }
+          ensure();
+          return;
         case "form.set": {
           if (e.form.id !== "harness") return;
           const f = form.peek();

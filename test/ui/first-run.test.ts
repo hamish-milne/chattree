@@ -1,0 +1,105 @@
+import assert from "node:assert/strict";
+import { describe, test } from "node:test";
+import { MockController } from "../../ui/fixtures/mock-controller.ts";
+import { ChatModel } from "../../ui/model/chat-model.ts";
+import { ConfigModel } from "../../ui/model/config-model.ts";
+import { GraphModel } from "../../ui/model/graph-model.ts";
+import { parseEvent, type UiEvent } from "../../ui/model/protocol.ts";
+
+/** The views over the mock controller, as the preview wires them. */
+const rig = () => {
+  const events: UiEvent[] = [];
+  const graph: InstanceType<typeof GraphModel> = new GraphModel((i) => controller.handle(i));
+  const chat: InstanceType<typeof ChatModel> = new ChatModel((i) => controller.handle(i));
+  const config: InstanceType<typeof ConfigModel> = new ConfigModel((i) => controller.handle(i));
+  const controller: MockController = new MockController({
+    emit: (e) => {
+      events.push(e);
+      graph.apply(e);
+      chat.apply(e);
+      config.apply(e);
+    },
+    sleep: async () => {},
+  });
+  controller.handle({ type: "ready", view: "graph" });
+  controller.handle({ type: "ready", view: "chat" });
+  return { events, graph, chat, config, controller };
+};
+
+describe("starting a conversation in a workspace folder", () => {
+  test("a folder that can be initialized is offered, and one that cannot be is only listed", () => {
+    const { graph } = rig();
+    assert.deepEqual(
+      graph.initializable.value.map((r) => [r.name, r.init]),
+      [
+        ["legacy-api", "adopt"],
+        ["scratch", "new"],
+      ],
+    );
+    graph.selectRepo("scratch");
+    assert.equal(graph.repos.value?.current, "retry-client", "it is not a conversation yet, so it cannot be opened");
+  });
+
+  test("a new folder is initialized at once; the graph, the chat and the Providers page follow", () => {
+    const { graph, chat, config, events, controller } = rig();
+    events.length = 0;
+    graph.initRepo("scratch");
+    assert.equal(graph.initializing.value, undefined, "nothing to confirm");
+    assert.equal(graph.repos.value?.current, "scratch");
+    assert.equal(graph.repos.value?.repos.find((r) => r.id === "scratch")?.chattree, true);
+    assert.equal(
+      graph.initializable.value.some((r) => r.id === "scratch"),
+      false,
+    );
+    assert.equal(graph.data.value?.commits.length, 1, "just the header");
+    assert.equal(graph.data.value?.trunk, "main");
+    assert.equal(chat.thread.value?.name, "main");
+    assert.equal(config.open.value, true);
+    assert.equal(config.page.value, "providers");
+    assert.deepEqual(
+      Object.keys((config.form.value?.spec.value.value["providers"] as object | undefined) ?? { x: 1 }),
+      [],
+      "no provider yet",
+    );
+    assert.deepEqual(
+      events.map((e) => e.type),
+      ["graph.repos", "graph.data", "graph.selected", "chat.open", "form.set", "settings.open", "form.set", "instructions.set", "notice"],
+    );
+    for (const e of events) assert.equal(parseEvent(e).ok, true, e.type);
+    void controller;
+  });
+
+  test("a folder that is already a git repository asks first, and says the conversation shares its branch", () => {
+    const { graph, events } = rig();
+    graph.initRepo("legacy-api");
+    assert.equal(graph.initializing.value, "legacy-api");
+    assert.match(graph.initConfirmation.value?.lines.join(" ") ?? "", /branch that is checked out/);
+    graph.cancelInit();
+    assert.equal(graph.repos.value?.current, "retry-client");
+    graph.initRepo("legacy-api");
+    events.length = 0;
+    graph.confirmInit();
+    assert.equal(graph.repos.value?.current, "legacy-api");
+    assert.equal(graph.data.value?.trunk, "master", "on the branch that was there");
+  });
+
+  test("a folder that cannot be initialized, or is already a conversation, sends nothing", () => {
+    const { graph, controller } = rig();
+    let sent = 0;
+    const handle = controller.handle.bind(controller);
+    controller.handle = (i) => (sent++, handle(i));
+    graph.initRepo("retry-client");
+    graph.initRepo("vendor-lib");
+    graph.initRepo("nope");
+    assert.equal(sent, 0);
+  });
+
+  test("the picker's other entries come back after an init, and the old conversation is kept", () => {
+    const { graph, controller } = rig();
+    graph.initRepo("scratch");
+    graph.selectRepo("retry-client");
+    assert.equal(graph.repos.value?.current, "retry-client");
+    assert.ok((graph.data.value?.commits.length ?? 0) > 5, "its history is as it was");
+    void controller;
+  });
+});

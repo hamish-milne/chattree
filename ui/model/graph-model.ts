@@ -5,8 +5,8 @@
  */
 import { computed, createModel, signal } from "@preact/signals-core";
 import type { UiEvent, UiIntent } from "./protocol.ts";
-import type { GraphData, RepoList } from "./graph.ts";
-import { actionsFor, canDragThread, canDropOn, deleteDialog, type GraphAction, type Verdict } from "./graph-actions.ts";
+import type { GraphData, RepoEntry, RepoList } from "./graph.ts";
+import { actionsFor, canDragThread, canDropOn, deleteDialog, initDialog, type GraphAction, type Verdict } from "./graph-actions.ts";
 import { layoutGraph } from "./graph-layout.ts";
 
 export interface OpenMenu {
@@ -34,6 +34,14 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
   const deleting = signal<string | undefined>(undefined);
   /** A switch of the workspace waiting for an answer about the files changed by hand in the project folder. */
   const switching = signal<{ thread: string; from: string; files: string[] } | undefined>(undefined);
+  /** A folder whose conversation is waiting for the person's yes (one inside a git repository shares its branch). */
+  const initializing = signal<string | undefined>(undefined);
+  /** The workspace folders a conversation can be started in. */
+  const initializable = computed((): RepoEntry[] => repos.value?.repos.filter((r) => r.init !== undefined) ?? []);
+  const initConfirmation = computed(() => {
+    const r = initializable.value.find((x) => x.id === initializing.value);
+    return r === undefined ? undefined : initDialog(r);
+  });
   const confirmation = computed(() => {
     const name = deleting.value;
     const d = data.value;
@@ -73,6 +81,9 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     repoMenuOpen,
     deleting,
     confirmation,
+    initializable,
+    initializing,
+    initConfirmation,
     switching,
     hover,
     drag,
@@ -85,6 +96,8 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
       switch (e.type) {
         case "graph.repos":
           repos.value = e.repos;
+          // A folder that was initialized (or is gone) cannot still be waiting.
+          if (!e.repos.repos.some((r) => r.id === initializing.peek() && r.init !== undefined)) initializing.value = undefined;
           return true;
         case "graph.data":
           data.value = e.data;
@@ -181,6 +194,22 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
     },
     cancelSwitch(): void {
       switching.value = undefined;
+    },
+    /** Start a conversation in a workspace folder: at once for a new repository, after a question for an existing one. */
+    initRepo(id: string): void {
+      const repo = repos.peek()?.repos.find((r) => r.id === id);
+      repoMenuOpen.value = false;
+      if (repo?.init === undefined) return;
+      if (repo.init === "new") send({ type: "repo.init", id });
+      else initializing.value = id;
+    },
+    confirmInit(): void {
+      const id = initializing.peek();
+      initializing.value = undefined;
+      if (id !== undefined) send({ type: "repo.init", id });
+    },
+    cancelInit(): void {
+      initializing.value = undefined;
     },
     toggleRepoMenu(): void {
       repoMenuOpen.value = !repoMenuOpen.peek();

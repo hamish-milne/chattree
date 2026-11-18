@@ -9,7 +9,7 @@ import type { GraphEdge, GraphRow } from "chattree/ui/model/graph-layout";
 import type { GraphThread, ThreadStatus } from "chattree/ui/model/graph";
 import type { GraphModel } from "chattree/ui/model/graph-model";
 import { Icon } from "../icons.tsx";
-import { ConfirmDialog, SwitchDialog } from "./ConfirmDialog.tsx";
+import { ConfirmDialog, InitDialog, SwitchDialog } from "./ConfirmDialog.tsx";
 import { RepoPicker } from "./RepoPicker.tsx";
 import css from "./graph.module.css";
 import { cn } from "../cn.ts";
@@ -160,7 +160,20 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
     return (
       <div class={css.graph}>
         <RepoPicker model={model} />
-        <div class={css.graph_empty}>No conversation yet.</div>
+        <div class={css.graph_empty}>
+          <p>No conversation yet.</p>
+          {model.initializable.value.length > 0 && (
+            <>
+              <p class="dim">Start one in a folder of this workspace:</p>
+              {model.initializable.value.map((r) => (
+                <button key={r.id} class="primary" title={r.path} onClick={() => model.initRepo(r.id)}>
+                  Initialize in {r.name}
+                </button>
+              ))}
+            </>
+          )}
+        </div>
+        <InitDialog model={model} />
       </div>
     );
   const threads = new Map(data.threads.map((t) => [t.name, t]));
@@ -386,6 +399,7 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
         </>
       )}
       <ConfirmDialog model={model} />
+      <InitDialog model={model} />
       <SwitchDialog model={model} />
     </div>
   );

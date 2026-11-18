@@ -11,6 +11,7 @@ import { approval, chatState, chatThread, composer, modelChoice, statusBar } fro
 import { formSpec } from "./form.ts";
 import { instructionState, providerModels, providerStatus } from "./settings.ts";
 import { block } from "./transcript.ts";
+import { PAGE_IDS } from "./config-sheet.ts";
 
 export const VIEWS = ["graph", "chat", "config"] as const;
 export type ViewName = (typeof VIEWS)[number];
@@ -61,6 +62,8 @@ export const event = Type.Union([
   ev("provider.models", { provider: name, list: providerModels }),
   /** The thread's instruction files and the well-known ones found in the workspace. */
   ev("instructions.set", { state: instructionState }),
+  /** Open the settings sheet on a page (after a repository is initialized: the Providers page, as nothing is set up yet). */
+  ev("settings.open", { page: Type.Enum(PAGE_IDS) }),
   /** A message for the person that is not part of any thread (a toast). */
   ev("notice", { level: Type.Enum(["info", "warning", "error"]), message: Type.String() }),
 ]);
@@ -73,6 +76,11 @@ export const intent = Type.Union([
   ev("ready", { view: Type.Enum(VIEWS) }),
   /** Show another repository's conversations; the answer is a fresh `graph.data` (and the chat follows). */
   ev("repo.select", { id: name }),
+  /**
+   * Make a conversation in a workspace folder (`RepoEntry.init` says how). The answer is `graph.repos` (it now holds one,
+   * and is the current one), its graph and chat, and `settings.open` on the Providers page: no provider is chosen here.
+   */
+  ev("repo.init", { id: name }),
   ev("commit.copy", { commit: hash }),
   /** Remove a thread's branch; its commits stay until git collects garbage, so it can be recovered from the reflog. */
   ev("thread.delete", { thread: name }),

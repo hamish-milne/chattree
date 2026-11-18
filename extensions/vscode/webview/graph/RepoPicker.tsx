@@ -4,6 +4,7 @@
  */
 import type { JSX } from "preact";
 import type { GraphModel } from "chattree/ui/model/graph-model";
+import { cn } from "../cn.ts";
 import { Icon } from "../icons.tsx";
 import css from "./graph.module.css";
 
@@ -40,24 +41,46 @@ export function RepoPicker({ model }: { model: Model }): JSX.Element | null {
         <>
           <div class="menu-scrim" onClick={() => model.closeRepoMenu()} />
           <div class={css.repo_menu} role="listbox" aria-label="Repository">
-            {list.repos.map((r) => (
+            {list.repos
+              .filter((r) => r.init === undefined)
+              .map((r) => (
+                <button
+                  key={r.id}
+                  class={css.repo_item}
+                  role="option"
+                  aria-selected={r.id === list.current}
+                  aria-disabled={!r.chattree}
+                  disabled={!r.chattree}
+                  title={r.reason ?? r.path}
+                  onClick={() => model.selectRepo(r.id)}
+                >
+                  <span class={css.repo_check}>{r.id === list.current && <Icon name="check" size={14} />}</span>
+                  <span class={css.repo_text}>
+                    <span class={css.repo_line}>
+                      <span class={css.repo_name}>{r.name}</span>
+                      <span class={css.repo_path}>{r.path}</span>
+                    </span>
+                    {r.reason !== undefined && <span class="reason">{r.reason}</span>}
+                  </span>
+                </button>
+              ))}
+            {model.initializable.value.map((r, i) => (
               <button
                 key={r.id}
-                class={css.repo_item}
-                role="option"
-                aria-selected={r.id === list.current}
-                aria-disabled={!r.chattree}
-                disabled={!r.chattree}
-                title={r.reason ?? r.path}
-                onClick={() => model.selectRepo(r.id)}
+                class={cn(css.repo_item, i === 0 && css.repo_separated)}
+                role="menuitem"
+                title={r.path}
+                onClick={() => model.initRepo(r.id)}
               >
-                <span class={css.repo_check}>{r.id === list.current && <Icon name="check" size={14} />}</span>
+                <span class={css.repo_check}>
+                  <Icon name="plus" size={14} />
+                </span>
                 <span class={css.repo_text}>
                   <span class={css.repo_line}>
+                    <span>Initialize in</span>
                     <span class={css.repo_name}>{r.name}</span>
                     <span class={css.repo_path}>{r.path}</span>
                   </span>
-                  {r.reason !== undefined && <span class="reason">{r.reason}</span>}
                 </span>
               </button>
             ))}

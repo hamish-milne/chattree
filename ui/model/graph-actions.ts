@@ -2,7 +2,7 @@
  * Which actions the graph offers on a commit, and when one is unavailable and why. The view builds its context menu
  * from this and never decides itself; the reason of a disabled action is shown to the person.
  */
-import type { GraphData, GraphThread } from "./graph.ts";
+import type { GraphData, GraphThread, RepoEntry } from "./graph.ts";
 
 export interface GraphAction {
   id: "open" | "fork" | "rewind" | "merge" | "switch" | "copy" | "delete";
@@ -113,6 +113,21 @@ export function deleteDialog(data: GraphData, name: string): { title: string; li
   ];
   if (thread.merged === true) lines.unshift(`It was merged into ${data.trunk}, so its changes stay in ${data.trunk}'s history.`);
   return { title: `Delete thread “${name}”?`, lines, confirm: "Delete thread" };
+}
+
+/**
+ * The words of the confirmation before a conversation is started in a folder that is already a git repository: it
+ * shares the checked-out branch, and every entry commits the working tree's pending changes with it.
+ */
+export function initDialog(repo: RepoEntry): { title: string; lines: string[]; confirm: string } {
+  return {
+    title: `Start a conversation in “${repo.name}”?`,
+    lines: [
+      `${repo.path} is already a git repository. The conversation will be kept on the branch that is checked out there, next to your own commits.`,
+      "Every step the agent takes also commits the changes in your working folder, so that it can be rolled back. Your files are not touched until then.",
+    ],
+    confirm: "Start conversation",
+  };
 }
 
 /** Whether something may be done, and if not, why. */

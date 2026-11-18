@@ -21,6 +21,8 @@ export const PAGES = [
   { id: "instructions", title: "Instructions", hint: "Files the agent is given", group: "thread" },
 ] as const;
 export type PageId = (typeof PAGES)[number]["id"] | "general";
+/** The pages a message can open the sheet on. */
+export const PAGE_IDS = [...PAGES.map((p) => p.id), "general"] as const;
 
 /** The groups the pages are listed under: `harness.yml` is the project's, the instructions are the thread's. */
 export const GROUPS = [

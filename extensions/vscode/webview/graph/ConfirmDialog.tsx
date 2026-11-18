@@ -112,3 +112,43 @@ export function SwitchDialog({ model }: { model: Model }): JSX.Element | null {
     </div>
   );
 }
+
+/** Asked before a conversation is started in a folder that is already a git repository (it shares the branch checked out there). */
+export function InitDialog({ model }: { model: Model }): JSX.Element | null {
+  const c = model.initConfirmation.value;
+  const cancel = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (c !== undefined) cancel.current?.focus();
+  }, [c?.title]);
+  if (c === undefined) return null;
+  return (
+    <div class={css.dialog_scrim} onClick={() => model.cancelInit()}>
+      <div
+        class={css.dialog}
+        role="alertdialog"
+        aria-modal="true"
+        aria-labelledby="init-title"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            model.cancelInit();
+          }
+        }}
+      >
+        <h2 id="init-title">{c.title}</h2>
+        {c.lines.map((l, i) => (
+          <p key={i}>{l}</p>
+        ))}
+        <div class={css.dialog_buttons}>
+          <button class="secondary" ref={cancel} onClick={() => model.cancelInit()}>
+            Cancel
+          </button>
+          <button class="primary" onClick={() => model.confirmInit()}>
+            {c.confirm}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
