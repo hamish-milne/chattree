@@ -21,7 +21,7 @@
 | `session.ts` | Session files (draft, named drafts, staged attachments, thread pointer) under the git dir, written with the canonical emitter, with a heartbeat lock. |
 | `toolset.ts`, `skills.ts`, `changes.ts` | The terminal's approval prompt (question, typed answer); keeping skills in step with disk; running a setup change that needs the user's yes. The tools a session offers are `app/toolset.ts`; how calls look is `app/tool-lines.ts`. |
 | `models.ts` | `chattree models`. (The settings file, the provider registry and `init` are in [`app/`](app.md).) |
-| `run.ts`, `recent.ts`, `refs.ts`, `export.ts`, `environment.ts`, `mime.ts`, `age.ts`, `oneshot.ts`, `registry.ts` | `chattree run` (the headless pump), the recap on open, naming entries, Markdown export, the machine description given to the model, attachment type detection, display helpers, a re-export of the one-shot call, the command table and tokenizer. |
+| `run.ts`, `recent.ts`, `refs.ts`, `export.ts`, `environment.ts`, `mime.ts`, `age.ts`, `oneshot.ts`, `registry.ts` | `chattree run` (the headless pump), the recap on open, naming entries, Markdown export, attachment type detection, display helpers, a re-export of the one-shot call, the command table and tokenizer. |
 | `commands/` | `chat`, `drafts`, `exec`, `mcp`, `meta`, `misc`, `read`, `search`, `sessions`, `settings`, `setup`, `skills`, `threads`, `tools`, `trust`, `undo`; `index.ts` lists them in `/help` order. |
 
 ## Invariants

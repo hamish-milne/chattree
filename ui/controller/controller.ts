@@ -1,4 +1,6 @@
+import { hostEnvironment } from "../../app/environment.ts";
 import { findProject, openThread, type Project } from "../../app/project.ts";
+import { buildToolSet, type ToolSet } from "../../app/toolset.ts";
 import { localOwner } from "../../app/owner.ts";
 import type { AppEnv } from "../../app/env.ts";
 import { AppError } from "../../app/errors.ts";
@@ -7,13 +9,20 @@ import type { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { readCommitGraph } from "../../harness/graph.ts";
 import { entrySpends } from "../../harness/ledger.ts";
+import type { HostEnvironment } from "../../harness/environment.ts";
+import type { Approval, ApprovalRequest, LoopEvent } from "../../harness/loop.ts";
+import { attachmentKind } from "../../harness/attachments.ts";
 import type { HostedController } from "../host/web-host.ts";
 import type { ChatState, Composer, ModelChoice, StatusBar } from "../model/chat.ts";
 import type { GraphData, RepoEntry, ThreadStatus } from "../model/graph.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
+import { diffBlocks } from "./diff-blocks.ts";
+import { explain } from "./explain.ts";
 import { mapEntries, type MapItem } from "./map-chat.ts";
+import { runThread } from "./run-thread.ts";
 import { mapGraph } from "./map-graph.ts";
-import { statusBar, threadBanner, threadStatus } from "./map-status.ts";
+import { approvalView, statusBar, threadBanner, threadStatus } from "./map-status.ts";
+import type { Block } from "../model/transcript.ts";
 import { headlessPlatform, type Platform } from "./platform.ts";
 
 export interface ControllerOptions {
@@ -38,7 +47,40 @@ interface Repo {
   checkedOut: string;
 }
 
+/** A request going on for a thread: what it waits for and what it is doing, so the chat can show it. */
+interface Run {
+  abort: AbortController;
+  /** The call the person has to answer, and the way to answer it. */
+  pending?: { request: ApprovalRequest; resolve(a: Approval): void };
+  awaiting: Set<string>;
+  running: Set<string>;
+  /** Whether the run counts as working (it does not while it waits for an answer). */
+  active: boolean;
+  done: Promise<void>;
+}
+
+/** What the view has been sent about the open thread, so later sends are only the differences. */
+interface Sent {
+  blocks: Block[];
+  status: string;
+  thread: string;
+  approval: string;
+  banner: string;
+  model: string;
+}
+
 const message = (e: unknown): string => (e instanceof Error ? e.message : String(e));
+
+function sentOf(state: ChatState): Sent {
+  return {
+    blocks: structuredClone(state.blocks),
+    status: JSON.stringify(state.status),
+    thread: JSON.stringify(state.thread),
+    approval: JSON.stringify(state.approval ?? null),
+    banner: JSON.stringify(state.banner ?? null),
+    model: JSON.stringify(state.model),
+  };
+}
 
 /**
  * The real controller: owns the repositories of the workspace, answers the views' intents, and sends what changed as
@@ -61,11 +103,23 @@ export class Controller implements HostedController {
   readonly #handles = new Map<string, Conversation>();
   /** What the person has typed and staged for each thread. */
   readonly #composers = new Map<string, Composer>();
+  /** The bytes of each staged file, by the id the composer shows. */
+  readonly #staged = new Map<string, { bytes: Uint8Array; mime: string; name: string }>();
+  readonly #runs = new Map<string, Run>();
+  readonly #toolsets = new WeakMap<Conversation, Promise<ToolSet>>();
+  readonly #environment: HostEnvironment | undefined;
+  #sent: Sent | undefined;
+  #active = 0;
+  #quiet: (() => void)[] = [];
+  readonly #lastStatus = new Map<string, ThreadStatus>();
+  #seq = 0;
 
   constructor(o: ControllerOptions) {
     this.#o = o;
     this.#platform = o.platform ?? headlessPlatform;
     this.#session = o.session ?? `ui-${Math.random().toString(36).slice(2, 10)}`;
+    // CHATTREE_ENVIRONMENT=off leaves the note about this machine out, for tests that need the transcript to hold only what was typed.
+    this.#environment = o.env.env["CHATTREE_ENVIRONMENT"] === "off" ? undefined : hostEnvironment(o.env);
   }
 
   /** Carry out an intent after those before it; resolves when it is done (used by `idle`). */
@@ -81,14 +135,29 @@ export class Controller implements HostedController {
     });
   }
 
-  /** Resolves when every intent received so far has been carried out. */
-  idle(): Promise<void> {
-    return this.#queue;
+  /** Resolves when every intent received so far has been carried out and no request is working (one waiting for an answer is not). */
+  async idle(): Promise<void> {
+    for (;;) {
+      const q = this.#queue;
+      await q;
+      if (this.#active > 0) await new Promise<void>((r) => this.#quiet.push(r));
+      if (q === this.#queue && this.#active === 0) return;
+    }
+  }
+
+  #work(delta: 1 | -1): void {
+    this.#active += delta;
+    if (this.#active === 0) for (const r of this.#quiet.splice(0)) r();
   }
 
   async close(): Promise<void> {
     this.#closed = true;
+    for (const r of this.#runs.values()) {
+      r.abort.abort();
+      r.pending?.resolve({ allow: false });
+    }
     await this.#queue;
+    await Promise.all([...this.#runs.values()].map((r) => r.done));
     await this.#dropHandles();
     await this.#repo?.convo.close();
     this.#repo = undefined;
@@ -227,11 +296,22 @@ export class Controller implements HostedController {
     });
     const entries = items.map((i) => i.entry);
     const spends = await entrySpends(entries, h.priceResolver());
-    const blocks = await mapEntries(items, { blob: (sha) => h.store.get(sha) }, { spends });
+    const run = this.#runs.get(name);
+    const blocks = await mapEntries(
+      items,
+      { blob: (sha) => h.store.get(sha) },
+      { spends, ...(run === undefined ? {} : { awaiting: run.awaiting, running: run.running, inFlight: true }) },
+    );
     const setup = await h.setup();
     const ledger = await h.ledger();
     const lease = await h.leaseState(name);
-    const state = threadStatus({ lease, entries, self: (o) => o.session === this.#session });
+    // A request of this session is working even before it has taken the lease.
+    const state: ThreadStatus =
+      run === undefined
+        ? threadStatus({ lease, entries, self: (o) => o.session === this.#session })
+        : run.pending === undefined
+          ? "running"
+          : "awaiting";
     const bar: StatusBar = statusBar({
       state,
       setup,
@@ -254,6 +334,7 @@ export class Controller implements HostedController {
         blocks,
         status: bar,
         composer: structuredClone(this.#composer(name)),
+        ...(run?.pending === undefined ? {} : { approval: approvalView(run.pending.request) }),
         ...(banner === undefined ? {} : { banner }),
         model: this.#models(h, setup.model === undefined ? "" : `${setup.model.provider}/${setup.model.id}`),
       },
@@ -266,6 +347,7 @@ export class Controller implements HostedController {
     if (repo === undefined) throw new AppError("there is no conversation open");
     const { state, items } = await this.#chatState(repo, name);
     this.#selected = name;
+    this.#sent = sentOf(state);
     this.#emit({ type: "chat.open", state });
     this.#emit({ type: "graph.selected", thread: name, ...(commit === undefined ? {} : { commit }) });
     if (commit === undefined) return;
@@ -276,6 +358,193 @@ export class Controller implements HostedController {
       const c = items[i]?.ref.commit;
       if (c !== undefined && shown.has(c)) return this.#emit({ type: "chat.reveal", commit: c });
     }
+  }
+
+  /** Send the open thread's view what changed since it was last sent: read the thread again and send the difference. */
+  async #publish(thread: string): Promise<void> {
+    const repo = this.#repo;
+    if (repo === undefined) return;
+    const { state } = await this.#chatState(repo, thread);
+    if (this.#lastStatus.get(thread) !== state.status.state) {
+      this.#lastStatus.set(thread, state.status.state);
+      this.#emit({ type: "graph.status", thread, status: state.status.state });
+    }
+    const sent = this.#sent;
+    if (thread !== this.#selected || sent === undefined) return;
+    for (const e of diffBlocks(sent.blocks, state.blocks)) this.#emit(e);
+    const now = sentOf(state);
+    if (now.thread !== sent.thread) this.#emit({ type: "chat.thread", thread: state.thread });
+    if (now.status !== sent.status) this.#emit({ type: "chat.status", status: state.status });
+    if (now.model !== sent.model) this.#emit({ type: "chat.models", models: state.model });
+    if (now.approval !== sent.approval)
+      this.#emit({ type: "chat.approval", ...(state.approval === undefined ? {} : { approval: state.approval }) });
+    if (now.banner !== sent.banner) this.#emit({ type: "chat.banner", ...(state.banner === undefined ? {} : { banner: state.banner }) });
+    this.#sent = now;
+  }
+
+  /** The tools for a thread, built once from its `harness.yml`. */
+  #toolset(repo: Repo, convo: Conversation, thread: string): Promise<ToolSet> {
+    let p = this.#toolsets.get(convo);
+    if (p === undefined) {
+      p = buildToolSet(this.#o.env, convo, {
+        busy: () => this.#runs.has(thread),
+        session: this.#session,
+        projectDir: repo.project.mainRoot,
+        onCommitted: () => void this.#publish(thread).catch(() => undefined),
+        onResume: () => undefined,
+      });
+      this.#toolsets.set(convo, p);
+      p.catch(() => this.#toolsets.delete(convo));
+    }
+    return p;
+  }
+
+  /** The model is streaming: show what has arrived in a block of its own, which the committed blocks replace when the request ends. */
+  #stream(thread: string, kind: "text" | "reasoning", text: string): void {
+    const sent = this.#sent;
+    if (thread !== this.#selected || sent === undefined) return;
+    const id = `live.${kind}`;
+    const last = sent.blocks.at(-1);
+    if (last?.id !== id) {
+      const block: Block =
+        kind === "text"
+          ? { type: "assistant", id, markdown: "", streaming: true, model: "" }
+          : { type: "reasoning", id, text: "", streaming: true };
+      sent.blocks.push(block);
+      this.#emit({ type: "chat.append", blocks: [structuredClone(block)] });
+    }
+    const b = sent.blocks.at(-1);
+    if (b?.type === "assistant") b.markdown += text;
+    else if (b?.type === "reasoning") b.text += text;
+    this.#emit({ type: "chat.delta", id, delta: text });
+  }
+
+  async #onLoop(thread: string, run: Run, e: LoopEvent): Promise<void> {
+    switch (e.type) {
+      case "stream":
+        if (e.event.type === "text.delta") this.#stream(thread, "text", e.event.text);
+        else if (e.event.type === "reasoning.delta") this.#stream(thread, "reasoning", e.event.text);
+        return;
+      case "tool.start":
+        run.running.add(e.callId);
+        break;
+      case "tool.approval":
+      case "tool.result":
+        run.awaiting.delete(e.callId);
+        if (e.type === "tool.result") run.running.delete(e.callId);
+        break;
+      case "request.start":
+        return;
+      default:
+        break;
+    }
+    await this.#publish(thread);
+  }
+
+  /** A call no grant covers: park until the person answers (or stops the turn). */
+  #ask(thread: string, run: Run, request: ApprovalRequest): Promise<Approval> {
+    return new Promise<Approval>((resolve) => {
+      run.pending = {
+        request,
+        resolve: (a) => {
+          delete run.pending;
+          run.awaiting.delete(request.callId);
+          this.#work(1);
+          resolve(a);
+          void this.#publish(thread).catch(() => undefined);
+        },
+      };
+      run.awaiting.add(request.callId);
+      // Waiting for the person is not working: the controller is idle once the question has been sent.
+      void this.#publish(thread)
+        .catch(() => undefined)
+        .finally(() => this.#work(-1));
+    });
+  }
+
+  /** Put the person's message on the thread and run the model on it. */
+  async #send(text: string, queued: boolean): Promise<void> {
+    const repo = this.#repo;
+    const thread = this.#selected;
+    if (repo === undefined || thread === undefined) throw new AppError("there is no thread open");
+    const h = await this.#handle(repo, thread);
+    const running = this.#runs.get(thread);
+    if (running !== undefined && !queued)
+      throw new AppError("the model is still working on this thread", "wait for it, stop it, or queue the message");
+    await h.assertConfigTrusted();
+    if (h.providers.size === 0 || (await h.setup()).model === undefined)
+      throw new AppError("there is no model for this thread yet", "add a provider in the settings first");
+    const composer = this.#composer(thread);
+    const content: Parameters<Conversation["append"]>[0] & { $tag: "user" } = {
+      $tag: "user",
+      content: [],
+      ...(queued ? { queued: true } : {}),
+    };
+    if (text !== "") content.content.push({ $tag: "text", text });
+    for (const a of composer.attachments) {
+      const f = this.#staged.get(a.id);
+      if (f !== undefined) content.content.push(await h.attach(f.bytes, { mime: f.mime, name: f.name }));
+    }
+    if (content.content.length === 0) return;
+    await h.append(content);
+    for (const a of composer.attachments) this.#staged.delete(a.id);
+    this.#composers.set(thread, { draft: "", attachments: [] });
+    this.#emit({ type: "chat.composer", composer: { draft: "", attachments: [] } });
+    if (running !== undefined) return await this.#publish(thread);
+
+    const run: Run = { abort: new AbortController(), awaiting: new Set(), running: new Set(), active: true, done: Promise.resolve() };
+    this.#runs.set(thread, run);
+    this.#work(1);
+    run.done = (async () => {
+      try {
+        const tools = await this.#toolset(repo, h, thread);
+        await this.#publish(thread);
+        await runThread({
+          env: this.#o.env,
+          convo: h,
+          tools,
+          session: this.#session,
+          signal: run.abort.signal,
+          environment: this.#environment,
+          approve: (r) => this.#ask(thread, run, r),
+          onEvent: (e) => this.#onLoop(thread, run, e),
+        });
+      } catch (e) {
+        this.#notify(explain(e), "error");
+      } finally {
+        this.#runs.delete(thread);
+        await this.#publish(thread).catch(() => undefined);
+        this.#work(-1);
+      }
+    })();
+  }
+
+  #stop(): void {
+    const run = this.#selected === undefined ? undefined : this.#runs.get(this.#selected);
+    if (run === undefined) return;
+    run.abort.abort();
+    run.pending?.resolve({ allow: false, reason: "stopped" });
+  }
+
+  #approve(callId: string, allow: boolean): void {
+    const run = this.#selected === undefined ? undefined : this.#runs.get(this.#selected);
+    if (run?.pending === undefined || run.pending.request.callId !== callId)
+      throw new AppError("that question is no longer waiting for an answer");
+    run.pending.resolve(allow ? { allow: true } : { allow: false });
+  }
+
+  async #attach(): Promise<void> {
+    const thread = this.#selected;
+    if (thread === undefined) throw new AppError("there is no thread open");
+    const c = this.#composer(thread);
+    for (const f of await this.#platform.pickFiles()) {
+      const mime = f.mime ?? "text/plain";
+      const kind = attachmentKind(mime) ?? "other";
+      const id = `f${++this.#seq}`;
+      this.#staged.set(id, { bytes: f.bytes, mime, name: f.name });
+      c.attachments.push({ id, file: { name: f.name, mime, kind, bytes: f.bytes.length } });
+    }
+    this.#emit({ type: "chat.composer", composer: structuredClone(c) });
   }
 
   // ---- intents -----------------------------------------------------------------------------------------------
@@ -295,6 +564,29 @@ export class Controller implements HostedController {
         if (folder.state.kind !== "conversation") throw new AppError(`${folder.name} has no conversation to show`);
         await this.#enter(folder);
         await this.#sendGraph();
+        return;
+      }
+      case "chat.send":
+        await this.#send(intent.text, intent.queued === true);
+        return;
+      case "chat.stop":
+        this.#stop();
+        return;
+      case "chat.approve":
+        this.#approve(intent.callId, intent.allow);
+        return;
+      case "chat.draft":
+        if (this.#selected !== undefined) this.#composer(this.#selected).draft = intent.text;
+        return;
+      case "chat.attach":
+        await this.#attach();
+        return;
+      case "chat.detach": {
+        const c = this.#selected === undefined ? undefined : this.#composer(this.#selected);
+        if (c === undefined) return;
+        c.attachments = c.attachments.filter((a) => a.id !== intent.id);
+        this.#staged.delete(intent.id);
+        this.#emit({ type: "chat.composer", composer: structuredClone(c) });
         return;
       }
       case "commit.copy":

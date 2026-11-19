@@ -93,7 +93,7 @@ export function statusBar(i: StatusBarInput): StatusBar | undefined {
 }
 
 /** The question a call waits on: exactly what would run. */
-export function approvalView(need: CallNeed): Approval {
+export function approvalView(need: Pick<CallNeed, "callId" | "name" | "args">): Approval {
   const args = JSON.stringify(need.args, null, 2);
   return {
     callId: need.callId,

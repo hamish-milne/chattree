@@ -14,6 +14,7 @@
 | `providers.ts` | The provider registry for this machine; the local models' catalog and address; sampling lookup. |
 | `init.ts` | `runInit`: write the config, start the conversation (new repository or adopt one), pin model setup and prices. `InitEnv` adds `ask` for a terminal. `provider: "none"` starts with no provider and no model pinned (a graphical host adds them in its settings): requests, compaction and price pinning then refuse with `NoModelPinned` until the first setup is made. |
 | `toolset.ts` | `buildToolSet`: the tools a session offers its model (built-ins `harness.yml` lists, thread and job tools, subagent and fork tools when pumped, accepted MCP servers) with their jobs; finds busybox and ffmpeg for the host (`resolveBusybox`, `resolveFfmpeg`, `mediaFor`). |
+| `environment.ts` | What this machine is, for the note the model gets (`hostEnvironment`). |
 | `tool-lines.ts` | How a tool call looks: one summary line, the longer description shown before approval, result lines. Pure strings, used by the terminal and the extension. |
 | `project.ts` | A project is a git working tree with `harness.yml`; maps thread names to worktrees and conversations (`findProject`, `openThread`, `conversationOptions`); never climbs across a repository boundary. |
 | `owner.ts` | Who this process is in run leases and journals; whether a lease's owner is dead. Node-only (pid, hostname). |

@@ -29,7 +29,7 @@ import { deliverForks } from "../harness/fork-tools.ts";
 import { openThread } from "../app/project.ts";
 import { followSkills, skillsWaiting } from "./skills.ts";
 import { SYSTEM_PROMPT, type HostEnvironment } from "../harness/environment.ts";
-import { hostEnvironment } from "./environment.ts";
+import { hostEnvironment } from "../app/environment.ts";
 import { editorFor, type Settings } from "../app/settings.ts";
 import { thrownText } from "../providers/wire.ts";
 
