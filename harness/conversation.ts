@@ -1683,6 +1683,11 @@ export class Conversation {
     return this.#opts.built?.prices.get(provider);
   }
 
+  /** The models each provider's catalog lists (`harness.yml`'s own entries included), by provider; empty when the providers were not built. */
+  get catalog(): ReadonlyMap<string, Readonly<Record<string, ModelInfo>>> {
+    return this.#opts.built?.models ?? new Map();
+  }
+
   /** What is known about a model of a provider (dated ids match the entry they extend). */
   modelInfo(provider: string, model: string): ModelInfo | undefined {
     const all = this.#opts.built?.models.get(provider);

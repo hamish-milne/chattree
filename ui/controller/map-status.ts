@@ -9,15 +9,17 @@ import type { ChatEntry } from "../../harness/entries.ts";
 import type { Ledger } from "../../harness/ledger.ts";
 import type { LeaseOwner, LeaseState } from "../../harness/lease.ts";
 import type { AgentSetup } from "../../harness/setup.ts";
-import type { CallNeed, TipState } from "../../harness/tip.ts";
+import type { CallNeed } from "../../harness/tip.ts";
 import type { ConfigTrust } from "../../harness/trust.ts";
 import type { ModelInfo } from "../../providers/registry.ts";
 import type { Approval, ChatBanner, StatusBar } from "../model/chat.ts";
 import type { ThreadStatus } from "../model/graph.ts";
 
 export interface StatusInput {
-  tip: TipState;
+  /** The thread's run lease (`Conversation.leaseState`). */
   lease?: LeaseState | undefined;
+  /** A tool call of the thread waits for a decision. */
+  awaiting?: boolean | undefined;
   /** The thread's entries, for how its last request ended. */
   entries: readonly ChatEntry[];
   /** Whether a lease owner is this session. */
@@ -31,8 +33,8 @@ const QUIET = new Set(["header", "agent_setup", "approval", "injection"]);
  * `awaiting`. A lease whose holder is gone, or a last request that ended in an error, is `error`: the thread is stopped by a failure.
  */
 export function threadStatus(i: StatusInput): ThreadStatus {
-  if (i.tip.kind === "running") return i.self(i.tip.owner) ? "running" : "elsewhere";
-  if (i.tip.kind === "needs_approval") return "awaiting";
+  if (i.lease?.state === "live") return i.awaiting === true ? "awaiting" : i.self(i.lease.owner) ? "running" : "elsewhere";
+  if (i.awaiting === true) return "awaiting";
   if (i.lease?.state === "stale") return "error";
   const last = i.entries.findLast((e) => !QUIET.has(e.$tag));
   return last?.$tag === "interrupted" && last.by === "error" ? "error" : "idle";

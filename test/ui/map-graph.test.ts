@@ -7,7 +7,7 @@ import type { ChatEntry } from "../../harness/entries.ts";
 import { readCommitGraph } from "../../harness/graph.ts";
 import type { LeaseState } from "../../harness/lease.ts";
 import { emptySetup } from "../../harness/setup.ts";
-import type { TipState } from "../../harness/tip.ts";
+import type { CallNeed } from "../../harness/tip.ts";
 import { mapGraph } from "../../ui/controller/map-graph.ts";
 import { approvalView, reasoningLevel, statusBar, threadBanner, threadStatus } from "../../ui/controller/map-status.ts";
 import { parseEvent } from "../../ui/model/protocol.ts";
@@ -58,22 +58,16 @@ const lease = (o: object): LeaseState => ({ state: "live", owner: o, until: 1, h
 const self = (o: { session?: string }): boolean => o.session === "me";
 
 test("a thread is running here, elsewhere, awaiting a decision, stopped by an error, or idle", () => {
-  const live: TipState = { kind: "running", owner: { session: "me" }, holding: [] };
-  const other: TipState = { kind: "running", owner: { session: "you" }, holding: [] };
-  const idle: TipState = { kind: "awaiting_user" };
-  const ask: TipState = {
-    kind: "needs_approval",
-    calls: [],
-    question: { callId: "c", name: "run", args: { command: "ls" }, status: "ask", keys: null },
-  };
   const failed: ChatEntry[] = [{ $tag: "interrupted", id: "01HZ00000000000000000000AA", by: "error", partial: [] }];
-  assert.equal(threadStatus({ tip: live, entries: [], self }), "running");
-  assert.equal(threadStatus({ tip: other, entries: [], self }), "elsewhere");
-  assert.equal(threadStatus({ tip: ask, entries: [], self }), "awaiting");
-  assert.equal(threadStatus({ tip: idle, entries: failed, self }), "error");
-  assert.equal(threadStatus({ tip: idle, entries: [], lease: { state: "stale", owner: {}, until: 0 }, self }), "error");
-  assert.equal(threadStatus({ tip: idle, entries: [], lease: lease({}), self }), "idle");
-  assert.equal(approvalView(ask.question).summary, "run ls");
+  const ask: CallNeed = { callId: "c", name: "run", args: { command: "ls" }, status: "ask", keys: null };
+  const mine = lease({ session: "me" });
+  assert.equal(threadStatus({ lease: mine, entries: [], self }), "running");
+  assert.equal(threadStatus({ lease: lease({ session: "you" }), entries: [], self }), "elsewhere");
+  assert.equal(threadStatus({ lease: mine, awaiting: true, entries: [], self }), "awaiting");
+  assert.equal(threadStatus({ entries: failed, self }), "error");
+  assert.equal(threadStatus({ entries: [], lease: { state: "stale", owner: {}, until: 0 }, self }), "error");
+  assert.equal(threadStatus({ entries: [], lease: { state: "free" }, self }), "idle");
+  assert.equal(approvalView(ask).summary, "run ls");
 });
 
 test("the banner says what stops the thread: an unapproved config first, then a missing provider", () => {

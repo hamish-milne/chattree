@@ -85,4 +85,44 @@ describe("the controller, reading", () => {
     assert.equal(events.at(-1)?.type, "notice");
     await c.close();
   });
+
+  test("the chat opens on the checked-out thread: its blocks, the banner for a conversation with no provider, a status with no model", async () => {
+    const { project, c, take } = await rig();
+    const convo = await Conversation.open(host, project);
+    await convo.append({ $tag: "user", content: [{ $tag: "text", text: "what is in here?" }] });
+    await convo.close();
+    c.handle({ type: "ready", view: "chat" });
+    await c.idle();
+    const open = take("chat.open")[0];
+    assert.ok(open?.type === "chat.open");
+    const s = open.state;
+    assert.deepEqual([s.thread.name, s.thread.kind, s.thread.title], ["main", "main", "what is in here?"]);
+    assert.deepEqual(
+      s.blocks.map((b) => b.type),
+      ["user"],
+    );
+    assert.deepEqual(s.banner, { kind: "no_provider" });
+    assert.deepEqual([s.status.model, s.status.state], ["No model yet", "idle"]);
+    assert.deepEqual(s.model, { current: "", options: [] });
+    await c.close();
+  });
+
+  test("opening another thread at a commit shows it and points at the block that commit holds", async () => {
+    const { project, c, take } = await rig();
+    const convo = await Conversation.open(host, project);
+    const first = await convo.append({ $tag: "user", content: [{ $tag: "text", text: "one" }] });
+    await convo.append({ $tag: "user", content: [{ $tag: "text", text: "two" }] });
+    const fork = await convo.fork(first.id, { name: "side" });
+    await fork.conversation?.append({ $tag: "user", content: [{ $tag: "text", text: "on the side" }] });
+    await convo.close();
+    c.handle({ type: "thread.open", thread: "side", commit: first.commit });
+    await c.idle();
+    const open = take("chat.open")[0];
+    assert.ok(open?.type === "chat.open");
+    assert.deepEqual([open.state.thread.name, open.state.thread.kind, open.state.thread.title], ["side", "fork", "on the side"]);
+    const reveal = take("chat.reveal")[0];
+    assert.ok(reveal?.type === "chat.reveal" && reveal.commit === first.commit);
+    assert.deepEqual(take("graph.selected")[0], { type: "graph.selected", thread: "side", commit: first.commit });
+    await c.close();
+  });
 });
