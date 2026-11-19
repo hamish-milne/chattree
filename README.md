@@ -26,6 +26,7 @@ Coding agents: read [AGENTS.md](AGENTS.md).
 ```
 pnpm test          # the quick group (about 5 minutes), one process per test file
 pnpm test:slow     # the [slow] suites: exhaustive crash injection, random operations
+pnpm test:perf     # timing of the views with a long conversation (run alone; needs Chromium)
 pnpm test:all      # both
 pnpm typecheck     # src is checked with no Node types; the rest with @types/node
 pnpm lint          # oxlint, type-aware

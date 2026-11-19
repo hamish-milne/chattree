@@ -5,6 +5,7 @@
  */
 import type { JSX } from "preact";
 import { useRef, useState } from "preact/hooks";
+import { useFixedWindow } from "../virtual.ts";
 import type { GraphEdge, GraphRow } from "chattree/ui/model/graph-layout";
 import type { GraphThread, ThreadStatus } from "chattree/ui/model/graph";
 import type { GraphModel } from "chattree/ui/model/graph-model";
@@ -27,7 +28,9 @@ const COLORS = 5;
 const colorOf = (lane: number): string => `var(--vscode-scmGraph-foreground${(lane % COLORS) + 1})`;
 
 const clean = (summary: string): string => summary.replace(/^(user|assistant): /, "");
-const clock = (iso: string): string => new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+// One formatter: `toLocaleTimeString` makes a new one on every call, which is slow enough to show with a few hundred rows.
+const clockFormat = new Intl.DateTimeFormat([], { hour: "2-digit", minute: "2-digit" });
+const clock = (iso: string): string => clockFormat.format(new Date(iso));
 
 function edgePath(e: GraphEdge): string {
   const x1 = x(e.fromLane);
@@ -161,6 +164,9 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
   const [pointer, setPointer] = useState({ x: 0, y: 0 });
   const layout = model.layout.value;
   const data = model.shown.value;
+  // Only the rows near the view are drawn.
+  const scroller = useRef<HTMLDivElement>(null);
+  const win = useFixedWindow(scroller, layout?.rows.length ?? 0, ROW, 10);
   if (layout === undefined || data === undefined)
     return (
       <div class={css.graph}>
@@ -210,9 +216,17 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
     else model.cancelDrag();
   };
   const move = (from: HTMLElement, delta: number): void => {
-    const rows = [...(from.closest(`.${css.graph}`)?.querySelectorAll<HTMLElement>(`.${css.row}`) ?? [])];
-    rows[Math.max(0, Math.min(rows.length - 1, rows.indexOf(from) + delta))]?.focus();
+    const target = Math.max(0, Math.min(layout.rows.length - 1, Number(from.dataset["index"]) + delta));
+    const find = (): HTMLElement | null | undefined => scroller.current?.querySelector<HTMLElement>(`[data-index="${target}"]`);
+    const el = find();
+    if (el !== null && el !== undefined) el.focus();
+    else {
+      // Not drawn: scroll to it, and focus it once it is.
+      if (scroller.current !== null) scroller.current.scrollTop = target * ROW - scroller.current.clientHeight / 2;
+      requestAnimationFrame(() => requestAnimationFrame(() => find()?.focus()));
+    }
   };
+  const near = (r: { from: number; to: number }): boolean => Math.min(r.from, r.to) < win.last && Math.max(r.from, r.to) >= win.first;
 
   return (
     <div
@@ -256,9 +270,10 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
           </label>
         )}
       </div>
-      <div class={css.graph_scroll}>
+      <div class={css.graph_scroll} ref={scroller}>
         <div class={css.graph_body} style={{ height: `${layout.rows.length * ROW}px` }}>
-          {layout.rows.map((r, i) => {
+          {layout.rows.slice(win.first, win.last).map((r, k) => {
+            const i = win.first + k;
             const isSelected = selected.thread === r.thread && r.tipOf !== undefined;
             const cls = cn(
               css.row_bg,
@@ -269,15 +284,36 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
             );
             return <div key={r.id} class={cls} style={{ top: `${i * ROW}px`, "--c": colorOf(r.lane) }} aria-hidden="true" />;
           })}
-          <svg class={css.lanes} width={width} height={layout.rows.length * ROW} aria-hidden="true">
-            {layout.edges.map((e, i) => (
-              <path key={i} d={edgePath(e)} stroke={colorOf(e.bend === "bottom" ? e.fromLane : e.toLane)} stroke-width={1.5} fill="none" />
-            ))}
-            {layout.rows.map((r, i) => (
-              <Node key={r.id} row={r} index={i} color={colorOf(r.lane)} lit={lit.commit !== undefined && commitOf(r) === lit.commit} />
-            ))}
+          <svg
+            class={css.lanes}
+            width={width}
+            height={(win.last - win.first) * ROW}
+            style={{ top: `${win.first * ROW}px` }}
+            aria-hidden="true"
+          >
+            <g transform={`translate(0 ${-win.first * ROW})`}>
+              {layout.edges.filter(near).map((e) => (
+                <path
+                  key={`${e.from}:${e.to}`}
+                  d={edgePath(e)}
+                  stroke={colorOf(e.bend === "bottom" ? e.fromLane : e.toLane)}
+                  stroke-width={1.5}
+                  fill="none"
+                />
+              ))}
+              {layout.rows.slice(win.first, win.last).map((r, k) => (
+                <Node
+                  key={r.id}
+                  row={r}
+                  index={win.first + k}
+                  color={colorOf(r.lane)}
+                  lit={lit.commit !== undefined && commitOf(r) === lit.commit}
+                />
+              ))}
+            </g>
           </svg>
-          {layout.rows.map((r, i) => {
+          {layout.rows.slice(win.first, win.last).map((r, k) => {
+            const i = win.first + k;
             const l = labelOf(r);
             const tip = r.tipOf === undefined ? undefined : threads.get(r.tipOf);
             const commit = commitOf(r);
@@ -291,9 +327,10 @@ export function GraphView({ model }: { model: Model }): JSX.Element {
                   drop?.thread === r.thread && !drop.ok && css.no_drop,
                 )}
                 data-thread={r.thread}
+                data-index={i}
                 style={{ top: `${i * ROW}px`, paddingLeft: `${width + 20}px` }}
                 role="listitem"
-                tabIndex={i === 0 ? 0 : -1}
+                tabIndex={i === win.first ? 0 : -1}
                 aria-label={`${l.text}, thread ${r.thread}`}
                 onPointerDown={(e) => {
                   if (e.button === 0) press.current = { x: e.clientX, y: e.clientY, commit };

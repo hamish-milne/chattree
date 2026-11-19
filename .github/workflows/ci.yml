@@ -63,3 +63,13 @@ jobs:
           path: extensions/vscode/.wdio-vscode-service
           key: vscode-${{ runner.os }}-${{ hashFiles('extensions/vscode/package.json') }}
       - run: xvfb-run -a pnpm --filter chattree-vscode test:e2e
+
+  # Timing of the views with a long conversation. Alone on its runner, as other work spoils a timing.
+  perf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:perf

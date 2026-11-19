@@ -38,6 +38,23 @@ const KNOWN = new Set([
   "text",
 ]);
 const known = (t: Token): t is MarkedToken => KNOWN.has(t.type);
+/**
+ * The tokens of a text, kept for the last few hundred texts: a transcript draws only what is near the view, so scrolling back over
+ * a block draws it again, and lexing is the dearest part of that. (Tokens are read, never changed.)
+ */
+const LEXED = new Map<string, Token[]>();
+function lex(source: string): Token[] {
+  const hit = LEXED.get(source);
+  if (hit !== undefined) {
+    LEXED.delete(source);
+    LEXED.set(source, hit);
+    return hit;
+  }
+  const tokens = Lexer.lex(source);
+  LEXED.set(source, tokens);
+  if (LEXED.size > 400) LEXED.delete(LEXED.keys().next().value ?? "");
+  return tokens;
+}
 const SAFE_LINK = /^(https?:|mailto:)/i;
 
 function inline(t: Token, key: number): ComponentChild {
@@ -203,7 +220,7 @@ function block(t: Token, key: number): ComponentChild {
 
 /** Markdown as elements. A reply that is still arriving can end mid-fence or mid-list; it is drawn as far as it goes. */
 export function Markdown({ source, files, caret }: { source: string; files?: FileLinks; caret?: boolean }): JSX.Element {
-  const tokens = useMemo(() => Lexer.lex(source), [source]);
+  const tokens = useMemo(() => lex(source), [source]);
   return (
     <FileLinkContext.Provider value={files}>
       <div class={cn(css.md, caret === true && css.caret)}>{tokens.map(block)}</div>

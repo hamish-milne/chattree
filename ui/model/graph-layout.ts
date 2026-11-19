@@ -73,15 +73,20 @@ function chains(data: GraphData): GraphCommit[][] {
   // A commit another thread (or a merge's second parent) points at has to stay a row's end, or the line to it has
   // nowhere to land.
   const pointedAt = new Set<string>();
+  const byHash = new Map(data.commits.map((c) => [c.hash, c]));
   for (const c of data.commits) {
     for (const [i, p] of c.parents.entries()) {
-      const parent = data.commits.find((x) => x.hash === p);
+      const parent = byHash.get(p);
       if (i > 0 || (parent !== undefined && parent.thread !== c.thread)) pointedAt.add(p);
     }
   }
   const out: GraphCommit[][] = [];
   const byThread = new Map<string, GraphCommit[]>();
-  for (const c of data.commits) byThread.set(c.thread, [...(byThread.get(c.thread) ?? []), c]);
+  for (const c of data.commits) {
+    const list = byThread.get(c.thread);
+    if (list === undefined) byThread.set(c.thread, [c]);
+    else list.push(c);
+  }
   for (const commits of byThread.values()) {
     let run: GraphCommit[] = [];
     const flush = (): void => {

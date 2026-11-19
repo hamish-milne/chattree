@@ -14,6 +14,7 @@
 | `test/e2e/playwright-driver.ts` | The driver over a Playwright page. A second runner (VS Code's own webview) will implement the same interface. |
 | `test/e2e/journey.ts` | The script, and `World`: what it needs to know (the folder, the tasks, the file expected) and the checks that are not on screen (files in the folder, files on a branch, the branch checked out, the files opened). |
 | `test/e2e/world.ts` | `diskWorld`: the `World` over a real temporary workspace, using the file system and `git show`. |
+| `test/e2e/long-conversation.perf.ts` | The long-conversation performance test (below), with `perf-data.ts` (the generated conversation) and `perf-page.mjs` (the measurements, run in the page). |
 | `test/e2e/web.test.ts` | Builds the page, starts the host, launches Chromium, runs the journey. `E2E_SHOTS=<dir>` keeps a picture at each stage (and of the failure); `E2E_TRACE=1` prints the page's console. |
 
 ## The journey
@@ -34,3 +35,25 @@
 - The product answers in its own time: a check of the disk or git after a click polls (`eventually`), and the end of a turn is the model's closing words, not the status saying Ready (it says that before the turn starts, too).
 - Labels are matched exactly where the journey could match a longer one (`Message` is also the label of a sent message).
 - `test/ui/conformance.test.ts` holds the mock and the real controller to the same promises to the views (the events a view may rely on after each intent), so the mock the views are built against does not drift.
+
+## Performance with a long conversation
+
+`test/e2e/long-conversation.perf.ts` (`pnpm test:perf`; a `*.perf.ts` file is in no other group, and the group runs one file at a time, because other work on the machine spoils a timing: it failed at 13.7 ms in a full parallel run that passes at 7.7 alone) loads the page over a web host whose controller serves a generated conversation from memory (so only the views are timed): 5000 commits on a trunk and twelve forks in the graph and 5000 blocks in the transcript (`perf-data.ts`; every message has text of its own). It measures in the page (`perf-page.mjs`, added with `addInitScript`; plain JavaScript because the test project has no DOM types):
+
+- **A new item:** from the Enter key going down to the message painted in the transcript, and to its commit painted in the graph (a message is sent from the composer, the controller answers with `chat.append` and the whole `graph.data`). Budget 100 ms at p95 over 30 sends, after 3 that are not counted.
+- **A scroll frame:** the main-thread work of one frame of a scroll, from the scroll event at the start of the frame to a task queued from that frame's animation callback (after style, layout and paint; raster is on other threads), for the transcript and the graph at 100 px per frame (a steady wheel). Budget 10 ms at p95, after 20 warm-up frames. A hard flick (400 px per frame) is measured and reported, not held to the budget.
+
+`CHATTREE_PERF_OUT=<file>` writes the numbers as JSON, `PERF_N` sets the size. Results on the development container (headless Chromium, software rendering; p95, ms), before and after the lists were windowed (`webview/virtual.ts`):
+
+| | before | after |
+|---|---|---|
+| DOM nodes | 89,466 | 618 |
+| page ready | 6,553 | 441 |
+| new message painted | 479 | 61 |
+| new commit painted | 676 | 65 |
+| transcript scroll frame, 100 px | 11.9 | 7.7 |
+| graph scroll frame, 100 px | 14.3 | 7.0 |
+| transcript scroll frame, 400 px | 16.1 | 6.9 |
+| graph scroll frame, 400 px | 16.5 | 9.5 |
+
+What the time was: the whole conversation in the DOM (windowing); `layoutGraph` with two quadratic loops (about 200 ms per graph update, now about 4 ms); `toLocaleTimeString` building a formatter for every row (about 290 ms over 150 frames, now one formatter); the markdown lexer on every redraw of a block (now a small cache). What is left per new commit is the controller sending the whole graph again (`graph.data` is O(commits): about 4 ms to parse at this size, and the garbage it makes), which is the next thing to change if it grows.

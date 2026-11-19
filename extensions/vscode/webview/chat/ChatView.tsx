@@ -4,7 +4,8 @@
  * bottom of it, so scrolling up to read is not undone by a streaming reply.
  */
 import type { JSX } from "preact";
-import { useLayoutEffect, useRef, useState } from "preact/hooks";
+import { useLayoutEffect, useMemo, useRef, useState } from "preact/hooks";
+import { useVariableWindow } from "../virtual.ts";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import type { ConfigModel } from "chattree/ui/model/config-model";
 import { ConfigView } from "../config/ConfigView.tsx";
@@ -50,20 +51,37 @@ function Transcript({ model }: { model: Model }): JSX.Element {
   const scroller = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(true);
   const blocks = model.blocks.value;
+  // Both are walks of the whole list: made again only when the blocks are.
+  const shown = useMemo(() => items(blocks), [blocks]);
+  const keys = useMemo(() => shown.map((i) => i.key), [shown]);
+  const win = useVariableWindow(scroller, keys, { overscanPx: 300, pinned: stuck, estimate: 90 });
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el !== null && stuck) el.scrollTop = el.scrollHeight;
   });
   const reveal = model.reveal.value;
+  // The commit to draw the eye to once its block is drawn: it may be far from the view, so first go near it.
+  const aim = useRef<string | undefined>(undefined);
   useLayoutEffect(() => {
     if (reveal === undefined) return;
-    const sc = scroller.current;
     // Several blocks can share a commit (a reply and its tool calls); the last is the one the commit ended at.
-    const el = sc === null ? undefined : [...sc.querySelectorAll<HTMLElement>(`[data-commit="${CSS.escape(reveal.commit)}"]`)].at(-1);
-    if (sc === null || el === undefined) return;
+    const at = shown.findLastIndex((i) =>
+      "tools" in i ? i.tools.some((b) => b.commit === reveal.commit) : i.block.commit === reveal.commit,
+    );
+    const sc = scroller.current;
+    if (at < 0 || sc === null) return;
     setStuck(false);
-    ping(sc, el);
+    aim.current = reveal.commit;
+    sc.scrollTop = Math.max(0, win.offsetOf(at) - sc.clientHeight / 2);
   }, [reveal]);
+  useLayoutEffect(() => {
+    const sc = scroller.current;
+    if (aim.current === undefined || sc === null) return;
+    const el = [...sc.querySelectorAll<HTMLElement>(`[data-commit="${CSS.escape(aim.current)}"]`)].at(-1);
+    if (el === undefined) return;
+    aim.current = undefined;
+    ping(sc, el);
+  });
   const jump = (): void => {
     const el = scroller.current;
     if (el !== null) el.scrollTop = el.scrollHeight;
@@ -80,15 +98,13 @@ function Transcript({ model }: { model: Model }): JSX.Element {
         tabIndex={0}
         onScroll={(e) => setStuck(e.currentTarget.scrollHeight - e.currentTarget.scrollTop - e.currentTarget.clientHeight < 48)}
       >
-        <div class={css.transcript_inner}>
+        <div class={css.transcript_inner} style={{ paddingTop: `${win.before}px`, paddingBottom: `${win.after}px` }}>
           {blocks.length === 0 && <p class={css.empty}>Nothing here yet. Say something below.</p>}
-          {items(blocks).map((item) =>
-            "tools" in item ? (
-              <ToolGroup key={item.key} model={model} blocks={item.tools} />
-            ) : (
-              <BlockView key={item.key} model={model} block={item.block} />
-            ),
-          )}
+          {shown.slice(win.span.first, win.span.last).map((item) => (
+            <div key={item.key} class={css.slot} ref={win.measure(item.key)}>
+              {"tools" in item ? <ToolGroup model={model} blocks={item.tools} /> : <BlockView model={model} block={item.block} />}
+            </div>
+          ))}
         </div>
       </div>
       {!stuck && (

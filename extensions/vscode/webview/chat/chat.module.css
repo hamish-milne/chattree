@@ -49,14 +49,19 @@
 .transcript {
   flex: 1;
   overflow-y: auto;
+  /* Only the blocks near the view are drawn (webview/virtual.ts), which keeps the position itself when their heights change. */
+  overflow-anchor: none;
   padding: 10px 14px 14px;
 }
 .transcript_inner {
   max-width: 860px;
   margin: 0 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+}
+/* One block (or run of tool calls) and the gap after it: the unit whose height is measured. */
+.slot {
+  padding-bottom: 10px;
+  /* What happens inside a block does not move anything outside it, so the browser re-lays-out only the blocks that change. */
+  contain: layout style;
 }
 .empty {
   color: var(--vscode-descriptionForeground);

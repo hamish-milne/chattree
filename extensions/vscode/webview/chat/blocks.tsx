@@ -3,6 +3,8 @@
  * focus with fork and rewind; whether rewind applies is the model's call, and the reason it does not is the tooltip.
  */
 import type { JSX } from "preact";
+import { memo } from "preact/compat";
+import { useMemo } from "preact/hooks";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import type { AttachmentView, Block, ToolStatus } from "chattree/ui/model/transcript";
 import { toolView, type DiffRow, type ToolView } from "chattree/ui/model/tool-view";
@@ -228,7 +230,7 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
   const open = model.openBlocks.value.has(block.id);
   const s = STATUS_ICON[block.status];
   const asking = block.status === "awaiting_approval" && model.approval.value?.callId === block.id;
-  const view = toolView(block);
+  const view = useMemo(() => toolView(block), [block]);
   const stat = view.kind === "edit" ? view : view.kind === "write" ? { added: view.added, removed: 0 } : undefined;
   return (
     <section
@@ -268,7 +270,7 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
 }
 
 /** Adjacent tool calls: one shape, with a single line between the calls. */
-export function ToolGroup({ model, blocks }: { model: Model; blocks: Of<"tool">[] }): JSX.Element {
+function ToolGroupView({ model, blocks }: { model: Model; blocks: Of<"tool">[] }): JSX.Element {
   return (
     <div class={css.tool_group} role="group" aria-label="Tool calls">
       {blocks.map((b) => (
@@ -309,7 +311,7 @@ function TurnEnd({ block }: { block: Of<"turn_end"> }): JSX.Element {
   );
 }
 
-export function BlockView({ model, block }: { model: Model; block: Block }): JSX.Element {
+function BlockContent({ model, block }: { model: Model; block: Block }): JSX.Element {
   switch (block.type) {
     case "user":
       return <User model={model} block={block} />;
@@ -326,3 +328,11 @@ export function BlockView({ model, block }: { model: Model; block: Block }): JSX
       return <TurnEnd block={block} />;
   }
 }
+
+// The transcript draws only the blocks near the view and redraws as it scrolls: a block whose data has not changed is not drawn again.
+// (What a block reads from a signal, such as whether it is open, still updates it.)
+export const BlockView = memo(BlockContent, (a, b) => a.model === b.model && a.block === b.block);
+export const ToolGroup = memo(
+  ToolGroupView,
+  (a, b) => a.model === b.model && a.blocks.length === b.blocks.length && a.blocks.every((x, i) => x === b.blocks[i]),
+);

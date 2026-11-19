@@ -3,6 +3,7 @@
  *   node tools/test.ts          the quick group (what `pnpm test` runs)
  *   node tools/test.ts slow     only the [slow] suites (see test/support/slow.ts)
  *   node tools/test.ts all      both
+ *   node tools/test.ts perf     the timing tests (`*.perf.ts`), one at a time: they measure how long the views take, so nothing else may be running
  *   node tools/test.ts quick test/cli/chat.test.ts ...   only these files
  *
  * Each test file runs in its own node process, a few at a time, with a time limit. A file that hangs (a child process that does not
@@ -14,8 +15,8 @@ import { availableParallelism, tmpdir } from "node:os";
 import { join } from "node:path";
 
 const group = process.argv[2] ?? "quick";
-if (!["quick", "slow", "all"].includes(group)) {
-  console.error("usage: node tools/test.ts [quick|slow|all] [files...]");
+if (!["quick", "slow", "all", "perf"].includes(group)) {
+  console.error("usage: node tools/test.ts [quick|slow|all|perf] [files...]");
   process.exit(2);
 }
 
@@ -24,7 +25,7 @@ function find(dir: string): string[] {
   for (const e of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
     if (e.isDirectory()) out.push(...find(p));
-    else if (e.name.endsWith(".test.ts")) out.push(p);
+    else if (e.name.endsWith(group === "perf" ? ".perf.ts" : ".test.ts")) out.push(p);
   }
   return out;
 }
@@ -32,8 +33,8 @@ function find(dir: string): string[] {
 const files = (process.argv.length > 3 ? process.argv.slice(3) : find("test")).sort();
 const fileLimitMs = Number(process.env["CHATTREE_FILE_TIMEOUT_MS"] ?? 8 * 60_000);
 const testTimeoutMs = Number(process.env["CHATTREE_TEST_TIMEOUT_MS"] ?? 3 * 60_000);
-const jobs = Math.max(1, Math.min(Number(process.env["CHATTREE_TEST_JOBS"] ?? 3), availableParallelism()));
-const env = { ...process.env, ...(group === "quick" ? {} : { CHATTREE_SLOW: "1" }) };
+const jobs = group === "perf" ? 1 : Math.max(1, Math.min(Number(process.env["CHATTREE_TEST_JOBS"] ?? 3), availableParallelism()));
+const env = { ...process.env, ...(group === "quick" || group === "perf" ? {} : { CHATTREE_SLOW: "1" }) };
 
 function killTree(pid: number): void {
   if (process.platform === "win32") spawnSync("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });

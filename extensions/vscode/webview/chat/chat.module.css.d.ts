@@ -62,6 +62,7 @@ declare const styles: {
   readonly sign_add: string;
   readonly sign_del: string;
   readonly sign_gap: string;
+  readonly slot: string;
   readonly spin: string;
   readonly stat_add: string;
   readonly stat_del: string;
