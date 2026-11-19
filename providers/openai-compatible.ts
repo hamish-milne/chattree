@@ -188,7 +188,16 @@ function toMessages(ctx: ModelContext, replay: boolean | "turn", who: { provider
     } else {
       const text = t.blocks.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
       const calls = t.blocks.flatMap((b) =>
-        b.type === "tool_call" ? [{ id: b.call_id, type: "function", function: { name: b.name, arguments: JSON.stringify(b.args) } }] : [],
+        b.type === "tool_call"
+          ? [
+              {
+                id: b.call_id,
+                type: "function",
+                function: { name: b.name, arguments: JSON.stringify(b.args) },
+                ...extraContent(b.ext),
+              },
+            ]
+          : [],
       );
       const replayHere =
         replay === true ||
@@ -213,7 +222,7 @@ function toMessages(ctx: ModelContext, replay: boolean | "turn", who: { provider
 type Open =
   | { kind: "text"; index: number; text: string }
   | { kind: "reasoning"; index: number; text: string; field: string }
-  | { kind: "tool"; index: number; id: string; name: string; args: string };
+  | { kind: "tool"; index: number; id: string; name: string; args: string; extra?: Json };
 
 interface State {
   provider: string;
@@ -265,12 +274,14 @@ const num = (v: unknown): number | undefined => (typeof v === "number" && Number
 const protocol = (message: string): ProviderError => new ProviderError({ kind: "protocol", message });
 
 /** What an error body or event says: `{error: {message, type, code}}`, or a bare string. */
-function errorFrom(d: unknown): { kind: ErrorKind; retryable: boolean; message: string } {
+function errorFrom(d0: unknown): { kind: ErrorKind; retryable: boolean; message: string } {
+  // Gemini wraps its error in a list: `[{"error": {...}}]`.
+  const d: unknown = Array.isArray(d0) && d0.length === 1 ? (d0[0] as unknown) : d0;
   const root = asJson(d);
   const inner = root === undefined ? d : (root["error"] ?? d);
   if (typeof inner === "string") return { kind: "server", retryable: false, message: inner };
   const e = jsonOr(inner);
-  const code = typeof e["code"] === "string" ? e["code"] : undefined;
+  const code = typeof e["code"] === "string" ? e["code"] : typeof e["status"] === "string" ? e["status"] : undefined;
   const type = typeof e["type"] === "string" ? e["type"] : undefined;
   const known = (code === undefined ? undefined : ERROR_KINDS[code]) ??
     (type === undefined ? undefined : ERROR_KINDS[type]) ?? { kind: "server" as const, retryable: false };
@@ -300,6 +311,19 @@ function updateUsage(s: State, raw: Json): void {
 
 const usageEvent = (u: Usage): StreamEvent => ({ type: "usage", usage: { ...u, ...(u.raw === undefined ? {} : { raw: { ...u.raw } }) } });
 
+/**
+ * What a server attached to a tool call beyond the standard fields (`extra_content`), kept in the block's `ext` so it goes back with the
+ * call. Gemini's OpenAI-compatible endpoint puts the thought signature there (`extra_content.google.thought_signature`) and answers 400 to
+ * a call it is not given back.
+ */
+const kept = (o: { extra?: Json }): { ext?: Record<string, unknown> } => (o.extra === undefined ? {} : { ext: { extra_content: o.extra } });
+
+/** The `extra_content` a tool call was given, in the shape the next request carries it. */
+function extraContent(ext: Record<string, unknown> | undefined): { extra_content?: Json } {
+  const e = asJson(ext?.["extra_content"]);
+  return e === undefined ? {} : { extra_content: e };
+}
+
 function close(o: Open | undefined, s: State, events: StreamEvent[]): void {
   if (o === undefined) return;
   let block: Block;
@@ -308,9 +332,9 @@ function close(o: Open | undefined, s: State, events: StreamEvent[]): void {
   else {
     try {
       const parsed = o.args === "" ? {} : parseJsonObject(o.args, "the tool arguments");
-      block = { type: "tool_call", call_id: o.id, name: o.name, args: parsed };
+      block = { type: "tool_call", call_id: o.id, name: o.name, args: parsed, ...kept(o) };
     } catch {
-      block = { type: "tool_call", call_id: o.id, name: o.name, args: {}, args_raw: o.args };
+      block = { type: "tool_call", call_id: o.id, name: o.name, args: {}, args_raw: o.args, ...kept(o) };
     }
   }
   s.out[o.index] = block;
@@ -461,6 +485,8 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
             s.sawTool = true;
             events.push({ type: "tool_call.start", index: o.index, call_id: id, name });
           }
+          const extra = asJson(c["extra_content"]);
+          if (extra !== undefined && o.kind === "tool") o.extra = { ...o.extra, ...extra };
           const args =
             typeof fn["arguments"] === "string"
               ? fn["arguments"]
@@ -503,7 +529,8 @@ export function chatMapper(baseUrl: string, request: RequestOptions): HttpMapper
       try {
         const e = errorFrom(JSON.parse(body));
         return {
-          ...(e.message === ": " ? {} : { message: `${status} ${e.message}` }),
+          // An error with nothing to say shows what the server sent, so a failure is never a bare status.
+          message: e.message.endsWith(": ") ? `${status} ${body.slice(0, 1000)}` : `${status} ${e.message}`,
           ...(e.kind === "server" && !e.retryable ? {} : { kind: e.kind, retryable: e.retryable }),
         };
       } catch {

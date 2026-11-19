@@ -19,7 +19,7 @@ An adapter has a `$tag`, a provider schema, a settings schema per model, `catalo
 | `sse.ts` | Our own SSE parser (any chunking, any line ending). |
 | `anthropic.ts` | Anthropic Messages (and servers that speak it): cache breakpoints, signed thinking, usage. |
 | `openai-responses.ts` | OpenAI Responses: stored responses, `previous_response_id` chaining with a verified fallback to replay, encrypted reasoning, server-side compaction items, retrieval for crash recovery. |
-| `openai-compatible.ts` | Chat Completions as llama-server, Ollama, vLLM and others speak it. Stateless; every request replays the context. |
+| `openai-compatible.ts` | Chat Completions as llama-server, Ollama, vLLM and others speak it. Stateless; every request replays the context. A tool call's `extra_content` (Gemini's thought signature) is kept in the block's `ext` and sent back with the call; an error body in a list (Gemini's) is unwrapped, and one with no message shows the body. |
 | `gemini.ts`, `opencode-go.ts` | Services reached through Chat Completions, with a bundled model catalog and service-specific headers. |
 | `local-models.ts` | The provider for models chattree runs itself: address, catalog and identities come from the local model host at runtime. Can use dialects. |
 | `think-tags.ts` | Splits `<think>...</think>` reasoning out of an answer when a server leaves it inline. |

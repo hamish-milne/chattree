@@ -332,4 +332,50 @@ describe("the controller, turns", () => {
       await finish();
     }
   });
+
+  test("what a server attaches to a tool call (Gemini's thought signature) goes back with the call, and its error is shown", async () => {
+    const sig = { google: { thought_signature: "c2lnbmF0dXJl" } };
+    const { c, server, events, finish } = await rig([
+      {
+        acts: [
+          chunk({
+            tool_calls: [
+              {
+                index: 0,
+                id: "c1",
+                type: "function",
+                function: { name: "run", arguments: JSON.stringify({ command: "echo hi" }) },
+                extra_content: sig,
+              },
+            ],
+          }),
+          chunk({}, "tool_calls"),
+          usageChunk(30, 8),
+          "data: [DONE]\n\n",
+        ],
+      },
+      {
+        status: 400,
+        acts: [
+          JSON.stringify([{ error: { code: 400, message: "Function call is missing a thought_signature", status: "INVALID_ARGUMENT" } }]),
+        ],
+      },
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "go" });
+      await c.idle();
+      c.handle({ type: "chat.approve", callId: "c1", allow: true });
+      await c.idle();
+      const sent = JSON.parse(server.seen[1]?.body ?? "{}") as { messages: { role: string; tool_calls?: { extra_content?: unknown }[] }[] };
+      const call = sent.messages.find((m) => m.role === "assistant" && m.tool_calls !== undefined)?.tool_calls?.[0];
+      assert.deepEqual(call?.extra_content, sig, "the signature was given back");
+      const note = events.flatMap((e) => (e.type === "notice" ? [e.message] : []));
+      assert.ok(
+        note.some((n) => /thought_signature/.test(n)),
+        `the failure says what the server said: ${note.join(" | ")}`,
+      );
+    } finally {
+      await finish();
+    }
+  });
 });
