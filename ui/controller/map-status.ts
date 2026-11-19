@@ -156,12 +156,13 @@ export function statusBar(i: StatusBarInput): StatusBar | undefined {
 }
 
 /** The question a call waits on: exactly what would run. */
-export function approvalView(need: Pick<CallNeed, "callId" | "name" | "args">): Approval {
+export function approvalView(need: Pick<CallNeed, "callId" | "name" | "args">, keys?: readonly string[] | null): Approval {
   const args = JSON.stringify(need.args, null, 2);
   return {
     callId: need.callId,
     name: need.name,
     summary: summarizeCall(need.name, need.args),
     args: args.length > 4000 ? `${args.slice(0, 3999)}…` : args,
+    ...(keys === undefined || keys === null || keys.length === 0 ? {} : { keys: [...keys] }),
   };
 }

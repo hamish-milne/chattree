@@ -191,9 +191,9 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     detach(id: string): void {
       send({ type: "chat.detach", id });
     },
-    approve(allow: boolean): void {
+    approve(allow: boolean, grant?: { seconds?: number; scope?: "thread" | "project" }): void {
       const a = approval.peek();
-      if (a !== undefined) send({ type: "chat.approve", callId: a.callId, allow });
+      if (a !== undefined) send({ type: "chat.approve", callId: a.callId, allow, ...(allow && grant !== undefined ? { grant } : {}) });
     },
     /** Go to another thread (one that waits for the person, or that this one waits for). */
     openThread(target: string): void {

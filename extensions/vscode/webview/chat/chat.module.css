@@ -312,6 +312,16 @@
 .approval span {
   flex: 1;
 }
+.grants {
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+.grants span {
+  min-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .notice {
   display: flex;

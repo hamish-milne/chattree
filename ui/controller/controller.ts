@@ -575,10 +575,10 @@ export class Controller implements HostedController {
         status: bar,
         composer: structuredClone(this.#composer(name)),
         ...(run?.pending !== undefined
-          ? { approval: approvalView(run.pending.request) }
+          ? { approval: approvalView(run.pending.request, run.pending.request.keys) }
           : ask === undefined
             ? {}
-            : { approval: approvalView({ callId: ask.callId, name: ask.name, args: ask.args }) }),
+            : { approval: approvalView({ callId: ask.callId, name: ask.name, args: ask.args }, ask.keys) }),
         ...(below.length === 0
           ? {}
           : {
@@ -1019,18 +1019,28 @@ export class Controller implements HostedController {
     run.pending?.resolve({ allow: false, reason: "stopped" });
   }
 
-  async #approve(callId: string, allow: boolean): Promise<void> {
+  async #approve(callId: string, allow: boolean, grant?: { seconds?: number; scope?: "thread" | "project" }): Promise<void> {
+    const choice: Approval = allow
+      ? {
+          allow: true,
+          ...(grant === undefined
+            ? {}
+            : {
+                grant: { seconds: grant.seconds ?? Infinity, scope: grant.scope ?? (grant.seconds === undefined ? "project" : "thread") },
+              }),
+        }
+      : { allow: false };
     const thread = this.#selected;
     const run = thread === undefined ? undefined : this.#runs.get(thread);
     if (run?.pending !== undefined && run.pending.request.callId === callId) {
-      run.pending.resolve(allow ? { allow: true } : { allow: false });
+      run.pending.resolve(choice);
       return;
     }
     // A question the pump holds: the thread's own (a subagent's), answered into its transcript so its loop goes on.
     const ask = thread === undefined ? undefined : this.#bg?.own(thread);
     if (thread === undefined || ask === undefined || ask.callId !== callId || this.#bg === undefined)
       throw new AppError("that question is no longer waiting for an answer");
-    const r = await this.#bg.pump.answer(thread, callId, allow ? { allow: true } : { allow: false });
+    const r = await this.#bg.pump.answer(thread, callId, choice);
     if (r.status !== "recorded") throw new AppError("that question is no longer waiting for an answer");
     await this.#publish(thread);
   }
@@ -1552,7 +1562,7 @@ export class Controller implements HostedController {
         this.#stop();
         return;
       case "chat.approve":
-        await this.#approve(intent.callId, intent.allow);
+        await this.#approve(intent.callId, intent.allow, intent.grant);
         return;
       case "chat.resume":
         await this.#resume();

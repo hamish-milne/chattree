@@ -519,4 +519,26 @@ describe("the controller, turns", () => {
       await finish();
     }
   });
+
+  test("allowing with a grant offers the keys and covers the next like call", async () => {
+    const { c, events, finish } = await rig([
+      callTools({ id: "c1", name: "run", args: { command: "echo one" } }),
+      callTools({ id: "c2", name: "run", args: { command: "echo one" } }),
+      answer("Done."),
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "go" });
+      await c.idle();
+      const ask = events.findLast((e) => e.type === "chat.approval");
+      assert.ok(ask?.type === "chat.approval" && ask.approval?.callId === "c1");
+      assert.ok((ask.approval.keys ?? []).length > 0, "keys are offered");
+      c.handle({ type: "chat.approve", callId: "c1", allow: true, grant: { seconds: 300, scope: "thread" } });
+      await c.idle();
+      const last = events.filter((e) => e.type === "chat.approval").at(-1);
+      assert.ok(last?.type === "chat.approval" && last.approval === undefined, "the second call needed no answer");
+      assert.ok(!events.some((e) => e.type === "chat.approval" && e.approval?.callId === "c2"));
+    } finally {
+      await finish();
+    }
+  });
 });

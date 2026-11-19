@@ -121,7 +121,20 @@ export const intent = Type.Union([
   /** Ask the host to let the person pick files; the staged files come back in `chat.composer`. */
   ev("chat.attach", {}),
   ev("chat.detach", { id: name }),
-  ev("chat.approve", { callId: name, allow: Type.Boolean() }),
+  /**
+   * With `grant` (only with `allow`), the call's `approval.keys` are also allowed for `seconds` (absent: for good). `scope` `thread`
+   * keeps the grant in this thread and its later forks, `project` (the default) in harness.yml.
+   */
+  ev("chat.approve", {
+    callId: name,
+    allow: Type.Boolean(),
+    grant: Type.Optional(
+      strictObject({
+        seconds: Type.Optional(Type.Integer({ minimum: 1 })),
+        scope: Type.Optional(Type.Union([Type.Literal("thread"), Type.Literal("project")])),
+      }),
+    ),
+  }),
   /**
    * Approve the `harness.yml` the thread has now (see the `untrusted` banner), so its providers, tools and commands are
    * used. The person reviews it first in the settings; the answer is `chat.banner` without a banner.

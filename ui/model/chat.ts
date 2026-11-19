@@ -71,6 +71,8 @@ export const approval = strictObject({
   name: Type.String(),
   summary: Type.String(),
   args: Type.String(),
+  /** What "allow for a while" would add to the tool's allow list (`run ls *`...); absent when the call can only be allowed once. */
+  keys: Type.Optional(Type.Array(Type.String())),
 });
 export type Approval = Static<typeof approval>;
 

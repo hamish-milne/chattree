@@ -35,6 +35,7 @@ declare const styles: {
   readonly from: string;
   readonly gauge: string;
   readonly gauge_fill: string;
+  readonly grants: string;
   readonly high: string;
   readonly hunk: string;
   readonly hunk_head: string;

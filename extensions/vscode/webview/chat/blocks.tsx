@@ -266,6 +266,20 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
           </button>
         </div>
       )}
+      {asking && model.approval.value?.keys !== undefined && (
+        <div class={cn(css.approval, css.grants)} role="group" aria-label="Allow more like this">
+          <span title={model.approval.value.keys.join("\n")}>Also allow {model.approval.value.keys.join(", ")}</span>
+          <button class="secondary" onClick={() => model.approve(true, { seconds: 300, scope: "thread" })}>
+            <Icon name="warn" size={12} /> for 5 minutes
+          </button>
+          <button class="secondary" onClick={() => model.approve(true, { seconds: 3600, scope: "thread" })}>
+            <Icon name="warn" size={12} /> for 1 hour
+          </button>
+          <button class="secondary" onClick={() => model.approve(true, { scope: "project" })}>
+            <Icon name="warn" size={12} /> always
+          </button>
+        </div>
+      )}
       {block.thread !== undefined && <div class={css.tool_thread}>runs on thread {block.thread}</div>}
     </section>
   );
