@@ -25,7 +25,7 @@ const callTools = (...calls: { id: string; name: string; args: object }[]): Repl
 });
 
 /** A project on a scripted model, and a controller on it that records everything it sends. */
-async function rig(script: Reply[]) {
+async function rig(script: Reply[], pollMs = 0) {
   const server = await FakeServer.start(script);
   const dir = await tempDir();
   const project = join(dir, "p");
@@ -35,7 +35,7 @@ async function rig(script: Reply[]) {
   /** What a chat view would show after every event so far. */
   const view = new ChatModel(() => {});
   const c = new Controller({
-    pollMs: 0,
+    pollMs,
     env,
     folders: [project],
     session: "test",
@@ -462,6 +462,59 @@ describe("the controller, turns", () => {
       const texts = view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
       assert.ok(texts.includes("It is written."), `the parent went on: ${texts.join(" | ")}`);
       assert.deepEqual(view.forwarded.value, []);
+    } finally {
+      await finish();
+    }
+  });
+
+  test("a fork made while the pump is watching does not stall the tool call", async () => {
+    const { c, view, finish } = await rig(
+      [callTools({ id: "c1", name: "fork", args: { name: "topic-a", message: "Look into topic A" } }), answer("Started.")],
+      Number(process.env.POLL ?? 50),
+    );
+    try {
+      c.handle({ type: "chat.send", text: "split this up" });
+      await c.idle();
+      await new Promise((r) => setTimeout(r, 600));
+      assert.equal(view.approval.value?.callId, "c1", "the call waits for the person, and the view shows it");
+      assert.equal(view.status.value?.state, "awaiting");
+      c.handle({ type: "chat.approve", callId: "c1", allow: true });
+      const deadline = Date.now() + 15000;
+      const texts = (): string[] => view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
+      while (!texts().includes("Started.") && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(
+        texts().includes("Started."),
+        `the call finished and the model went on: ${JSON.stringify(view.blocks.value.map((b) => b.type))}`,
+      );
+    } finally {
+      await finish();
+    }
+  });
+
+  test("several forks made in one turn, with the pump watching, all come out", async () => {
+    const { c, view, finish } = await rig(
+      [
+        callTools(
+          { id: "c1", name: "fork", args: { name: "topic-a", message: "A" } },
+          { id: "c2", name: "fork", args: { name: "topic-b", message: "B" } },
+          { id: "c3", name: "fork", args: { message: "C" } },
+        ),
+        answer("Started."),
+      ],
+      20,
+    );
+    try {
+      c.handle({ type: "chat.send", text: "split this up" });
+      await c.idle();
+      for (const id of ["c1", "c2", "c3"]) {
+        const deadline = Date.now() + 5000;
+        while (view.approval.value?.callId !== id && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+        c.handle({ type: "chat.approve", callId: id, allow: true });
+      }
+      const deadline = Date.now() + 20000;
+      const texts = (): string[] => view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
+      while (!texts().includes("Started.") && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
+      assert.ok(texts().includes("Started."), `finished: ${JSON.stringify(view.blocks.value.map((b) => b.type))}`);
     } finally {
       await finish();
     }

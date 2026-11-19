@@ -116,7 +116,7 @@ describe("automatic summaries", () => {
   const requests = async (dir: string): Promise<number> => (await (await Conversation.open(host, dir)).ledger()).conversation.requests;
 
   test("a summary is written at the start of a turn, from what the model saw, counted in the ledger, and the request is then smaller", async () => {
-    const { server, dir } = await started([answer("a1"), answer("The user sent a long message about alpha."), answer("a2")], full(6000, 1));
+    const { server, dir } = await started([answer("a1"), answer("The user sent a long message about alpha."), answer("a2")], full(6300, 1));
     try {
       const r = await session(dir, [long("alpha"), long("beta")]);
       assert.equal(r.code, 0, r.all);
@@ -149,7 +149,7 @@ describe("automatic summaries", () => {
   test("a summary that does not bring the request under the threshold is an error, it stays recorded, and the next request goes out without another", async () => {
     const { server, dir } = await started(
       [answer("a1"), answer("a2"), answer("A short summary."), answer("fine, carrying on")],
-      full(6000),
+      full(6300),
     );
     try {
       const r = await session(dir, ["one", "two", long("alpha", 1250), "ok"]);
@@ -164,7 +164,7 @@ describe("automatic summaries", () => {
   });
 
   test("an empty summary is refused and nothing is recorded", async () => {
-    const { server, dir } = await started([answer("a1"), answer("  ")], full(6000, 1));
+    const { server, dir } = await started([answer("a1"), answer("  ")], full(6300, 1));
     try {
       const r = await session(dir, [long("alpha"), long("beta")]);
       assert.match(r.all, /returned an empty summary/);
@@ -200,7 +200,7 @@ describe("automatic summaries", () => {
   });
 
   test("near the threshold the model is told the context is filling up", async () => {
-    const { server, dir } = await started([answer("a1"), answer("a2"), answer("a3")], full(7500));
+    const { server, dir } = await started([answer("a1"), answer("a2"), answer("a3")], full(7700));
     try {
       await session(dir, [long("alpha"), long("beta"), "ok"]);
       assert.match(bodies(server).at(-1) as string, /The context is filling up/);
@@ -214,7 +214,7 @@ describe("automatic summaries", () => {
     test(`summary_input: ${input} decides whether the summarizer reads the old tool output`, async () => {
       const { server, dir } = await started(
         [callRun("c1", "cat big.txt"), answer("it is long"), answer("It was long."), answer("ok")],
-        full(6000, 1).concat(`  summary_input: ${input}\n`),
+        full(6300, 1).concat(`  summary_input: ${input}\n`),
       );
       try {
         await session(dir, ["show me big.txt", long("beta", 1250)]);

@@ -249,7 +249,7 @@ export function subagentTool(deps: SubagentDeps): Tool {
     definition: {
       name: "subagent",
       description:
-        "Hand a self-contained task to a subagent: a fresh assistant that has the file tools but none of this conversation, works on its own copy of the workspace, and reports back. Its file changes are merged into yours when it finishes (where both changed the same file, yours is kept). Put everything it needs in `brief`: it knows nothing else. Good for work that is large, or independent of what you are doing, or that would fill this conversation with detail you do not need. The call returns the subagent's report and the files that changed. With `background: true` it returns at once and you are told when the subagent is done." +
+        "Hand autonomous work that you own to a subagent: a fresh assistant that has the file tools but none of this conversation, works on its own copy of the workspace, and reports back. Its file changes are merged into yours when it finishes (where both changed the same file, yours is kept). It shares none of your context, so put everything it needs in `brief`: it knows nothing else. For a conversation with the user about a topic, where your context should carry over, use `fork` instead. Good for work that is large, or independent of what you are doing, or that would fill this conversation with detail you do not need. The call returns the subagent's report and the files that changed. With `background: true` it returns at once and you are told when the subagent is done." +
         describeModels(models),
       input_schema: {
         type: "object",

@@ -864,6 +864,7 @@ export class Controller implements HostedController {
   /** A call no grant covers: park until the person answers (or stops the turn). */
   #ask(thread: string, run: Run, request: ApprovalRequest): Promise<Approval> {
     return new Promise<Approval>((resolve) => {
+      this.#log(`${thread}: tool ${request.name} waits for approval (${request.callId})`);
       run.pending = {
         request,
         resolve: (a) => {

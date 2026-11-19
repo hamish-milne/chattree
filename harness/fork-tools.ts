@@ -81,7 +81,7 @@ export function forkTool(deps: ForkDeps): Tool {
     definition: {
       name: "fork",
       description:
-        "Start a side conversation: a copy of this conversation, with everything said so far and the files as they are now, on its own branch. Use it for work that should be picked up in its own thread with all the context you have, for example one thread per item of a list you just made. The call returns at once with the branch name; nothing runs in the fork. The user moves there with /thread and the fork is brought back with `merge`. If you give `message`, it is kept as the first message to send in the fork (the user can edit it).",
+        "Start a side conversation with the user about one topic: a copy of this conversation, with everything said so far and the files as they are now, on its own branch. A fork is for the user to collaborate with you on that topic as a conversation, for example one thread per item of a list you just made. It shares all of your context, so do not repeat or summarize it; `message` needs only what is new there (the topic, the angle, the question to open with). If the work is autonomous and yours to own, use `subagent` instead. The call returns at once with the branch name; nothing runs in the fork unless `auto_run` is set. The user moves there with /thread and the fork is brought back with `merge`. If you give `message`, it is kept as the first message to send in the fork (the user can edit it).",
       input_schema: {
         type: "object",
         additionalProperties: false,
@@ -92,7 +92,8 @@ export function forkTool(deps: ForkDeps): Tool {
           },
           message: {
             type: "string",
-            description: "What the fork should do first, written for the model that will read it there. Optional.",
+            description:
+              "Only what is new in the fork: the topic or the opening question. The fork already has this whole conversation, so give no background and no full task brief. Optional.",
           },
           ...(deps.auto === undefined
             ? {}
