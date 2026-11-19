@@ -195,6 +195,44 @@ describe("the controller, threads", () => {
     await c.close();
   });
 
+  test("a change the provider made raises the banner; going back removes the change, keeping it lets the thread go on", async () => {
+    const { c, project, view, notice } = await rig();
+    const record = async (served: string, first = false) => {
+      const convo = await Conversation.open(host, project);
+      if (first) await convo.setupChange({ model: { provider: "anthropic", id: "claude-sonnet-5-5", resolved: "claude-sonnet-5-5-2026" } });
+      const before = (await convo.append(say("hello"))).commit;
+      await convo.appendResponse(
+        { $tag: "assistant", provider: "anthropic", model: served, blocks: [], stop_reason: "end_turn" },
+        { model: served },
+      );
+      await convo.close();
+      return before;
+    };
+    const before = await record("claude-sonnet-5-5-2027", true);
+    c.handle({ type: "thread.open", thread: "main" });
+    await c.idle();
+    const banner = view.banner.value;
+    assert.ok(banner?.kind === "unusual_change");
+    assert.equal(banner.before, before);
+    assert.deepEqual(banner.changes, ["the provider serves a different version of the model"]);
+
+    c.handle({ type: "thread.accept", thread: "main" });
+    await c.idle();
+    assert.notEqual(view.banner.value?.kind, "unusual_change");
+
+    // The same again, then back to before it.
+    const again = await record("claude-sonnet-5-5-2028");
+    c.handle({ type: "thread.open", thread: "main" });
+    await c.idle();
+    const again2 = view.banner.value;
+    assert.ok(again2?.kind === "unusual_change");
+    assert.equal(again2.before, again);
+    c.handle({ type: "thread.rewind", thread: "main", commit: again2.before });
+    await c.idle();
+    assert.notEqual(view.banner.value?.kind, "unusual_change", notice());
+    await c.close();
+  });
+
   test("switching the workspace asks about hand edits, then snapshots them and swaps the folders", async () => {
     const { c, project, events, threads } = await rig();
     c.handle({ type: "thread.new", name: "other" });

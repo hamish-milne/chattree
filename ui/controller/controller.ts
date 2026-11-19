@@ -27,7 +27,7 @@ import { explain } from "./explain.ts";
 import { mapEntries, type MapItem } from "./map-chat.ts";
 import { runThread } from "./run-thread.ts";
 import { mapGraph } from "./map-graph.ts";
-import { approvalView, statusBar, threadBanner, threadStatus } from "./map-status.ts";
+import { approvalView, statusBar, threadBanner, threadStatus, unusualChange } from "./map-status.ts";
 import type { Block } from "../model/transcript.ts";
 import type { FormIssue, FormSpec } from "../model/form.ts";
 import {
@@ -446,7 +446,11 @@ export class Controller implements HostedController {
       model: "No model yet",
       provider: "none",
     };
-    const banner = threadBanner({ trust: await h.configTrust(), hasProvider: h.providers.size > 0 });
+    const banner = threadBanner({
+      trust: await h.configTrust(),
+      hasProvider: h.providers.size > 0,
+      unusual: unusualChange(setup.unacknowledged, refs),
+    });
     const settings = await this.#modelSettingsForm(h, name);
     const tip = refs.at(-1)?.commit ?? (await h.git.revParse(`refs/heads/${name}`)) ?? "";
     const kind = name === repo.trunk ? "main" : (entries.findLast((e) => e.$tag === "branch_start")?.kind ?? "fork");
@@ -740,6 +744,18 @@ export class Controller implements HostedController {
     const h = await this.#handle(repo, thread);
     await h.rewind(commit);
     this.#notify(`Went back to ${commit.slice(0, 7)}; what came after is kept and can be recovered`);
+    await this.#changed(thread);
+  }
+
+  /** Keep what changed the agent (see the `unusual_change` banner): the entries that record it are acknowledged, and requests go out again. */
+  async #accept(thread: string): Promise<void> {
+    const repo = this.#open();
+    await this.#assertQuiet(repo, thread, "accept a change");
+    const h = await this.#handle(repo, thread);
+    const pending = (await h.setup()).unacknowledged.map((u) => u.id);
+    if (pending.length === 0) return;
+    await h.setupChange({}, { acknowledges: pending });
+    this.#notify("Kept the change");
     await this.#changed(thread);
   }
 
@@ -1157,6 +1173,9 @@ export class Controller implements HostedController {
         return;
       case "thread.rewind":
         await this.#rewind(intent.thread, intent.commit);
+        return;
+      case "thread.accept":
+        await this.#accept(intent.thread);
         return;
       case "thread.merge":
         await this.#merge(intent.from, intent.into);

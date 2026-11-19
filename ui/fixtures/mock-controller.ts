@@ -166,6 +166,14 @@ export class MockController {
         this.notify("info", `Approved harness.yml for ${intent.thread}`);
         return;
       }
+      case "thread.accept": {
+        const chat = this.chat(intent.thread);
+        if (chat.banner?.kind !== "unusual_change") return;
+        delete chat.banner;
+        if (intent.thread === this.current) this.emit({ type: "chat.banner" });
+        this.notify("info", `Kept the change on ${intent.thread}`);
+        return;
+      }
       case "thread.rewind":
         this.rewind(intent.thread, intent.commit);
         return;
@@ -318,6 +326,13 @@ export class MockController {
     };
     // A fork whose harness.yml was edited since the person approved it: the pretend thread that shows the banner.
     if (name === THREADS.old) state.banner = { kind: "untrusted", state: "changed" };
+    // A thread whose model the provider swapped for another: the pretend thread that shows the banner for an unusual change.
+    if (name === THREADS.bench) {
+      const before = this.graph.commits.filter((c) => c.thread === name).at(-2)?.hash;
+      if (before !== undefined) {
+        state.banner = { kind: "unusual_change", changes: ["the provider serves a different version of the model"], before };
+      }
+    }
     this.chats.set(name, state);
     return state;
   }
@@ -558,6 +573,7 @@ export class MockController {
     const keep = chat.blocks.findLastIndex((b) => b.commit !== undefined && !dropped.includes(b.commit));
     chat.blocks = chat.blocks.slice(0, keep + 1);
     chat.thread = { ...chat.thread, tip: target };
+    if (chat.banner?.kind === "unusual_change" && chat.banner.before === target) delete chat.banner;
     chat.composer = {
       ...chat.composer,
       draft: block?.type === "user" ? block.text : chat.composer.draft,

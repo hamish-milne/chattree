@@ -9,7 +9,7 @@ import type { LeaseState } from "../../harness/lease.ts";
 import { emptySetup } from "../../harness/setup.ts";
 import type { CallNeed } from "../../harness/tip.ts";
 import { mapGraph } from "../../ui/controller/map-graph.ts";
-import { approvalView, reasoningLevel, statusBar, threadBanner, threadStatus } from "../../ui/controller/map-status.ts";
+import { approvalView, reasoningLevel, statusBar, threadBanner, threadStatus, unusualChange } from "../../ui/controller/map-status.ts";
 import { parseEvent } from "../../ui/model/protocol.ts";
 import { tempDir } from "../support/tmp.ts";
 
@@ -75,6 +75,27 @@ test("the banner says what stops the thread: an unapproved config first, then a 
   assert.equal(threadBanner({ trust: trusted, hasProvider: true }), undefined);
   assert.deepEqual(threadBanner({ trust: trusted, hasProvider: false }), { kind: "no_provider" });
   assert.deepEqual(threadBanner({ trust: { state: "changed", hash: "h" }, hasProvider: false }), { kind: "untrusted", state: "changed" });
+});
+
+test("a change nobody acknowledged raises its own banner, with the commit before it, after trust and before the provider", () => {
+  const trusted = { state: "trusted" as const, hash: "h" };
+  const refs = [
+    { id: undefined, commit: "c0" },
+    { id: "A", commit: "c1" },
+    { id: "B", commit: "c2" },
+  ];
+  const unusual = unusualChange([{ id: "B", changes: ["tools_changed", "cache_break"] }], refs);
+  assert.deepEqual(unusual, { changes: ["tools_changed", "cache_break"], before: "c1" });
+  assert.deepEqual(threadBanner({ trust: trusted, hasProvider: false, unusual }), {
+    kind: "unusual_change",
+    changes: ["the tools are different", "the cached conversation is lost"],
+    before: "c1",
+  });
+  assert.deepEqual(threadBanner({ trust: { state: "unknown", hash: "h" }, hasProvider: true, unusual }), {
+    kind: "untrusted",
+    state: "unknown",
+  });
+  assert.equal(unusualChange([], refs), undefined);
 });
 
 test("the status bar shows what is known, and leaves out what is not", () => {

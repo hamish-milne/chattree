@@ -116,6 +116,7 @@ describe("the protocol", () => {
     { type: "repo.select", id: "a" },
     { type: "repo.init", id: "scratch" },
     { type: "thread.trust", thread: "idea" },
+    { type: "thread.accept", thread: "idea" },
     { type: "thread.new", name: "idea" },
     { type: "thread.archive", thread: "idea" },
     { type: "thread.unarchive", thread: "idea" },

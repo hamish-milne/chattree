@@ -69,6 +69,11 @@ export type ChatThread = Static<typeof chatThread>;
 export const chatBanner = Type.Union([
   strictObject({ kind: Type.Literal("no_provider") }),
   strictObject({ kind: Type.Literal("untrusted"), state: Type.Enum(["unknown", "changed"]) }),
+  /**
+   * The agent was changed by something other than the person (the provider reported another model, say, or the repository was edited
+   * outside): `changes` says what, in words, and `before` is the commit the thread was at just before the change, to go back to.
+   */
+  strictObject({ kind: Type.Literal("unusual_change"), changes: Type.Array(Type.String()), before: Type.String() }),
 ]);
 export type ChatBanner = Static<typeof chatBanner>;
 

@@ -23,6 +23,14 @@ export function Banner({
             <strong>No provider yet</strong>
             <span>Add one, so the agent has a model to talk to.</span>
           </>
+        ) : b.kind === "unusual_change" ? (
+          <>
+            <strong>The agent was changed without you</strong>
+            <span>
+              {b.changes.map((c, i) => (i === 0 ? c.charAt(0).toUpperCase() + c.slice(1) : c)).join("; ")}. Go back to before the change, or
+              keep it.
+            </span>
+          </>
         ) : (
           <>
             <strong>
@@ -41,6 +49,15 @@ export function Banner({
           <button class="primary" onClick={() => config.show("providers")}>
             Add a provider
           </button>
+        ) : b.kind === "unusual_change" ? (
+          <>
+            <button class="secondary" onClick={() => model.undoChange()}>
+              Go back
+            </button>
+            <button class="primary" onClick={() => model.accept()}>
+              Keep the change
+            </button>
+          </>
         ) : (
           <>
             <button class="secondary" onClick={() => config.show("providers")}>

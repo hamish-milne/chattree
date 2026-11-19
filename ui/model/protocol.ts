@@ -117,6 +117,8 @@ export const intent = Type.Union([
    * used. The person reviews it first in the settings; the answer is `chat.banner` without a banner.
    */
   ev("thread.trust", { thread: name }),
+  /** Accept the changes of the `unusual_change` banner and carry on; the other way out is `thread.rewind` to the banner's `before`. */
+  ev("thread.accept", { thread: name }),
   ev("chat.model", { model: name }),
   /** An edited value for a form; the answer is a `form.set` with the issues found. */
   ev("form.edit", { id: name, value: Type.Record(Type.String(), Type.Unknown()) }),

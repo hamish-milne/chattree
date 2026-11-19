@@ -180,6 +180,16 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
       const t = name();
       if (t !== undefined && banner.peek()?.kind === "untrusted") send({ type: "thread.trust", thread: t });
     },
+    /** Keep the unusual change the banner names. */
+    accept(): void {
+      const t = name();
+      if (t !== undefined && banner.peek()?.kind === "unusual_change") send({ type: "thread.accept", thread: t });
+    },
+    /** Go back to just before the unusual change the banner names. */
+    undoChange(): void {
+      const b = banner.peek();
+      if (b?.kind === "unusual_change") this.rewind(b.before);
+    },
     chooseModel(id: string): void {
       if (id !== models.peek()?.current) send({ type: "chat.model", model: id });
     },

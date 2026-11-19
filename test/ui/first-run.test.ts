@@ -155,6 +155,29 @@ describe("what keeps a thread from taking a message", () => {
     assert.equal(chat.banner.value, undefined, "the approval is kept");
   });
 
+  test("an unusual change shows its banner: keeping it removes it, and going back rewinds to before it", () => {
+    const { graph, chat } = rig();
+    const tip = () => graph.data.value?.threads.find((t) => t.name === "bench-run")?.tip ?? "";
+    graph.open(tip());
+    const b = chat.banner.value;
+    assert.ok(b?.kind === "unusual_change");
+    assert.equal(chat.canSend.value, false);
+    chat.undoChange();
+    assert.equal(chat.banner.value, undefined, "back before the change");
+    assert.equal(tip(), b.before);
+    chat.accept(); // nothing to keep any longer: asks for nothing
+    graph.open(tip());
+    assert.equal(chat.banner.value, undefined);
+  });
+
+  test("keeping an unusual change takes the banner away", () => {
+    const { graph, chat } = rig();
+    graph.open(graph.data.value?.threads.find((t) => t.name === "bench-run")?.tip ?? "");
+    assert.ok(chat.banner.value?.kind === "unusual_change");
+    chat.accept();
+    assert.equal(chat.banner.value, undefined);
+  });
+
   test("trusting asks for nothing when there is no banner", () => {
     const { chat, controller } = rig();
     let sent = 0;

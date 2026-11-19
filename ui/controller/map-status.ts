@@ -5,7 +5,7 @@
  */
 
 import { summarizeCall } from "../../app/tool-lines.ts";
-import type { ChatEntry } from "../../harness/entries.ts";
+import type { ChangeKind, ChatEntry } from "../../harness/entries.ts";
 import type { Ledger } from "../../harness/ledger.ts";
 import type { LeaseOwner, LeaseState } from "../../harness/lease.ts";
 import type { AgentSetup } from "../../harness/setup.ts";
@@ -41,9 +41,45 @@ export function threadStatus(i: StatusInput): ThreadStatus {
 }
 
 /** Why the thread cannot take a message, if it cannot: no provider is set up, or its `harness.yml` was not approved. Trust is the one to ask first, since a changed file may be what removed the provider. */
-export function threadBanner(i: { trust: ConfigTrust; hasProvider: boolean }): ChatBanner | undefined {
+export function threadBanner(i: {
+  trust: ConfigTrust;
+  hasProvider: boolean;
+  /** What changed the agent without the person (`AgentSetup.unacknowledged`), and the commit before the first of them. */
+  unusual?: { changes: readonly ChangeKind[]; before: string } | undefined;
+}): ChatBanner | undefined {
   if (i.trust.state !== "trusted") return { kind: "untrusted", state: i.trust.state };
+  if (i.unusual !== undefined) return { kind: "unusual_change", changes: i.unusual.changes.map(changeWords), before: i.unusual.before };
   return i.hasProvider ? undefined : { kind: "no_provider" };
+}
+
+const CHANGE_WORDS: Record<ChangeKind, string> = {
+  model_changed: "the model is a different one",
+  provider_changed: "the provider is a different one",
+  cache_break: "the cached conversation is lost",
+  cost_increase: "requests cost more",
+  context_overflow: "the conversation no longer fits the model",
+  reasoning_dropped: "the model no longer reasons",
+  capability_loss: "the model lost a capability",
+  mid_loop: "it happened in the middle of a tool loop",
+  tools_changed: "the tools are different",
+  instructions_changed: "the instructions are different",
+  pricing_changed: "the prices changed",
+  resolved_model_changed: "the provider serves a different version of the model",
+  renderer_changed: "the way the conversation is shown to the model changed",
+};
+const changeWords = (k: ChangeKind): string => CHANGE_WORDS[k];
+
+/** The first change nobody acknowledged, with the commit before it, for the banner; the transcript's own order decides which is first. */
+export function unusualChange(
+  unacknowledged: readonly { id: string; changes: readonly ChangeKind[] }[],
+  refs: readonly { id: string | undefined; commit: string }[],
+): { changes: ChangeKind[]; before: string } | undefined {
+  const first = unacknowledged[0];
+  if (first === undefined) return undefined;
+  const at = refs.findIndex((r) => r.id === first.id);
+  const before = refs[at - 1]?.commit;
+  if (at < 1 || before === undefined) return undefined;
+  return { changes: [...new Set(unacknowledged.flatMap((u) => u.changes))], before };
 }
 
 /** The reasoning level whose settings are all in the model's current settings. */
