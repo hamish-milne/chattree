@@ -50,3 +50,16 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup
       - run: pnpm test:slow
+
+  # The extension in a real VS Code (wdio-vscode-service downloads the editor): the views load and draw what the controller sent.
+  vscode:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup
+      - uses: actions/cache@v6
+        with:
+          path: extensions/vscode/.wdio-vscode-service
+          key: vscode-${{ runner.os }}-${{ hashFiles('extensions/vscode/package.json') }}
+      - run: xvfb-run -a pnpm --filter chattree-vscode test:e2e

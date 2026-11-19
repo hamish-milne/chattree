@@ -3,3 +3,6 @@ packages:
 # esbuild's install script only swaps its launcher for the native binary, which works without it; we do not run it.
 allowBuilds:
   esbuild: false
+  # Browser drivers the smoke test's runner can download; the test uses VS Code's own driver, fetched at run time.
+  edgedriver: false
+  geckodriver: false

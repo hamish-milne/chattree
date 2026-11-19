@@ -11,23 +11,32 @@
   },
   "main": "./dist/extension.js",
   "dependencies": {
-    "chattree": "workspace:*",
     "@preact/signals": "2.11.4",
+    "chattree": "workspace:*",
     "marked": "18.2.1",
     "preact": "11.2.0"
   },
   "devDependencies": {
+    "@types/mocha": "10.0.10",
     "@types/vscode": "1.146.0",
-    "esbuild": "0.28.2"
+    "@wdio/cli": "9.33.1",
+    "@wdio/globals": "9.33.1",
+    "@wdio/local-runner": "9.33.1",
+    "@wdio/mocha-framework": "9.33.1",
+    "@wdio/spec-reporter": "9.33.1",
+    "esbuild": "0.28.2",
+    "wdio-vscode-service": "8.0.0",
+    "webdriverio": "9.33.1"
   },
   "scripts": {
-    "typecheck": "node --no-warnings tools/gen-css-types.mts && tsc -p tsconfig.json && tsc -p tools/tsconfig.json && tsc -p src/tsconfig.json",
+    "typecheck": "node --no-warnings tools/gen-css-types.mts && tsc -p tsconfig.json && tsc -p tools/tsconfig.json && tsc -p src/tsconfig.json && tsc -p e2e/tsconfig.json",
     "build:web": "node --no-warnings tools/build-web.mts",
     "build:preview": "node --no-warnings tools/build-preview.mts",
     "preview": "node --no-warnings tools/serve-preview.mts",
     "dev": "node --no-warnings tools/dev.mts",
     "gen:css": "node --no-warnings tools/gen-css-types.mts",
-    "build": "node --no-warnings tools/build-extension.mts"
+    "build": "node --no-warnings tools/build-extension.mts",
+    "test:e2e": "pnpm build && wdio run e2e/wdio.conf.mts"
   },
   "activationEvents": [],
   "categories": [

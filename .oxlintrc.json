@@ -65,6 +65,16 @@
     },
     {
       "files": [
+        "extensions/vscode/e2e/**"
+      ],
+      "rules": {
+        "typescript/await-thenable": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off"
+      }
+    },
+    {
+      "files": [
         "**/*.mjs"
       ],
       "rules": {

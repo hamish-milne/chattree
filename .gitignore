@@ -2,3 +2,4 @@ node_modules
 *.tgz
 vendor/
 dist/
+.wdio-vscode-service/

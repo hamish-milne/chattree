@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "es2025",
+    "lib": ["es2025", "dom"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "types": ["node", "mocha", "@wdio/globals/types", "wdio-vscode-service", "@types/vscode"],
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["*.mts"]
+}
