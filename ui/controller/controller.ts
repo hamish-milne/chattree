@@ -725,17 +725,13 @@ export class Controller implements HostedController {
         onCommitted: () => void this.#publish(thread).catch(() => undefined),
         onResume: () => undefined,
         pumped: true,
-        // `fork` and `merge`: a fork the model makes is a thread like any other (it shows in the graph), and the first message it leaves
-        // for it waits in that thread's composer for the person to send. (`auto_run` forks and subagents run in the background, see `Background`.)
+        // `fork` and `merge`: a fork the model makes is a thread like any other (it shows in the graph), and the pump starts it from the
+        // brief the model left (see `Background`).
         createFork: async (name) => {
           const made = await createFork(this.#o.env, repo.project, convo, name);
           this.#handles.set(made.branch, made.conversation);
           void this.#sendGraph().catch(() => undefined);
           return made;
-        },
-        onForkDraft: (branch, first) => {
-          this.#prefill(branch, first);
-          this.#notify(`The model started ${branch} and left a first message for it in its composer`);
         },
       });
       this.#toolsets.set(convo, p);

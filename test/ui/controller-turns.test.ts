@@ -379,10 +379,11 @@ describe("the controller, turns", () => {
     }
   });
 
-  test("the model is offered fork and merge; a fork it makes is a thread with its first message waiting in the composer", async () => {
+  test("the model is offered fork and merge; a fork it makes is a thread that carries on at once from its brief", async () => {
     const { c, server, events, view, finish } = await rig([
       callTools({ id: "c1", name: "fork", args: { name: "topic-a", message: "Look into topic A" } }),
       answer("Started."),
+      answer("Topic A: where shall we begin?"),
     ]);
     try {
       c.handle({ type: "chat.send", text: "split this up" });
@@ -397,7 +398,12 @@ describe("the controller, turns", () => {
       assert.ok(graph?.type === "graph.data" && JSON.stringify(graph).includes("topic-a"), "the fork is in the graph");
       c.handle({ type: "thread.open", thread: "topic-a" });
       await c.idle();
-      assert.equal(view.composer.value.draft, "Look into topic A");
+      assert.equal(view.composer.value.draft, "", "no draft is left: the fork carries on by itself");
+      const texts = view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
+      assert.ok(texts.includes("Topic A: where shall we begin?"), `the fork spoke first: ${texts.join(" | ")}`);
+      assert.equal(view.status.value?.stalled, undefined, "not stopped partway");
+      const told = server.seen.at(-1)?.body ?? "";
+      assert.match(told, /You are now in the fork topic-a[\s\S]*Look into topic A/);
     } finally {
       await finish();
     }

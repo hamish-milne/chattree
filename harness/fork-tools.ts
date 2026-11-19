@@ -2,10 +2,10 @@ import type { Conversation } from "./conversation.ts";
 import { syncTools } from "./loop.ts";
 import type { StartedJob, Tool, ToolOutput, ToolRegistry } from "./tools.ts";
 import { optStringArg, stringArg } from "./tool-args.ts";
-import { nth } from "../src/nth.ts";
+import { unanswered } from "./tip.ts";
 
 /**
- * The `fork` and `merge` tools. `fork` is for work to be picked up later with everything the model already knows: it
+ * The `fork` and `merge` tools. `fork` starts a side conversation with everything the model already knows: it
  * makes a branch from here and returns at once. `merge` brings a fork back (the trunk wins) and its summary is what the
  * model sees from then on.
  */
@@ -14,63 +14,12 @@ export interface ForkDeps {
   convo: Conversation;
   /** Make a fork of `convo` (the host decides where its worktree goes). */
   createFork(name?: string): Promise<{ branch: string; conversation: Conversation }>;
-  /** `message` was given: the host keeps it as the first message of the fork, for the user to send there. */
-  onDraft?(branch: string, message: string): void;
   /**
-   * With this, `fork` can take `auto_run: true`: `message` is put in the fork as a user message, and whoever pumps threads (`pump.ts`) runs
-   * it like any thread that has been spoken to. The fork's tools are pinned to `childRegistry` (the leaf tools: one level of nesting).
-   * Its end is reported to the caller by `deliverForks`.
+   * With this the fork starts at once, as with the `fork` system call: the call returns in both threads. In the caller it says the fork is
+   * under way; in the fork it says where the model is and carries `message`, and whoever pumps threads (`pump.ts`) runs the fork from
+   * there. The fork's tools are pinned to `childRegistry` (the leaf tools: one level of nesting).
    */
   auto?: { childRegistry: ToolRegistry };
-}
-
-/** The result of an `auto_run` fork call; delivery finds the forks to report on by it. */
-export const FORK_STARTED = "started fork";
-const FORK_STARTED_RE = /^started fork (\S+?)\./;
-
-/**
- * Report on forks the thread started with `auto_run`: one whose first run has ended (the model answered with text, or the run was cut
- * off) becomes a `job_event` for the caller, once. Returns how many were reported.
- */
-export async function deliverForks(convo: Conversation): Promise<number> {
-  const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-  const done = new Set(entries.flatMap((e) => (e.$tag === "job_event" ? [e.call_id] : [])));
-  let delivered = 0;
-  for (const e of entries) {
-    if (e.$tag !== "tool_result" || typeof e.content !== "string" || done.has(e.call_id)) continue;
-    const m = FORK_STARTED_RE.exec(e.content);
-    if (m === null) continue;
-    const name = nth(m, 1);
-    if ((await convo.git.revParse(`refs/heads/${name}`)) === undefined) continue;
-    const theirs = (await convo.readEntriesAt(`refs/heads/${name}`)).flatMap((x) => (x.ok ? [x.value] : []));
-    // The last entry that says how the run went: setup, approvals and injections are bookkeeping, not an outcome.
-    const last = [...theirs].reverse().find((x) => x.$tag !== "agent_setup" && x.$tag !== "approval" && x.$tag !== "injection");
-    if (last?.$tag === "assistant" && !last.blocks.some((b) => b.$tag === "tool_call")) {
-      const text = last.blocks
-        .flatMap((b) => (b.$tag === "text" && typeof b.text === "string" ? [b.text] : []))
-        .join("")
-        .trim();
-      await convo.append({
-        $tag: "job_event",
-        job: name,
-        call_id: e.call_id,
-        status: "completed",
-        summary: `${name} finished its first run`,
-        ...(text === "" ? {} : { output: text }),
-      });
-      delivered++;
-    } else if (last?.$tag === "interrupted") {
-      await convo.append({
-        $tag: "job_event",
-        job: name,
-        call_id: e.call_id,
-        status: "failed",
-        summary: `${name} stopped (${last.by === "user" ? "stopped by the user" : "an error"}); its work is on branch ${name}`,
-      });
-      delivered++;
-    }
-  }
-  return delivered;
 }
 
 // Branch names a fork may be given: a conservative subset of git ref names, starting with a letter or digit.
@@ -81,7 +30,7 @@ export function forkTool(deps: ForkDeps): Tool {
     definition: {
       name: "fork",
       description:
-        "Start a side conversation with the user about one topic: a copy of this conversation, with everything said so far and the files as they are now, on its own branch. A fork is for the user to collaborate with you on that topic as a conversation, for example one thread per item of a list you just made. It shares all of your context, so do not repeat or summarize it; `message` needs only what is new there (the topic, the angle, the question to open with). If the work is autonomous and yours to own, use `subagent` instead. The call returns at once with the branch name; nothing runs in the fork unless `auto_run` is set. The user moves there with /thread and the fork is brought back with `merge`. If you give `message`, it is kept as the first message to send in the fork (the user can edit it).",
+        "Start a side conversation with the user about one topic: a copy of this conversation, with everything said so far and the files as they are now, on its own branch. A fork is for the user to collaborate with you on that topic as a conversation, for example one thread per item of a list you just made. It shares all of your context, so do not repeat or summarize it; `message` needs only what is new there (the topic, the angle, the question to open with). If the work is autonomous and yours to own, use `subagent` instead. The call returns at once, in both threads, as the fork system call does: here with the branch name, and in the fork as the place you carry on from, with `message` as your brief there; you open the conversation in the fork yourself. The user moves there with /thread and the fork is brought back with `merge`.",
       input_schema: {
         type: "object",
         additionalProperties: false,
@@ -93,17 +42,8 @@ export function forkTool(deps: ForkDeps): Tool {
           message: {
             type: "string",
             description:
-              "Only what is new in the fork: the topic or the opening question. The fork already has this whole conversation, so give no background and no full task brief. Optional.",
+              "Only what is new in the fork: the topic or the opening question, which you will see there as your brief. The fork already has this whole conversation, so give no background and no full task brief. Optional.",
           },
-          ...(deps.auto === undefined
-            ? {}
-            : {
-                auto_run: {
-                  type: "boolean",
-                  description:
-                    "Send `message` in the fork at once and let it work by itself in the background; you are told when it stops. Needs `message`. Default false: the message waits there for the user to send it.",
-                },
-              }),
         },
       },
     },
@@ -111,31 +51,38 @@ export function forkTool(deps: ForkDeps): Tool {
     execute: async (args, ctx): Promise<ToolOutput | StartedJob> => {
       const name = optStringArg(args, "name");
       const message = optStringArg(args, "message");
-      const autoRun = args["auto_run"] === true;
-      if (autoRun && (deps.auto === undefined || message === undefined || message.trim() === ""))
-        return { content: "auto_run needs a message to send", is_error: true };
       if (name !== undefined && !SAFE_NAME.test(name))
         return { content: "name must be letters, digits, - _ and / (at most 61 characters)", is_error: true };
       const made = await deps.createFork(name);
+      const brief = message === undefined || message.trim() === "" ? undefined : message.trim();
       // In the fork this call has no answer yet: say there what happened, so the model there knows where it is.
       await made.conversation.append({
         $tag: "tool_result",
         call_id: ctx.callId,
         is_error: false,
-        content: `You are now in the fork ${made.branch}, a side conversation started from the thread above. Carry on from here; your work is brought back with the merge tool, not before.`,
+        content:
+          `You are now in the fork ${made.branch}, a side conversation with the user started from the thread above; the thread above carries on without you. ` +
+          (deps.auto === undefined || brief === undefined ? "Carry on from here" : `Go ahead with your brief: ${brief}`) +
+          `. Your work is brought back with the merge tool, not before.`,
       });
-      if (autoRun && deps.auto !== undefined && message !== undefined) {
-        // Tools first, so the message is not split from the reply by a setup entry; then the message is the request that
-        // makes the thread run.
+      // Other calls of the same turn were for the thread above to make; the fork has nothing to run for them.
+      const forkEntries = (await made.conversation.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+      for (const id of unanswered(forkEntries))
+        await made.conversation.append({
+          $tag: "tool_result",
+          call_id: id,
+          is_error: false,
+          content: "This call was made in the thread above, which carries it out there.",
+        });
+      if (deps.auto !== undefined) {
+        // Tools pinned to the leaf tools so the pump can run the fork by itself; it goes on from the result above.
         await syncTools(made.conversation, deps.auto.childRegistry);
-        await made.conversation.append({ $tag: "user", content: [{ $tag: "text", text: message.trim() }] });
         return {
-          content: `${FORK_STARTED} ${made.branch}. It is working on your message; you will be told when it stops. Merge it with the merge tool when you want its work here.`,
+          content: `Forked ${made.branch}. It is under way there with your brief; the user carries on with it in that thread. Bring it back with merge when it has settled.`,
         };
       }
-      if (message !== undefined && message.trim() !== "") deps.onDraft?.(made.branch, message.trim());
       return {
-        content: `Forked ${made.branch}. ${message === undefined ? "" : "Your message is waiting there for the user to send. "}The user moves there with /thread ${made.branch}; bring it back with merge.`,
+        content: `Forked ${made.branch}. Nothing runs there until the user moves there with /thread ${made.branch} and writes; bring it back with merge.`,
       };
     },
   };

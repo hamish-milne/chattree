@@ -25,7 +25,6 @@ import type { RunOptions } from "../harness/runs.ts";
 import { formatAge } from "./age.ts";
 import { deliverSubagents, subagentChildRegistry, subagentGrants, subagentNudge } from "../harness/subagent.ts";
 import type { ChatEntry } from "../harness/entries.ts";
-import { deliverForks } from "../harness/fork-tools.ts";
 import { openThread } from "../app/project.ts";
 import { followSkills, skillsWaiting } from "./skills.ts";
 import { SYSTEM_PROMPT, type HostEnvironment } from "../harness/environment.ts";
@@ -237,14 +236,6 @@ export class Engine {
         },
         onResume: () => this.#wantResume(),
         createFork: (name) => createFork(this.io, this.project, convo, name),
-        onForkDraft: (branch, message) => {
-          const name = `fork-${branch.replace(/[^A-Za-z0-9_-]+/g, "-")}`;
-          this.state.drafts = [...this.state.drafts.filter((d) => d.name !== name), { name, text: message }];
-          this.notices.push(
-            `the model started ${branch} and left a first message for it as draft ${name}; /thread ${branch}, then /send ${name}`,
-          );
-          this.onNotice?.();
-        },
         pumped: true,
       });
       // Servers harness.yml names that are not running are said once, with what to do.
@@ -287,7 +278,7 @@ export class Engine {
         loop: (convo) => this.#loopFor(convo),
         resume: async () => (await this.toolset())?.resume === true,
         idle: subagentNudge,
-        deliver: async (convo) => (await deliverSubagents(convo)) + (await deliverForks(convo)),
+        deliver: async (convo) => await deliverSubagents(convo),
         leave: (convo) => !this.#headless && convo.branch === this.thread,
         onWanted: (branch, at) => {
           if (branch !== this.thread || this.running || this.sending) return;

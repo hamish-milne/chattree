@@ -206,6 +206,16 @@ export async function classifyCalls(input: TipInput, callIds: readonly string[])
   return out;
 }
 
+/** Whether the thread's entries since its fork point are only the answers to a call: the thread was made by the `fork` tool and has not run. */
+function startedByCall(entries: readonly ChatEntry[]): boolean {
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const e = nth(entries, i);
+    if (e.$tag === "branch_start") return e.kind === "fork" && e.context === "inherit";
+    if (e.$tag !== "tool_result" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection") return false;
+  }
+  return false;
+}
+
 /** The state of the tip. See `TipState`. */
 export async function foldTip(input: TipInput): Promise<TipState> {
   const { entries } = input;
@@ -225,7 +235,8 @@ export async function foldTip(input: TipInput): Promise<TipState> {
     case "user":
       return { kind: "ready", cause: "human" };
     case "tool_result":
-      return { kind: "ready", cause: "result" };
+      // A fork the model made carries on from the answer to the call that made it: nothing else has been said there yet.
+      return { kind: "ready", cause: startedByCall(entries) ? "human" : "result" };
     case "job_event":
     case "subagent_result":
       return { kind: "ready", cause: "event" };

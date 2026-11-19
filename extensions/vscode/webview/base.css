@@ -1,4 +1,13 @@
 /* Controls shared by the views: buttons, inputs, chips, the spinner. Colours come from VS Code theme variables. */
+/* The view fills its panel and scrolls its own parts: VS Code's default page has side padding (a margin around the view) and no height. */
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+}
 .icon {
   flex: none;
   vertical-align: middle;

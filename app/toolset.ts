@@ -60,7 +60,6 @@ export interface ToolSetHooks {
   /** A fork of this thread, made where the project keeps worktrees. */
   createFork?: ForkDeps["createFork"];
   /** The first message the model gave a fork it made. */
-  onForkDraft?: ForkDeps["onDraft"];
   /** The process's MCP connections, shared with the subagents and the other threads (`McpPool`). Without it the set connects by itself. */
   mcpPool?: McpPool;
   /** The project's main directory, where an MCP server with `scope: project` starts. */
@@ -200,7 +199,6 @@ export async function buildToolSet(io: AppEnv, convo: Conversation, hooks: ToolS
             convo,
             createFork: hooks.createFork,
             ...(auto === undefined ? {} : { auto }),
-            ...(hooks.onForkDraft === undefined ? {} : { onDraft: hooks.onForkDraft }),
           }),
           mergeTool({ convo }),
         ];

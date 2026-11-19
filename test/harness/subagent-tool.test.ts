@@ -7,7 +7,7 @@ import { strictObject } from "../../src/validate.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
-import { deliverForks, forkTool, mergeTool } from "../../harness/fork-tools.ts";
+import { forkTool, mergeTool } from "../../harness/fork-tools.ts";
 import {
   deliverSubagents,
   subagentBranch,
@@ -174,7 +174,7 @@ function pumpFor(
       ),
     idle: subagentNudge,
     ...(o.resume === undefined ? {} : { resume: () => o.resume === true }),
-    deliver: async (c) => (await deliverSubagents(c)) + (await deliverForks(c)),
+    deliver: async (c) => await deliverSubagents(c),
     ...(o.onEvent === undefined ? {} : { onEvent: o.onEvent }),
   });
   pumps.push(pump);
@@ -458,7 +458,6 @@ async function setupPlain() {
 describe("the fork and merge tools", () => {
   test("a fork is made at once and told where it is; merge brings it back, answering the call with the fork_merge entry", async () => {
     const { convo } = await fresh(new ToolRegistry());
-    const drafts: string[] = [];
     let fork: Conversation | undefined;
     const tools = new ToolRegistry([
       forkTool({
@@ -468,7 +467,6 @@ describe("the fork and merge tools", () => {
           fork = r.conversation;
           return { branch: r.branch, conversation: r.conversation as Conversation };
         },
-        onDraft: (b, m) => void drafts.push(`${b}: ${m}`),
       }),
       mergeTool({ convo }),
     ]);
@@ -476,7 +474,6 @@ describe("the fork and merge tools", () => {
     queue = [calls(call("f1", "fork", { name: "plan", message: "plan the parser" })), answer("forked")];
     const first = await drive(convo, tools);
     assert.equal(first.result.status, "completed");
-    assert.deepEqual(drafts, ["plan: plan the parser"]);
     assert.ok(fork !== undefined);
     const inFork = await entries(fork);
     const told = inFork.find((e) => e.$tag === "tool_result" && e.call_id === "f1");
@@ -515,7 +512,7 @@ describe("the fork and merge tools", () => {
     assert.match(typeof rs[0]?.content === "string" ? rs[0].content : "", /no such branch/);
   });
 
-  test("auto_run: the message is put in the fork, the pump runs it, and its end is reported to the caller as a job event", async () => {
+  test("with a pump the fork starts at once: the call returns in both threads, the brief is in the fork's result, and siblings are answered there", async () => {
     const { convo } = await fresh(new ToolRegistry());
     const base = new ToolRegistry();
     const tools = new ToolRegistry([
@@ -531,33 +528,28 @@ describe("the fork and merge tools", () => {
     await syncTools(convo, tools);
     const pump = pumpFor(convo, tools, base);
     queue = [
-      calls(call("f1", "fork", { name: "side", message: "work on it", auto_run: true })),
-      answer("started the fork"),
-      answer("the fork's findings"),
+      calls(call("f1", "fork", { name: "side", message: "look at the parser" }), call("f2", "fork", { name: "other", message: "x" })),
+      answer("started the forks"),
+      answer("the side's opening"),
+      answer("the other's opening"),
     ];
     const { result } = await runAll(convo, tools, pump);
     assert.equal(result.status, "completed");
     const all = await entries(convo);
-    const ev = all.find((e) => e.$tag === "job_event");
-    assert.ok(ev?.$tag === "job_event");
-    assert.match(typeof ev.summary === "string" ? ev.summary : "", /side finished its first run/);
-    assert.match(typeof ev.output === "string" ? ev.output : "", /the fork's findings/);
+    assert.ok(!all.some((e) => e.$tag === "job_event"), "the caller is not woken: the user carries on in the fork");
     const inFork = await entries(await convo.openBranch("side"));
-    assert.ok(inFork.some((e) => e.$tag === "user" && JSON.stringify(e).includes("work on it")));
-    assert.equal(await deliverForks(convo), 0, "reported once");
+    const told = inFork.find((e) => e.$tag === "tool_result" && e.call_id === "f1");
+    assert.ok(told?.$tag === "tool_result" && typeof told.content === "string");
+    assert.match(told.content, /You are now in the fork side[\s\S]*look at the parser/);
+    const sibling = inFork.find((e) => e.$tag === "tool_result" && e.call_id === "f2");
+    assert.ok(sibling?.$tag === "tool_result", "the sibling call is answered in the fork");
+    assert.ok(
+      !inFork.some((e) => e.$tag === "user" && JSON.stringify(e).includes("look at the parser")),
+      "no user message: the brief is the result",
+    );
+    const last = inFork.at(-1);
+    assert.ok(last?.$tag === "assistant", `the pump ran the fork on from the result: ${inFork.map((e) => e.$tag).join(",")}`);
     await assertHistoryInvariants(convo);
-  });
-
-  test("auto_run without a message is refused", async () => {
-    const { convo } = await fresh(new ToolRegistry());
-    const tools = new ToolRegistry([
-      forkTool({ convo, createFork: () => Promise.reject(new Error("no")), auto: { childRegistry: new ToolRegistry() } }),
-    ]);
-    await syncTools(convo, tools);
-    queue = [calls(call("f1", "fork", { auto_run: true })), answer("ok")];
-    await drive(convo, tools);
-    const r = (await entries(convo)).find((e) => e.$tag === "tool_result");
-    assert.ok(r?.$tag === "tool_result" && r.is_error);
   });
 });
 

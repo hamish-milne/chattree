@@ -3,7 +3,6 @@ import { mediaFor, type ToolSet } from "../../app/toolset.ts";
 import { openThread, type Project } from "../../app/project.ts";
 import type { AppEnv } from "../../app/env.ts";
 import type { Conversation } from "../../harness/conversation.ts";
-import { deliverForks } from "../../harness/fork-tools.ts";
 import { SYSTEM_PROMPT, type HostEnvironment } from "../../harness/environment.ts";
 import { toolDrift, type LoopEvent } from "../../harness/loop.ts";
 import { Pump, type Question } from "../../harness/pump.ts";
@@ -61,7 +60,7 @@ export class Background {
       loop: (convo) => this.#loopFor(convo),
       resume: async (convo) => (await host.toolsetFor(convo.branch)).resume,
       idle: subagentNudge,
-      deliver: async (convo) => (await deliverSubagents(convo)) + (await deliverForks(convo)),
+      deliver: async (convo) => await deliverSubagents(convo),
       leave: (convo) => (host.owns(convo.branch) || host.ran(convo.branch)) && this.#subs.get(convo.branch) !== true,
       onWanted: (branch, at) => host.wanted(branch, at),
       onEvent: (branch, e) => void host.event(branch, e),

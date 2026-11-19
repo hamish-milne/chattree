@@ -49,13 +49,18 @@
 .transcript {
   flex: 1;
   overflow-y: auto;
+  /* A short conversation sits at the bottom, by the composer, and grows upward. */
+  display: flex;
+  flex-direction: column;
   /* Only the blocks near the view are drawn (webview/virtual.ts), which keeps the position itself when their heights change. */
   overflow-anchor: none;
   padding: 10px 14px 14px;
 }
 .transcript_inner {
+  box-sizing: border-box;
+  width: 100%;
   max-width: 860px;
-  margin: 0 auto;
+  margin: auto auto 0;
 }
 /* One block (or run of tool calls) and the gap after it: the unit whose height is measured. */
 .slot {
