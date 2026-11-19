@@ -9,7 +9,7 @@ import type { ChangeKind, ChatEntry } from "../../harness/entries.ts";
 import type { Ledger } from "../../harness/ledger.ts";
 import type { LeaseOwner, LeaseState } from "../../harness/lease.ts";
 import type { AgentSetup } from "../../harness/setup.ts";
-import type { CallNeed } from "../../harness/tip.ts";
+import { unanswered, type CallNeed } from "../../harness/tip.ts";
 import type { ConfigTrust } from "../../harness/trust.ts";
 import type { ModelInfo } from "../../providers/registry.ts";
 import type { Approval, ChatBanner, StatusBar } from "../model/chat.ts";
@@ -38,6 +38,30 @@ export function threadStatus(i: StatusInput): ThreadStatus {
   if (i.lease?.state === "stale") return "error";
   const last = i.entries.findLast((e) => !QUIET.has(e.$tag));
   return last?.$tag === "interrupted" && last.by === "error" ? "error" : "idle";
+}
+
+/**
+ * Why a thread that nothing is working on is not finished, if it is not: the model owes an answer (a message of the person's nobody
+ * answered, a tool result it has not seen, a call without a result) or the last request failed. A person stopping it, or a background
+ * event nobody asked about, is not stalled: those wait for the person. A thread the model last answered, or is working on, has no reason.
+ * This is a rewound thread's case too: going back to a message or a result leaves one of these as its last entry.
+ */
+export function stalledReason(entries: readonly ChatEntry[]): string | undefined {
+  if (unanswered(entries).length > 0) return "A tool call was left without a result";
+  const last = entries.findLast((e) => !QUIET.has(e.$tag));
+  switch (last?.$tag) {
+    case "user":
+      return "Your message has not been answered";
+    case "tool_result": {
+      // A call the person refused by stopping the turn was answered on purpose: stopping is not a stall.
+      const stopped = entries.some((e) => e.$tag === "approval" && e.call_id === last.call_id && !e.allow && e.reason === "stopped");
+      return stopped ? undefined : "The model has not seen the result of its tool call";
+    }
+    case "interrupted":
+      return last.by === "error" ? "The last request failed" : undefined;
+    default:
+      return undefined;
+  }
 }
 
 /** Why the thread cannot take a message, if it cannot: no provider is set up, or its `harness.yml` was not approved. Trust is the one to ask first, since a changed file may be what removed the provider. */
@@ -108,6 +132,8 @@ export interface StatusBarInput {
   info?: ModelInfo | undefined;
   ledger: Ledger;
   entries: readonly ChatEntry[];
+  /** `stalledReason` for a thread nothing is working on. */
+  stalled?: string | undefined;
 }
 
 /** The status bar; `undefined` while the thread has no model, which is what the banner is for. */
@@ -125,6 +151,7 @@ export function statusBar(i: StatusBarInput): StatusBar | undefined {
     ...(thinking === undefined ? {} : { thinking }),
     ...(spent.requests - spent.unpriced > 0 ? { usd: spent.usd } : {}),
     ...(spent.unpriced > 0 ? { unpriced: true } : {}),
+    ...(i.stalled === undefined ? {} : { stalled: i.stalled }),
   };
 }
 

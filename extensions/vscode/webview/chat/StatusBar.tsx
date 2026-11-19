@@ -24,9 +24,9 @@ export function StatusBar({ model }: { model: Model }): JSX.Element | null {
   const open = model.settingsOpen.value;
   return (
     <div class={css.status_bar}>
-      <span class={cn(css.state, pick(css, `state_${s.state}`))}>
+      <span class={cn(css.state, pick(css, `state_${s.stalled !== undefined ? "error" : s.state}`))} title={s.stalled}>
         <span class={css.state_dot} aria-hidden="true" />
-        {STATE[s.state]}
+        {s.stalled !== undefined ? "Stopped partway" : STATE[s.state]}
       </span>
       <button
         class={cn(css.model_chip, open && css.open)}

@@ -1,4 +1,5 @@
 import { canonicalInstructionPath } from "../../harness/instruction-files.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { isDeepStrictEqual } from "node:util";
 import { DEFAULT_MODEL, runInit } from "../../app/init.ts";
 import { providerRegistry } from "../../app/providers.ts";
@@ -19,16 +20,17 @@ import type { HostEnvironment } from "../../harness/environment.ts";
 import type { Approval, ApprovalRequest, LoopEvent } from "../../harness/loop.ts";
 import { attachmentKind } from "../../harness/attachments.ts";
 import type { HostedController } from "../host/web-host.ts";
-import type { ChatState, Composer, ModelChoice, StatusBar } from "../model/chat.ts";
+import type { Activity, ChatState, Composer, ModelChoice, StatusBar } from "../model/chat.ts";
 import type { GraphData, RepoEntry, ThreadStatus } from "../model/graph.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
 import { diffBlocks } from "./diff-blocks.ts";
+import { summarizeCall } from "../../app/tool-lines.ts";
 import { traceHttp } from "../../providers/http.ts";
 import { describeError, explain } from "./explain.ts";
 import { mapEntries, type MapItem } from "./map-chat.ts";
 import { runThread } from "./run-thread.ts";
 import { mapGraph } from "./map-graph.ts";
-import { approvalView, statusBar, threadBanner, threadStatus, unusualChange } from "./map-status.ts";
+import { approvalView, stalledReason, statusBar, threadBanner, threadStatus, unusualChange } from "./map-status.ts";
 import type { Block } from "../model/transcript.ts";
 import type { FormIssue, FormSpec } from "../model/form.ts";
 import {
@@ -90,6 +92,13 @@ interface Run {
   /** When the current request was sent, and whether anything has come back since (for the log). */
   requestAt?: number;
   firstSeen?: boolean;
+  /** What the run is doing now, for the line at the end of the transcript (`Activity`), and how much text the model has sent in this request. */
+  activity?: Activity;
+  chars?: number;
+  /** The tool whose call the model is writing out. */
+  calling?: string;
+  /** The last time the count of characters was sent to the view. */
+  charsSentAt?: number;
   done: Promise<void>;
 }
 
@@ -166,17 +175,44 @@ export class Controller implements HostedController {
     this.#session = o.session ?? `ui-${Math.random().toString(36).slice(2, 10)}`;
     // CHATTREE_ENVIRONMENT=off leaves the note about this machine out, for tests that need the transcript to hold only what was typed.
     this.#environment = o.env.env["CHATTREE_ENVIRONMENT"] === "off" ? undefined : hostEnvironment(o.env);
-    if (o.log !== undefined) {
-      // What every provider request did, in the log: the status, and each retry with how long it waits (a long wait looks like a slow model).
-      traceHttp({
-        onRequest: (v) => this.#log(`http: ${v.method} ${v.url} attempt ${v.attempt} (${v.body.length} bytes)`),
-        onResponse: (v) => this.#log(`http: response ${v.status} (attempt ${v.attempt})`),
-        onRetry: (v) =>
-          this.#log(
-            `http: attempt ${v.attempt} failed (${v.error.kind}${v.error.status === undefined ? "" : ` ${v.error.status}`}: ${v.error.message}); waiting ${v.waitMs} ms`,
-          ),
-      });
-    }
+    // What every provider request did: in the log (the status, and each retry with how long it waits: a long wait looks like a slow
+    // model), and on the thread whose run made it (the run's async context says which), so the transcript can say it is retrying.
+    traceHttp({
+      onRequest: (v) => {
+        this.#log(`http: ${v.method} ${v.url} attempt ${v.attempt} (${v.body.length} bytes)`);
+        if (v.attempt > 1) this.#during((t, run) => this.#setActivity(t, run, { phase: "waiting", since: Date.now(), attempt: v.attempt }));
+      },
+      onResponse: (v) => this.#log(`http: response ${v.status} (attempt ${v.attempt})`),
+      onRetry: (v) => {
+        const why = `${v.error.status === undefined ? v.error.kind : `${v.error.status} ${v.error.kind}`}: ${v.error.message}`;
+        this.#log(`http: attempt ${v.attempt} failed (${why}); waiting ${v.waitMs} ms`);
+        const now = Date.now();
+        this.#during((t, run) =>
+          this.#setActivity(t, run, {
+            phase: "retrying",
+            since: now,
+            until: now + v.waitMs,
+            attempt: v.attempt + 1,
+            detail: why.slice(0, 200),
+          }),
+        );
+      },
+    });
+  }
+
+  /** The thread whose run is making the call this code is in, found by the async context the run started in. */
+  readonly #runOf = new AsyncLocalStorage<{ thread: string; run: Run }>();
+  #during(f: (thread: string, run: Run) => void): void {
+    const at = this.#runOf.getStore();
+    if (at !== undefined) f(at.thread, at.run);
+  }
+
+  /** Show what the run is doing now (or nothing, when it is not working); only the open thread's view is told. */
+  #setActivity(thread: string, run: Run, a: Activity | undefined): void {
+    if (a === undefined) delete run.activity;
+    else run.activity = a;
+    if (thread === this.#selected && !this.#closed)
+      this.#emit({ type: "chat.activity", ...(a === undefined ? {} : { activity: structuredClone(a) }) });
   }
 
   /** Carry out an intent after those before it; resolves when it is done (used by `idle`). */
@@ -255,7 +291,7 @@ export class Controller implements HostedController {
 
   async close(): Promise<void> {
     this.#closed = true;
-    if (this.#o.log !== undefined) traceHttp(undefined);
+    traceHttp(undefined);
     if (this.#timer !== undefined) clearInterval(this.#timer);
     for (const r of this.#runs.values()) {
       r.abort.abort();
@@ -462,8 +498,10 @@ export class Controller implements HostedController {
         : run.pending === undefined
           ? "running"
           : "awaiting";
+    const stalled = run === undefined && (state === "idle" || state === "error") ? stalledReason(entries) : undefined;
     const bar: StatusBar = statusBar({
       state,
+      stalled,
       setup,
       info: setup.model === undefined ? undefined : h.modelInfo(setup.model.provider, setup.model.id),
       ledger,
@@ -490,6 +528,7 @@ export class Controller implements HostedController {
         status: bar,
         composer: structuredClone(this.#composer(name)),
         ...(run?.pending === undefined ? {} : { approval: approvalView(run.pending.request) }),
+        ...(run?.activity === undefined ? {} : { activity: structuredClone(run.activity) }),
         ...(banner === undefined ? {} : { banner }),
         model: this.#models(h, setup.model === undefined ? "" : `${setup.model.provider}/${setup.model.id}`),
         ...(settings === undefined ? {} : { settings }),
@@ -580,24 +619,60 @@ export class Controller implements HostedController {
   async #onLoop(thread: string, run: Run, e: LoopEvent): Promise<void> {
     this.#logLoop(thread, run, e);
     switch (e.type) {
-      case "stream":
-        if (e.event.type === "text.delta") this.#stream(thread, "text", e.event.text);
-        else if (e.event.type === "reasoning.delta") this.#stream(thread, "reasoning", e.event.text);
+      case "stream": {
+        const ev = e.event;
+        if (ev.type === "text.delta") {
+          this.#stream(thread, "text", ev.text);
+          this.#streaming(thread, run, undefined, ev.text.length);
+        } else if (ev.type === "reasoning.delta") {
+          this.#stream(thread, "reasoning", ev.text);
+          this.#streaming(thread, run, "thinking", ev.text.length);
+        } else if (ev.type === "tool_call.start") {
+          run.calling = ev.name;
+          this.#streaming(thread, run, `calling ${ev.name}`, 0);
+        } else if (ev.type === "tool_call.delta") this.#streaming(thread, run, `calling ${run.calling ?? "a tool"}`, ev.args_delta.length);
+        else if (ev.type === "started") this.#streaming(thread, run, undefined, 0);
         return;
+      }
       case "tool.start":
         run.running.add(e.callId);
+        this.#setActivity(thread, run, { phase: "tool", since: Date.now(), detail: summarizeCall(e.name, e.args) });
         break;
       case "tool.approval":
       case "tool.result":
         run.awaiting.delete(e.callId);
-        if (e.type === "tool.result") run.running.delete(e.callId);
+        if (e.type === "tool.result") {
+          run.running.delete(e.callId);
+          this.#setActivity(thread, run, { phase: "preparing", since: Date.now() });
+        }
         break;
       case "request.start":
+        run.chars = 0;
+        this.#setActivity(thread, run, { phase: "preparing", since: Date.now() });
         return;
+      case "request.end":
+        this.#setActivity(thread, run, { phase: "preparing", since: Date.now() });
+        break;
       default:
         break;
     }
     await this.#publish(thread);
+  }
+
+  /** Text has arrived from the model: the phase becomes `streaming` (its start is the first text), and the count follows at most twice a second. */
+  #streaming(thread: string, run: Run, detail: string | undefined, chars: number): void {
+    const now = Date.now();
+    run.chars = (run.chars ?? 0) + chars;
+    const was = run.activity;
+    const same = was?.phase === "streaming" && was.detail === detail;
+    if (same && now - (run.charsSentAt ?? 0) < 500) return;
+    run.charsSentAt = now;
+    this.#setActivity(thread, run, {
+      phase: "streaming",
+      since: same ? was.since : now,
+      chars: run.chars,
+      ...(detail === undefined ? {} : { detail }),
+    });
   }
 
   /** What a request did and how long each part took, for the log (no text of the conversation). */
@@ -652,6 +727,7 @@ export class Controller implements HostedController {
         },
       };
       run.awaiting.add(request.callId);
+      this.#setActivity(thread, run, undefined);
       // Waiting for the person is not working: the controller is idle once the question has been sent.
       void this.#publish(thread)
         .catch(() => undefined)
@@ -688,12 +764,17 @@ export class Controller implements HostedController {
     this.#composers.set(thread, { draft: "", attachments: [] });
     this.#emit({ type: "chat.composer", composer: { draft: "", attachments: [] } });
     if (running !== undefined) return await this.#publish(thread);
+    this.#startRun(repo, h, thread);
+  }
 
+  /** Run the model on the thread as it stands, until it has answered (a message was just added, or the thread stalled). */
+  #startRun(repo: Repo, h: Conversation, thread: string): void {
     const run: Run = { abort: new AbortController(), awaiting: new Set(), running: new Set(), active: true, done: Promise.resolve() };
     this.#runs.set(thread, run);
     this.#log(`run on ${thread} started`);
+    this.#setActivity(thread, run, { phase: "preparing", since: Date.now() });
     this.#work(1);
-    run.done = (async () => {
+    run.done = this.#runOf.run({ thread, run }, async () => {
       try {
         const tools = await this.#toolset(repo, h, thread);
         await this.#publish(thread);
@@ -708,6 +789,7 @@ export class Controller implements HostedController {
           // The request is made ready: notes about the setup and the machine have been committed by now, and a slow model must not hide them.
           onPrepared: async () => {
             this.#log(`${thread}: request prepared`);
+            this.#setActivity(thread, run, { phase: "waiting", since: Date.now() });
             await this.#publish(thread).catch(() => undefined);
           },
           onEvent: (e) => this.#onLoop(thread, run, e),
@@ -718,10 +800,26 @@ export class Controller implements HostedController {
       } finally {
         this.#log(`run on ${thread} ended`);
         this.#runs.delete(thread);
+        this.#setActivity(thread, run, undefined);
         await this.#publish(thread).catch(() => undefined);
         this.#work(-1);
       }
-    })();
+    });
+  }
+
+  /** Carry on a thread that stalled: the model is run on it as it is, with no message added. */
+  async #resume(): Promise<void> {
+    const repo = this.#repo;
+    const thread = this.#selected;
+    if (repo === undefined || thread === undefined) throw new AppError("there is no thread open");
+    if (this.#runs.has(thread)) throw new AppError("the model is already working on this thread");
+    await this.#assertQuiet(repo, thread, "carry on");
+    const h = await this.#handle(repo, thread);
+    await h.assertConfigTrusted();
+    if (h.providers.size === 0 || (await h.setup()).model === undefined)
+      throw new AppError("there is no model for this thread yet", "add a provider in the settings first");
+    this.#startRun(repo, h, thread);
+    await this.#publish(thread);
   }
 
   #stop(): void {
@@ -802,21 +900,51 @@ export class Controller implements HostedController {
     await this.#openChat(made);
   }
 
-  async #fork(thread: string, commit: string, name: string | undefined): Promise<void> {
+  /**
+   * The entry just before the one `commit` holds, and what the person typed in the entry (when it is a message of theirs),
+   * for going back to before it and trying again.
+   */
+  async #before(h: Conversation, commit: string): Promise<{ target: EntryRef; text: string }> {
+    const refs = await h.index();
+    const at = refs.findIndex((r) => r.commit === commit);
+    const target = refs[at - 1];
+    if (at < 0 || target === undefined) throw new AppError("there is nothing before that to go back to");
+    // The entries and their refs run in step (the chat reads them the same way).
+    const found = (await h.readEntries())[at];
+    const entry = found?.ok === true ? found.value : undefined;
+    const text =
+      entry?.$tag === "user"
+        ? entry.content.flatMap((p) => (p.$tag === "text" && typeof p.text === "string" ? [p.text] : [])).join("\n\n")
+        : "";
+    return { target, text };
+  }
+
+  /** Put text in a thread's composer ahead of what the person had typed there, so nothing they wrote is lost. */
+  #prefill(thread: string, text: string): void {
+    if (text === "") return;
+    const c = this.#composer(thread);
+    c.draft = c.draft.trim() === "" ? text : `${text}\n\n${c.draft}`;
+  }
+
+  async #fork(thread: string, commit: string, name: string | undefined, before: boolean): Promise<void> {
     const repo = this.#open();
     const h = await this.#handle(repo, thread);
-    const at = await this.#entryAt(h, thread, commit);
+    const back = before ? await this.#before(h, commit) : undefined;
+    const at = back?.target ?? (await this.#entryAt(h, thread, commit));
     const made = await createFork(this.#o.env, repo.project, h, name, at);
     this.#handles.set(made.branch, made.conversation);
+    if (back !== undefined) this.#prefill(made.branch, back.text);
     await this.#sendGraph();
     await this.#openChat(made.branch);
   }
 
-  async #rewind(thread: string, commit: string): Promise<void> {
+  async #rewind(thread: string, commit: string, before: boolean): Promise<void> {
     const repo = this.#open();
     await this.#assertQuiet(repo, thread, "go back");
     const h = await this.#handle(repo, thread);
-    await h.rewind(commit);
+    const back = before ? await this.#before(h, commit) : undefined;
+    await h.rewind(back?.target.commit ?? commit);
+    if (back !== undefined) this.#prefill(thread, back.text);
     this.#notify(`Went back to ${commit.slice(0, 7)}; what came after is kept and can be recovered`);
     await this.#changed(thread);
   }
@@ -1225,6 +1353,9 @@ export class Controller implements HostedController {
       case "chat.approve":
         this.#approve(intent.callId, intent.allow);
         return;
+      case "chat.resume":
+        await this.#resume();
+        return;
       case "chat.draft":
         if (this.#selected !== undefined) this.#composer(this.#selected).draft = intent.text;
         return;
@@ -1243,10 +1374,10 @@ export class Controller implements HostedController {
         await this.#newThread(intent.name);
         return;
       case "thread.fork":
-        await this.#fork(intent.thread, intent.commit, intent.name);
+        await this.#fork(intent.thread, intent.commit, intent.name, intent.before === true);
         return;
       case "thread.rewind":
-        await this.#rewind(intent.thread, intent.commit);
+        await this.#rewind(intent.thread, intent.commit, intent.before === true);
         return;
       case "thread.accept":
         await this.#accept(intent.thread);

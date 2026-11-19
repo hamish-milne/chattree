@@ -25,6 +25,11 @@ export const statusBar = strictObject({
   usd: Type.Optional(Type.Number({ minimum: 0 })),
   /** Some request used a model whose price is unknown, so `usd` is a lower bound. */
   unpriced: Type.Optional(Type.Boolean()),
+  /**
+   * The thread stopped partway, and a `chat.resume` carries on with no word from the person: this says why, in words (a message nobody
+   * answered, a tool result the model has not seen, a failed request). Absent when the thread is finished, working, or held elsewhere.
+   */
+  stalled: Type.Optional(Type.String()),
 });
 export type StatusBar = Static<typeof statusBar>;
 
@@ -35,6 +40,29 @@ export const composer = strictObject({
   attachments: Type.Array(strictObject({ id: Type.String({ minLength: 1 }), file: attachmentView })),
 });
 export type Composer = Static<typeof composer>;
+
+export const ACTIVITY_PHASES = ["preparing", "waiting", "streaming", "retrying", "tool"] as const;
+export type ActivityPhase = (typeof ACTIVITY_PHASES)[number];
+
+/**
+ * What a working thread is doing right now, for the line at the end of the transcript. `preparing`: getting the request ready;
+ * `waiting`: the request is sent and nothing has come back; `streaming`: the model is answering (`detail` says `thinking` while it
+ * reasons); `retrying`: the last attempt failed and the next one starts at `until` (`detail` says why); `tool`: a call is running
+ * (`detail` is its summary). `since` is when the phase began, in milliseconds since the epoch, so the view can show how long it has
+ * lasted without being told every second.
+ */
+export const activity = strictObject({
+  phase: Type.Enum(ACTIVITY_PHASES),
+  since: Type.Integer({ minimum: 0 }),
+  detail: Type.Optional(Type.String()),
+  /** For `retrying`: when the next attempt starts. */
+  until: Type.Optional(Type.Integer({ minimum: 0 })),
+  /** For `waiting` after a failure and for `retrying`: which attempt this is (the first is 1). */
+  attempt: Type.Optional(Type.Integer({ minimum: 1 })),
+  /** For `streaming`: how many characters have arrived. */
+  chars: Type.Optional(count),
+});
+export type Activity = Static<typeof activity>;
 
 /** A tool call that waits for a yes or a no. */
 export const approval = strictObject({
@@ -83,6 +111,7 @@ export const chatState = strictObject({
   status: statusBar,
   composer,
   approval: Type.Optional(approval),
+  activity: Type.Optional(activity),
   banner: Type.Optional(chatBanner),
   /** The model picker and the form for its settings, which the view shows in the expandable section. */
   model: modelChoice,

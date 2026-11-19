@@ -23,7 +23,7 @@ export function explain(e: unknown): string {
   if (e instanceof ProviderError)
     return hint(
       `the provider failed (${e.kind}${e.status === undefined ? "" : ` ${e.status}`}): ${e.message}`,
-      "nothing was added for this attempt; send again to retry",
+      "nothing was added for this attempt; use Continue on the thread to try again",
     );
   if (e instanceof ContextFull || e instanceof LimitExceeded) return e.message;
   if (e instanceof AppError) return e.hint === undefined ? e.message : hint(e.message, e.hint);

@@ -41,11 +41,13 @@ function Actions({ model, block }: { model: Model; block: Block }): JSX.Element 
   const commit = block.commit;
   if (commit === undefined) return null;
   const can = model.rewindable.value.has(block.id);
+  const mine = block.type === "user";
   const why = model.busy.value ? "Stop the thread first" : commit === model.thread.value?.tip ? "This is already the latest commit" : "";
-  const rewindLabel = block.type === "user" ? "Rewind and edit this message" : "Rewind to here";
+  const rewindLabel = mine ? "Rewind to before this message and edit it" : "Rewind to here";
+  const forkLabel = mine ? "Fork from before this message and edit it" : "Fork from here";
   return (
     <div class={css.actions} role="toolbar" aria-label="Message actions">
-      <button class="icon-button" title="Fork from here" aria-label="Fork from here" onClick={() => model.fork(commit)}>
+      <button class="icon-button" title={forkLabel} aria-label={forkLabel} onClick={() => model.fork(commit, mine)}>
         <Icon name="fork" />
       </button>
       <button
@@ -53,7 +55,7 @@ function Actions({ model, block }: { model: Model; block: Block }): JSX.Element 
         disabled={!can}
         title={can ? rewindLabel : `${rewindLabel}: ${why}`}
         aria-label={rewindLabel}
-        onClick={() => model.rewind(commit)}
+        onClick={() => model.rewind(commit, mine)}
       >
         <Icon name="rewind" />
       </button>

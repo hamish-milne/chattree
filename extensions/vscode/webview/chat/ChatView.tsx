@@ -14,6 +14,7 @@ import { Icon } from "../icons.tsx";
 import type { Block } from "chattree/ui/model/transcript";
 import { BlockView, ToolGroup } from "./blocks.tsx";
 import { Banner } from "./Banner.tsx";
+import { Progress } from "./Progress.tsx";
 import { Composer } from "./Composer.tsx";
 import { ModelSettings } from "./ModelSettings.tsx";
 import { StatusBar } from "./StatusBar.tsx";
@@ -51,10 +52,16 @@ function Transcript({ model }: { model: Model }): JSX.Element {
   const scroller = useRef<HTMLDivElement>(null);
   const [stuck, setStuck] = useState(true);
   const blocks = model.blocks.value;
+  // The progress line at the end is drawn by `Progress`; this reads what it depends on so a line that appears keeps the view pinned to the bottom.
+  const ending = `${model.activity.value?.phase ?? ""}|${model.status.value?.stalled ?? ""}`;
   // Both are walks of the whole list: made again only when the blocks are.
   const shown = useMemo(() => items(blocks), [blocks]);
   const keys = useMemo(() => shown.map((i) => i.key), [shown]);
   const win = useVariableWindow(scroller, keys, { overscanPx: 300, pinned: stuck, estimate: 90 });
+  useLayoutEffect(() => {
+    const el = scroller.current;
+    if (el !== null && stuck) el.scrollTop = el.scrollHeight;
+  }, [ending]);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el !== null && stuck) el.scrollTop = el.scrollHeight;
@@ -105,6 +112,7 @@ function Transcript({ model }: { model: Model }): JSX.Element {
               {"tools" in item ? <ToolGroup model={model} blocks={item.tools} /> : <BlockView model={model} block={item.block} />}
             </div>
           ))}
+          <Progress model={model} />
         </div>
       </div>
       {!stuck && (

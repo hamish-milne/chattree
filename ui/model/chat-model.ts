@@ -4,7 +4,7 @@
  * It follows the controller's events and sends intents; it knows nothing of VS Code or the DOM.
  */
 import { computed, createModel, signal } from "@preact/signals-core";
-import type { Approval, ChatBanner, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
+import type { Activity, Approval, ChatBanner, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
 import { FormModel } from "./form-model.ts";
 import type { UiEvent, UiIntent } from "./protocol.ts";
 import type { FileRef } from "./file-ref.ts";
@@ -33,6 +33,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const status = signal<StatusBar | undefined>(undefined);
   const composer = signal<Composer>({ draft: "", attachments: [] });
   const approval = signal<Approval | undefined>(undefined);
+  const activity = signal<Activity | undefined>(undefined);
   const models = signal<ModelChoice | undefined>(undefined);
   const banner = signal<ChatBanner | undefined>(undefined);
   const settings = signal<InstanceType<typeof FormModel> | undefined>(undefined);
@@ -53,7 +54,15 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const openBlocks = computed(() => new Set(blocks.value.filter((b) => toggled.value.has(b.id) !== openByDefault(b)).map((b) => b.id)));
   /** Ids of the blocks that can be rewound to: they have a commit that is not the tip, and nothing is running. */
   const rewindable = computed(
-    () => new Set(busy.value ? [] : blocks.value.filter((b) => b.commit !== undefined && b.commit !== thread.value?.tip).map((b) => b.id)),
+    () =>
+      new Set(
+        busy.value
+          ? []
+          : blocks.value
+              // A message of the person's goes back to before itself, so the newest one may too.
+              .filter((b) => b.commit !== undefined && (b.type === "user" || b.commit !== thread.value?.tip))
+              .map((b) => b.id),
+      ),
   );
   const canSend = computed(
     () => banner.value === undefined && (composer.value.draft.trim() !== "" || composer.value.attachments.length > 0),
@@ -78,6 +87,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     banner,
     settings,
     settingsOpen,
+    activity,
     reveal,
     fileClick,
     fileMenu,
@@ -96,6 +106,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
           status.value = e.state.status;
           composer.value = e.state.composer;
           approval.value = e.state.approval;
+          activity.value = e.state.activity;
           banner.value = e.state.banner;
           models.value = e.state.model;
           settings.value = e.state.settings === undefined ? undefined : new FormModel(e.state.settings, send);
@@ -145,6 +156,9 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
         case "chat.approval":
           approval.value = e.approval;
           return true;
+        case "chat.activity":
+          activity.value = e.activity;
+          return true;
         case "form.set":
           return settings.peek()?.apply(e) ?? false;
         default:
@@ -175,6 +189,10 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
       const a = approval.peek();
       if (a !== undefined) send({ type: "chat.approve", callId: a.callId, allow });
     },
+    /** Carry on a stalled thread: the model runs on it as it is. */
+    resume(): void {
+      if (status.peek()?.stalled !== undefined) send({ type: "chat.resume" });
+    },
     /** Approve the thread's `harness.yml` as it is. */
     trust(): void {
       const t = name();
@@ -193,13 +211,14 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     chooseModel(id: string): void {
       if (id !== models.peek()?.current) send({ type: "chat.model", model: id });
     },
-    rewind(commit: string): void {
+    /** `before`: go back to just before the entry the commit holds, its text into the composer. */
+    rewind(commit: string, before = false): void {
       const t = name();
-      if (t !== undefined) send({ type: "thread.rewind", thread: t, commit });
+      if (t !== undefined) send({ type: "thread.rewind", thread: t, commit, ...(before ? { before } : {}) });
     },
-    fork(commit: string): void {
+    fork(commit: string, before = false): void {
       const t = name();
-      if (t !== undefined) send({ type: "thread.fork", thread: t, commit });
+      if (t !== undefined) send({ type: "thread.fork", thread: t, commit, ...(before ? { before } : {}) });
     },
     /** Open a file a message or a tool call named. `how` says which version; a click uses the setting. */
     openFile(ref: FileRef, commit: string | undefined, how: FileClick = fileClick.peek()): void {

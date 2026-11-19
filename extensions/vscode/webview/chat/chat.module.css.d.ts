@@ -51,6 +51,11 @@ declare const styles: {
   readonly ping: string;
   readonly plain: string;
   readonly pressed: string;
+  readonly progress: string;
+  readonly progress_extra: string;
+  readonly progress_spin: string;
+  readonly progress_text: string;
+  readonly progress_warn: string;
   readonly prompt: string;
   readonly queued: string;
   readonly queued_note: string;
@@ -64,6 +69,7 @@ declare const styles: {
   readonly sign_gap: string;
   readonly slot: string;
   readonly spin: string;
+  readonly stalled: string;
   readonly stat_add: string;
   readonly stat_del: string;
   readonly state: string;

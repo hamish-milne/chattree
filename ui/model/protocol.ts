@@ -7,7 +7,7 @@
 import { Type, type Static } from "typebox";
 import { safeParse, strictObject, type ParseResult } from "../../src/validate.ts";
 import { THREAD_STATUSES, graphData, hash, repoList } from "./graph.ts";
-import { approval, chatBanner, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
+import { activity, approval, chatBanner, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
 import { formSpec } from "./form.ts";
 import { instructionState, providerModels, providerStatus } from "./settings.ts";
 import { block } from "./transcript.ts";
@@ -56,6 +56,8 @@ export const event = Type.Union([
   ev("chat.composer", { composer }),
   /** A tool call is waiting for an answer; absent when none is. */
   ev("chat.approval", { approval: Type.Optional(approval) }),
+  /** What the working thread is doing now; absent when it is not working (or is waiting for an answer). */
+  ev("chat.activity", { activity: Type.Optional(activity) }),
   /** The thread cannot take messages for this reason; absent when it can. */
   ev("chat.banner", { banner: Type.Optional(chatBanner) }),
   /** A form's new state: after an edit (with its issues), a save, or when it first opens. */
@@ -90,14 +92,18 @@ export const intent = Type.Union([
   ev("thread.delete", { thread: name }),
   ev("thread.open", { thread: name, commit: Type.Optional(hash) }),
   /** Start a new thread from `commit` on `thread`; the controller picks a name when none is given. */
-  ev("thread.fork", { thread: name, commit: hash, name: Type.Optional(name) }),
-  /** Take `thread` back to `commit`; the old tip is kept under a ref (the conversation's own rewind). */
+  ev("thread.fork", { thread: name, commit: hash, name: Type.Optional(name), before: Type.Optional(Type.Boolean()) }),
   /** Start an empty thread from the trunk's latest commit; the controller picks a name when none is given. The chat opens on it. */
   ev("thread.new", { name: Type.Optional(name) }),
   /** Put a thread away (it is left out of the graph) or bring it back. Any new entry on an archived thread also brings it back. */
   ev("thread.archive", { thread: name }),
   ev("thread.unarchive", { thread: name }),
-  ev("thread.rewind", { thread: name, commit: hash }),
+  /**
+   * Take `thread` back to `commit`; the old tip is kept under a ref (the conversation's own rewind). With `before`, `commit`
+   * is an entry to go back to just before (and, for a message of the person's, to put its text in the composer to say again);
+   * the same flag on `thread.fork` starts the fork from just before it.
+   */
+  ev("thread.rewind", { thread: name, commit: hash, before: Type.Optional(Type.Boolean()) }),
   ev("thread.merge", { from: name, into: name }),
   /**
    * Check `thread` out in the project folder, in place of the thread that is there. Both must be idle. `uncommitted`
@@ -107,6 +113,8 @@ export const intent = Type.Union([
   ev("workspace.switch", { thread: name, uncommitted: Type.Optional(Type.Literal("snapshot")), remember: Type.Optional(Type.Boolean()) }),
   ev("chat.send", { text: Type.String(), queued: Type.Optional(Type.Boolean()) }),
   ev("chat.stop", {}),
+  /** Carry on a thread that stalled (`StatusBar.stalled`): the same run as after a message, with no new message. */
+  ev("chat.resume", {}),
   ev("chat.draft", { text: Type.String() }),
   /** Ask the host to let the person pick files; the staged files come back in `chat.composer`. */
   ev("chat.attach", {}),

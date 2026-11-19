@@ -197,4 +197,139 @@ describe("the controller, turns", () => {
       await finish();
     }
   });
+
+  const bad: Reply = { status: 400, acts: [JSON.stringify({ error: { message: "a thought signature is missing" } })] };
+  const thread = (view: InstanceType<typeof ChatModel>): string => view.thread.value?.name ?? "";
+
+  test("a request that fails after a tool result leaves the thread stalled, and Continue carries on without a message", async () => {
+    const { c, events, view, server, finish } = await rig([
+      callTools({ id: "c1", name: "run", args: { command: "echo hi" } }),
+      bad,
+      answer("All done."),
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "go" });
+      await c.idle();
+      c.handle({ type: "chat.approve", callId: "c1", allow: true });
+      await c.idle();
+      assert.equal(server.seen.length, 2, "the continuation was tried and refused");
+      const stalled = view.status.value?.stalled;
+      assert.match(stalled ?? "", /result/, "the person is told why it stopped");
+      assert.equal(view.activity.value, undefined, "nothing is shown as going on");
+
+      events.length = 0;
+      c.handle({ type: "chat.resume" });
+      await c.idle();
+      assert.equal(server.seen.length, 3);
+      assert.equal(view.status.value?.stalled, undefined);
+      assert.equal(view.blocks.value.filter((b) => b.type === "user").length, 1, "no message was added");
+      const last = view.blocks.value.findLast((b) => b.type === "assistant");
+      assert.ok(last?.type === "assistant" && last.markdown === "All done.");
+    } finally {
+      await finish();
+    }
+  });
+
+  test("a thread rewound to a message of the person's is stalled the same way, and can be continued", async () => {
+    const { c, view, server, finish } = await rig([answer("First."), answer("Second.")]);
+    try {
+      c.handle({ type: "chat.send", text: "hello" });
+      await c.idle();
+      assert.equal(view.status.value?.stalled, undefined, "an answered thread is finished, not stalled");
+      const user = view.blocks.value.find((b) => b.type === "user");
+      assert.ok(user?.commit !== undefined);
+      c.handle({ type: "thread.rewind", thread: thread(view), commit: user.commit });
+      await c.idle();
+      assert.match(view.status.value?.stalled ?? "", /message/);
+      c.handle({ type: "chat.resume" });
+      await c.idle();
+      assert.equal(server.seen.length, 2);
+      const texts = view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
+      assert.deepEqual(texts, ["Second."], "the old answer is gone, and the model answered again");
+      assert.equal(view.status.value?.stalled, undefined);
+    } finally {
+      await finish();
+    }
+  });
+
+  test("a thread the person stopped is not stalled", async () => {
+    const { c, view, finish } = await rig([callTools({ id: "c1", name: "run", args: { command: "echo hi" } })]);
+    try {
+      c.handle({ type: "chat.send", text: "go" });
+      await c.idle();
+      c.handle({ type: "chat.stop" });
+      await c.idle();
+      assert.equal(view.status.value?.stalled, undefined);
+    } finally {
+      await finish();
+    }
+  });
+
+  test("rewinding a message goes to before it and puts its text in the composer; forking does the same on the new thread", async () => {
+    const { c, view, events, finish } = await rig([answer("Yes."), answer("Again.")]);
+    try {
+      c.handle({ type: "chat.send", text: "a question" });
+      await c.idle();
+      const user = view.blocks.value.find((b) => b.type === "user");
+      assert.ok(user?.commit !== undefined);
+      const name = thread(view);
+
+      c.handle({ type: "thread.fork", thread: name, commit: user.commit, before: true });
+      await c.idle();
+      assert.notEqual(thread(view), name, "the chat moved to the fork");
+      assert.equal(view.composer.value.draft, "a question");
+      assert.ok(!view.blocks.value.some((b) => b.type === "user"), "the fork starts before the message");
+      assert.equal(view.status.value?.stalled, undefined, "nothing is owed on it");
+
+      c.handle({ type: "thread.open", thread: name });
+      await c.idle();
+      assert.equal(view.composer.value.draft, "");
+      c.handle({ type: "chat.draft", text: "half typed" });
+      c.handle({ type: "thread.rewind", thread: name, commit: user.commit, before: true });
+      await c.idle();
+      assert.ok(!view.blocks.value.some((b) => b.type === "user" || b.type === "assistant"));
+      assert.equal(view.composer.value.draft, "a question\n\nhalf typed", "what was being typed is kept below it");
+      assert.ok(events.length > 0);
+      c.handle({ type: "chat.send", text: view.composer.value.draft });
+      await c.idle();
+      assert.equal(view.blocks.value.filter((b) => b.type === "user").length, 1);
+    } finally {
+      await finish();
+    }
+  });
+
+  test("the transcript is told what the call is doing: waiting, then streaming, and nothing once it ends", async () => {
+    const { c, events, finish } = await rig([
+      { acts: [{ wait: 250 }, chunk({ content: "Hi" }), { wait: 50 }, chunk({}, "stop"), usageChunk(10, 2), "data: [DONE]\n\n"] },
+    ]);
+    try {
+      events.length = 0;
+      c.handle({ type: "chat.send", text: "hi" });
+      await c.idle();
+      const phases = events.flatMap((e) => (e.type === "chat.activity" ? [e.activity?.phase ?? "none"] : []));
+      assert.deepEqual([...new Set(phases)], ["preparing", "waiting", "streaming", "none"]);
+    } finally {
+      await finish();
+    }
+  });
+
+  test("a provider failure that is retried shows as retrying, with the reason and when the next try starts", async () => {
+    const { c, events, view, finish } = await rig([
+      { status: 503, headers: { "retry-after": "1" }, acts: ["overloaded"] },
+      answer("Fine."),
+    ]);
+    try {
+      events.length = 0;
+      c.handle({ type: "chat.send", text: "hi" });
+      await c.idle();
+      const retry = events.flatMap((e) => (e.type === "chat.activity" && e.activity?.phase === "retrying" ? [e.activity] : []))[0];
+      assert.ok(retry !== undefined, "the wait was shown");
+      assert.match(retry.detail ?? "", /503/);
+      assert.ok((retry.until ?? 0) > retry.since && retry.attempt === 2);
+      const answered = view.blocks.value.findLast((b) => b.type === "assistant");
+      assert.ok(answered?.type === "assistant" && answered.markdown === "Fine.");
+    } finally {
+      await finish();
+    }
+  });
 });

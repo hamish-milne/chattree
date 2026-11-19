@@ -737,3 +737,51 @@
   background: var(--vscode-button-secondaryBackground);
   color: var(--vscode-button-secondaryForeground);
 }
+
+/* The end of the transcript: what the working model is doing, or why a stopped thread stopped (Progress.tsx). */
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 2px;
+  padding: 4px 8px;
+  color: var(--vscode-descriptionForeground);
+  font-size: 12px;
+}
+.progress_warn {
+  color: var(--vscode-editorWarning-foreground);
+}
+.progress_text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.progress_extra {
+  flex: none;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--vscode-descriptionForeground);
+}
+.progress_spin {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--vscode-progressBar-background);
+  border-right-color: transparent;
+  animation: spin 0.9s linear infinite;
+}
+.stalled {
+  flex-wrap: wrap;
+  border: 1px solid var(--vscode-inputValidation-warningBorder, var(--vscode-editorWarning-foreground));
+  border-radius: 4px;
+  background: var(--vscode-inputValidation-warningBackground, transparent);
+  color: var(--vscode-foreground);
+}
+.stalled button {
+  margin-left: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .progress_spin {
+    animation: none;
+  }
+}
