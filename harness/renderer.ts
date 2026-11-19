@@ -49,6 +49,10 @@ export interface Renderer {
   mediaLeftOut(name: string): string;
   /** The instructions were changed after the conversation began: the new text, shown where the change was made. */
   instructionsUpdated(instructions: string): string;
+  /** The instruction files in the cached prefix, after the instructions, in order of path. */
+  instructionFiles(files: readonly { path: string; text: string }[]): string;
+  /** Instruction files were added, changed or removed after the conversation began; `text` is undefined for a removed one. */
+  instructionFilesUpdated(files: readonly { path: string; text: string | undefined; added: boolean }[]): string;
   /** Text the harness put in front of the model (an `injection` entry). */
   injection(key: string, text: string): string;
   /** The skills in the cached prefix, after the instructions. `omitted` more were left out of the list for its length. */
@@ -93,6 +97,17 @@ export const chattreeEnglishV1: Renderer = Object.freeze({
   textAttachment: (name: string | undefined, content: string) => `[Attached file${name === undefined ? "" : `: ${name}`}]\n${content}`,
   instructionsUpdated: (instructions: string) =>
     `[Your instructions were updated. From now on follow the text below, which replaces any earlier instructions]\n${instructions}`,
+  instructionFiles: (files: readonly { path: string; text: string }[]) =>
+    files.map((f) => `[Instructions from the file ${f.path}]\n${f.text}`).join("\n\n"),
+  instructionFilesUpdated: (files: readonly { path: string; text: string | undefined; added: boolean }[]) =>
+    [
+      "[Instruction files changed; follow what is below in place of what you were given for the same file before]",
+      ...files.map((f) =>
+        f.text === undefined
+          ? `[The file ${f.path} was removed: its instructions no longer apply]`
+          : `[${f.added ? "New instructions from" : "Updated instructions from"} the file ${f.path}]\n${f.text}`,
+      ),
+    ].join("\n\n"),
   injection: (_key: string, text: string) => `[Note from the harness]\n${text}`,
   skillCatalog: (skills: readonly SkillNote[], omitted: number) =>
     `[Skills]\nA skill is a set of instructions for one kind of task. When a task matches one of these, call the skill tool with its name and follow what it returns.\n${skills.map((s) => `- ${s.name}: ${s.description}`).join("\n")}${omitted > 0 ? `\n(${omitted} more are not listed here; the skill tool names them when given a name it does not know)` : ""}`,

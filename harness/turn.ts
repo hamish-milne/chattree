@@ -88,6 +88,8 @@ async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promis
  */
 export async function* requestStream(convo: Conversation, opts: TurnOptions): AsyncGenerator<StreamEvent, TurnResult, void> {
   await convo.assertConfigTrusted();
+  // The instruction files of the repository are read as they are now: what changed since the last request is recorded first.
+  await convo.syncInstructionFiles();
   let prepared = await prepareContext(convo, opts);
   prepared = await autoCompact(convo, opts, prepared);
   // Injection rules see the request as it would go out; what they write goes into the transcript, and the context is built again from it.

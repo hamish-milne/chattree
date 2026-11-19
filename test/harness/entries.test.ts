@@ -549,7 +549,7 @@ describe("the format version as the state of a read", () => {
   });
 
   test("a header with a field the schema does not name is invalid, not a version problem", async () => {
-    const r = await new EntryReader().decode(parseEntry("- !header\n  format: chatlog\n  major: 2\n  minor: 7\n  extra: 1\n\n"));
+    const r = await new EntryReader().decode(parseEntry("- !header\n  format: chatlog\n  major: 2\n  minor: 8\n  extra: 1\n\n"));
     assert.ok(!r.ok && r.reason === "invalid");
   });
 });

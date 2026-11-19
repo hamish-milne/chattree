@@ -24,7 +24,7 @@ const usage = (input: number, output: number, cache = 0) => ({ input_tokens: inp
 
 test("a turn becomes a user block, assistant text, one tool block per call with its result, and one turn_end", async () => {
   const entries: ChatEntry[] = [
-    { $tag: "header", format: "chatlog", major: 2, minor: 7 },
+    { $tag: "header", format: "chatlog", major: 2, minor: 8 },
     {
       $tag: "user",
       id: U(1),

@@ -14,11 +14,13 @@ export type PinnedDefinition = NonNullable<AgentSetupEntry["instructions"]>;
 export type ModelSetup = NonNullable<AgentSetupEntry["model"]>;
 
 /** The fields of an `agent_setup` entry that describe state; what a mutation changes. */
-export type SetupChange = Pick<AgentSetupEntry, "model" | "tools" | "instructions" | "skills" | "mcp" | "pricing" | "renderer">;
+export type SetupChange = Pick<AgentSetupEntry, "model" | "tools" | "instructions" | "files" | "skills" | "mcp" | "pricing" | "renderer">;
 
 /** The definitions the model's cached prefix shows. It lags `AgentSetup` after an `append` change, until a rebuild or a compaction folds the difference in. */
 export interface PrefixSetup {
   instructions?: PinnedDefinition;
+  /** Instruction files by canonical path to the hash of their content. */
+  files: Record<string, string>;
   skills: Record<string, PinnedDefinition>;
 }
 
@@ -26,6 +28,8 @@ export interface AgentSetup {
   model?: ModelSetup;
   tools: Record<string, PinnedDefinition>;
   instructions?: PinnedDefinition;
+  /** Instruction files by canonical path to the hash of their content (see `agent_setup.files`). */
+  files: Record<string, string>;
   skills: Record<string, PinnedDefinition>;
   mcp: Record<string, PinnedDefinition>;
   pricing?: { table: string };
@@ -37,10 +41,18 @@ export interface AgentSetup {
   unacknowledged: { id: string; changes: ChangeKind[] }[];
 }
 
-export const emptySetup = (): AgentSetup => ({ tools: {}, skills: {}, mcp: {}, prefix: { skills: {} }, unacknowledged: [] });
+export const emptySetup = (): AgentSetup => ({
+  tools: {},
+  files: {},
+  skills: {},
+  mcp: {},
+  prefix: { files: {}, skills: {} },
+  unacknowledged: [],
+});
 
 const prefixOf = (s: AgentSetup): PrefixSetup => ({
   ...(s.instructions === undefined ? {} : { instructions: s.instructions }),
+  files: s.files,
   skills: s.skills,
 });
 
@@ -52,7 +64,9 @@ const prefixOf = (s: AgentSetup): PrefixSetup => ({
 export function rebasesPrefix(e: ChatEntry): boolean {
   if (e.$tag === "compaction" || e.$tag === "trim") return true;
   if (e.$tag !== "agent_setup") return false;
-  return e.apply === "rebuild" || (e.apply === undefined && (e.instructions !== undefined || e.skills !== undefined));
+  return (
+    e.apply === "rebuild" || (e.apply === undefined && (e.instructions !== undefined || e.skills !== undefined || e.files !== undefined))
+  );
 }
 
 /** The `append` setup entries the model has to be told about: those after the last entry that rebased the prefix. */
@@ -68,15 +82,22 @@ export function pendingAppends(entries: readonly ChatEntry[]): AgentSetupEntry[]
 /** `s` with the instructions and skills of `like`: a setup as the cached prefix would show it. */
 export function withDefsOf(
   s: AgentSetup,
-  like: { instructions?: PinnedDefinition | undefined; skills: Record<string, PinnedDefinition> },
+  like: { instructions?: PinnedDefinition | undefined; files: Record<string, string>; skills: Record<string, PinnedDefinition> },
 ): AgentSetup {
   const { instructions: _drop, ...rest } = s;
-  return { ...rest, skills: like.skills, ...(like.instructions === undefined ? {} : { instructions: like.instructions }) };
+  return {
+    ...rest,
+    files: like.files,
+    skills: like.skills,
+    ...(like.instructions === undefined ? {} : { instructions: like.instructions }),
+  };
 }
 
 /** Whether the prefix shows something other than the current instructions and skills. */
 export const prefixLags = (s: AgentSetup): boolean =>
-  stable(s.prefix.instructions ?? null) !== stable(s.instructions ?? null) || stable(s.prefix.skills) !== stable(s.skills);
+  stable(s.prefix.instructions ?? null) !== stable(s.instructions ?? null) ||
+  stable(s.prefix.files) !== stable(s.files) ||
+  stable(s.prefix.skills) !== stable(s.skills);
 
 /** The model id requests should carry: the dated model once the provider has reported it, else what was asked for. */
 export const servedModelId = (m: ModelSetup): string => m.resolved ?? m.id;
@@ -128,6 +149,17 @@ const applyDefs = (base: Defs, delta: { set?: Defs | undefined; remove?: string[
   return out;
 };
 
+/** Instruction files after a change: `null` removes a path, a hash sets it, a path not mentioned stays. */
+export function applyFiles(base: Record<string, string>, delta: Record<string, string | null> | undefined): Record<string, string> {
+  if (delta === undefined) return base;
+  const out = { ...base };
+  for (const [path, hash] of Object.entries(delta)) {
+    if (hash === null) delete out[path];
+    else out[path] = hash;
+  }
+  return out;
+}
+
 /** The setup after a change. Pure. */
 export function applyChange(base: AgentSetup, change: SetupChange): AgentSetup {
   return {
@@ -135,6 +167,7 @@ export function applyChange(base: AgentSetup, change: SetupChange): AgentSetup {
     ...(change.model === undefined ? {} : { model: change.model }),
     tools: applyDefs(base.tools, change.tools),
     ...(change.instructions === undefined ? {} : { instructions: change.instructions }),
+    files: applyFiles(base.files, change.files),
     skills: applyDefs(base.skills, change.skills),
     mcp: applyDefs(base.mcp, change.mcp),
     ...(change.pricing === undefined ? {} : { pricing: change.pricing }),
@@ -194,6 +227,7 @@ export function sameSetup(a: AgentSetup, b: AgentSetup): boolean {
     stable(a.model ?? null) === stable(b.model ?? null) &&
     sameDefs(a.tools, b.tools) &&
     stable(a.instructions ?? null) === stable(b.instructions ?? null) &&
+    stable(a.files) === stable(b.files) &&
     sameDefs(a.skills, b.skills) &&
     sameDefs(a.mcp, b.mcp) &&
     stable(a.pricing ?? null) === stable(b.pricing ?? null) &&
@@ -220,6 +254,7 @@ export function coreClassify(from: AgentSetup, to: AgentSetup, ctx: ClassifyCont
   // The pin of an MCP server's configuration changes nothing the model is shown (its tools are pinned as tools), so it is not classified.
   if (stable(from.instructions ?? null) !== stable(to.instructions ?? null))
     out.push({ kind: "instructions_changed", message: "the instructions differ" });
+  if (stable(from.files) !== stable(to.files)) out.push({ kind: "instructions_changed", message: "the instruction files differ" });
   // The skill catalog is part of what follows the instructions in the prefix, so a skills change is an instructions change to the cache.
   if (!sameDefs(from.skills, to.skills)) out.push({ kind: "instructions_changed", message: "the skills differ" });
   if (from.pricing !== undefined && stable(from.pricing) !== stable(to.pricing ?? null))
@@ -249,6 +284,10 @@ export function minimizeChange(base: AgentSetup, change: SetupChange): SetupChan
   }
   if (change.instructions !== undefined && stable(change.instructions) !== stable(base.instructions ?? null))
     out.instructions = change.instructions;
+  if (change.files !== undefined) {
+    const files = Object.fromEntries(Object.entries(change.files).filter(([path, hash]) => (base.files[path] ?? null) !== hash));
+    if (Object.keys(files).length > 0) out.files = files;
+  }
   if (change.pricing !== undefined && stable(change.pricing) !== stable(base.pricing ?? null)) out.pricing = change.pricing;
   if (change.renderer !== undefined && change.renderer !== (base.renderer ?? null)) out.renderer = change.renderer;
   return out;

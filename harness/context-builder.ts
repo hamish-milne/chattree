@@ -91,6 +91,7 @@ export interface BuildInput {
   /**
    * The same for skills (see `skillUpdates`): what was added, changed and removed by that entry. An entry may carry both.
    */
+  fileUpdates?: ReadonlyMap<string, { files: readonly { path: string; text: string | undefined; added: boolean }[] }>;
   skillUpdates?: ReadonlyMap<string, { added: readonly SkillNote[]; changed: readonly SkillNote[]; removed: readonly string[] }>;
   /** Build the context as it stood after this entry (an id in the visible sequence); what comes later is left out. */
   upTo?: string;
@@ -195,6 +196,8 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
         const parts: UserPart[] = [];
         const updated = input.instructionUpdates?.get(e.id);
         if (updated !== undefined) parts.push({ type: "text", text: render.instructionsUpdated(updated) });
+        const files = input.fileUpdates?.get(e.id);
+        if (files !== undefined) parts.push({ type: "text", text: render.instructionFilesUpdated(files.files) });
         const skills = input.skillUpdates?.get(e.id);
         if (skills !== undefined) parts.push({ type: "text", text: render.skillsUpdated(skills.added, skills.changed, skills.removed) });
         if (parts.length > 0) raw.push({ role: "user", parts, queued: e.id });

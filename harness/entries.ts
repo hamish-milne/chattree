@@ -28,7 +28,7 @@ import { ULID_RE } from "./ulid.ts";
  * what this build does not know, which is an error (update chattree), not something to skip. A major bump narrows or
  * changes it (a new required field), and a build reads only the majors it has entry types for (`entryTypesByMajor`).
  */
-export const FORMAT = { format: "chatlog", major: 2, minor: 7 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 8 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -255,6 +255,13 @@ export const agentSetup = strictObject({
   ),
   tools: Type.Optional(definitionDelta),
   instructions: Type.Optional(pinnedDefinition),
+  /**
+   * Instruction files (format 2.8): canonical path to the SHA-256 of the file's content, which is in `blobs/`. A relative path is a
+   * file of the repository, which the harness looks at before each request and records here when it differs; any other
+   * path is a file the host passed in (absolute), which is only ever what it was when it was given. Only the paths that change
+   * are written: `null` removes one, and a path that is not mentioned keeps what it had.
+   */
+  files: Type.Optional(Type.Record(nonEmpty, Type.Union([sha256, Type.Null()]))),
   skills: Type.Optional(definitionDelta),
   mcp: Type.Optional(definitionDelta),
   /**
@@ -271,7 +278,7 @@ export const agentSetup = strictObject({
   /** Provider-observed `agent_setup` entries this one accepts. */
   acknowledges: Type.Optional(Type.Array(ulid)),
   /**
-   * How a change to the instructions (or skills) reaches the model (format 2.4). `append`: the cached prefix keeps the text it had, and the
+   * How a change to the instructions (or skills, or instruction files) reaches the model (format 2.4). `append`: the cached prefix keeps the text it had, and the
    * model is told of the change at this point in the conversation, so nothing before it is re-read. `rebuild`: the prefix
    * is rewritten from the
    * setup as it is after this entry, and earlier `append` changes are folded into it. Absent on entries that change neither (and on entries

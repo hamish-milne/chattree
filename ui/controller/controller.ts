@@ -1,3 +1,4 @@
+import { canonicalInstructionPath } from "../../harness/instruction-files.ts";
 import { isDeepStrictEqual } from "node:util";
 import { providerRegistry } from "../../app/providers.ts";
 import type { AdapterRegistry } from "../../providers/registry.ts";
@@ -8,6 +9,7 @@ import { localOwner } from "../../app/owner.ts";
 import type { AppEnv } from "../../app/env.ts";
 import { AppError } from "../../app/errors.ts";
 import { inspectWorkspace, type WorkspaceFolder } from "../../app/workspace.ts";
+import { ChangeNotAllowed } from "../../harness/setup.ts";
 import { WorkspaceDirty, type Conversation, type EntryRef } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { readCommitGraph } from "../../harness/graph.ts";
@@ -27,7 +29,20 @@ import { mapGraph } from "./map-graph.ts";
 import { approvalView, statusBar, threadBanner, threadStatus } from "./map-status.ts";
 import type { Block } from "../model/transcript.ts";
 import type { FormIssue, FormSpec } from "../model/form.ts";
-import { HARNESS_FORM, checkHarness, checkProvider, harnessForm, readHarness, withValue } from "./settings.ts";
+import {
+  HARNESS_FORM,
+  MODEL_FORM,
+  checkHarness,
+  modelAdapter,
+  modelForm,
+  plainSchema,
+  settingsIssues,
+  checkProvider,
+  harnessForm,
+  instructionState,
+  readHarness,
+  withValue,
+} from "./settings.ts";
 import { headlessPlatform, type Platform } from "./platform.ts";
 
 export interface ControllerOptions {
@@ -126,6 +141,10 @@ export class Controller implements HostedController {
   #harness: { saved: Record<string, unknown>; working: Record<string, unknown>; issues: FormIssue[] } | undefined;
   #registry: AdapterRegistry | undefined;
   #settingsOpen = false;
+  /** Instruction files the person turned off for a thread in this session (the transcript only has the ones that are on). */
+  readonly #offFiles = new Map<string, Set<string>>();
+  /** Model settings being edited for a thread, not applied yet. */
+  readonly #modelEdits = new Map<string, { working: Record<string, unknown>; issues: FormIssue[] }>();
   #seq = 0;
 
   constructor(o: ControllerOptions) {
@@ -349,6 +368,7 @@ export class Controller implements HostedController {
       provider: "none",
     };
     const banner = threadBanner({ trust: await h.configTrust(), hasProvider: h.providers.size > 0 });
+    const settings = await this.#modelSettingsForm(h, name);
     const tip = refs.at(-1)?.commit ?? (await h.git.revParse(`refs/heads/${name}`)) ?? "";
     const kind = name === repo.trunk ? "main" : (entries.findLast((e) => e.$tag === "branch_start")?.kind ?? "fork");
     const title = this.#title(entries);
@@ -362,6 +382,7 @@ export class Controller implements HostedController {
         ...(run?.pending === undefined ? {} : { approval: approvalView(run.pending.request) }),
         ...(banner === undefined ? {} : { banner }),
         model: this.#models(h, setup.model === undefined ? "" : `${setup.model.provider}/${setup.model.id}`),
+        ...(settings === undefined ? {} : { settings }),
       },
     };
   }
@@ -375,6 +396,8 @@ export class Controller implements HostedController {
     this.#sent = sentOf(state);
     this.#emit({ type: "chat.open", state });
     this.#emit({ type: "graph.selected", thread: name, ...(commit === undefined ? {} : { commit }) });
+    // The sheet shows the selected thread's instruction files.
+    if (this.#settingsOpen) await this.#sendInstructions();
     if (commit === undefined) return;
     // The nearest block at or before the commit: a commit that holds no entry (a snapshot) points to the entry before it.
     const at = items.findLastIndex((i) => i.ref.commit === commit);
@@ -718,6 +741,137 @@ export class Controller implements HostedController {
       this.#harness = { saved: file.value, working: file.value, issues };
     }
     this.#emit({ type: "form.set", form: this.#harnessForm() });
+    await this.#sendInstructions();
+  }
+
+  /** The selected thread's instruction files to the sheet. */
+  async #sendInstructions(): Promise<void> {
+    const repo = this.#open();
+    const thread = this.#selected;
+    if (thread === undefined) return;
+    const off = this.#offFiles.get(thread) ?? new Set<string>();
+    this.#emit({ type: "instructions.set", state: await instructionState(await this.#handle(repo, thread), off) });
+  }
+
+  async #changeInstructions(
+    intent: Extract<UiIntent, { type: "instructions.add" | "instructions.enable" | "instructions.remove" }>,
+  ): Promise<void> {
+    const repo = this.#open();
+    const thread = this.#selected;
+    if (thread === undefined) throw new AppError("there is no thread to give instructions to");
+    if (this.#runs.has(thread)) throw new AppError("the model is working", "change the instructions when it has finished");
+    const convo = await this.#handle(repo, thread);
+    let path: string;
+    try {
+      path = canonicalInstructionPath(intent.path);
+    } catch (e) {
+      throw new AppError(message(e));
+    }
+    const off = this.#offFiles.get(thread) ?? new Set<string>();
+    this.#offFiles.set(thread, off);
+    const on = intent.type === "instructions.add" || (intent.type === "instructions.enable" && intent.on);
+    try {
+      await convo.setInstructionFiles({ [path]: on ? {} : null });
+    } catch (e) {
+      throw new AppError(message(e), "the file has to be text in this thread's working tree");
+    }
+    if (on || intent.type === "instructions.remove") off.delete(path);
+    else off.add(path);
+    await this.#openChat(thread);
+  }
+
+  // ---- the thread's model ----------------------------------------------------------------------------------
+
+  /** The form for the open thread's model settings: the adapter's schema over what the thread has, or what is being edited. */
+  async #modelSettingsForm(h: Conversation, thread: string): Promise<FormSpec | undefined> {
+    const found = await modelAdapter(h, this.#providers());
+    if (found === undefined) return undefined;
+    const saved = found.model.settings ?? {};
+    const edit = this.#modelEdits.get(thread);
+    return modelForm(plainSchema(found.def.settings), saved, edit?.working ?? saved, edit?.issues ?? []);
+  }
+
+  async #sendModelForm(thread: string): Promise<void> {
+    const form = await this.#modelSettingsForm(await this.#handle(this.#open(), thread), thread);
+    if (form !== undefined) this.#emit({ type: "form.set", form });
+  }
+
+  #selectedThread(): string {
+    if (this.#selected === undefined) throw new AppError("there is no thread open");
+    return this.#selected;
+  }
+
+  async #editModel(value: Record<string, unknown>): Promise<void> {
+    const thread = this.#selectedThread();
+    const found = await modelAdapter(await this.#handle(this.#open(), thread), this.#providers());
+    if (found === undefined) throw new AppError("this thread has no model to set");
+    this.#modelEdits.set(thread, { working: value, issues: settingsIssues(found.def, value) });
+    await this.#sendModelForm(thread);
+  }
+
+  async #revertModel(): Promise<void> {
+    const thread = this.#selectedThread();
+    this.#modelEdits.delete(thread);
+    await this.#sendModelForm(thread);
+  }
+
+  async #saveModel(): Promise<void> {
+    const thread = this.#selectedThread();
+    const edit = this.#modelEdits.get(thread);
+    if (edit === undefined) return;
+    if (edit.issues.length > 0) throw new AppError("the model settings have problems", "fix them first");
+    if (this.#runs.has(thread)) throw new AppError("the model is working", "change its settings when it has finished");
+    const h = await this.#handle(this.#open(), thread);
+    const model = (await h.setup()).model;
+    if (model === undefined) throw new AppError("this thread has no model to set");
+    await this.#changeSetup(h, { model: { ...model, settings: edit.working } });
+    this.#modelEdits.delete(thread);
+    await this.#openChat(thread);
+  }
+
+  /** Choose the thread's model (`provider/id`). Settings belong to a provider, so only `max_output_tokens` moves to another one. */
+  async #chooseModel(want: string): Promise<void> {
+    const thread = this.#selectedThread();
+    if (this.#runs.has(thread)) throw new AppError("the model is working", "change the model when it has finished");
+    const h = await this.#handle(this.#open(), thread);
+    const slash = want.indexOf("/");
+    const provider = want.slice(0, slash);
+    const id = want.slice(slash + 1);
+    const cfg = await h.readConfig();
+    const tag = cfg?.ok === true ? cfg.value.providers[provider]?.$tag : undefined;
+    const def = tag === undefined ? undefined : this.#providers().get(tag);
+    if (slash <= 0 || id === "" || def === undefined) throw new AppError(`there is no provider for ${want}`, "add one in the settings");
+    const current = (await h.setup()).model;
+    let settings = provider === current?.provider ? current.settings : undefined;
+    if (provider !== current?.provider && current?.settings?.["max_output_tokens"] !== undefined) {
+      const carried = { max_output_tokens: current.settings["max_output_tokens"] };
+      if (settingsIssues(def, carried).length === 0) settings = carried;
+    }
+    const changed = await this.#changeSetup(h, { model: { provider, id, ...(settings === undefined ? {} : { settings }) } });
+    // A new provider has its own price table: pin it, so the costs recorded from here on use the prices in force now.
+    if (changed && provider !== current?.provider) await h.pinPricing();
+    this.#modelEdits.delete(thread);
+    await this.#openChat(thread);
+  }
+
+  /**
+   * Apply a change to the thread's setup. The sheet cannot yet ask about a change the way the command line does, so what a model
+   * change always costs (a different model, a rewritten cache) is accepted and anything else (more cost, a smaller window, a
+   * change in the middle of a tool loop) is refused with what it would do.
+   */
+  async #changeSetup(h: Conversation, change: Parameters<Conversation["setupChange"]>[0]): Promise<boolean> {
+    try {
+      return (
+        (await h.setupChange(change, { allow: ["model_changed", "provider_changed", "cache_break", "reasoning_dropped"] })) !== undefined
+      );
+    } catch (e) {
+      if (e instanceof ChangeNotAllowed)
+        throw new AppError(
+          e.changes.map((c) => c.message).join("; "),
+          `refused: ${e.allowWith.join(", ")} need a decision the settings cannot ask for yet`,
+        );
+      throw e;
+    }
   }
 
   async #editHarness(id: string, value: Record<string, unknown>): Promise<void> {
@@ -832,13 +986,24 @@ export class Controller implements HostedController {
         }
         return;
       case "form.edit":
-        await this.#editHarness(intent.id, intent.value);
+        if (intent.id === MODEL_FORM) await this.#editModel(intent.value);
+        else await this.#editHarness(intent.id, intent.value);
         return;
       case "form.save":
-        await this.#saveHarness(intent.id, intent.message ?? "");
+        if (intent.id === MODEL_FORM) await this.#saveModel();
+        else await this.#saveHarness(intent.id, intent.message ?? "");
         return;
       case "form.revert":
-        await this.#sendHarness(true, intent.id);
+        if (intent.id === MODEL_FORM) await this.#revertModel();
+        else await this.#sendHarness(true, intent.id);
+        return;
+      case "chat.model":
+        await this.#chooseModel(intent.model);
+        return;
+      case "instructions.add":
+      case "instructions.enable":
+      case "instructions.remove":
+        await this.#changeInstructions(intent);
         return;
       case "provider.test":
       case "provider.models":

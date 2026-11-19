@@ -78,9 +78,9 @@ describe("the controller, reading", () => {
     await c.close();
   });
 
-  test("what is not built yet is a notice, not an exception", async () => {
+  test("an intent that cannot be carried out is a notice, not an exception", async () => {
     const { c, events } = await rig();
-    c.handle({ type: "instructions.add", path: "AGENTS.md" });
+    c.handle({ type: "chat.model", model: "x/y" });
     await c.idle();
     assert.equal(events.at(-1)?.type, "notice");
     await c.close();

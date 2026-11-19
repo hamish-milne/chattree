@@ -28,7 +28,8 @@ import {
   type MergeTreeResult,
   type Pipeline,
 } from "../src/index.ts";
-import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs } from "./blob-store.ts";
+import { canonicalInstructionPath, changedFiles, instructionText, isRepoPath } from "./instruction-files.ts";
+import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs, setupBlobs } from "./blob-store.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { addGrants, revokeGrants, untilMs } from "./approvals.ts";
 import { swapIgnored } from "./workspace-swap.ts";
@@ -1944,7 +1945,7 @@ export class Conversation {
       const next = applyChange(setup, delta);
       // A change to nothing but the instructions and skills is shown to the model where it is made: the cached prefix
       // keeps what it has, so it is classified as if the instructions and skills had not changed.
-      const touchesDefs = delta.instructions !== undefined || delta.skills !== undefined;
+      const touchesDefs = delta.instructions !== undefined || delta.skills !== undefined || delta.files !== undefined;
       const defsOnly =
         touchesDefs &&
         setup.model !== undefined &&
@@ -1972,6 +1973,60 @@ export class Conversation {
         ...(acknowledges.length > 0 ? { acknowledges } : {}),
       });
     });
+  }
+
+  /**
+   * Give the agent instruction files, or take them away (`null`). The keys are canonical paths (`canonicalInstructionPath`): a relative
+   * path is a file of the repository, read from the working tree unless `bytes` are given; an absolute one is a file the host passes in
+   * and must come with its `bytes`. The content is stored in `blobs/` and the transcript records its hash. Resolves to the entry, or
+   * undefined when nothing changes. Like any change to the instructions it is shown to the model where it is made once a request has gone out.
+   */
+  async setInstructionFiles(
+    files: Readonly<Record<string, { bytes?: Uint8Array } | null>>,
+    opts: { allow?: readonly ChangeKind[] } = {},
+  ): Promise<Appended | undefined> {
+    const delta: Record<string, string | null> = {};
+    for (const [given, what] of Object.entries(files)) {
+      let path: string;
+      try {
+        path = canonicalInstructionPath(given);
+      } catch (e) {
+        throw new ConversationError(e instanceof Error ? e.message : String(e));
+      }
+      if (what === null) {
+        delta[path] = null;
+        continue;
+      }
+      let bytes = what.bytes;
+      if (bytes === undefined) {
+        if (!isRepoPath(path)) throw new ConversationError(`${path} is outside the repository: its content has to be given`);
+        const abs = this.host.path.join(this.dir, ...path.split("/"));
+        if ((await this.host.fs.stat(abs)) === undefined)
+          throw new ConversationError(`there is no file ${path} in this thread's working tree`);
+        bytes = await this.host.fs.read(abs);
+      }
+      try {
+        instructionText(path, bytes);
+      } catch (e) {
+        throw new ConversationError(e instanceof Error ? e.message : String(e));
+      }
+      delta[path] = await this.store.put(bytes);
+    }
+    return this.setupChange({ files: delta }, opts);
+  }
+
+  /**
+   * Record the repository's instruction files that changed since they were last recorded (or vanished): one `agent_setup` entry for all
+   * of them. Called before each request, so the model always works from what is in the files. A file that cannot be used any longer (too
+   * large, no longer text) keeps the version the transcript has and is named in `problems`.
+   */
+  async syncInstructionFiles(): Promise<{ entry: Appended | undefined; problems: string[] }> {
+    const { files } = await this.setup();
+    const { changes, problems } = await changedFiles(this.host, this.dir, files);
+    if (changes.size === 0) return { entry: undefined, problems };
+    const delta: Record<string, string | null> = {};
+    for (const [path, change] of changes) delta[path] = change === null ? null : await this.store.put(change.bytes);
+    return { entry: await this.setupChange({ files: delta }), problems };
   }
 
   /**
@@ -2632,6 +2687,7 @@ export class Conversation {
         if (!e.ok)
           throw new ConversationError(`entry ${i + 1} no longer validates, so its blob references are unknown; refusing to collect blobs`);
         for (const hash of blobRefs(e.value).keys()) wanted.add(HostBlobStore.relativePath(hash));
+        if (e.value.$tag === "agent_setup") for (const hash of setupBlobs(e.value)) wanted.add(HostBlobStore.relativePath(hash));
       }
       const sizeOf = async (path: string): Promise<number> =>
         (await this.host.fs.stat(this.host.path.join(this.dir, ...path.split("/"))))?.size ?? 0;

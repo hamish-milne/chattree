@@ -51,6 +51,21 @@ export class HostBlobStore implements BlobStore {
   }
 }
 
+/** The blobs an `agent_setup` entry pins: definitions stored as blobs, and the content of instruction files. */
+export function setupBlobs(e: {
+  instructions?: { hash: string; store: string } | undefined;
+  files?: Readonly<Record<string, string | null>> | undefined;
+  tools?: { set?: Readonly<Record<string, { hash: string; store: string }>> | undefined } | undefined;
+  skills?: { set?: Readonly<Record<string, { hash: string; store: string }>> | undefined } | undefined;
+  mcp?: { set?: Readonly<Record<string, { hash: string; store: string }>> | undefined } | undefined;
+}): string[] {
+  const pins = [e.instructions, ...[e.tools, e.skills, e.mcp].flatMap((d) => Object.values(d?.set ?? {}))];
+  return [
+    ...pins.flatMap((p) => (p?.store === "blob" ? [p.hash] : [])),
+    ...Object.values(e.files ?? {}).flatMap((h) => (h === null ? [] : [h])),
+  ];
+}
+
 /**
  * Every blob a decoded entry refers to: its hash and the size the reference claims. A blob reference is not descended
  * into, so a blob's own fields are never mistaken for further references. Sizes come from the entry, not the bytes.

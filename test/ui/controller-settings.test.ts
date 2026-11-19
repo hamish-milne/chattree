@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { runInit } from "../../app/init.ts";
+import { Conversation } from "../../harness/conversation.ts";
 import { nodeHost } from "../../hosts/node.ts";
 import { Controller } from "../../ui/controller/controller.ts";
 import { parseEvent, type UiEvent } from "../../ui/model/protocol.ts";
@@ -11,11 +12,20 @@ import { tempDir } from "../support/tmp.ts";
 
 const host = nodeHost();
 
-async function rig(extraEnv: Record<string, string> = {}, fetcher?: typeof fetch) {
+async function rig(extraEnv: Record<string, string> = {}, fetcher?: typeof fetch, withModel = false) {
   const dir = await tempDir();
   const project = join(dir, "p");
   const env = { host, cwd: dir, env: { CHATTREE_ENVIRONMENT: "off", CHATTREE_SETTINGS: join(dir, "s.yml"), ...extraEnv }, now: Date.now };
-  await runInit(env, { dir: project, provider: "none" });
+  if (withModel)
+    await runInit(env, {
+      dir: project,
+      provider: "compatible",
+      baseUrl: "http://127.0.0.1:1/v1",
+      model: "qwen3:4b",
+      maxOutput: 256,
+      yes: true,
+    });
+  else await runInit(env, { dir: project, provider: "none" });
   const events: UiEvent[] = [];
   const c = new Controller({
     env,
@@ -29,6 +39,7 @@ async function rig(extraEnv: Record<string, string> = {}, fetcher?: typeof fetch
     },
   });
   c.handle({ type: "ready", view: "config" });
+  c.handle({ type: "ready", view: "chat" });
   await c.idle();
   const form = () => {
     const f = events.findLast((e) => e.type === "form.set");
@@ -151,5 +162,99 @@ describe("the controller, settings", () => {
     const s = events.findLast((e) => e.type === "provider.status");
     assert.ok(s?.type === "provider.status");
     assert.match(s.status.detail ?? "", /could not reach http:\/\/srv\/v1: connect ECONNREFUSED/);
+  });
+
+  test("instruction files: found in the workspace, added, turned off and on, removed; each a change on the thread", async () => {
+    const { c, project, events, notice } = await rig();
+    await writeFile(join(project, "AGENTS.md"), "be brief\n");
+    c.handle({ type: "ready", view: "config" });
+    await c.idle();
+    const state = () => {
+      const e = events.findLast((x) => x.type === "instructions.set");
+      assert.ok(e?.type === "instructions.set");
+      return e.state;
+    };
+    assert.deepEqual(state().files, []);
+    assert.deepEqual(state().found, [{ path: "AGENTS.md", bytes: 9 }]);
+    c.handle({ type: "instructions.add", path: "./AGENTS.md" });
+    await c.idle();
+    assert.deepEqual(state().files, [{ path: "AGENTS.md", on: true, exists: true, bytes: 9 }]);
+    assert.deepEqual(state().found, []);
+    c.handle({ type: "instructions.enable", path: "AGENTS.md", on: false });
+    await c.idle();
+    assert.deepEqual(state().files, [{ path: "AGENTS.md", on: false, exists: true, bytes: 9 }]);
+    c.handle({ type: "instructions.enable", path: "AGENTS.md", on: true });
+    await c.idle();
+    assert.equal(state().files[0]?.on, true);
+    c.handle({ type: "instructions.remove", path: "AGENTS.md" });
+    await c.idle();
+    assert.deepEqual(state().files, []);
+    assert.deepEqual(state().found, [{ path: "AGENTS.md", bytes: 9 }]);
+    const convo = await Conversation.open(host, project);
+    const files = (await convo.readEntries()).flatMap((e) =>
+      e.ok && e.value.$tag === "agent_setup" && e.value.files !== undefined ? [e.value.files] : [],
+    );
+    await convo.close();
+    assert.deepEqual(
+      files.map((f) => Object.keys(f)),
+      [["AGENTS.md"], ["AGENTS.md"], ["AGENTS.md"], ["AGENTS.md"]],
+    );
+    c.handle({ type: "instructions.add", path: "../outside.md" });
+    await c.idle();
+    assert.match(notice(), /outside the repository/);
+    c.handle({ type: "instructions.add", path: "missing.md" });
+    await c.idle();
+    assert.match(notice(), /there is no file missing\.md/);
+  });
+
+  test("the thread's model settings: the adapter's schema, checked by its rules, applied as a change on the thread", async () => {
+    const { c, events, notice, project } = await rig({}, undefined, true);
+    const open = () => {
+      const e = events.findLast((x) => x.type === "chat.open");
+      assert.ok(e?.type === "chat.open");
+      return e.state;
+    };
+    const form = () => {
+      const f = events.findLast((x) => x.type === "form.set" && x.form.id === "model-settings");
+      assert.ok(f?.type === "form.set");
+      return f.form;
+    };
+    assert.equal(open().settings?.id, "model-settings");
+    assert.equal(open().settings?.value["max_output_tokens"], 256);
+    c.handle({ type: "form.edit", id: "model-settings", value: { max_output_tokens: 256, temperature: 9 } });
+    await c.idle();
+    assert.ok(form().issues.some((i) => i.path === "temperature"));
+    assert.equal(form().dirty, true);
+    c.handle({ type: "form.save", id: "model-settings" });
+    await c.idle();
+    assert.match(notice(), /have problems/);
+    c.handle({ type: "form.edit", id: "model-settings", value: { max_output_tokens: 512, temperature: 0.5 } });
+    c.handle({ type: "form.save", id: "model-settings" });
+    await c.idle();
+    assert.deepEqual(open().settings?.value, { max_output_tokens: 512, temperature: 0.5 });
+    assert.equal(open().settings?.dirty, false);
+    const convo = await Conversation.open(host, project);
+    assert.deepEqual((await convo.setup()).model?.settings, { max_output_tokens: 512, temperature: 0.5 });
+    await convo.close();
+    c.handle({ type: "form.edit", id: "model-settings", value: { max_output_tokens: 1 } });
+    c.handle({ type: "form.revert", id: "model-settings" });
+    await c.idle();
+    assert.equal(form().dirty, false);
+  });
+
+  test("choosing a model changes it on the thread, keeping the settings of the same provider; an unknown provider is a notice", async () => {
+    const { c, events, notice, project } = await rig({}, undefined, true);
+    c.handle({ type: "chat.model", model: "local/llama3" });
+    await c.idle();
+    const open = events.findLast((x) => x.type === "chat.open");
+    assert.ok(open?.type === "chat.open");
+    assert.equal(open.state.model.current, "local/llama3");
+    const convo = await Conversation.open(host, project);
+    const m = (await convo.setup()).model;
+    await convo.close();
+    assert.deepEqual([m?.provider, m?.id, m?.settings?.["max_output_tokens"]], ["local", "llama3", 256]);
+    c.handle({ type: "chat.model", model: "nope/x" });
+    await c.idle();
+    assert.match(notice(), /there is no provider for nope\/x/);
   });
 });

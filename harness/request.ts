@@ -16,6 +16,7 @@ import { computeLedger, type Ledger } from "./ledger.ts";
 import { checkLimits, LimitExceeded, type CostWarning } from "./limits.ts";
 import { ChangeNotAllowed, pendingAppends, servedModelId, type AgentSetup } from "./setup.ts";
 import { projectDefinitions, toolSchemaLevel } from "./schema-project.ts";
+import { fileUpdates, loadInstructionFiles, withFiles } from "./instruction-files.ts";
 import { hasSkillTool, skillCatalog, skillUpdates, withCatalog } from "./skills.ts";
 import { tableHash } from "../providers/pricing.ts";
 import { hostConvertCache, type ConvertCache } from "./convert-cache.ts";
@@ -107,6 +108,9 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
       );
   }
   const renderer = findRenderer(setup.renderer ?? DEFAULT_RENDERER, opts.renderers);
+  // The same for instruction files, and the files the prefix shows (in order of path, so the prefix does not depend on when each was added).
+  const fileNotes = await fileUpdates(entries, pendingAppends(entries), convo.store);
+  const prefixFiles = await loadInstructionFiles(setup.prefix.files, convo.store);
   // The same for skills; the catalog in the prefix lists what the prefix shows, not what is current, and only for a model that has the tool.
   const skillNotes = await skillUpdates(entries, pendingAppends(entries), {
     blobs: convo.store,
@@ -119,8 +123,12 @@ export async function prepareContext(convo: Conversation, opts: PrepareOptions):
   const built = await buildContext(entries, {
     renderer,
     system: opts.system,
-    instructions: withCatalog(defs.prefixInstructions, hasSkillTool(setup) ? skillCatalog(renderer, defs.prefixSkills) : undefined),
+    instructions: withCatalog(
+      withFiles(renderer, defs.prefixInstructions, prefixFiles),
+      hasSkillTool(setup) ? skillCatalog(renderer, defs.prefixSkills) : undefined,
+    ),
     instructionUpdates,
+    fileUpdates: fileNotes,
     skillUpdates: skillNotes,
     tools: projectedTools(convo, setup.model, toolDefs),
     target: { provider: setup.model.provider, model: servedModelId(setup.model) },

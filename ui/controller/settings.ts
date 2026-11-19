@@ -7,12 +7,14 @@ import { isDeepStrictEqual } from "node:util";
 import { Type } from "typebox";
 import { stringify } from "yaml";
 import type { Conversation } from "../../harness/conversation.ts";
+import { isRepoPath } from "../../harness/instruction-files.ts";
 import { configJsonSchema } from "../../harness/config-schema.ts";
 import { harnessConfig } from "../../harness/config.ts";
 import { validateProviders, type AdapterRegistry } from "../../providers/registry.ts";
 import { editConfig, parseConfig } from "../../src/config.ts";
+import { safeParse } from "../../src/validate.ts";
 import type { FormIssue, FormSpec } from "../model/form.ts";
-import type { ModelInfo, ProviderModels, ProviderStatus } from "../model/settings.ts";
+import type { InstructionState, ModelInfo, ProviderModels, ProviderStatus } from "../model/settings.ts";
 
 type Json = Record<string, unknown>;
 const isObject = (x: unknown): x is Json => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -153,3 +155,83 @@ export async function checkProvider(
     return fail(`could not reach ${base}: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
+
+// ---- instruction files -----------------------------------------------------------------------------------------
+
+/** Files a workspace commonly has for the agent; the sheet offers the ones that exist and the thread does not have yet. */
+const WELL_KNOWN = [
+  "AGENTS.md",
+  "CLAUDE.md",
+  "GEMINI.md",
+  ".github/copilot-instructions.md",
+  ".cursorrules",
+  "CONVENTIONS.md",
+  "CONTRIBUTING.md",
+];
+
+/**
+ * The thread's instruction files as the sheet shows them: those the transcript has (on), those the person turned off in this
+ * session (listed so they can be turned on again; the transcript only knows the files that are on), and well-known files found.
+ */
+export async function instructionState(convo: Conversation, off: ReadonlySet<string>): Promise<InstructionState> {
+  const { files } = await convo.setup();
+  const stat = async (path: string): Promise<number | undefined> => {
+    if (!isRepoPath(path)) return (await convo.store.get(files[path] ?? ""))?.length;
+    const abs = convo.host.path.join(convo.dir, ...path.split("/"));
+    return (await convo.host.fs.stat(abs))?.size;
+  };
+  const rows: InstructionState["files"] = [];
+  for (const path of Object.keys(files).sort()) {
+    const bytes = await stat(path);
+    rows.push({ path, on: true, exists: bytes !== undefined, ...(bytes === undefined ? {} : { bytes }) });
+  }
+  for (const path of [...off].sort()) {
+    if (path in files) continue;
+    const bytes = await stat(path);
+    rows.push({ path, on: false, exists: bytes !== undefined, ...(bytes === undefined ? {} : { bytes }) });
+  }
+  const found: InstructionState["found"] = [];
+  for (const path of WELL_KNOWN) {
+    if (rows.some((r) => r.path === path)) continue;
+    const bytes = await stat(path);
+    if (bytes !== undefined) found.push({ path, bytes });
+  }
+  return { files: rows, found };
+}
+
+// ---- the thread's model ----------------------------------------------------------------------------------------
+
+export const MODEL_FORM = "model-settings";
+
+/** The adapter and the provider's tag for the thread's model, as harness.yml names them; undefined when there is no model or no provider. */
+export async function modelAdapter(convo: Conversation, registry: AdapterRegistry) {
+  const model = (await convo.setup()).model;
+  const cfg = await convo.readConfig();
+  if (model === undefined || cfg === undefined || !cfg.ok) return undefined;
+  const tag = cfg.value.providers[model.provider]?.$tag;
+  const def = tag === undefined ? undefined : registry.get(tag);
+  return def === undefined ? undefined : { model, def, tag: def.$tag };
+}
+
+/** What is wrong with a model-settings object, by the adapter's own rules. */
+export function settingsIssues(def: NonNullable<Awaited<ReturnType<typeof modelAdapter>>>["def"], value: Json): FormIssue[] {
+  const r = safeParse(def.settings, value);
+  return r.ok ? [] : r.issues.map((i) => ({ path: i.path.join("."), message: i.message }));
+}
+
+export function modelForm(schema: Json, saved: Json, working: Json, issues: FormIssue[]): FormSpec {
+  return {
+    id: MODEL_FORM,
+    title: "Model settings",
+    schema,
+    value: working,
+    issues,
+    dirty: !isDeepStrictEqual(saved, working),
+    saveLabel: "Apply to thread",
+  };
+}
+
+export const plainSchema = (schema: unknown): Json => {
+  const plain: unknown = JSON.parse(JSON.stringify(schema));
+  return isObject(plain) ? plain : {};
+};
