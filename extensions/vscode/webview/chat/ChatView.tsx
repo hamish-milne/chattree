@@ -53,7 +53,7 @@ function Transcript({ model }: { model: Model }): JSX.Element {
   const [stuck, setStuck] = useState(true);
   const blocks = model.blocks.value;
   // The progress line at the end is drawn by `Progress`; this reads what it depends on so a line that appears keeps the view pinned to the bottom.
-  const ending = `${model.activity.value?.phase ?? ""}|${model.status.value?.stalled ?? ""}`;
+  const ending = `${model.activity.value?.phase ?? ""}|${model.status.value?.stalled ?? ""}|${model.forwarded.value.length}`;
   // Both are walks of the whole list: made again only when the blocks are.
   const shown = useMemo(() => items(blocks), [blocks]);
   const keys = useMemo(() => shown.map((i) => i.key), [shown]);

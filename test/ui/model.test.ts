@@ -95,6 +95,7 @@ describe("the protocol", () => {
     { type: "chat.reveal", commit: "abc1234" },
     { type: "chat.composer", composer: { draft: "hi", attachments: [] } },
     { type: "chat.approval", approval: { callId: "c9", name: "run", summary: "run rm -rf build", args: "{}" } },
+    { type: "chat.forwarded", questions: [{ thread: "sub/writer", callId: "c1", tool: "run", summary: "run rm -rf build" }] },
     { type: "chat.activity", activity: { phase: "retrying", since: 1, until: 3000, attempt: 2, detail: "503 http: overloaded" } },
     { type: "form.set", form: configFixture() },
     { type: "provider.status", provider: "local", status: { state: "error", detail: "connection refused" } },

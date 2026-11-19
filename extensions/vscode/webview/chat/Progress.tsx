@@ -60,22 +60,60 @@ export function describe(a: Activity, now: number): { text: string; extra?: stri
       };
     case "tool":
       return { text: `Running ${a.detail ?? "a tool"}`, extra: since };
+    case "blocked":
+      return { text: `Waiting for ${(a.detail ?? "other threads").split(",").join(", ")} to finish` };
     default:
       return { text: "Working" };
   }
 }
 
-export function Progress({ model }: { model: Model }): JSX.Element | null {
+/** Questions of the threads below this one: the person is told something there needs them, and goes there to answer. */
+function Forwarded({ model }: { model: Model }): JSX.Element | null {
+  const questions = model.forwarded.value;
+  if (questions.length === 0) return null;
+  return (
+    <>
+      {questions.map((q) => (
+        <div key={`${q.thread}:${q.callId}`} class={cn(css.progress, css.progress_warn, css.stalled)} role="status">
+          <Icon name="warn" size={12} />
+          <span class={css.progress_text}>
+            <strong>{q.thread}</strong> is asking: {q.summary}
+          </span>
+          <button class="primary" onClick={() => model.openThread(q.thread)}>
+            Go to {q.thread}
+          </button>
+        </div>
+      ))}
+    </>
+  );
+}
+
+export function Progress({ model }: { model: Model }): JSX.Element {
+  return (
+    <>
+      <Line model={model} />
+      <Forwarded model={model} />
+    </>
+  );
+}
+
+function Line({ model }: { model: Model }): JSX.Element | null {
   const a = model.activity.value;
   const stalled = model.status.value?.stalled;
-  const now = useNow(a !== undefined);
+  const now = useNow(a !== undefined && a.phase !== "blocked");
   if (a !== undefined) {
     const d = describe(a, now);
+    const blocked = a.phase === "blocked" ? (a.detail ?? "").split(",").filter((n) => n !== "") : [];
     return (
       <div class={cn(css.progress, d.warn === true && css.progress_warn)} role="status" aria-live="polite">
         {d.warn === true ? <Icon name="warn" size={12} /> : <span class={css.progress_spin} aria-hidden="true" />}
         <span class={css.progress_text}>{d.text}</span>
         {d.extra !== undefined && <span class={css.progress_extra}>{d.extra}</span>}
+        {blocked.map((n) => (
+          <button key={n} onClick={() => model.openThread(n)}>
+            Go to {n}
+          </button>
+        ))}
       </div>
     );
   }

@@ -4,7 +4,7 @@
  * It follows the controller's events and sends intents; it knows nothing of VS Code or the DOM.
  */
 import { computed, createModel, signal } from "@preact/signals-core";
-import type { Activity, Approval, ChatBanner, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
+import type { Activity, Approval, ForwardedQuestion, ChatBanner, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
 import { FormModel } from "./form-model.ts";
 import type { UiEvent, UiIntent } from "./protocol.ts";
 import type { FileRef } from "./file-ref.ts";
@@ -34,6 +34,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const composer = signal<Composer>({ draft: "", attachments: [] });
   const approval = signal<Approval | undefined>(undefined);
   const activity = signal<Activity | undefined>(undefined);
+  const forwarded = signal<readonly ForwardedQuestion[]>([]);
   const models = signal<ModelChoice | undefined>(undefined);
   const banner = signal<ChatBanner | undefined>(undefined);
   const settings = signal<InstanceType<typeof FormModel> | undefined>(undefined);
@@ -88,6 +89,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     settings,
     settingsOpen,
     activity,
+    forwarded,
     reveal,
     fileClick,
     fileMenu,
@@ -107,6 +109,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
           composer.value = e.state.composer;
           approval.value = e.state.approval;
           activity.value = e.state.activity;
+          forwarded.value = e.state.forwarded ?? [];
           banner.value = e.state.banner;
           models.value = e.state.model;
           settings.value = e.state.settings === undefined ? undefined : new FormModel(e.state.settings, send);
@@ -156,6 +159,9 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
         case "chat.approval":
           approval.value = e.approval;
           return true;
+        case "chat.forwarded":
+          forwarded.value = e.questions;
+          return true;
         case "chat.activity":
           activity.value = e.activity;
           return true;
@@ -188,6 +194,10 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     approve(allow: boolean): void {
       const a = approval.peek();
       if (a !== undefined) send({ type: "chat.approve", callId: a.callId, allow });
+    },
+    /** Go to another thread (one that waits for the person, or that this one waits for). */
+    openThread(target: string): void {
+      send({ type: "thread.open", thread: target });
     },
     /** Carry on a stalled thread: the model runs on it as it is. */
     resume(): void {

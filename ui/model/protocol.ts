@@ -7,7 +7,7 @@
 import { Type, type Static } from "typebox";
 import { safeParse, strictObject, type ParseResult } from "../../src/validate.ts";
 import { THREAD_STATUSES, graphData, hash, repoList } from "./graph.ts";
-import { activity, approval, chatBanner, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
+import { activity, approval, forwardedQuestion, chatBanner, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
 import { formSpec } from "./form.ts";
 import { instructionState, providerModels, providerStatus } from "./settings.ts";
 import { block } from "./transcript.ts";
@@ -57,6 +57,8 @@ export const event = Type.Union([
   /** A tool call is waiting for an answer; absent when none is. */
   ev("chat.approval", { approval: Type.Optional(approval) }),
   /** What the working thread is doing now; absent when it is not working (or is waiting for an answer). */
+  /** The questions of threads below this one that wait for the person (all of them, each time). */
+  ev("chat.forwarded", { questions: Type.Array(forwardedQuestion) }),
   ev("chat.activity", { activity: Type.Optional(activity) }),
   /** The thread cannot take messages for this reason; absent when it can. */
   ev("chat.banner", { banner: Type.Optional(chatBanner) }),

@@ -24,6 +24,7 @@ import type { Activity, ChatState, Composer, ModelChoice, StatusBar } from "../m
 import type { GraphData, RepoEntry, ThreadStatus } from "../model/graph.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
 import { diffBlocks } from "./diff-blocks.ts";
+import { Background } from "./background.ts";
 import { summarizeCall } from "../../app/tool-lines.ts";
 import { traceHttp } from "../../providers/http.ts";
 import { describeError, explain } from "./explain.ts";
@@ -108,6 +109,9 @@ interface Sent {
   status: string;
   thread: string;
   approval: string;
+  /** The questions of the threads below, and the threads this one is blocked on (as the view was last told). */
+  forwarded: string;
+  blocked: string;
   banner: string;
   model: string;
 }
@@ -120,6 +124,8 @@ function sentOf(state: ChatState): Sent {
     status: JSON.stringify(state.status),
     thread: JSON.stringify(state.thread),
     approval: JSON.stringify(state.approval ?? null),
+    forwarded: JSON.stringify(state.forwarded ?? []),
+    blocked: state.activity?.phase === "blocked" ? (state.activity.detail ?? "") : "",
     banner: JSON.stringify(state.banner ?? null),
     model: JSON.stringify(state.model),
   };
@@ -153,6 +159,18 @@ export class Controller implements HostedController {
   /** The bytes of each staged file, by the id the composer shows. */
   readonly #staged = new Map<string, { bytes: Uint8Array; mime: string; name: string }>();
   readonly #runs = new Map<string, Run>();
+  /** The subagents and forks that run by themselves, and the questions of every thread (see `Background`). */
+  #bg: Background | undefined;
+  /** What the pump's runs are doing, in the shape of a run of ours, so they show the same way (status, stream, activity). */
+  readonly #pumped = new Map<string, Run>();
+  /** What `#questionsChanged` last saw. */
+  #questionKey = JSON.stringify([[], null]);
+  /** Threads the controller has run in this session. */
+  readonly #ran = new Set<string>();
+  /** Threads a message is being put on and started, which the pump must not start too. */
+  readonly #sending = new Set<string>();
+  /** What was owed on a thread the first time the pump said so: that is the person's to continue; what arrives afterwards runs by itself. */
+  readonly #owedAt = new Map<string, string | undefined>();
   readonly #toolsets = new WeakMap<Conversation, Promise<ToolSet>>();
   readonly #environment: HostEnvironment | undefined;
   #sent: Sent | undefined;
@@ -243,6 +261,13 @@ export class Controller implements HostedController {
       const q = this.#queue;
       await q;
       if (this.#active > 0) await new Promise<void>((r) => this.#quiet.push(r));
+      // The threads that run by themselves count too (not the questions they wait on). With no timer nobody else drives the pump, so this
+      // does: it looks at the threads until nothing more starts. With one, the pump's own watch starts them, and this waits for what runs.
+      const pump = this.#bg?.pump;
+      if (pump !== undefined && (this.#o.pollMs ?? 500) === 0) await pump.settle().catch(() => undefined);
+      else if (pump?.runs.list().some((r) => r.state === "running") === true)
+        // oxlint-disable-next-line typescript/await-thenable -- `cycleEnd` is undefined for a run that has gone
+        await Promise.all(pump.runs.list().map((r) => pump.runs.get(r.branch)?.cycleEnd({ next: false })));
       if (q === this.#queue && this.#active === 0) return;
     }
   }
@@ -299,6 +324,8 @@ export class Controller implements HostedController {
     }
     await this.#queue;
     await Promise.all([...this.#runs.values()].map((r) => r.done));
+    await this.#bg?.close();
+    this.#bg = undefined;
     await this.#dropHandles();
     await this.#repo?.convo.close();
     this.#repo = undefined;
@@ -358,8 +385,15 @@ export class Controller implements HostedController {
     const main = found.mainRoot === found.root ? found : await findProject(env, found.mainRoot);
     const { convo } = await openThread(env, main, undefined, { providers: "optional" });
     const old = this.#repo;
+    await this.#bg?.close();
+    this.#bg = undefined;
+    this.#pumped.clear();
+    this.#owedAt.clear();
     await this.#dropHandles();
     this.#repo = { folder, project: found, main, convo, trunk: keep?.trunk ?? (await this.#trunkOf(main)), checkedOut: found.branch };
+    this.#questionKey = JSON.stringify([[], null]);
+    this.#bg = this.#makeBackground(this.#repo);
+    if ((this.#o.pollMs ?? 500) > 0) this.#bg.pump.watch();
     this.#selected = keep?.selected ?? found.branch;
     await old?.convo.close();
     // The settings are the new repository's: the sheet, if it is open, shows them.
@@ -417,6 +451,11 @@ export class Controller implements HostedController {
       if (lease.state === "live") out.set(b.name, lease.owner.session === owner.session ? "running" : "elsewhere");
       else if (lease.state === "stale") out.set(b.name, "error");
       else if (b.running) out.set(b.name, "elsewhere");
+    }
+    // A thread with a question waiting is asking, and so is every thread that waits for it: the person should be able to see it from above.
+    for (const q of this.#bg?.questions() ?? []) {
+      out.set(q.branch, "awaiting");
+      for (const a of q.ancestors) out.set(a, "awaiting");
     }
     return out;
   }
@@ -482,7 +521,11 @@ export class Controller implements HostedController {
     });
     const entries = items.map((i) => i.entry);
     const spends = await entrySpends(entries, h.priceResolver());
-    const run = this.#runs.get(name);
+    const run = this.#runs.get(name) ?? this.#pumped.get(name);
+    // A thread whose call waits for a decision that the pump holds (a subagent's), and the threads one is blocked on.
+    const ask = this.#runs.has(name) ? undefined : this.#bg?.own(name);
+    const blockedOn = this.#runs.has(name) || run !== undefined ? undefined : this.#bg?.blockedOn(name);
+    const below = this.#bg?.below(name) ?? [];
     const blocks = await mapEntries(
       items,
       { blob: (sha) => h.store.get(sha) },
@@ -494,11 +537,15 @@ export class Controller implements HostedController {
     // A request of this session is working even before it has taken the lease.
     const state: ThreadStatus =
       run === undefined
-        ? threadStatus({ lease, entries, self: (o) => o.session === this.#session })
-        : run.pending === undefined
+        ? threadStatus({ lease, entries, awaiting: ask !== undefined, self: (o) => o.session === this.#session })
+        : run.pending === undefined && ask === undefined
           ? "running"
           : "awaiting";
-    const stalled = run === undefined && (state === "idle" || state === "error") ? stalledReason(entries) : undefined;
+    // Waiting for other threads is not a stall; nor is a thread the pump is about to run or has a question on.
+    const stalled =
+      run === undefined && blockedOn === undefined && ask === undefined && (state === "idle" || state === "error")
+        ? stalledReason(entries)
+        : undefined;
     const bar: StatusBar = statusBar({
       state,
       stalled,
@@ -527,8 +574,26 @@ export class Controller implements HostedController {
         blocks,
         status: bar,
         composer: structuredClone(this.#composer(name)),
-        ...(run?.pending === undefined ? {} : { approval: approvalView(run.pending.request) }),
-        ...(run?.activity === undefined ? {} : { activity: structuredClone(run.activity) }),
+        ...(run?.pending !== undefined
+          ? { approval: approvalView(run.pending.request) }
+          : ask === undefined
+            ? {}
+            : { approval: approvalView({ callId: ask.callId, name: ask.name, args: ask.args }) }),
+        ...(below.length === 0
+          ? {}
+          : {
+              forwarded: below.map((q) => ({
+                thread: q.branch,
+                callId: q.callId,
+                tool: q.name,
+                summary: approvalView({ callId: q.callId, name: q.name, args: q.args }).summary,
+              })),
+            }),
+        ...(run?.activity !== undefined
+          ? { activity: structuredClone(run.activity) }
+          : blockedOn === undefined
+            ? {}
+            : { activity: { phase: "blocked" as const, since: 0, detail: blockedOn.join(",") } }),
         ...(banner === undefined ? {} : { banner }),
         model: this.#models(h, setup.model === undefined ? "" : `${setup.model.provider}/${setup.model.id}`),
         ...(settings === undefined ? {} : { settings }),
@@ -575,8 +640,78 @@ export class Controller implements HostedController {
     if (now.model !== sent.model) this.#emit({ type: "chat.models", models: state.model });
     if (now.approval !== sent.approval)
       this.#emit({ type: "chat.approval", ...(state.approval === undefined ? {} : { approval: state.approval }) });
+    if (now.forwarded !== sent.forwarded) this.#emit({ type: "chat.forwarded", questions: state.forwarded ?? [] });
+    if (now.blocked !== sent.blocked)
+      this.#emit({ type: "chat.activity", ...(state.activity === undefined ? {} : { activity: state.activity }) });
     if (now.banner !== sent.banner) this.#emit({ type: "chat.banner", ...(state.banner === undefined ? {} : { banner: state.banner }) });
     this.#sent = now;
+  }
+
+  /** The runner for a repository's subagents and self-running forks, and the questions of its threads. */
+  #makeBackground(repo: Repo): Background {
+    return new Background({
+      env: this.#o.env,
+      session: this.#session,
+      project: repo.project,
+      trunk: repo.convo,
+      environment: this.#environment,
+      toolsetFor: async (thread) => this.#toolset(repo, await this.#handle(repo, thread), thread),
+      // The thread on screen and any the person has a request on are the controller's: it runs them, and the pump only says when one is owed.
+      ran: (thread) => this.#ran.has(thread),
+      owns: (thread) => this.#runs.has(thread) || this.#sending.has(thread) || thread === this.#selected,
+      wanted: (thread, at) => {
+        if (this.#runs.has(thread) || this.#sending.has(thread)) return;
+        // What was owed when the thread was first looked at is the person's to continue (the Continue button); what arrives later runs by itself.
+        if (!this.#owedAt.has(thread)) this.#owedAt.set(thread, at);
+        if (this.#owedAt.get(thread) === at) return;
+        this.#owedAt.set(thread, at);
+        this.#carryOn(thread);
+      },
+      event: async (thread, e) => {
+        let run = this.#pumped.get(thread);
+        if (run === undefined) {
+          run = { abort: new AbortController(), awaiting: new Set(), running: new Set(), active: true, done: Promise.resolve() };
+          this.#pumped.set(thread, run);
+          this.#log(`background run on ${thread} started`);
+          this.#setActivity(thread, run, { phase: "preparing", since: Date.now() });
+        }
+        await this.#runOf.run({ thread, run }, () => this.#onLoop(thread, run, e)).catch(() => undefined);
+      },
+      ended: (thread, why) => {
+        const run = this.#pumped.get(thread);
+        this.#pumped.delete(thread);
+        if (run !== undefined) this.#setActivity(thread, run, undefined);
+        this.#log(`background run on ${thread} ended${why === undefined ? "" : `: ${why}`}`);
+        if (why !== undefined) this.#notify(`${thread} stopped: ${why}`, "warning");
+        void this.#publish(thread).catch(() => undefined);
+        this.#questionsChanged();
+      },
+      changed: () => this.#questionsChanged(),
+      say: (t) => this.#notify(t),
+    });
+  }
+
+  /**
+   * The questions waiting, or what a thread waits for, changed: the graph shows which threads are asking, and the open thread shows
+   * the questions of the threads below it. The pump's runs are not ours, so nothing else tells the view.
+   */
+  #questionsChanged(): void {
+    if (this.#closed || this.#repo === undefined) return;
+    const open = this.#selected;
+    // The pump says so after every look; only a change in who asks, or in what the open thread waits for, is news.
+    const key = JSON.stringify([
+      (this.#bg?.questions() ?? []).map((q) => [q.branch, q.callId, q.ancestors]),
+      open === undefined ? null : (this.#bg?.blockedOn(open) ?? null),
+    ]);
+    if (key === this.#questionKey) return;
+    this.#questionKey = key;
+    void this.#sendGraph().catch(() => undefined);
+    if (open === undefined) return;
+    // Only a thread whose view shows (or showed) something from the pump is read again for it.
+    const sent = this.#sent;
+    const shown = sent !== undefined && (sent.forwarded !== "[]" || sent.blocked !== "" || sent.approval !== "null");
+    const now = (this.#bg?.below(open).length ?? 0) > 0 || this.#bg?.own(open) !== undefined || this.#bg?.blockedOn(open) !== undefined;
+    if (shown || now) void this.#publish(open).catch(() => undefined);
   }
 
   /** The tools for a thread, built once from its `harness.yml`. */
@@ -589,8 +724,9 @@ export class Controller implements HostedController {
         projectDir: repo.project.mainRoot,
         onCommitted: () => void this.#publish(thread).catch(() => undefined),
         onResume: () => undefined,
+        pumped: true,
         // `fork` and `merge`: a fork the model makes is a thread like any other (it shows in the graph), and the first message it leaves
-        // for it waits in that thread's composer for the person to send. (`auto_run` and subagents need the pump, which this does not run.)
+        // for it waits in that thread's composer for the person to send. (`auto_run` forks and subagents run in the background, see `Background`.)
         createFork: async (name) => {
           const made = await createFork(this.#o.env, repo.project, convo, name);
           this.#handles.set(made.branch, made.conversation);
@@ -771,26 +907,34 @@ export class Controller implements HostedController {
       if (f !== undefined) content.content.push(await h.attach(f.bytes, { mime: f.mime, name: f.name }));
     }
     if (content.content.length === 0) return;
-    await h.append(content);
-    for (const a of composer.attachments) this.#staged.delete(a.id);
-    this.#composers.set(thread, { draft: "", attachments: [] });
-    this.#emit({ type: "chat.composer", composer: { draft: "", attachments: [] } });
-    if (running !== undefined) return await this.#publish(thread);
-    this.#startRun(repo, h, thread);
+    // The pump must not start a request for this message too: from the append until our own run is going, the thread is ours.
+    this.#sending.add(thread);
+    try {
+      await h.append(content);
+      for (const a of composer.attachments) this.#staged.delete(a.id);
+      this.#composers.set(thread, { draft: "", attachments: [] });
+      this.#emit({ type: "chat.composer", composer: { draft: "", attachments: [] } });
+      if (running !== undefined) return await this.#publish(thread);
+      this.#startRun(repo, h, thread);
+    } finally {
+      this.#sending.delete(thread);
+    }
   }
 
   /** Run the model on the thread as it stands, until it has answered (a message was just added, or the thread stalled). */
   #startRun(repo: Repo, h: Conversation, thread: string): void {
     const run: Run = { abort: new AbortController(), awaiting: new Set(), running: new Set(), active: true, done: Promise.resolve() };
     this.#runs.set(thread, run);
+    this.#ran.add(thread);
     this.#log(`run on ${thread} started`);
     this.#setActivity(thread, run, { phase: "preparing", since: Date.now() });
     this.#work(1);
+    let carryOn = false;
     run.done = this.#runOf.run({ thread, run }, async () => {
       try {
         const tools = await this.#toolset(repo, h, thread);
         await this.#publish(thread);
-        await runThread({
+        const result = await runThread({
           env: this.#o.env,
           convo: h,
           tools,
@@ -806,11 +950,16 @@ export class Controller implements HostedController {
           },
           onEvent: (e) => this.#onLoop(thread, run, e),
         });
+        // A run that ended by its own course leaves what comes next to whatever the thread waits for (a subagent's report): that runs by itself.
+        carryOn = result.status === "completed" || result.status === "finished" || result.status === "blocked";
       } catch (e) {
         this.#log(`run on ${thread} failed: ${describeError(e)}`);
         this.#notify(explain(e), "error");
       } finally {
         this.#log(`run on ${thread} ended`);
+        // A run that failed, or was stopped, leaves what is owed for the person to continue (the Continue button), or the pump would try again
+        // in a circle; one that ended by its own course leaves what comes next to the pump.
+        this.#owedAt.set(thread, carryOn ? undefined : await this.#lastEntryId(h).catch(() => undefined));
         this.#runs.delete(thread);
         this.#setActivity(thread, run, undefined);
         await this.#publish(thread).catch(() => undefined);
@@ -819,12 +968,36 @@ export class Controller implements HostedController {
     });
   }
 
+  /** The pump says a thread of ours is owed a request (a subagent handed back): run it, on screen or not, as the person's Continue would. */
+  #carryOn(thread: string): void {
+    this.#queue = this.#queue.then(async () => {
+      if (this.#closed) return;
+      try {
+        await this.#start();
+        await this.#resume(thread);
+      } catch (e) {
+        this.#log(`could not carry on ${thread}: ${describeError(e)}`);
+      }
+    });
+  }
+
+  /** The id of the last entry that says something about the thread's state (not set-up, approvals or injections), as the pump reads it. */
+  async #lastEntryId(h: Conversation): Promise<string | undefined> {
+    const entries = (await h.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+    const last = entries.findLast(
+      (e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection",
+    );
+    return last !== undefined && "id" in last && typeof last.id === "string" ? last.id : undefined;
+  }
+
   /** Carry on a thread that stalled: the model is run on it as it is, with no message added. */
-  async #resume(): Promise<void> {
+  async #resume(on?: string): Promise<void> {
     const repo = this.#repo;
-    const thread = this.#selected;
+    const thread = on ?? this.#selected;
     if (repo === undefined || thread === undefined) throw new AppError("there is no thread open");
     if (this.#runs.has(thread)) throw new AppError("the model is already working on this thread");
+    // A subagent that stopped is run again as a subagent (with its own tools), by the pump.
+    if (this.#bg?.resume(thread) === true) return;
     await this.#assertQuiet(repo, thread, "carry on");
     const h = await this.#handle(repo, thread);
     await h.assertConfigTrusted();
@@ -836,16 +1009,29 @@ export class Controller implements HostedController {
 
   #stop(): void {
     const run = this.#selected === undefined ? undefined : this.#runs.get(this.#selected);
-    if (run === undefined) return;
+    if (run === undefined) {
+      // A run the pump has on this thread (a subagent): stopped, and left alone until the person resumes it.
+      if (this.#selected !== undefined) this.#bg?.stop(this.#selected);
+      return;
+    }
     run.abort.abort();
     run.pending?.resolve({ allow: false, reason: "stopped" });
   }
 
-  #approve(callId: string, allow: boolean): void {
-    const run = this.#selected === undefined ? undefined : this.#runs.get(this.#selected);
-    if (run?.pending === undefined || run.pending.request.callId !== callId)
+  async #approve(callId: string, allow: boolean): Promise<void> {
+    const thread = this.#selected;
+    const run = thread === undefined ? undefined : this.#runs.get(thread);
+    if (run?.pending !== undefined && run.pending.request.callId === callId) {
+      run.pending.resolve(allow ? { allow: true } : { allow: false });
+      return;
+    }
+    // A question the pump holds: the thread's own (a subagent's), answered into its transcript so its loop goes on.
+    const ask = thread === undefined ? undefined : this.#bg?.own(thread);
+    if (thread === undefined || ask === undefined || ask.callId !== callId || this.#bg === undefined)
       throw new AppError("that question is no longer waiting for an answer");
-    run.pending.resolve(allow ? { allow: true } : { allow: false });
+    const r = await this.#bg.pump.answer(thread, callId, allow ? { allow: true } : { allow: false });
+    if (r.status !== "recorded") throw new AppError("that question is no longer waiting for an answer");
+    await this.#publish(thread);
   }
 
   async #attach(): Promise<void> {
@@ -956,6 +1142,8 @@ export class Controller implements HostedController {
     const h = await this.#handle(repo, thread);
     const back = before ? await this.#before(h, commit) : undefined;
     await h.rewind(back?.target.commit ?? commit);
+    // Where it stands now is the person's doing: what it owes is theirs to continue, not for the pump to start.
+    this.#owedAt.set(thread, await this.#lastEntryId(h));
     if (back !== undefined) this.#prefill(thread, back.text);
     this.#notify(`Went back to ${commit.slice(0, 7)}; what came after is kept and can be recovered`);
     await this.#changed(thread);
@@ -1363,7 +1551,7 @@ export class Controller implements HostedController {
         this.#stop();
         return;
       case "chat.approve":
-        this.#approve(intent.callId, intent.allow);
+        await this.#approve(intent.callId, intent.allow);
         return;
       case "chat.resume":
         await this.#resume();

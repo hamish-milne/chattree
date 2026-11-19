@@ -41,14 +41,15 @@ export const composer = strictObject({
 });
 export type Composer = Static<typeof composer>;
 
-export const ACTIVITY_PHASES = ["preparing", "waiting", "streaming", "retrying", "tool"] as const;
+export const ACTIVITY_PHASES = ["preparing", "waiting", "streaming", "retrying", "tool", "blocked"] as const;
 export type ActivityPhase = (typeof ACTIVITY_PHASES)[number];
 
 /**
  * What a working thread is doing right now, for the line at the end of the transcript. `preparing`: getting the request ready;
  * `waiting`: the request is sent and nothing has come back; `streaming`: the model is answering (`detail` says `thinking` while it
  * reasons); `retrying`: the last attempt failed and the next one starts at `until` (`detail` says why); `tool`: a call is running
- * (`detail` is its summary). `since` is when the phase began, in milliseconds since the epoch, so the view can show how long it has
+ * (`detail` is its summary); `blocked`: the thread has handed work to other threads and waits for them (`detail` names them, separated by
+ * commas; no request is going on here). `since` is when the phase began, in milliseconds since the epoch, so the view can show how long it has
  * lasted without being told every second.
  */
 export const activity = strictObject({
@@ -72,6 +73,18 @@ export const approval = strictObject({
   args: Type.String(),
 });
 export type Approval = Static<typeof approval>;
+
+/**
+ * A question some other thread is waiting on, shown in the threads that wait for it (a subagent's parent, and its parent): the person
+ * is told something below needs them, and goes to that thread to answer.
+ */
+export const forwardedQuestion = strictObject({
+  thread: Type.String({ minLength: 1 }),
+  callId: Type.String({ minLength: 1 }),
+  tool: Type.String(),
+  summary: Type.String(),
+});
+export type ForwardedQuestion = Static<typeof forwardedQuestion>;
 
 export const modelChoice = strictObject({
   current: Type.String(),
@@ -111,6 +124,7 @@ export const chatState = strictObject({
   status: statusBar,
   composer,
   approval: Type.Optional(approval),
+  forwarded: Type.Optional(Type.Array(forwardedQuestion)),
   activity: Type.Optional(activity),
   banner: Type.Optional(chatBanner),
   /** The model picker and the form for its settings, which the view shows in the expandable section. */

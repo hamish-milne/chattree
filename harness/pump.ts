@@ -81,6 +81,7 @@ export class Pump {
   readonly #held = new Map<string, string>();
   readonly #questions = new Map<string, Question>();
   readonly #kinds = new Map<string, TipState["kind"]>();
+  readonly #blocked = new Map<string, string[]>();
   readonly #parents = new Map<string, string | null>();
   #chain: Promise<unknown> = Promise.resolve();
   #closed = false;
@@ -101,6 +102,11 @@ export class Pump {
   /** The questions waiting, oldest thread first. */
   questions(): Question[] {
     return [...this.#questions.values()];
+  }
+
+  /** The threads a thread's calls wait for (a foreground subagent that is still working), when it waits for any: it is not stalled, it is blocked. */
+  blockedOn(branch: string): readonly string[] | undefined {
+    return this.#blocked.get(branch);
   }
 
   /** Counts of threads by state (those the pump has looked at): running, blocked on others, asking the user, and held. */
@@ -189,6 +195,7 @@ export class Pump {
     if (only === undefined) {
       for (const b of [...this.#questions.keys()]) if (!names.includes(b)) this.#questions.delete(b);
       for (const b of [...this.#kinds.keys()]) if (!names.includes(b)) this.#kinds.delete(b);
+      for (const b of [...this.#blocked.keys()]) if (!names.includes(b)) this.#blocked.delete(b);
       this.#hooks.onQuestions?.(this.questions());
     }
   }
@@ -204,11 +211,14 @@ export class Pump {
     if (options === undefined) {
       this.#setQuestion(branch, undefined);
       this.#kinds.delete(branch);
+      this.#blocked.delete(branch);
       return;
     }
     await this.#hooks.deliver?.(convo);
     const tip = await this.#fold(convo, options);
     this.#kinds.set(branch, tip.kind);
+    if (tip.kind === "blocked") this.#blocked.set(branch, tip.on);
+    else this.#blocked.delete(branch);
     let since: number | undefined;
     let ancestors: string[] = [];
     if (tip.kind === "needs_approval") {

@@ -402,4 +402,68 @@ describe("the controller, turns", () => {
       await finish();
     }
   });
+
+  const handBack = (summary: string): Reply => callTools({ id: "m1", name: "merge", args: { summary } });
+
+  test("a subagent runs in the background, and when it hands back the parent carries on by itself", async () => {
+    const { c, server, view, finish } = await rig([
+      callTools({ id: "s1", name: "subagent", args: { brief: "count the files", name: "counter" } }),
+      handBack("counted 3 files"),
+      answer("The subagent counted 3 files."),
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "delegate" });
+      await c.idle();
+      c.handle({ type: "chat.approve", callId: "s1", allow: true });
+      await c.idle();
+      assert.equal(server.seen.length, 3, "parent, child, then the parent again");
+      const texts = view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
+      assert.ok(texts.includes("The subagent counted 3 files."), `the parent answered: ${texts.join(" | ")}`);
+      assert.equal(view.status.value?.stalled, undefined);
+      assert.equal(view.activity.value, undefined);
+    } finally {
+      await finish();
+    }
+  });
+
+  test("a question in a subagent shows in the parent, with a way to go there; answering it there lets the work go on", async () => {
+    const { c, server, view, events, finish } = await rig([
+      callTools({ id: "s1", name: "subagent", args: { brief: "write the file", name: "writer" } }),
+      callTools({ id: "r1", name: "run", args: { command: "echo hi > out.txt" } }),
+      handBack("wrote it"),
+      answer("It is written."),
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "delegate" });
+      await c.idle();
+      c.handle({ type: "chat.approve", callId: "s1", allow: true });
+      await c.idle();
+      assert.equal(server.seen.length, 2, "the child is waiting for an answer, and so is everything above it");
+      assert.equal(view.blocks.value.length > 0, true);
+      const parent = view.thread.value?.name ?? "";
+      const q = view.forwarded.value[0];
+      assert.ok(q !== undefined && q.tool === "run", `the parent shows the child's question: ${JSON.stringify(view.forwarded.value)}`);
+      assert.match(q.summary, /echo hi/);
+      assert.equal(view.activity.value?.phase, "blocked", "and says it waits for the child");
+      assert.match(view.activity.value?.detail ?? "", /writer/);
+      assert.equal(view.status.value?.stalled, undefined, "waiting is not stalling");
+      const graph = events.findLast((e) => e.type === "graph.data");
+      assert.ok(JSON.stringify(graph).includes('"awaiting"'), "the graph shows who is asking");
+
+      c.handle({ type: "thread.open", thread: q.thread });
+      await c.idle();
+      assert.equal(view.thread.value?.name, q.thread);
+      assert.equal(view.approval.value?.callId, "r1", "the child's own question is the approval there");
+      c.handle({ type: "chat.approve", callId: "r1", allow: true });
+      await c.idle();
+      assert.equal(server.seen.length, 4);
+      c.handle({ type: "thread.open", thread: parent });
+      await c.idle();
+      const texts = view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
+      assert.ok(texts.includes("It is written."), `the parent went on: ${texts.join(" | ")}`);
+      assert.deepEqual(view.forwarded.value, []);
+    } finally {
+      await finish();
+    }
+  });
 });
