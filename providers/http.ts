@@ -94,6 +94,25 @@ export function requestHeaders(
   return Object.fromEntries(out);
 }
 
+let trace: HttpHooks | undefined;
+/**
+ * Hooks that see every request any provider makes, in addition to the hooks a provider was built with: for a host's log
+ * (what was sent where, how it was answered, each retry and how long it waits). Replaces the earlier ones; `undefined` removes it.
+ */
+export function traceHttp(hooks: HttpHooks | undefined): void {
+  trace = hooks;
+}
+function withTrace(own: HttpHooks | undefined): HttpHooks {
+  if (trace === undefined) return own ?? {};
+  const t = trace;
+  return {
+    onRequest: (v) => (own?.onRequest?.(v), t.onRequest?.(v)),
+    onResponse: (v) => (own?.onResponse?.(v), t.onResponse?.(v)),
+    onSse: (v) => (own?.onSse?.(v), t.onSse?.(v)),
+    onRetry: (v) => (own?.onRetry?.(v), t.onRetry?.(v)),
+  };
+}
+
 export interface HttpOptions {
   /** Extra headers for every request; `null` removes one. For the default `User-Agent` that leaves the runtime's own (`node`), which is sent when none is set. */
   headers?: Record<string, string | null>;
@@ -225,7 +244,7 @@ export async function* httpStream<S>(mapper: HttpMapper<S>, req: StreamRequest, 
   const retry: RetryPolicy = { ...defaultRetry, ...opts.retry };
   const timeouts: Timeouts = { idleMs: 60_000, totalMs: 600_000, ...opts.timeouts };
   const sleep = opts.sleep ?? defaultSleep;
-  const hooks = opts.hooks ?? {};
+  const hooks = withTrace(opts.hooks);
 
   const controller = new AbortController();
   const onCallerAbort = (): void => controller.abort(req.signal.reason);

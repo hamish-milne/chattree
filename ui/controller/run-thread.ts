@@ -15,6 +15,8 @@ export interface RunOptions {
   environment?: HostEnvironment | undefined;
   /** Asked about a call no grant covers. */
   approve(request: ApprovalRequest): Promise<Approval>;
+  /** Called once the request is ready to send, with the setup and environment notes committed, before the model is waited on. */
+  onPrepared?(): void | Promise<void>;
   /** Told about everything the loop does, in order; the loop waits for it. */
   onEvent(event: LoopEvent): void | Promise<void>;
 }
@@ -36,6 +38,7 @@ export async function runThread(o: RunOptions): Promise<LoopResult> {
     signal: o.signal,
     owner: localOwner(o.session),
     media: mediaFor(o.env, () => o.convo.git.commonDir()),
+    onPrepared: () => o.onPrepared?.(),
   });
   for (;;) {
     const n = await loop.next();

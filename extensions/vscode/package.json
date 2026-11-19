@@ -51,7 +51,7 @@
           "icon": "media/chattree.svg"
         }
       ],
-      "panel": [
+      "secondarySidebar": [
         {
           "id": "chattreePanel",
           "title": "chattree",
@@ -87,6 +87,10 @@
       {
         "command": "chattree.newThread",
         "title": "chattree: New thread"
+      },
+      {
+        "command": "chattree.showLog",
+        "title": "chattree: Show log"
       }
     ]
   }

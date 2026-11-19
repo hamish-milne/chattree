@@ -54,17 +54,43 @@ class ChattreeView implements vscode.WebviewViewProvider {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  // The log: what was asked of the controller, what each request did and how long it took, every failure in full (View > Output > chattree).
+  const log = vscode.window.createOutputChannel("chattree", { log: true });
+  context.subscriptions.push(
+    log,
+    vscode.commands.registerCommand("chattree.showLog", () => log.show(true)),
+  );
+  log.info(`chattree starting (pid ${process.pid})`);
   const snapshots = new SnapshotProvider();
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(SNAPSHOT_SCHEME, snapshots));
 
   const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
   const env = { host: nodeHost(), cwd: folders[0] ?? process.cwd(), env: process.env, now: Date.now };
   const controllers: Controller[] = [];
-  const bridge = new Bridge((emit) => {
-    const c = new Controller({ env, folders, send: emit, platform: vscodePlatform(snapshots), session: `vscode-${process.pid}` });
-    controllers.push(c);
-    return c;
-  }, showNotice);
+  const bridge = new Bridge(
+    (emit) => {
+      const c = new Controller({
+        env,
+        folders,
+        send: emit,
+        platform: vscodePlatform(snapshots),
+        session: `vscode-${process.pid}`,
+        log: (line) => log.info(line),
+      });
+      controllers.push(c);
+      return c;
+    },
+    (e) => {
+      showNotice(e);
+      if (e.type === "notice") log.appendLine(`[${e.level}] ${e.message}`);
+    },
+    (intent) => {
+      // The kind of thing asked, not what was typed.
+      if (intent.type !== "chat.draft") log.debug(`intent ${intent.type}`);
+      // Looking at a thread or a commit is reading it: bring the chat forward.
+      if (intent.type === "thread.open") void vscode.commands.executeCommand(`${VIEW_IDS.chat}.focus`);
+    },
+  );
   context.subscriptions.push({ dispose: () => void Promise.all(controllers.map((c) => c.close())) });
 
   for (const name of ["graph", "chat"] as const) {

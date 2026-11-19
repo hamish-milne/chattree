@@ -29,3 +29,26 @@ export function explain(e: unknown): string {
   if (e instanceof AppError) return e.hint === undefined ? e.message : hint(e.message, e.hint);
   return e instanceof Error ? e.message : String(e);
 }
+
+/**
+ * A thrown error with everything known about it, for the log (the person is shown `explain`): its kind and status, whether it can
+ * be retried, and the chain of causes (the provider's own words are usually in the message or a cause).
+ */
+export function describeError(e: unknown): string {
+  const lines: string[] = [];
+  let cur: unknown = e;
+  for (let depth = 0; depth < 5 && cur !== undefined; depth++) {
+    if (cur instanceof ProviderError) {
+      lines.push(
+        `${cur.name} kind=${cur.kind}${cur.status === undefined ? "" : ` status=${cur.status}`} retryable=${cur.retryable}${
+          cur.retryAfterMs === undefined ? "" : ` retry_after_ms=${cur.retryAfterMs}`
+        }: ${cur.message}`,
+      );
+    } else if (cur instanceof Error) lines.push(`${cur.name}: ${cur.message}`);
+    else lines.push(typeof cur === "string" ? cur : JSON.stringify(cur));
+    if (depth === 0 && cur instanceof Error && cur.stack !== undefined) lines.push(...cur.stack.split("\n").slice(1, 6));
+    cur = cur instanceof Error ? cur.cause : undefined;
+    if (cur !== undefined) lines.push("caused by:");
+  }
+  return lines.join("\n");
+}

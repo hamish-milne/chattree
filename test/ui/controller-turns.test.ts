@@ -178,4 +178,23 @@ describe("the controller, turns", () => {
       await finish();
     }
   });
+
+  test("the setup and environment notes show while the model is still thinking, not after", async () => {
+    const { c, view, finish } = await rig([{ acts: [{ hang: true }] }]);
+    try {
+      c.handle({ type: "chat.send", text: "hi" });
+      const shown = () => view.blocks.value.map((b) => b.type);
+      const afterUser = () => shown().slice(shown().indexOf("user") + 1);
+      const deadline = Date.now() + 5000;
+      while ((!shown().includes("user") || afterUser().length === 0) && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
+      assert.deepEqual(
+        afterUser(),
+        ["notice"],
+        `the notes are committed before the request, so they show before any token: ${shown().join(",")}`,
+      );
+      c.handle({ type: "chat.stop" });
+    } finally {
+      await finish();
+    }
+  });
 });

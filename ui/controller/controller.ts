@@ -23,7 +23,8 @@ import type { ChatState, Composer, ModelChoice, StatusBar } from "../model/chat.
 import type { GraphData, RepoEntry, ThreadStatus } from "../model/graph.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
 import { diffBlocks } from "./diff-blocks.ts";
-import { explain } from "./explain.ts";
+import { traceHttp } from "../../providers/http.ts";
+import { describeError, explain } from "./explain.ts";
 import { mapEntries, type MapItem } from "./map-chat.ts";
 import { runThread } from "./run-thread.ts";
 import { mapGraph } from "./map-graph.ts";
@@ -59,6 +60,8 @@ export interface ControllerOptions {
   pollMs?: number;
   /** For asking a model server what it offers; the platform's by default. */
   fetch?: typeof fetch;
+  /** Where the log goes: what was asked, what the model did, and every failure in full. Never message text. */
+  log?: (line: string) => void;
 }
 
 /** A repository that holds a conversation, as the controller has it open. */
@@ -84,6 +87,9 @@ interface Run {
   running: Set<string>;
   /** Whether the run counts as working (it does not while it waits for an answer). */
   active: boolean;
+  /** When the current request was sent, and whether anything has come back since (for the log). */
+  requestAt?: number;
+  firstSeen?: boolean;
   done: Promise<void>;
 }
 
@@ -160,6 +166,17 @@ export class Controller implements HostedController {
     this.#session = o.session ?? `ui-${Math.random().toString(36).slice(2, 10)}`;
     // CHATTREE_ENVIRONMENT=off leaves the note about this machine out, for tests that need the transcript to hold only what was typed.
     this.#environment = o.env.env["CHATTREE_ENVIRONMENT"] === "off" ? undefined : hostEnvironment(o.env);
+    if (o.log !== undefined) {
+      // What every provider request did, in the log: the status, and each retry with how long it waits (a long wait looks like a slow model).
+      traceHttp({
+        onRequest: (v) => this.#log(`http: ${v.method} ${v.url} attempt ${v.attempt} (${v.body.length} bytes)`),
+        onResponse: (v) => this.#log(`http: response ${v.status} (attempt ${v.attempt})`),
+        onRetry: (v) =>
+          this.#log(
+            `http: attempt ${v.attempt} failed (${v.error.kind}${v.error.status === undefined ? "" : ` ${v.error.status}`}: ${v.error.message}); waiting ${v.waitMs} ms`,
+          ),
+      });
+    }
   }
 
   /** Carry out an intent after those before it; resolves when it is done (used by `idle`). */
@@ -170,9 +187,18 @@ export class Controller implements HostedController {
         await this.#start();
         await this.#run(intent);
       } catch (e) {
+        this.#log(`${intent.type} failed: ${describeError(e)}`);
         this.#notify(e instanceof AppError && e.hint !== undefined ? `${e.message} (${e.hint})` : message(e), "error");
       }
     });
+  }
+
+  #log(line: string): void {
+    try {
+      this.#o.log?.(line);
+    } catch {
+      /* a log that throws must not stop the work */
+    }
   }
 
   /** Resolves when every intent received so far has been carried out and no request is working (one waiting for an answer is not). */
@@ -229,6 +255,7 @@ export class Controller implements HostedController {
 
   async close(): Promise<void> {
     this.#closed = true;
+    if (this.#o.log !== undefined) traceHttp(undefined);
     if (this.#timer !== undefined) clearInterval(this.#timer);
     for (const r of this.#runs.values()) {
       r.abort.abort();
@@ -551,6 +578,7 @@ export class Controller implements HostedController {
   }
 
   async #onLoop(thread: string, run: Run, e: LoopEvent): Promise<void> {
+    this.#logLoop(thread, run, e);
     switch (e.type) {
       case "stream":
         if (e.event.type === "text.delta") this.#stream(thread, "text", e.event.text);
@@ -570,6 +598,44 @@ export class Controller implements HostedController {
         break;
     }
     await this.#publish(thread);
+  }
+
+  /** What a request did and how long each part took, for the log (no text of the conversation). */
+  #logLoop(thread: string, run: Run, e: LoopEvent): void {
+    const since = (): string => `${Date.now() - (run.requestAt ?? Date.now())} ms`;
+    switch (e.type) {
+      case "request.start":
+        run.requestAt = Date.now();
+        run.firstSeen = false;
+        this.#log(`${thread}: request ${e.n} sent`);
+        return;
+      case "stream":
+        if (run.firstSeen !== true) {
+          run.firstSeen = true;
+          this.#log(`${thread}: first ${e.event.type} ${since()} after the request`);
+        }
+        return;
+      case "request.end":
+        this.#log(
+          `${thread}: request ${e.n} ${e.result.status}${e.result.status === "completed" ? ` (${e.result.completed.stop_reason})` : ""} after ${since()}`,
+        );
+        return;
+      case "tool.start":
+        this.#log(`${thread}: tool ${e.name} started`);
+        return;
+      case "tool.approval":
+        this.#log(
+          `${thread}: tool ${e.name} ${e.allowed ? "allowed" : "refused"} (${e.via ?? "?"})${e.reason === undefined ? "" : `: ${e.reason}`}`,
+        );
+        return;
+      case "tool.result":
+        this.#log(
+          `${thread}: tool ${e.name} ${e.is_error ? "failed" : "finished"} in ${e.ms} ms${e.skipped === undefined ? "" : ` (skipped: ${e.skipped})`}`,
+        );
+        return;
+      default:
+        return;
+    }
   }
 
   /** A call no grant covers: park until the person answers (or stops the turn). */
@@ -625,6 +691,7 @@ export class Controller implements HostedController {
 
     const run: Run = { abort: new AbortController(), awaiting: new Set(), running: new Set(), active: true, done: Promise.resolve() };
     this.#runs.set(thread, run);
+    this.#log(`run on ${thread} started`);
     this.#work(1);
     run.done = (async () => {
       try {
@@ -638,11 +705,18 @@ export class Controller implements HostedController {
           signal: run.abort.signal,
           environment: this.#environment,
           approve: (r) => this.#ask(thread, run, r),
+          // The request is made ready: notes about the setup and the machine have been committed by now, and a slow model must not hide them.
+          onPrepared: async () => {
+            this.#log(`${thread}: request prepared`);
+            await this.#publish(thread).catch(() => undefined);
+          },
           onEvent: (e) => this.#onLoop(thread, run, e),
         });
       } catch (e) {
+        this.#log(`run on ${thread} failed: ${describeError(e)}`);
         this.#notify(explain(e), "error");
       } finally {
+        this.#log(`run on ${thread} ended`);
         this.#runs.delete(thread);
         await this.#publish(thread).catch(() => undefined);
         this.#work(-1);

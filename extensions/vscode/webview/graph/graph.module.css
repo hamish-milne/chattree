@@ -204,6 +204,8 @@ button.chevron:focus-visible {
   align-items: center;
   gap: 4px;
   max-width: 45%;
+  min-width: 0;
+  white-space: nowrap;
   padding: 0 6px 0 7px;
   height: 16px;
   border-radius: 8px;
@@ -229,6 +231,7 @@ button.chevron:focus-visible {
   text-overflow: ellipsis;
 }
 .status {
+  flex: none;
   display: inline-flex;
   width: 12px;
   height: 12px;
@@ -271,6 +274,8 @@ button.chevron:focus-visible {
   border-bottom: 1px solid var(--vscode-sideBarSectionHeader-border, var(--vscode-panel-border));
 }
 .repo_button {
+  overflow: hidden;
+  white-space: nowrap;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -311,7 +316,8 @@ button.chevron:focus-visible {
   position: absolute;
   z-index: 10;
   left: 8px;
-  right: 8px;
+  /* A fixed width, whatever the width of the view: the menu is shown for a moment, so it is made to read well, not to fit. */
+  width: 320px;
   top: 100%;
   margin-top: -2px;
   padding: 4px 0;
@@ -327,6 +333,7 @@ button.chevron:focus-visible {
   gap: 4px;
   width: 100%;
   padding: 3px 10px 3px 6px;
+  white-space: nowrap;
   border: none;
   background: none;
   color: inherit;
@@ -349,6 +356,7 @@ button.chevron:focus-visible {
   height: 16px;
 }
 .repo_text {
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -452,6 +460,8 @@ button.chevron:focus-visible {
 }
 
 .graph_tools {
+  min-width: 0;
+  overflow: hidden;
   display: flex;
   flex: none;
   align-items: center;
@@ -474,6 +484,7 @@ button.chevron:focus-visible {
   cursor: pointer;
 }
 .show_archived {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 4px;

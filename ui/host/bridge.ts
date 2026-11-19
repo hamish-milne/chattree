@@ -19,10 +19,17 @@ export class Bridge {
   readonly #ports = new Set<Port>();
   readonly #controller: HostedController;
   readonly #seen: (event: UiEvent) => void;
+  readonly #onIntent: (intent: UiIntent) => void;
 
   /** `make` builds the controller around `emit`; `seen` also sees every event (the host shows notices natively). */
-  constructor(make: (emit: (event: UiEvent) => void) => HostedController, seen: (event: UiEvent) => void = () => {}) {
+  constructor(
+    make: (emit: (event: UiEvent) => void) => HostedController,
+    seen: (event: UiEvent) => void = () => {},
+    /** Sees every intent that passed the check, before the controller does (the host logs them, and brings the chat forward). */
+    onIntent: (intent: UiIntent) => void = () => {},
+  ) {
     this.#seen = seen;
+    this.#onIntent = onIntent;
     this.#controller = make((e) => this.emit(e));
   }
 
@@ -49,6 +56,7 @@ export class Bridge {
       return;
     }
     try {
+      this.#onIntent(parsed.value);
       this.#controller.handle(parsed.value);
     } catch (e) {
       this.emit({ type: "notice", level: "error", message: `${parsed.value.type} failed: ${e instanceof Error ? e.message : String(e)}` });
