@@ -110,6 +110,11 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
           if (blocks.peek().some((b) => b.id === e.block.id)) replace(e.block.id, () => e.block);
           else blocks.value = [...blocks.value, e.block];
           return true;
+        case "chat.replace": {
+          const at = blocks.peek().findIndex((b) => b.id === e.from);
+          blocks.value = [...(at < 0 ? blocks.peek() : blocks.peek().slice(0, at)), ...e.blocks];
+          return true;
+        }
         case "chat.delta":
           replace(e.id, (b) =>
             b.type === "assistant"

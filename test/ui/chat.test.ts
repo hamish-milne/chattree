@@ -43,6 +43,24 @@ describe("the chat model", () => {
     assert.equal(chat.blocks.value.at(-1)?.id, "new");
   });
 
+  test("chat.replace swaps everything from a block on, or adds at the end when that block is not shown", () => {
+    const { chat } = make();
+    const n = chat.blocks.value.length;
+    const from = chat.blocks.value[2];
+    assert.ok(from !== undefined);
+    const note = (id: string): Block => ({ type: "notice", id, kind: "setup", level: "info", title: id });
+    chat.apply({ type: "chat.replace", from: from.id, blocks: [note("x"), note("y")] });
+    assert.deepEqual(
+      chat.blocks.value.slice(2).map((b) => b.id),
+      ["x", "y"],
+    );
+    assert.equal(chat.blocks.value.length, 4);
+    chat.apply({ type: "chat.replace", from: "nope", blocks: [note("z")] });
+    assert.equal(chat.blocks.value.at(-1)?.id, "z");
+    assert.equal(chat.blocks.value.length, 5);
+    assert.ok(n > 4);
+  });
+
   test("busy, the context gauge and whether there is anything to send follow the state", () => {
     const { chat } = make();
     assert.equal(chat.busy.value, true, "the fixture is mid-request");

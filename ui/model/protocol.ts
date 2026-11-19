@@ -42,6 +42,8 @@ export const event = Type.Union([
   ev("chat.append", { blocks: Type.Array(block) }),
   /** A block changed (its stream ended, a tool finished): it replaces the block with the same id. */
   ev("chat.update", { block }),
+  /** Every block from the one with id `from` to the end is replaced by `blocks` (what the stream showed is swapped for what was committed). `from` not shown: the blocks are added at the end. */
+  ev("chat.replace", { from: name, blocks: Type.Array(block) }),
   /** Text arrived for a streaming assistant or reasoning block: it is added to the end of its text. */
   ev("chat.delta", { id: name, delta: Type.String() }),
   /** The thread's header changed (a new commit moved its tip, it was renamed). */

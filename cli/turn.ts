@@ -13,7 +13,7 @@ import { summarizeCall } from "../app/tool-lines.ts";
 import { ProviderError, type StreamEvent } from "../providers/types.ts";
 import type { Ctx } from "./engine.ts";
 import type { Output } from "./output.ts";
-import { mediaFor } from "./toolset.ts";
+import { mediaFor } from "../app/toolset.ts";
 
 // The session-facing side of a model request. The harness throws its refusals and limits; this module turns each one into a
 // question, a notice or an error, and is where a user's "go ahead anyway" is carried into the next attempt.

@@ -32,6 +32,8 @@ export interface MapState {
   awaiting?: ReadonlySet<string>;
   /** Calls that are running now. */
   running?: ReadonlySet<string>;
+  /** A request is going on: the last turn is not over, so it is not closed with a `turn_end` yet. */
+  inFlight?: boolean;
   /** What each item cost, by its index in the items (see `entrySpends`). */
   spends?: ReadonlyMap<number, EntrySpend>;
 }
@@ -378,6 +380,6 @@ class Mapper {
 export async function mapEntries(items: readonly MapItem[], env: MapEnv, state: MapState = {}): Promise<Block[]> {
   const m = new Mapper(env, state);
   for (const [i, item] of items.entries()) await m.add(item, i);
-  m.endTurn();
+  if (state.inFlight !== true) m.endTurn();
   return m.out;
 }

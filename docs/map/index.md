@@ -52,7 +52,7 @@ Dependencies point down. `src/` imports nothing from the rest of the repository 
 | Add a mutation on a conversation | `harness/conversation.ts` | event, crash-injection test, `verify.ts` |
 | Add a provider or API | `providers/` (see [adapters guide](../extending/provider-adapters.md)) | `providers/index.ts`, fixtures, `tools/live-check.ts` |
 | Add a model to the bundled catalog or update prices | `providers/catalog/`, `providers/pricing-data.ts` | `npm run catalog` |
-| Add a built-in tool | `harness/starter/` or a new file in `harness/` | `cli/toolset.ts` ([tools guide](../extending/tools.md)) |
+| Add a built-in tool | `harness/starter/` or a new file in `harness/` | `app/toolset.ts` ([tools guide](../extending/tools.md)) |
 | Add a slash command | `cli/commands/` | `commands/index.ts`, `test/cli/`, `docs/guide/commands.md` |
 | Add a setting for a thread's model | the adapter's `settings` schema in `providers/` | `cli/commands/setup.ts` if it needs special handling |
 | Add a `harness.yml` key | `harness/config.ts` | `docs/guide/configuration.md`, the generated editor schema updates itself |

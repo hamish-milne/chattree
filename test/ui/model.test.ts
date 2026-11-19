@@ -87,6 +87,7 @@ describe("the protocol", () => {
     { type: "chat.open", state: chatFixture() },
     { type: "chat.append", blocks: chatFixture().blocks.slice(0, 2) },
     { type: "chat.update", block: chatFixture().blocks[3] },
+    { type: "chat.replace", from: "a1", blocks: chatFixture().blocks.slice(2, 4) },
     { type: "chat.delta", id: "a1", delta: " more" },
     { type: "chat.thread", thread: chatFixture().thread },
     { type: "chat.status", status: chatFixture().status },

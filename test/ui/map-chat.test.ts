@@ -205,3 +205,25 @@ test("an unpriced response is flagged, not shown as free", async () => {
   assert.equal(end.unpriced, true);
   assert.equal(end.usd, undefined);
 });
+
+test("a turn still going is not closed with a turn_end", async () => {
+  const entries: ChatEntry[] = [
+    { $tag: "user", id: U(1), content: [text("go")] },
+    {
+      $tag: "assistant",
+      id: U(2),
+      provider: "p",
+      model: "m",
+      blocks: [call("c", "run", { command: "ls" })],
+      stop_reason: "tool_use",
+      usage: usage(1, 1),
+    },
+  ];
+  const open = checked(await mapEntries(items(entries), noBlobs, { inFlight: true }));
+  assert.deepEqual(
+    open.map((b) => b.type),
+    ["user", "tool"],
+  );
+  const done = checked(await mapEntries(items(entries), noBlobs));
+  assert.equal(done.at(-1)?.type, "turn_end");
+});

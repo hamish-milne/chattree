@@ -78,7 +78,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 
 - *Add or change an entry field or type:* `entries.ts` (strict schema, version constant, `entryTypesByMajor` if major), then the code that writes and reads it, `verify.ts` if it affects invariants, and tests in `test/harness/entries.test.ts`. Widening is a minor bump.
 - *Add a mutation on a conversation:* a method in `conversation.ts` that follows the lock, check, apply, commit skeleton, an event if hosts should see it, a crash test, and a line in `verify.ts` if history has a new promise.
-- *Add a tool:* [Extending: tools](../extending/tools.md); starter tools in `starter/` and `cli/toolset.ts`.
+- *Add a tool:* [Extending: tools](../extending/tools.md); starter tools in `starter/` and `app/toolset.ts`.
 - *Change what the model is shown:* `context.ts` and `context-builder.ts` (and the renderer for new wording; a changed wording is a new renderer id).
 - *Add a limit or cost meter:* `limits.ts`, `ledger.ts`, `estimate.ts` and the price tables in `providers/pricing.ts`.
 - *Change setup classification:* `setup.ts` for core kinds, the adapter's `classify` for provider-specific ones.

@@ -5,7 +5,7 @@
  */
 import { shellStage } from "../../harness/starter/portable.ts";
 import type { Command } from "../registry.ts";
-import { busyboxFor } from "../toolset.ts";
+import { busyboxFor } from "../../app/toolset.ts";
 import { failure } from "../turn.ts";
 
 /**

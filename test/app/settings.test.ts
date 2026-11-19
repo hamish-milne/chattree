@@ -3,10 +3,10 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
-import { CliError } from "../../cli/io.ts";
+import { AppError } from "../../app/errors.ts";
 import { FfmpegError } from "../../hosts/ffmpeg.ts";
 import { editorFor, initSettingsFile, loadSettings, settingsPath, settingsTemplate } from "../../app/settings.ts";
-import { busyboxFor, resolveFfmpeg } from "../../cli/toolset.ts";
+import { busyboxFor, resolveFfmpeg } from "../../app/toolset.ts";
 import { FakeServer } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";
 import { answer, host, initArgs, testIo } from "../cli/support.ts";
@@ -180,7 +180,7 @@ describe("the ffmpeg setting", () => {
     const io = testIo(await tempDir());
     await assert.rejects(
       resolveFfmpeg(io, undefined),
-      (e: unknown) => e instanceof CliError && /ffmpeg setting is not set/.test(e.message) && /ffmpeg: auto/.test(e.hint ?? ""),
+      (e: unknown) => e instanceof AppError && /ffmpeg setting is not set/.test(e.message) && /ffmpeg: auto/.test(e.hint ?? ""),
     );
     assert.equal(await resolveFfmpeg(io, false), undefined);
     await assert.rejects(resolveFfmpeg(io, "/no/such/ffmpeg"), /which is not a file/);
@@ -194,7 +194,7 @@ describe("the ffmpeg setting", () => {
       resolveFfmpeg(io, "auto", async () => {
         throw new FfmpegError("ffmpeg was not found on the PATH", "install it");
       }),
-      (e: unknown) => e instanceof CliError && e.hint === "install it",
+      (e: unknown) => e instanceof AppError && e.hint === "install it",
     );
   });
 });

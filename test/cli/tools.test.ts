@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { PassThrough } from "node:stream";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
-import { buildToolSet } from "../../cli/toolset.ts";
+import { buildToolSet } from "../../app/toolset.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";

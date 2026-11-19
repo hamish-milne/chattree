@@ -13,4 +13,6 @@ export interface AppEnv {
   now(this: void): number;
   /** The user-level settings file, read once at startup; absent means none. */
   settings?: Settings;
+  /** Where a line of progress goes (a download, say); absent drops it. */
+  err?(text: string): void;
 }

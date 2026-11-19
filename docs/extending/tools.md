@@ -35,7 +35,7 @@ Calls ask the user before they run unless an approval covers them. A tool contro
 
 ## Registering a tool
 
-Put tools in a `ToolRegistry` (`registry.add(tool)`; it validates the definition and refuses duplicates). The CLI builds its registry in `cli/toolset.ts` (`buildToolSet`), which is where a new built-in tool is added to the list, together with its entry in the tool set's configuration if it needs one. The definitions are pinned into the thread's `agent_setup` by hash, so changing a tool's description or schema is a visible change to the thread (and breaks the provider's prompt cache).
+Put tools in a `ToolRegistry` (`registry.add(tool)`; it validates the definition and refuses duplicates). The CLI and the extension build their registry in `app/toolset.ts` (`buildToolSet`), which is where a new built-in tool is added to the list, together with its entry in the tool set's configuration if it needs one. The definitions are pinned into the thread's `agent_setup` by hash, so changing a tool's description or schema is a visible change to the thread (and breaks the provider's prompt cache).
 
 ## Testing
 

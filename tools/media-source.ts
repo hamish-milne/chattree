@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ffmpegFor } from "../cli/toolset.ts";
+import { ffmpegFor } from "../app/toolset.ts";
 import type { Io } from "../cli/io.ts";
 import type { ModelContext } from "../harness/context-builder.ts";
 import { ffmpegConverter } from "../harness/ffmpeg-converter.ts";

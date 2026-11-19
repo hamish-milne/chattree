@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { access, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
-import { resolveBusybox } from "../../cli/toolset.ts";
-import { CliError } from "../../cli/io.ts";
+import { resolveBusybox } from "../../app/toolset.ts";
+import { AppError } from "../../app/errors.ts";
 import { BUSYBOX_RELEASE, BusyboxError, ensureBusybox, sha256Of, type BusyboxDeps } from "../../hosts/busybox.ts";
 import { findBusybox, nodeHost } from "../../hosts/node.ts";
 import { tempDir } from "../support/tmp.ts";
@@ -96,7 +96,7 @@ describe("tools.run.busybox", () => {
       resolveBusybox(io, "auto", async () => {
         throw new BusyboxError("could not fetch busybox", "do something");
       }),
-      (e: unknown) => e instanceof CliError && e.message === "could not fetch busybox" && e.hint === "do something",
+      (e: unknown) => e instanceof AppError && e.message === "could not fetch busybox" && e.hint === "do something",
     );
   });
 
@@ -104,7 +104,7 @@ describe("tools.run.busybox", () => {
     const io = await windows();
     await assert.rejects(
       resolveBusybox(io, join(io.cwd, "missing.exe"), async () => assert.fail("no fetch")),
-      (e: unknown) => e instanceof CliError && /not a file/.test(e.message),
+      (e: unknown) => e instanceof AppError && /not a file/.test(e.message),
     );
     const file = join(io.cwd, "bb.exe");
     await writeFile(file, "x");
