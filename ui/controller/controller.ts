@@ -1,11 +1,11 @@
 import { hostEnvironment } from "../../app/environment.ts";
-import { findProject, openThread, type Project } from "../../app/project.ts";
+import { createFork, findProject, nextForkName, openThread, threadDir, type Project } from "../../app/project.ts";
 import { buildToolSet, type ToolSet } from "../../app/toolset.ts";
 import { localOwner } from "../../app/owner.ts";
 import type { AppEnv } from "../../app/env.ts";
 import { AppError } from "../../app/errors.ts";
 import { inspectWorkspace, type WorkspaceFolder } from "../../app/workspace.ts";
-import type { Conversation } from "../../harness/conversation.ts";
+import { WorkspaceDirty, type Conversation, type EntryRef } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { readCommitGraph } from "../../harness/graph.ts";
 import { entrySpends } from "../../harness/ledger.ts";
@@ -39,7 +39,10 @@ export interface ControllerOptions {
 /** A repository that holds a conversation, as the controller has it open. */
 interface Repo {
   folder: WorkspaceFolder;
+  /** The folder the person works in. */
   project: Project;
+  /** The repository's main working tree. */
+  main: Project;
   /** The trunk's conversation: what the graph is read through. */
   convo: Conversation;
   trunk: string;
@@ -193,16 +196,24 @@ export class Controller implements HostedController {
     }));
   }
 
-  async #enter(folder: WorkspaceFolder): Promise<void> {
+  /**
+   * The thread everything else branches from. Nothing in the repository says so, so it is the thread of the main working tree when
+   * first looked at, remembered in `chattree.trunk` (written when the workspace is first switched, the one thing that moves it).
+   */
+  async #trunkOf(main: Project): Promise<string> {
+    const set = (await main.git.getConfig("chattree.trunk").catch(() => undefined))?.trim();
+    return set !== undefined && set !== "" && (await main.git.revParse(`refs/heads/${set}`)) !== undefined ? set : main.branch;
+  }
+
+  async #enter(folder: WorkspaceFolder, keep?: { trunk: string; selected: string | undefined }): Promise<void> {
     const env = this.#o.env;
     const found = await findProject(env, folder.root);
-    // The trunk is the thread of the repository's main working tree, wherever the person's own folder is.
     const main = found.mainRoot === found.root ? found : await findProject(env, found.mainRoot);
     const { convo } = await openThread(env, main, undefined, { providers: "optional" });
     const old = this.#repo;
     await this.#dropHandles();
-    this.#repo = { folder, project: found, convo, trunk: main.branch, checkedOut: found.branch };
-    this.#selected = found.branch;
+    this.#repo = { folder, project: found, main, convo, trunk: keep?.trunk ?? (await this.#trunkOf(main)), checkedOut: found.branch };
+    this.#selected = keep?.selected ?? found.branch;
     await old?.convo.close();
   }
 
@@ -255,7 +266,7 @@ export class Controller implements HostedController {
     const repo = this.#repo;
     if (repo === undefined) return;
     this.#emit({ type: "graph.data", data: await this.#graph(repo) });
-    this.#emit({ type: "graph.selected", thread: repo.checkedOut });
+    this.#emit({ type: "graph.selected", thread: this.#selected ?? repo.checkedOut });
   }
 
   // ---- the chat ----------------------------------------------------------------------------------------
@@ -547,6 +558,184 @@ export class Controller implements HostedController {
     this.#emit({ type: "chat.composer", composer: structuredClone(c) });
   }
 
+  // ---- threads -------------------------------------------------------------------------------------------
+
+  #open(): Repo {
+    if (this.#repo === undefined) throw new AppError("there is no conversation open");
+    return this.#repo;
+  }
+
+  /** A thread that is being worked on, here or in another window, is not changed under its work. */
+  async #assertQuiet(repo: Repo, thread: string, what: string): Promise<void> {
+    if (this.#runs.has(thread)) throw new AppError(`the model is working on ${thread}`, `stop it first, then ${what}`);
+    if ((await repo.convo.leaseState(thread)).state === "live")
+      throw new AppError(`${thread} is held by another window or process`, `wait for it, then ${what}`);
+  }
+
+  /** The entry a commit holds, or the nearest one before it (a snapshot holds none). */
+  async #entryAt(h: Conversation, thread: string, commit: string): Promise<EntryRef> {
+    const refs = await h.index();
+    const exact = refs.find((r) => r.commit === commit);
+    if (exact !== undefined) return exact;
+    const log = await h.git.log(`refs/heads/${thread}`);
+    const from = Math.max(
+      log.findIndex((c) => c.hash === commit),
+      0,
+    );
+    for (const c of log.slice(from)) {
+      const r = refs.find((x) => x.commit === c.hash);
+      if (r !== undefined) return r;
+    }
+    throw new AppError("that commit holds nothing to start a thread from");
+  }
+
+  /** The graph changed: send it again, and the chat when its thread was the one that changed. */
+  async #changed(...threads: string[]): Promise<void> {
+    await this.#sendGraph();
+    for (const t of threads) if (t === this.#selected) await this.#openChat(t);
+  }
+
+  async #newThread(name: string | undefined): Promise<void> {
+    const repo = this.#open();
+    const env = this.#o.env;
+    const trunk = await this.#handle(repo, repo.trunk);
+    const made = name ?? (await nextForkName(trunk, 1, "thread"));
+    const dir = await threadDir(env, repo.project, made);
+    await env.host.fs.mkdir(env.host.path.dirname(dir));
+    const convo = await trunk.newThread(made, { worktree: dir, inheritSetup: true });
+    this.#handles.set(made, convo);
+    await this.#sendGraph();
+    await this.#openChat(made);
+  }
+
+  async #fork(thread: string, commit: string, name: string | undefined): Promise<void> {
+    const repo = this.#open();
+    const h = await this.#handle(repo, thread);
+    const at = await this.#entryAt(h, thread, commit);
+    const made = await createFork(this.#o.env, repo.project, h, name, at);
+    this.#handles.set(made.branch, made.conversation);
+    await this.#sendGraph();
+    await this.#openChat(made.branch);
+  }
+
+  async #rewind(thread: string, commit: string): Promise<void> {
+    const repo = this.#open();
+    await this.#assertQuiet(repo, thread, "go back");
+    const h = await this.#handle(repo, thread);
+    await h.rewind(commit);
+    this.#notify(`Went back to ${commit.slice(0, 7)}; what came after is kept and can be recovered`);
+    await this.#changed(thread);
+  }
+
+  /** What the fork came to, in a sentence for the record of the merge: what its model last said. */
+  async #summaryOf(repo: Repo, thread: string): Promise<string> {
+    const h = await this.#handle(repo, thread);
+    const entries = (await h.readEntries()).flatMap((r) => (r.ok ? [r.value] : []));
+    for (const e of entries.toReversed()) {
+      if (e.$tag !== "assistant") continue;
+      const part = e.blocks.find((b) => b.$tag === "text");
+      if (part?.$tag === "text" && typeof part.text === "string" && part.text.trim() !== "") return part.text.trim().slice(0, 500);
+    }
+    return `Merged ${thread}`;
+  }
+
+  async #merge(from: string, into: string): Promise<void> {
+    const repo = this.#open();
+    await this.#assertQuiet(repo, from, "merge it");
+    await this.#assertQuiet(repo, into, "merge into it");
+    const target = await this.#handle(repo, into);
+    await target.assertMergeable(from);
+    await target.mergeFork(from, { summary: await this.#summaryOf(repo, from) });
+    this.#notify(`Merged ${from} into ${into}`);
+    await this.#changed(into, from);
+  }
+
+  async #archive(thread: string, archived: boolean): Promise<void> {
+    const repo = this.#open();
+    if (archived && thread === repo.trunk) throw new AppError("the main thread cannot be put away");
+    await (archived ? repo.convo.archive(thread) : repo.convo.unarchive(thread));
+    await this.#sendGraph();
+  }
+
+  async #delete(thread: string): Promise<void> {
+    const repo = this.#open();
+    if (thread === repo.trunk) throw new AppError("the main thread cannot be deleted");
+    if (thread === repo.checkedOut)
+      throw new AppError(`${thread} is checked out in the project folder`, "switch the workspace to another thread first");
+    await this.#assertQuiet(repo, thread, "delete it");
+    const h = this.#handles.get(thread);
+    this.#handles.delete(thread);
+    await h?.close();
+    // The person has confirmed the thread is not wanted, merged or not; what git refuses is files in its folder that were never saved.
+    const git = repo.convo.git;
+    const wt = (await git.worktrees()).find((w) => w.branch === `refs/heads/${thread}`);
+    if (wt !== undefined) {
+      await git.removeWorktree(wt.path).catch((e: unknown) => {
+        throw new AppError(`${thread}'s folder has changes that were never saved`, message(e));
+      });
+      await git.pruneWorktrees();
+    }
+    await git.run(["branch", "-D", thread]);
+    this.#composers.delete(thread);
+    this.#notify(`Deleted ${thread}; its commits stay until git collects garbage`);
+    await this.#sendGraph();
+    if (this.#selected === thread) await this.#openChat(repo.checkedOut);
+  }
+
+  async #trust(thread: string): Promise<void> {
+    const repo = this.#open();
+    const h = await this.#handle(repo, thread);
+    await h.approveConfig();
+    // The providers are built when a thread is opened, and an unapproved file was not read for them: open it again.
+    this.#handles.delete(thread);
+    await h.close();
+    this.#notify(`Approved harness.yml for ${thread}`);
+    if (thread === this.#selected) await this.#openChat(thread);
+  }
+
+  async #switchWorkspace(thread: string, snapshot: boolean): Promise<void> {
+    const repo = this.#open();
+    if (this.#runs.size > 0) throw new AppError("the model is working", "stop it or wait before switching the workspace");
+    const was = repo.checkedOut;
+    // The main thread is whatever was in the project folder when this began: remember it before the folder moves on.
+    if ((await repo.main.git.getConfig("chattree.trunk").catch(() => undefined))?.trim() === undefined)
+      await repo.main.git.setConfig("chattree.trunk", repo.trunk);
+    try {
+      await repo.convo.switchWorkspace(thread, snapshot ? { uncommitted: "snapshot" } : {});
+    } catch (e) {
+      if (!(e instanceof WorkspaceDirty)) throw e;
+      this.#emit({ type: "workspace.uncommitted", thread, from: was, files: e.files.flatMap((f) => f.paths) });
+      return;
+    }
+    // Handles on the folders that traded branches are no longer on the branch they were opened for: begin again.
+    await this.#enter(repo.folder, { trunk: repo.trunk, selected: this.#selected });
+    this.#notify(`The project folder now has ${thread}`);
+    await this.#sendGraph();
+    if (this.#selected !== undefined) await this.#openChat(this.#selected);
+  }
+
+  async #openFile(f: {
+    thread: string;
+    path: string;
+    line?: number | undefined;
+    endLine?: number | undefined;
+    at?: string | undefined;
+  }): Promise<void> {
+    const repo = this.#open();
+    const h = await this.#handle(repo, f.thread);
+    const { path: p } = this.#o.env.host;
+    const abs = p.resolve(h.dir, f.path);
+    if (p.relative(h.dir, abs).startsWith("..")) throw new AppError(`${f.path} is not inside the thread's workspace`);
+    const at = { line: f.line, endLine: f.endLine };
+    if (f.at === undefined) {
+      if ((await this.#o.env.host.fs.stat(abs)) === undefined) throw new AppError(`${f.path} is not in ${f.thread}'s workspace (any more)`);
+      return this.#platform.openFile({ path: abs, ...at });
+    }
+    const bytes = await h.git.readFileAt(f.at, p.relative(h.dir, abs).replaceAll("\\", "/"));
+    if (bytes === undefined) throw new AppError(`${f.path} did not exist at ${f.at.slice(0, 7)}`);
+    return this.#platform.openFile({ path: abs, ...at, content: { label: `${f.path} @ ${f.at.slice(0, 7)}`, bytes } });
+  }
+
   // ---- intents -----------------------------------------------------------------------------------------------
 
   async #run(intent: UiIntent): Promise<void> {
@@ -589,6 +778,35 @@ export class Controller implements HostedController {
         this.#emit({ type: "chat.composer", composer: structuredClone(c) });
         return;
       }
+      case "thread.new":
+        await this.#newThread(intent.name);
+        return;
+      case "thread.fork":
+        await this.#fork(intent.thread, intent.commit, intent.name);
+        return;
+      case "thread.rewind":
+        await this.#rewind(intent.thread, intent.commit);
+        return;
+      case "thread.merge":
+        await this.#merge(intent.from, intent.into);
+        return;
+      case "thread.archive":
+      case "thread.unarchive":
+        await this.#archive(intent.thread, intent.type === "thread.archive");
+        return;
+      case "thread.delete":
+        await this.#delete(intent.thread);
+        return;
+      case "thread.trust":
+        await this.#trust(intent.thread);
+        return;
+      case "workspace.switch":
+        // `remember` is the setting of the host that asked (the extension keeps it); the choice itself is all that is needed here.
+        await this.#switchWorkspace(intent.thread, intent.uncommitted === "snapshot");
+        return;
+      case "file.open":
+        await this.#openFile(intent);
+        return;
       case "commit.copy":
         await this.#platform.copy(intent.commit);
         this.#notify(`Copied ${intent.commit.slice(0, 7)} to the clipboard`);

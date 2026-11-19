@@ -16,7 +16,7 @@
 | `toolset.ts` | `buildToolSet`: the tools a session offers its model (built-ins `harness.yml` lists, thread and job tools, subagent and fork tools when pumped, accepted MCP servers) with their jobs; finds busybox and ffmpeg for the host (`resolveBusybox`, `resolveFfmpeg`, `mediaFor`). |
 | `environment.ts` | What this machine is, for the note the model gets (`hostEnvironment`). |
 | `tool-lines.ts` | How a tool call looks: one summary line, the longer description shown before approval, result lines. Pure strings, used by the terminal and the extension. |
-| `project.ts` | A project is a git working tree with `harness.yml`; maps thread names to worktrees and conversations (`findProject`, `openThread`, `conversationOptions`); never climbs across a repository boundary. |
+| `project.ts` | A project is a git working tree with `harness.yml`; maps thread names to worktrees and conversations (`findProject`, `openThread`, `conversationOptions`, `createFork` with its worktree); never climbs across a repository boundary. |
 | `owner.ts` | Who this process is in run leases and journals; whether a lease's owner is dead. Node-only (pid, hostname). |
 | `workspace.ts` | `inspectFolder`/`inspectWorkspace`: what can be done with each folder of a workspace: it holds a conversation (found from the folder or one inside it; the header's format version is read, the thread is not locked), a conversation can be started in it (`new` repository, or `adopt` a repository it is the top of), or it is unusable and why. |
 

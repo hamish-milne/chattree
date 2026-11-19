@@ -14,7 +14,7 @@ import { parseCommand, Registry, tokenize } from "./registry.ts";
 import { defaultCommands } from "./commands/index.ts";
 import type { Session, SessionStore } from "./session.ts";
 import { summarizeCall } from "../app/tool-lines.ts";
-import { createFork } from "./commands/threads.ts";
+import { createFork } from "../app/project.ts";
 import { makeApprover } from "./toolset.ts";
 import { buildToolSet, mcpDeps, type ToolSet } from "../app/toolset.ts";
 import { syncMcpTools, syncTools, toolDrift, type Approval, type LoopEvent } from "../harness/loop.ts";

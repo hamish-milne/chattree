@@ -10,8 +10,7 @@ import { ConversationError, WorkspaceDirty } from "../../harness/conversation.ts
 import type { ChatEntry } from "../../harness/entries.ts";
 import { formatTranscript } from "../output.ts";
 import { askModel } from "../oneshot.ts";
-import type { Io } from "../io.ts";
-import { openThread, threadDir, type Project } from "../../app/project.ts";
+import { createFork, openThread, threadDir } from "../../app/project.ts";
 import { recentEntries } from "../recent.ts";
 import { resolveEntry } from "../refs.ts";
 import type { Command } from "../registry.ts";
@@ -35,48 +34,6 @@ async function* moveTo(ctx: Ctx, convo: Conversation, thread: string, why: strin
     };
   const recent = await recentEntries(ctx.engine);
   if (recent.length > 0) yield { type: "text", text: recent.join("\n") };
-}
-
-/**
- * The smallest unused `fork/<n>` (archived threads count, so a number is never reused). `skip` leaves out that many candidates, for a
- * retry after a race.
- */
-export async function nextForkName(convo: Conversation, skip = 1): Promise<string> {
-  const used = new Set((await convo.listBranches()).map((b) => b.name));
-  let n = 0;
-  for (let found = 0; found < skip;) {
-    n++;
-    if (!used.has(`fork/${n}`)) found++;
-  }
-  return `fork/${n}`;
-}
-
-/**
- * A fork of `convo` with its worktree where the project keeps them. Unnamed forks are fork/1, fork/2 ...: short enough to type; a second
- * process taking the number first is retried with the next.
- */
-export async function createFork(
-  io: Io,
-  project: Project,
-  convo: Conversation,
-  name?: string,
-  at?: string,
-): Promise<{ branch: string; conversation: Conversation }> {
-  let branch = name ?? (await nextForkName(convo));
-  let r: Awaited<ReturnType<Conversation["fork"]>> | undefined;
-  for (let attempt = 0; r === undefined; attempt++) {
-    const dir = await threadDir(io, project, branch);
-    await io.host.fs.mkdir(io.host.path.dirname(dir));
-    // The worktree path is derived from the branch name, so a retried name needs its own directory.
-    try {
-      r = await convo.fork(at, { name: branch, worktree: dir });
-    } catch (e) {
-      if (name !== undefined || attempt >= 5 || !(e instanceof ConversationError) || !/already exists/.test(e.message)) throw e;
-      branch = await nextForkName(convo, attempt + 2);
-    }
-  }
-  if (r.conversation === undefined) throw new ConversationError("the fork has no worktree");
-  return { branch: r.branch, conversation: r.conversation };
 }
 
 const thread: Command = {
