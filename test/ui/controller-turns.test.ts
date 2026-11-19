@@ -378,4 +378,28 @@ describe("the controller, turns", () => {
       await finish();
     }
   });
+
+  test("the model is offered fork and merge; a fork it makes is a thread with its first message waiting in the composer", async () => {
+    const { c, server, events, view, finish } = await rig([
+      callTools({ id: "c1", name: "fork", args: { name: "topic-a", message: "Look into topic A" } }),
+      answer("Started."),
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "split this up" });
+      await c.idle();
+      const offered = (JSON.parse(server.seen[0]?.body ?? "{}") as { tools?: { function: { name: string } }[] }).tools?.map(
+        (t) => t.function.name,
+      );
+      assert.ok(offered?.includes("fork") && offered.includes("merge"), `offered: ${offered?.join(",")}`);
+      c.handle({ type: "chat.approve", callId: "c1", allow: true });
+      await c.idle();
+      const graph = events.findLast((e) => e.type === "graph.data");
+      assert.ok(graph?.type === "graph.data" && JSON.stringify(graph).includes("topic-a"), "the fork is in the graph");
+      c.handle({ type: "thread.open", thread: "topic-a" });
+      await c.idle();
+      assert.equal(view.composer.value.draft, "Look into topic A");
+    } finally {
+      await finish();
+    }
+  });
 });
