@@ -25,6 +25,12 @@ export interface GraphCommit {
   /** Chattree-Offset: the transcript's size at this commit. */
   offset: number | undefined;
   recovered: boolean;
+  /** When it was committed (ISO 8601, the author date). */
+  time: string;
+  /** For an assistant entry: how many tool calls it made. */
+  toolCalls: number | undefined;
+  /** For a `branch_start` entry: what kind of branch it began. */
+  branchKind: "fork" | "subagent" | undefined;
 }
 
 export interface CommitGraph {
@@ -117,6 +123,7 @@ export async function readCommitGraph(convo: Conversation, trunk = convo.branch)
             ? "archive"
             : "commit");
     const offset = Number(c.trailers["Chattree-Offset"]?.[0]);
+    const entry = values.get(c.trailers["Chattree-Entry"]?.[0] ?? "");
     commits.push({
       hash: c.hash,
       parents: c.parents,
@@ -127,6 +134,9 @@ export async function readCommitGraph(convo: Conversation, trunk = convo.branch)
       entry: c.trailers["Chattree-Entry"]?.[0],
       offset: Number.isFinite(offset) ? offset : undefined,
       recovered: c.trailers["Chattree-Recovered"] !== undefined,
+      time: c.authorDate,
+      toolCalls: entry?.$tag === "assistant" ? entry.blocks.filter((b) => b.$tag === "tool_call").length : undefined,
+      branchKind: entry?.$tag === "branch_start" ? entry.kind : undefined,
     });
   }
   // Oldest first: parents before children.

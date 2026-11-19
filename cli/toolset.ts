@@ -27,7 +27,7 @@ import { ffmpegConverter } from "../harness/ffmpeg-converter.ts";
 import { findBusybox } from "../hosts/node.ts";
 import type { AskFn, Choice } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
-import { describeCall } from "./tool-lines.ts";
+import { describeCall } from "../app/tool-lines.ts";
 
 /** The tools a session offers its model and the jobs they start, built from `harness.yml` (`tools.env`, `tools.run.safe`, `background.resume`). */
 export interface ToolSet {

@@ -75,7 +75,8 @@ export const toolBlock = strictObject({
       text: Type.String(),
       /** `text` is a part of a longer output. */
       truncated: Type.Boolean(),
-      ms: count,
+      /** How long the call took, when known (a result read back from history has no timing). */
+      ms: Type.Optional(count),
     }),
   ),
   /** The thread a subagent call runs on, so the view can link to it. */

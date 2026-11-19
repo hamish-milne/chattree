@@ -1,7 +1,7 @@
 import type { Appended, Conversation } from "../harness/conversation.ts";
 import type { ChatEntry } from "../harness/entries.ts";
 import { inlineBlobs } from "../harness/context-builder.ts";
-import { resultLines, summarizeCall } from "./tool-lines.ts";
+import { resultLines, summarizeCall } from "../app/tool-lines.ts";
 import { jsonOr } from "../src/json.ts";
 
 /**

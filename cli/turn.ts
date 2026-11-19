@@ -9,7 +9,7 @@ import { ThreadBusy } from "../harness/lease.ts";
 import { requestStream } from "../harness/turn.ts";
 import { ConfigNotTrusted } from "../harness/trust.ts";
 import { runLoop, syncTools, ToolsNotSupported, ToolsOutOfSync, type LoopEvent } from "../harness/loop.ts";
-import { summarizeCall } from "./tool-lines.ts";
+import { summarizeCall } from "../app/tool-lines.ts";
 import { ProviderError, type StreamEvent } from "../providers/types.ts";
 import type { Ctx } from "./engine.ts";
 import type { Output } from "./output.ts";

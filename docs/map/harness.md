@@ -21,7 +21,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 | `journal.ts` | The journal of a request in flight, beside the repository, so `open` can recover paid output (ADR 18). |
 | `index-cache.ts` | Optional on-disk cache of a branch's entry index; never trusted without checks. |
 | `verify.ts` | `verifyHistory`: read-only audit of the history against the format's promises; returns problems, never throws. |
-| `graph.ts` | The history as a Mermaid `gitGraph` for inspection. |
+| `graph.ts` | The history as a graph (commit, owning branch, time, tool calls, branch kind) and as a Mermaid `gitGraph` for inspection. |
 | `ulid.ts` | Sortable ids; history orders entries by id as strings. |
 | `lease.ts`, `lease-ref.ts` | The run lease (who is running a thread, until when), as files or as refs on a shared remote. Separate from the short append lock. |
 | `config.ts`, `config-schema.ts` | `harness.yml` schema and loading, and the generated editor schema. |
@@ -34,7 +34,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 | `request.ts` | Builds what one request sends: context, media conversion, limit checks. Used before every request, by the loop and by compaction. |
 | `turn.ts` | One request from transcript to transcript: build, stream the adapter's events to the caller while journalling, commit the `assistant` entry or an `interrupted` entry, write a provider-observed setup change first. |
 | `partial.ts` | Folds stream events into what is known so far, for a turn that ends early. |
-| `estimate.ts`, `ledger.ts`, `limits.ts` | The pessimistic pre-flight estimate; cost derived from usage times the pinned price table; the limits (ADR 20). |
+| `estimate.ts`, `ledger.ts`, `limits.ts` | The pessimistic pre-flight estimate; cost derived from usage times the pinned price table (`entrySpends` per entry, `computeLedger` the totals); the limits (ADR 20). |
 | `oneshot.ts` | A model call outside the transcript (summaries). |
 | `file-open.ts` | `resolveFileOpen`: where a file a message named is found, worked out when the person clicks: on disk in the thread's worktree (the project folder for the checked-out thread), read-only from history when the thread has no worktree or a commit is asked for, or refused with a reason. Never creates a worktree. |
 | `workspace-swap.ts` | `swapIgnored`: trade the git-ignored top-level entries (`node_modules`, build output) between two worktree folders by rename, so a thread switch needs no install. Never moves `.git` or `.chattree`; leaves a name the other side holds as a tracked entry; rolls back on failure (and returns `undo`); across disks (`EXDEV`) leaves everything and says why. |

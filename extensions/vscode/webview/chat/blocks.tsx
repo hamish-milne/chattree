@@ -243,7 +243,7 @@ function Tool({ model, block }: { model: Model; block: Of<"tool"> }): JSX.Elemen
         <span class={css.tool_name}>{block.name}</span>
         <span class={css.tool_summary}>{block.summary}</span>
         {stat !== undefined && <Stat added={stat.added} removed={stat.removed} />}
-        {block.result !== undefined && <span class={css.tool_ms}>{ms(block.result.ms)}</span>}
+        {block.result?.ms !== undefined && <span class={css.tool_ms}>{ms(block.result.ms)}</span>}
         <Icon name="chevron" size={14} />
       </button>
       {open && (

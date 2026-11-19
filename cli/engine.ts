@@ -13,7 +13,7 @@ import { plainStyle, type Output, type Style, type Thinking, type ToolView } fro
 import { parseCommand, Registry, tokenize } from "./registry.ts";
 import { defaultCommands } from "./commands/index.ts";
 import type { Session, SessionStore } from "./session.ts";
-import { summarizeCall } from "./tool-lines.ts";
+import { summarizeCall } from "../app/tool-lines.ts";
 import { createFork } from "./commands/threads.ts";
 import { buildToolSet, makeApprover, mcpDeps, type ToolSet } from "./toolset.ts";
 import { syncMcpTools, syncTools, toolDrift, type Approval, type LoopEvent } from "../harness/loop.ts";

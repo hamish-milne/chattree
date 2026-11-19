@@ -84,13 +84,38 @@ export interface LedgerOptions {
  */
 export async function computeLedger(entries: readonly ChatEntry[], prices: PriceResolver, opts: LedgerOptions = {}): Promise<Ledger> {
   const out: Ledger = { conversation: zero(), turn: zero(), byModel: {} };
+  const from = opts.from ?? 0;
+  // The turn starts at the last user message from `from` on, or at `from` when there is none.
+  let turnStart = from;
+  for (const [i, e] of entries.entries()) if (e.$tag === "user" && i >= from) turnStart = i;
+  for (const [i, s] of await entrySpends(entries, prices)) {
+    if (i < from) continue;
+    add(out.conversation, s.spend);
+    if (i >= turnStart) add(out.turn, s.spend);
+    if (s.model !== undefined) add((out.byModel[s.model] ??= zero()), s.spend);
+  }
+  return out;
+}
+
+/** What one entry cost, and the model it is counted under (none for a rollup). */
+export interface EntrySpend {
+  spend: Spend;
+  model?: string | undefined;
+}
+
+/**
+ * The cost of each entry that has one, by its index in `entries`: a response, a compaction or interrupted request that
+ * reported usage, a merged branch's rollup. Setup changes are applied in order, so each is priced under the table in
+ * force when it was written.
+ */
+export async function entrySpends(entries: readonly ChatEntry[], prices: PriceResolver): Promise<Map<number, EntrySpend>> {
+  const out = new Map<number, EntrySpend>();
   let setup: AgentSetup = emptySetup();
   const cache = new Map<string, PriceTable | undefined>();
   const table = async (hash: string): Promise<PriceTable | undefined> => {
     if (!cache.has(hash)) cache.set(hash, await prices.table(hash));
     return cache.get(hash);
   };
-  const from = opts.from ?? 0;
 
   const spendOf = async (model: string, usage: Record<string, number> | undefined): Promise<Spend> => {
     const hash = setup.pricing?.table;
@@ -105,23 +130,19 @@ export async function computeLedger(entries: readonly ChatEntry[], prices: Price
     );
     return { usd: c.unknown ? 0 : c.usd, requests: 1, unpriced: c.unknown ? 1 : 0 };
   };
-  const count = (s: Spend, model?: string): void => {
-    add(out.conversation, s);
-    add(out.turn, s);
-    if (model !== undefined) add((out.byModel[model] ??= zero()), s);
-  };
 
   for (const [i, e] of entries.entries()) {
     if (e.$tag === "branch_start" && e.context === "fresh") setup = emptySetup();
     else if (e.$tag === "agent_setup") setup = applyChange(setup, e);
-    if (i < from) continue;
-    if (e.$tag === "user") out.turn = zero();
-    else if (e.$tag === "assistant") count(await spendOf(e.model, e.usage), e.model);
+    if (e.$tag === "assistant") out.set(i, { spend: await spendOf(e.model, e.usage), model: e.model });
     else if (e.$tag === "compaction" && e.usage !== undefined)
-      count(await spendOf(e.model ?? setup.model?.resolved ?? setup.model?.id ?? "", e.usage), e.model ?? setup.model?.id);
+      out.set(i, {
+        spend: await spendOf(e.model ?? setup.model?.resolved ?? setup.model?.id ?? "", e.usage),
+        model: e.model ?? setup.model?.id,
+      });
     else if (e.$tag === "interrupted" && e.usage !== undefined)
-      count(await spendOf(setup.model?.resolved ?? setup.model?.id ?? "", e.usage), setup.model?.id);
-    else if ((e.$tag === "subagent_result" || e.$tag === "fork_merge") && e.spend !== undefined) count(e.spend);
+      out.set(i, { spend: await spendOf(setup.model?.resolved ?? setup.model?.id ?? "", e.usage), model: setup.model?.id });
+    else if ((e.$tag === "subagent_result" || e.$tag === "fork_merge") && e.spend !== undefined) out.set(i, { spend: e.spend });
   }
   return out;
 }

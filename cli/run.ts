@@ -2,7 +2,7 @@ import { Engine } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
 import { findProject, openThread } from "./project.ts";
 import { formatAge } from "./age.ts";
-import { describeCall } from "./tool-lines.ts";
+import { describeCall } from "../app/tool-lines.ts";
 
 export interface RunOptions {
   /** The thread whose tools and settings the runner uses (default: the working tree's). Every thread of the project is looked at. */
