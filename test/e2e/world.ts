@@ -18,7 +18,11 @@ const run = async (cwd: string, args: string[]): Promise<string | undefined> => 
  * The world of the journey on a real disk: `root` holds the workspace folder `folder`; what the product leaves there is
  * read back with the file system and git. `host` is the web host whose log tells which files the person asked to open.
  */
-export function diskWorld(root: string, host: WebHost, base: Pick<World, "folder" | "tasks" | "deliverable">): World {
+export function diskWorld(
+  root: string,
+  host: WebHost,
+  base: Pick<World, "folder" | "tasks" | "replies" | "deliverable" | "asksBeforeWriting">,
+): World {
   const dir = join(root, base.folder);
   return {
     ...base,

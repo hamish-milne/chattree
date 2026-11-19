@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { runInit } from "../../app/init.ts";
@@ -257,5 +257,69 @@ describe("the controller, settings", () => {
     c.handle({ type: "chat.model", model: "nope/x" });
     await c.idle();
     assert.match(notice(), /there is no provider for nope\/x/);
+  });
+
+  test("a folder with no conversation is initialized without a provider; the first provider saved gives the trunk its model", async () => {
+    const dir = await tempDir();
+    const folder = join(dir, "scratch");
+    await mkdir(folder, { recursive: true });
+    const env = {
+      host,
+      cwd: dir,
+      env: { CHATTREE_ENVIRONMENT: "off", CHATTREE_SETTINGS: join(dir, "s.yml"), ANTHROPIC_API_KEY: "k" },
+      now: Date.now,
+    };
+    const events: UiEvent[] = [];
+    const c = new Controller({
+      pollMs: 0,
+      env,
+      folders: [folder],
+      session: "test",
+      send: (e) => {
+        assert.ok(parseEvent(e).ok, JSON.stringify(e));
+        events.push(e);
+      },
+    });
+    c.handle({ type: "ready", view: "graph" });
+    c.handle({ type: "ready", view: "chat" });
+    await c.idle();
+    const repos = events.findLast((e) => e.type === "graph.repos");
+    assert.ok(repos?.type === "graph.repos");
+    assert.equal(repos.repos.repos[0]?.init, "new");
+    assert.equal(
+      events.some((e) => e.type === "chat.open"),
+      false,
+    );
+    events.length = 0;
+    c.handle({ type: "repo.init", id: folder });
+    await c.idle();
+    const open = events.findLast((e) => e.type === "chat.open");
+    assert.ok(open?.type === "chat.open");
+    assert.deepEqual(open.state.banner, { kind: "no_provider" });
+    assert.ok(events.some((e) => e.type === "settings.open" && e.page === "providers"));
+    const form = events.findLast((e) => e.type === "form.set");
+    assert.ok(form?.type === "form.set");
+    c.handle({
+      type: "form.edit",
+      id: "harness",
+      value: { ...form.form.value, providers: { anthropic: { $tag: "anthropic", api_key_env: "ANTHROPIC_API_KEY" } } },
+    });
+    c.handle({ type: "provider.test", provider: "anthropic" });
+    c.handle({ type: "form.save", id: "harness" });
+    await c.idle();
+    const status = events.findLast((e) => e.type === "provider.status");
+    assert.ok(status?.type === "provider.status" && status.status.state === "ok");
+    const after = events.findLast((e) => e.type === "chat.open");
+    assert.ok(after?.type === "chat.open");
+    assert.equal(after.state.banner, undefined);
+    assert.equal(after.state.model.current, "anthropic/claude-sonnet-5-5");
+    c.handle({ type: "thread.new" });
+    await c.idle();
+    const fresh = events.findLast((e) => e.type === "chat.open");
+    assert.ok(fresh?.type === "chat.open");
+    assert.equal(fresh.state.thread.name, "thread/1");
+    assert.equal(fresh.state.banner, undefined);
+    assert.equal(fresh.state.model.current, "anthropic/claude-sonnet-5-5");
+    await c.close();
   });
 });

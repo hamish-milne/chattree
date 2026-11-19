@@ -125,8 +125,10 @@ export class MockController {
           });
           this.emit({ type: "graph.data", data: this.graph });
           this.emit({ type: "graph.selected", thread: this.current });
-        } else if (intent.view === "chat") this.emit({ type: "chat.open", state: this.chat(this.current) });
-        else {
+        } else if (intent.view === "chat") {
+          this.emit({ type: "chat.open", state: this.chat(this.current) });
+          this.emit({ type: "graph.selected", thread: this.current });
+        } else {
           this.emit({ type: "form.set", form: this.form("harness").working });
           this.emit({ type: "instructions.set", state: this.instructions });
         }

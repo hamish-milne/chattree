@@ -1,5 +1,6 @@
 import { canonicalInstructionPath } from "../../harness/instruction-files.ts";
 import { isDeepStrictEqual } from "node:util";
+import { DEFAULT_MODEL, runInit } from "../../app/init.ts";
 import { providerRegistry } from "../../app/providers.ts";
 import type { AdapterRegistry } from "../../providers/registry.ts";
 import { hostEnvironment } from "../../app/environment.ts";
@@ -301,6 +302,30 @@ export class Controller implements HostedController {
     // The settings are the new repository's: the sheet, if it is open, shows them.
     this.#harness = undefined;
     if (this.#settingsOpen) await this.#sendHarness();
+  }
+
+  /** Start a conversation in a workspace folder, with no provider: the person adds one in the settings, which open on the Providers page. */
+  async #initRepo(id: string): Promise<void> {
+    const folder = this.#folders.find((f) => f.path === id);
+    if (folder === undefined) throw new AppError(`there is no folder ${id} in this workspace`);
+    if (folder.state.kind === "unusable") throw new AppError(`${folder.name}: ${folder.state.reason}`);
+    if (folder.state.kind === "conversation") throw new AppError(`${folder.name} already has a conversation`);
+    if (this.#runs.size > 0) throw new AppError("the model is working", "stop it before switching repository");
+    const adopt = folder.state.mode === "adopt";
+    const done = await runInit(this.#o.env, { dir: folder.path, provider: "none", ...(adopt ? { adopt: true } : {}) });
+    this.#folders = await inspectWorkspace(this.#o.env, this.#o.folders);
+    const now = this.#folders.find((f) => f.path === id);
+    if (now === undefined || now.state.kind !== "conversation")
+      throw new AppError(`${folder.name} could not be opened after it was started`);
+    await this.#enter(now);
+    // The file is the one `init` has just written for this person.
+    if (this.#repo !== undefined) await (await this.#handle(this.#repo, this.#repo.trunk)).approveConfig();
+    this.#settingsOpen = true;
+    await this.#sendGraph();
+    await this.#openChat(this.#repo?.checkedOut ?? done.branch);
+    await this.#sendHarness();
+    this.#emit({ type: "settings.open", page: "providers" });
+    this.#notify(`Started a conversation in ${folder.path}${adopt ? ` on its branch ${done.branch}` : ""}`);
   }
 
   async #dropHandles(): Promise<void> {
@@ -947,16 +972,40 @@ export class Controller implements HostedController {
     const convo = await this.#handle(repo, repo.trunk);
     await convo.saveConfig((text) => withValue(text, h.saved, h.working), commitMessage);
     // Providers are built when a thread is opened: threads opened before this change begin again with the file as it is now.
-    const trunk = repo.trunk;
     for (const [name, handle] of [...this.#handles]) {
-      if (name === trunk || this.#runs.has(name)) continue;
+      if (this.#runs.has(name)) continue;
       this.#handles.delete(name);
       await handle.close();
     }
+    // The person has just read the whole file in the sheet and saved it: it is approved on the thread it was saved on.
+    await (await this.#handle(repo, repo.trunk)).approveConfig();
+    await this.#chooseFirstModel(repo);
     this.#harness = { ...h, saved: h.working };
     this.#emit({ type: "form.set", form: this.#harnessForm() });
     this.#notify("harness.yml saved and committed");
     await this.#sendGraph();
+    if (this.#selected !== undefined && !this.#runs.has(this.#selected)) await this.#openChat(this.#selected);
+  }
+
+  /**
+   * A conversation started without a provider has no model; the first provider that is added gives it one, as `init` would have: the
+   * provider's usual model, with its prices pinned. New threads start from the trunk's setup, so they have it too.
+   */
+  async #chooseFirstModel(repo: Repo): Promise<void> {
+    const trunk = await this.#handle(repo, repo.trunk);
+    if ((await trunk.setup()).model !== undefined) return;
+    const cfg = await trunk.readConfig();
+    if (cfg === undefined || !cfg.ok) return;
+    const [name, config] = Object.entries(cfg.value.providers)[0] ?? [];
+    const def = config === undefined ? undefined : this.#providers().get(config.$tag);
+    if (name === undefined || config === undefined || def === undefined) return;
+    const id = DEFAULT_MODEL[config.$tag] ?? Object.keys(def.models?.(config) ?? {})[0];
+    if (id === undefined) {
+      this.#notify(`Choose a model for ${name}: it has none that is usual`, "warning");
+      return;
+    }
+    await trunk.setupChange({ model: { provider: name, id, settings: { max_output_tokens: 8192 } } });
+    await trunk.pinPricing().catch(() => undefined);
   }
 
   async #checkProvider(name: string, status: boolean): Promise<void> {
@@ -1066,6 +1115,9 @@ export class Controller implements HostedController {
       case "thread.open":
         await this.#openChat(intent.thread, intent.commit);
         return;
+      case "repo.init":
+        await this.#initRepo(intent.id);
+        return;
       case "repo.select": {
         const folder = this.#folders.find((f) => f.path === intent.id);
         if (folder === undefined) throw new AppError(`there is no folder ${intent.id} in this workspace`);
@@ -1130,8 +1182,6 @@ export class Controller implements HostedController {
         await this.#platform.copy(intent.commit);
         this.#notify(`Copied ${intent.commit.slice(0, 7)} to the clipboard`);
         return;
-      default:
-        throw new AppError(`${intent.type} is not available yet`);
     }
   }
 }

@@ -1,8 +1,8 @@
 # `test/e2e/` and `ui/host/`: the end-to-end journey
 
-**Purpose.** One script that is a person's whole use of the product, from a folder with no conversation to delivered files, run in a real browser against the real views. It is the success state the real controller (`ui/controller/`, not yet written) is built towards: it runs today against the mock controller and fails where the mock only pretends.
+**Purpose.** One script that is a person's whole use of the product, from a folder with no conversation to delivered files, run in a real browser against the real views and the real controller (`ui/controller/`), on a real disk and git repository. Only the model is scripted.
 
-**Status.** The journey, the driver, the Playwright runner, the disk world and the web host exist. The test is a `[slow]` suite marked `todo` (it runs and reports its failure, and does not fail the run) until the real controller passes it. With the mock it gets through initializing a folder, adding a provider, a new thread and a first turn with an approved write, and fails at the first check of the disk.
+**Status.** Passing. The `[slow]` suite builds the page, starts the web host over a `Controller` on a temporary workspace, points the process's `fetch` at a local server in place of api.anthropic.com (a scripted model: it thinks, calls `write` on `notes.md`, then says what it did, each task with its own closing words), and runs the journey in Chromium. `pnpm web [folder...]` runs the same host by hand on real folders (`tools/serve-web.ts`; keys come from the environment).
 
 ## Pieces
 
@@ -20,7 +20,7 @@
 
 1. Initialize the folder from the repository menu; the sheet opens on Providers.
 2. Add Anthropic, see the connection pass, save.
-3. New thread; send a task; thinking and a tool call appear; approve the write; the file is on the thread's branch and not yet in the project folder.
+3. New thread; send a task; thinking and a tool call appear (and the approval, in a world that asks: a fresh `harness.yml` allows writes); the file is on the thread's branch and not yet in the project folder.
 4. Open the file the agent named (recorded by the host's stand-in for the editor).
 5. Fork from the reply and send a second task on the fork.
 6. Edit a file by hand, switch the workspace to the fork (the file is kept as a snapshot).
@@ -31,4 +31,6 @@
 
 - Run it: `CHATTREE_SLOW=1 E2E_SHOTS=/tmp/shots node --no-warnings --test test/e2e/web.test.ts`.
 - A control the journey needs and cannot name by role and label is a gap in the view's accessibility: fix the view (an `aria-label`, a role), not the selector.
-- For the real controller the test swaps `MockController` for the real one, with a fake provider server and a scripted model that writes `notes.md`; `World` is unchanged.
+- The product answers in its own time: a check of the disk or git after a click polls (`eventually`), and the end of a turn is the model's closing words, not the status saying Ready (it says that before the turn starts, too).
+- Labels are matched exactly where the journey could match a longer one (`Message` is also the label of a sent message).
+- `test/ui/conformance.test.ts` holds the mock and the real controller to the same promises to the views (the events a view may rely on after each intent), so the mock the views are built against does not drift.

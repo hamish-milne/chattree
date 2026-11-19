@@ -36,7 +36,7 @@ export interface InitOptions {
   yes?: boolean | undefined;
 }
 
-const DEFAULT_MODEL: Record<string, string> = { anthropic: "claude-sonnet-5-5", openai: "gpt-6.1-sol" };
+export const DEFAULT_MODEL: Record<string, string> = { anthropic: "claude-sonnet-5-5", openai: "gpt-6.1-sol" };
 const KEY_ENV: Record<string, string> = { anthropic: "ANTHROPIC_API_KEY", openai: "OPENAI_API_KEY" };
 
 export interface InitResult {

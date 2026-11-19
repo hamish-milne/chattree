@@ -145,6 +145,22 @@ describe("the harness.yml a thread has been approved to use", () => {
     ]);
   });
 
+  test("a new thread starts with the settings its parent has now, committed on its own, and approved when the parent's file is", async () => {
+    const { dir, convo } = await make();
+    await convo.append({ $tag: "user", content: [{ $tag: "text", text: "go" }] });
+    await convo.saveConfig((t) => Promise.resolve({ ok: true, text: `${t}limits:\n  max_turn_usd: 100\n` }), "raise the turn limit");
+    await convo.approveConfig();
+    const thread = await convo.newThread("later");
+    assert.match(await readFile(join(thread.dir, "harness.yml"), "utf8"), /max_turn_usd: 100/);
+    assert.equal((await thread.configTrust()).state, "trusted");
+    assert.equal(new TextDecoder().decode((await thread.git.run(["log", "--format=%s"])).stdout).includes("harness.yml: from "), true);
+    // A parent whose file is edited by hand is not approved, so its thread's copy is not either.
+    await edit(dir, (t) => `${t}# edited\n`);
+    const other = await convo.newThread("hand");
+    assert.notEqual((await other.configTrust()).state, "trusted");
+    await Promise.all([thread.close(), other.close(), convo.close()]);
+  });
+
   test("a merge keeps the parent approved when the file it ends with is one that was approved, and not otherwise", async () => {
     const { convo } = await make();
     await convo.append({ $tag: "user", content: [{ $tag: "text", text: "go" }] });

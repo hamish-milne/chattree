@@ -2394,8 +2394,9 @@ export class Conversation {
 
   /**
    * Start a new thread: a branch with an empty conversation, checked out in its own worktree (`worktree`, default as for
-   * forks). It begins from the commit that holds this conversation's header, so it shares `harness.yml` and the
-   * repository but not this thread's messages or workspace edits (to branch from where you are, `fork`). With
+   * forks). It begins from the commit that holds this conversation's header, so it shares the repository but not this
+   * thread's messages or workspace edits (to branch from where you are, `fork`); `harness.yml` is this thread's as committed
+   * now (a commit of its own, when it differs from the header's), approved when this thread's is. With
    * `inheritSetup` (the default) it starts with this thread's agent setup: model and settings, instructions, tools and
    * the price pin.
    */
@@ -2407,6 +2408,13 @@ export class Conversation {
     const made = await this.#newBranch(name, header.commit, marker, opts.worktree === undefined ? {} : { worktree: opts.worktree });
     const thread = made.conversation;
     if (thread === undefined) throw new ConversationError(`the fork ${name} was not checked out`);
+    // The header is where the conversation began: settings saved since then (a provider added, a limit changed) are this thread's too.
+    const mine = await this.git.readFileAt(this.branch, CONFIG_FILE);
+    const began = await this.git.readFileAt(header.commit, CONFIG_FILE);
+    if (configHash(mine) !== configHash(began)) {
+      await thread.saveConfig(() => Promise.resolve({ ok: true, text: dec.decode(mine) }), `from ${this.branch}`);
+      await this.#inheritTrust(name, this.branch);
+    }
     if (opts.inheritSetup !== false) await this.copySetupTo(thread, "fork");
     return thread;
   }

@@ -24,6 +24,7 @@
     "catalog": "node --no-warnings scripts/catalog.ts",
     "chattree": "node --no-warnings cli/chattree.ts",
     "dev": "pnpm --filter chattree-vscode dev",
+    "web": "node --no-warnings tools/serve-web.ts",
     "lint": "oxlint --type-aware",
     "format": "oxfmt",
     "format:check": "oxfmt --check"

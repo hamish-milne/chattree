@@ -85,4 +85,24 @@ describe("the controller sees what other processes do", () => {
     assert.deepEqual(texts(), ["later"]);
     await c.close();
   });
+
+  test("a fork made here is not announced again by the next look", async () => {
+    const { c, project, events } = await rig();
+    const other = await Conversation.open(host, project);
+    await other.append(say("one"));
+    await other.close();
+    await c.refresh();
+    const head = events.findLast((e) => e.type === "chat.open");
+    assert.ok(head?.type === "chat.open");
+    c.handle({ type: "thread.fork", thread: head.state.thread.name, commit: head.state.thread.tip });
+    await c.idle();
+    const n = events.length;
+    await c.refresh();
+    await c.refresh();
+    assert.deepEqual(
+      events.slice(n).map((e) => e.type),
+      [],
+    );
+    await c.close();
+  });
 });
