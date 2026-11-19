@@ -60,7 +60,8 @@ describe("what can be done with a workspace folder", () => {
     await start(p);
     await writeFile(join(p, "chat.yml"), "- $tag: header\n  format: chatlog\n  major: 1\n  minor: 0\n");
     await sh(p, ["add", "."]);
-    await sh(p, ["commit", "-m", "old format", "--no-verify"]);
+    // A machine without a git identity (CI) cannot commit otherwise.
+    await sh(p, ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "-m", "old format", "--no-verify"]);
     const broken = await inspectFolder({ host }, p);
     assert.equal(broken.state.kind, "unusable");
     assert.match(broken.state.kind === "unusable" ? broken.state.reason : "", /no longer reads/);

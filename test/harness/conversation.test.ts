@@ -531,6 +531,8 @@ describe("the format version", () => {
     const text = await readFile(path, "utf8");
     await writeFile(path, text.replace(/minor: \d+/, `minor: ${minor}`));
     await convo.git.addAll();
+    await convo.git.setConfig("user.name", "T");
+    await convo.git.setConfig("user.email", "t@example.com");
     await convo.git.commit({ message: "edit header" });
     await convo.close();
   }
