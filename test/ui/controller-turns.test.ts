@@ -35,6 +35,7 @@ async function rig(script: Reply[]) {
   /** What a chat view would show after every event so far. */
   const view = new ChatModel(() => {});
   const c = new Controller({
+    pollMs: 0,
     env,
     folders: [project],
     session: "test",

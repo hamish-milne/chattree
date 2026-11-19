@@ -18,6 +18,7 @@ async function rig(extra: string[] = []) {
   await runInit(env, { dir: project, provider: "none" });
   const events: UiEvent[] = [];
   const c = new Controller({
+    pollMs: 0,
     env,
     folders: [project, ...extra.map((e) => join(dir, e))],
     send: (e) => {

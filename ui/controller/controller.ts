@@ -54,6 +54,8 @@ export interface ControllerOptions {
   platform?: Platform;
   /** Names this session in the run leases it takes, so it can tell its own running threads from another window's. */
   session?: string;
+  /** How often to look for changes made by other processes (a terminal, another window), in milliseconds; 0 never. Default 500. */
+  pollMs?: number;
   /** For asking a model server what it offers; the platform's by default. */
   fetch?: typeof fetch;
 }
@@ -118,6 +120,10 @@ export class Controller implements HostedController {
   readonly #platform: Platform;
   readonly #session: string;
   #queue: Promise<void> = Promise.resolve();
+  #timer: ReturnType<typeof setInterval> | undefined;
+  /** What the graph was made from when it was last sent: the branches with their tips, and which are held. */
+  #seen: string | undefined;
+  #refreshing = false;
   #folders: WorkspaceFolder[] = [];
   #repo: Repo | undefined;
   #started: Promise<void> | undefined;
@@ -183,8 +189,46 @@ export class Controller implements HostedController {
     if (this.#active === 0) for (const r of this.#quiet.splice(0)) r();
   }
 
+  /**
+   * Look at the repository again, and send what another process changed (a commit from a terminal, a thread another window took).
+   * Runs in turn with the intents. Called by the timer; a test or a host that is told of a change can call it itself.
+   */
+  refresh(): Promise<void> {
+    if (this.#closed) return Promise.resolve();
+    const done = this.#queue.then(async () => {
+      if (this.#closed || this.#repo === undefined) return;
+      try {
+        await this.#sync(this.#repo);
+      } catch {
+        // The repository may be in the middle of a change by the other process: the next look sees it whole.
+      }
+    });
+    this.#queue = done;
+    return done;
+  }
+
+  async #sync(repo: Repo): Promise<void> {
+    const seen = await this.#signature(repo);
+    if (this.#seen === undefined) this.#seen = seen;
+    if (seen === this.#seen) return;
+    await this.#sendGraph();
+    // A thread this session is not working on may have been written by someone else: read it again rather than trust what a handle remembers.
+    for (const [name, h] of [...this.#handles]) {
+      if (this.#runs.has(name)) continue;
+      this.#handles.delete(name);
+      await h.close();
+    }
+    const open = this.#selected;
+    if (open !== undefined && !this.#runs.has(open)) await this.#publish(open);
+  }
+
+  async #signature(repo: Repo): Promise<string> {
+    return JSON.stringify([await repo.convo.listBranches(), [...(await this.#statuses(repo))]]);
+  }
+
   async close(): Promise<void> {
     this.#closed = true;
+    if (this.#timer !== undefined) clearInterval(this.#timer);
     for (const r of this.#runs.values()) {
       r.abort.abort();
       r.pending?.resolve({ allow: false });
@@ -212,6 +256,15 @@ export class Controller implements HostedController {
       this.#folders = await inspectWorkspace(this.#o.env, this.#o.folders);
       const first = this.#folders.find((f) => f.state.kind === "conversation");
       if (first !== undefined) await this.#enter(first);
+      const every = this.#o.pollMs ?? 500;
+      if (every > 0 && !this.#closed) {
+        this.#timer = setInterval(() => {
+          if (this.#refreshing) return;
+          this.#refreshing = true;
+          void this.refresh().finally(() => (this.#refreshing = false));
+        }, every);
+        this.#timer.unref();
+      }
     })());
   }
 
@@ -298,6 +351,7 @@ export class Controller implements HostedController {
     });
     const repo = this.#repo;
     if (repo === undefined) return;
+    this.#seen = await this.#signature(repo);
     this.#emit({ type: "graph.data", data: await this.#graph(repo) });
     this.#emit({ type: "graph.selected", thread: this.#selected ?? repo.checkedOut });
   }

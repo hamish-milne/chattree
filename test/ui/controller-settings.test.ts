@@ -28,6 +28,7 @@ async function rig(extraEnv: Record<string, string> = {}, fetcher?: typeof fetch
   else await runInit(env, { dir: project, provider: "none" });
   const events: UiEvent[] = [];
   const c = new Controller({
+    pollMs: 0,
     env,
     folders: [project],
     session: "test",

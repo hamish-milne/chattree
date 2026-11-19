@@ -35,6 +35,7 @@ async function rig() {
   const events: UiEvent[] = [];
   const view = new ChatModel(() => {});
   const c = new Controller({
+    pollMs: 0,
     env,
     folders: [project],
     platform,
