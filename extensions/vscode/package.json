@@ -21,11 +21,64 @@
     "esbuild": "0.28.2"
   },
   "scripts": {
-    "typecheck": "node --no-warnings tools/gen-css-types.mts && tsc -p tsconfig.json && tsc -p tools/tsconfig.json",
+    "typecheck": "node --no-warnings tools/gen-css-types.mts && tsc -p tsconfig.json && tsc -p tools/tsconfig.json && tsc -p src/tsconfig.json",
     "build:web": "node --no-warnings tools/build-web.mts",
     "build:preview": "node --no-warnings tools/build-preview.mts",
     "preview": "node --no-warnings tools/serve-preview.mts",
     "dev": "node --no-warnings tools/dev.mts",
-    "gen:css": "node --no-warnings tools/gen-css-types.mts"
+    "gen:css": "node --no-warnings tools/gen-css-types.mts",
+    "build": "node --no-warnings tools/build-extension.mts"
+  },
+  "activationEvents": [],
+  "categories": [
+    "Other"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "chattree",
+          "title": "chattree",
+          "icon": "media/chattree.svg"
+        }
+      ],
+      "panel": [
+        {
+          "id": "chattreePanel",
+          "title": "chattree",
+          "icon": "media/chattree.svg"
+        }
+      ]
+    },
+    "views": {
+      "chattree": [
+        {
+          "type": "webview",
+          "id": "chattree.graph",
+          "name": "Threads"
+        }
+      ],
+      "chattreePanel": [
+        {
+          "type": "webview",
+          "id": "chattree.chat",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "chattree.showGraph",
+        "title": "chattree: Show threads"
+      },
+      {
+        "command": "chattree.showChat",
+        "title": "chattree: Show chat"
+      },
+      {
+        "command": "chattree.newThread",
+        "title": "chattree: New thread"
+      }
+    ]
   }
 }

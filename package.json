@@ -13,7 +13,10 @@
     ".": "./src/index.ts",
     "./config": "./src/config.ts",
     "./ui/model/*": "./ui/model/*.ts",
-    "./ui/fixtures/*": "./ui/fixtures/*.ts"
+    "./ui/fixtures/*": "./ui/fixtures/*.ts",
+    "./ui/controller/*": "./ui/controller/*.ts",
+    "./hosts/*": "./hosts/*.ts",
+    "./ui/host/*": "./ui/host/*.ts"
   },
   "scripts": {
     "test": "node --no-warnings tools/test.ts",
