@@ -16,13 +16,12 @@
 | File | Role |
 |---|---|
 | `main.ts`, `chattree.ts`, `io.ts` | Entry, argv, process boundary. |
-| `project.ts` | A project is a git working tree with `harness.yml`; maps thread names to worktrees and conversations; never climbs across a repository boundary. |
 | `chat.ts`, `terminal.ts`, `prompt.ts` | `chat` setup, the readline terminal layer (paste, completion, spinner, Ctrl keys, questions), and the prompt rules. |
 | `engine.ts`, `output.ts`, `turn.ts` | The session engine, what it says, and one streamed request shared by `/say`, `/retry`, `/continue`. Library refusals (`ChangeNotAllowed`, limits) become questions here. |
 | `session.ts` | Session files (draft, named drafts, staged attachments, thread pointer) under the git dir, written with the canonical emitter, with a heartbeat lock. |
 | `toolset.ts`, `skills.ts`, `changes.ts` | Build the tools a session offers (built-ins, thread and job tools, accepted MCP servers); keeping skills in step with disk; running a setup change that needs the user's yes. How calls look is `app/tool-lines.ts`. |
 | `models.ts` | `chattree models`. (The settings file, the provider registry and `init` are in [`app/`](app.md).) |
-| `run.ts`, `recent.ts`, `refs.ts`, `export.ts`, `environment.ts`, `mime.ts`, `age.ts`, `owner.ts`, `oneshot.ts`, `registry.ts` | `chattree run` (the headless pump), the recap on open, naming entries, Markdown export, the machine description given to the model, attachment type detection, display helpers, process identity, a re-export of the one-shot call, the command table and tokenizer. |
+| `run.ts`, `recent.ts`, `refs.ts`, `export.ts`, `environment.ts`, `mime.ts`, `age.ts`, `oneshot.ts`, `registry.ts` | `chattree run` (the headless pump), the recap on open, naming entries, Markdown export, the machine description given to the model, attachment type detection, display helpers, a re-export of the one-shot call, the command table and tokenizer. |
 | `commands/` | `chat`, `drafts`, `exec`, `mcp`, `meta`, `misc`, `read`, `search`, `sessions`, `settings`, `setup`, `skills`, `threads`, `tools`, `trust`, `undo`; `index.ts` lists them in `/help` order. |
 
 ## Invariants

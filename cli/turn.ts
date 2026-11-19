@@ -1,6 +1,6 @@
 import { AppError } from "../app/errors.ts";
 import { ChangeNotAllowed } from "../harness/setup.ts";
-import { localOwner } from "./owner.ts";
+import { localOwner } from "../app/owner.ts";
 import type { ChangeKind } from "../harness/entries.ts";
 import { CompactionInsufficient, ContextFull } from "../harness/compaction.ts";
 import { LimitExceeded } from "../harness/limits.ts";

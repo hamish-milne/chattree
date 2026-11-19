@@ -1,7 +1,7 @@
 import { Engine, hasPendingState } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
 import { ansiStyle, PlainRenderer, plainStyle, type Thinking, type ToolView } from "./output.ts";
-import { findProject, openThread } from "./project.ts";
+import { findProject, openThread } from "../app/project.ts";
 import { SessionStore, type Session } from "./session.ts";
 import { Terminal } from "./terminal.ts";
 import { recentEntries } from "./recent.ts";

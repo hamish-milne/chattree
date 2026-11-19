@@ -11,7 +11,7 @@ import type { ChatEntry } from "../../harness/entries.ts";
 import { formatTranscript } from "../output.ts";
 import { askModel } from "../oneshot.ts";
 import type { Io } from "../io.ts";
-import { openThread, threadDir, type Project } from "../project.ts";
+import { openThread, threadDir, type Project } from "../../app/project.ts";
 import { recentEntries } from "../recent.ts";
 import { resolveEntry } from "../refs.ts";
 import type { Command } from "../registry.ts";

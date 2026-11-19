@@ -12,7 +12,7 @@ import { IsObject } from "typebox";
 import { settingsProblems, type AdapterRegistry } from "../../providers/index.ts";
 import { providerRegistry } from "../../app/providers.ts";
 import { withConfirmation } from "../changes.ts";
-import { openThread } from "../project.ts";
+import { openThread } from "../../app/project.ts";
 import type { Command } from "../registry.ts";
 import { failure } from "../turn.ts";
 import { nth } from "../../src/nth.ts";

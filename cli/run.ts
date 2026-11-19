@@ -1,6 +1,6 @@
 import { Engine } from "./engine.ts";
 import { CliError, type Io } from "./io.ts";
-import { findProject, openThread } from "./project.ts";
+import { findProject, openThread } from "../app/project.ts";
 import { formatAge } from "./age.ts";
 import { describeCall } from "../app/tool-lines.ts";
 

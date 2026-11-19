@@ -14,7 +14,7 @@ import {
  * module decides when to do it, from the `skills.follow` policy, and words the result for the user.
  */
 import type { Io } from "./io.ts";
-import type { Project } from "./project.ts";
+import type { Project } from "../app/project.ts";
 
 /** Read the skills on disk for this project: the user's directory and the project root's `.agents/skills` and `.chattree/skills`. */
 export const scanProjectSkills = (io: Io, project: Project): Promise<SkillScan> =>

@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
 import { runRunner } from "../../cli/run.ts";
 import { Engine } from "../../cli/engine.ts";
-import { findProject, openThread } from "../../cli/project.ts";
+import { findProject, openThread } from "../../app/project.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { FakeServer, type Reply } from "../support/fake-server.ts";
 import { tempDir } from "../support/tmp.ts";

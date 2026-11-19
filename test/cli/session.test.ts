@@ -5,7 +5,7 @@ import { describe, test } from "node:test";
 import { Engine } from "../../cli/engine.ts";
 import { CliError } from "../../cli/io.ts";
 import { main } from "../../cli/main.ts";
-import { findProject, openThread } from "../../cli/project.ts";
+import { findProject, openThread } from "../../app/project.ts";
 import { SessionStore } from "../../cli/session.ts";
 import { acquireLock } from "../../src/index.ts";
 import { FakeServer } from "../support/fake-server.ts";

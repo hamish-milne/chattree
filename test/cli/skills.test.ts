@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { main } from "../../cli/main.ts";
 import type { Io } from "../../cli/io.ts";
-import { findProject, openThread } from "../../cli/project.ts";
+import { findProject, openThread } from "../../app/project.ts";
 import { skillsWaiting } from "../../cli/skills.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { harnessConfig } from "../../harness/config.ts";

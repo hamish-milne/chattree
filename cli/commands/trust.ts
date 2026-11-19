@@ -6,7 +6,7 @@
 import { configHash } from "../../harness/trust.ts";
 import type { Ctx } from "../engine.ts";
 import type { Output } from "../output.ts";
-import { openThread } from "../project.ts";
+import { openThread } from "../../app/project.ts";
 import type { Command } from "../registry.ts";
 import { failure } from "../turn.ts";
 

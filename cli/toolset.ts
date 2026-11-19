@@ -4,7 +4,7 @@
  * the approval prompt's answer parsing and the helpers that find busybox and ffmpeg for the host.
  */
 import type { Conversation } from "../harness/conversation.ts";
-import { localOwner } from "./owner.ts";
+import { localOwner } from "../app/owner.ts";
 import { JobRegistry, jobTools } from "../harness/jobs.ts";
 import type { Approval, ApprovalRequest, LoopEvent } from "../harness/loop.ts";
 import { leafTools } from "../harness/starter/index.ts";

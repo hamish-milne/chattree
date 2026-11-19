@@ -13,7 +13,7 @@ import { CliError, type Io } from "./io.ts";
 import { Engine } from "./engine.ts";
 import { defaultCommands } from "./commands/index.ts";
 import { parseThinking, parseToolView, PlainRenderer } from "./output.ts";
-import { findProject, openThread } from "./project.ts";
+import { findProject, openThread } from "../app/project.ts";
 import { SessionStore } from "./session.ts";
 import { runChat } from "./chat.ts";
 import { runRunner } from "./run.ts";

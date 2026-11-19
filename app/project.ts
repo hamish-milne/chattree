@@ -2,9 +2,10 @@ import { Conversation, ConversationError, type ConversationOptions } from "../ha
 import { ownerIsDead } from "./owner.ts";
 import { CONFIG_FILE } from "../harness/conversation.ts";
 import { envSource } from "../harness/secrets.ts";
-import { providerRegistry } from "../app/providers.ts";
+import { providerRegistry } from "./providers.ts";
 import { Git, GitError } from "../src/index.ts";
-import { CliError, type Io } from "./io.ts";
+import { AppError } from "./errors.ts";
+import type { AppEnv } from "./env.ts";
 
 /**
  * A chattree project: a git working tree that contains `harness.yml`. Threads are branches of its repository, and each
@@ -26,7 +27,7 @@ export interface Project {
  * Find the project from `start`: the nearest enclosing git top level decides. If it has `harness.yml` that is the project;
  * if not, the search stops (a nested repository never adopts its parent's conversation).
  */
-export async function findProject(io: Io, start: string): Promise<Project> {
+export async function findProject(io: AppEnv, start: string): Promise<Project> {
   const probe = await Git.open(io.host, { cwd: start }).catch(() => undefined);
   const top =
     probe === undefined
@@ -34,20 +35,20 @@ export async function findProject(io: Io, start: string): Promise<Project> {
       : await probe.run(["rev-parse", "--show-toplevel"], { ok: [128], readOnly: true }).catch(() => undefined);
   const root = top === undefined || top.exitCode !== 0 ? undefined : probe?.hostPath(new TextDecoder().decode(top.stdout).trim());
   if (probe === undefined || root === undefined || root === "")
-    throw new CliError(
+    throw new AppError(
       `${start} is not inside a git repository, so there is no chattree project here`,
       "run `chattree init` to start one, or pass -C <dir>",
     );
   const git = probe.withCwd(root);
   if ((await io.host.fs.stat(io.host.path.join(root, CONFIG_FILE))) === undefined) {
-    throw new CliError(
+    throw new AppError(
       `${root} has no ${CONFIG_FILE}: it is not a chattree project`,
       "run `chattree init` (or `chattree init --adopt` for a repository you already have)",
     );
   }
   const branch = await git.currentBranch();
   if (branch === undefined)
-    throw new CliError(
+    throw new AppError(
       "HEAD is detached, so there is no thread to infer",
       "check out a branch, or name the thread: `chattree chat <thread>`",
     );
@@ -62,7 +63,7 @@ export async function findProject(io: Io, start: string): Promise<Project> {
 }
 
 /** Conversation options for this machine: every provider adapter, secrets from the environment, the user's git identity on their entries. */
-export async function conversationOptions(io: Io, git: Git, opts: { providers?: boolean } = {}): Promise<ConversationOptions> {
+export async function conversationOptions(io: AppEnv, git: Git, opts: { providers?: boolean } = {}): Promise<ConversationOptions> {
   const name = await git.getConfig("user.name").catch(() => undefined);
   const email = await git.getConfig("user.email").catch(() => undefined);
   return {
@@ -88,7 +89,7 @@ export const safeDirName = (name: string): string =>
     .replace(/-+$/, "") || "thread";
 
 /** Where a thread without a worktree gets one: under the project's worktree root, in a directory nothing else uses (`fork-1`, then `fork-1-2` ...). */
-export async function threadDir(io: Io, project: Project, name: string): Promise<string> {
+export async function threadDir(io: AppEnv, project: Project, name: string): Promise<string> {
   const base = safeDirName(name);
   for (let n = 1; ; n++) {
     const dir = io.host.path.join(project.worktreeRoot, n === 1 ? base : `${base}-${n}`);
@@ -102,7 +103,7 @@ export async function threadDir(io: Io, project: Project, name: string): Promise
  * `providers: "optional"` opens without providers when their keys are missing, for commands that only read.
  */
 export async function openThread(
-  io: Io,
+  io: AppEnv,
   project: Project,
   name?: string,
   opts: { providers?: "required" | "optional" } = {},
@@ -112,7 +113,7 @@ export async function openThread(
   if (name !== undefined && name !== project.branch) {
     const ref = `refs/heads/${name}`;
     if ((await project.git.revParse(ref)) === undefined)
-      throw new CliError(`there is no thread named ${name}`, "list them with `chattree threads`; start one with `/thread new <name>`");
+      throw new AppError(`there is no thread named ${name}`, "list them with `chattree threads`; start one with `/thread new <name>`");
     const existing = (await project.git.worktrees()).find((w) => w.branch === ref);
     if (existing !== undefined) dir = existing.path;
     else {
@@ -122,7 +123,7 @@ export async function openThread(
     }
   }
   if ((await io.host.fs.stat(io.host.path.join(dir, "chat.yml"))) === undefined)
-    throw new CliError(
+    throw new AppError(
       `the branch ${thread} is not a thread (it has no chat.yml)`,
       "name a thread with `chattree chat <thread>`, or start one with `/thread new <name>`",
     );
@@ -132,7 +133,7 @@ export async function openThread(
     // A command that needs the model cannot go on with a file nobody approved; the commands that only read the thread can.
     if (opts.providers === "required")
       await convo.assertConfigTrusted().catch((e: unknown) => {
-        throw new CliError(e instanceof Error ? e.message : String(e), "chattree trust shows what is in harness.yml and approves it");
+        throw new AppError(e instanceof Error ? e.message : String(e), "chattree trust shows what is in harness.yml and approves it");
       });
     return { convo, thread };
   } catch (e) {
@@ -144,7 +145,7 @@ export async function openThread(
         degraded: e.message,
       };
     }
-    if (e instanceof ConversationError || e instanceof GitError) throw new CliError(e.message);
+    if (e instanceof ConversationError || e instanceof GitError) throw new AppError(e.message);
     throw e;
   }
 }

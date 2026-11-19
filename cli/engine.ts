@@ -4,11 +4,11 @@
  * hosts all drive it through `submit` and its methods; nothing here touches a terminal.
  */
 import type { Conversation } from "../harness/conversation.ts";
-import { localOwner } from "./owner.ts";
+import { localOwner } from "../app/owner.ts";
 import type { ChangeKind } from "../harness/entries.ts";
 import { CliError, type Io } from "./io.ts";
 import { ensureLocalModels } from "./models.ts";
-import type { OpenedThread, Project } from "./project.ts";
+import type { OpenedThread, Project } from "../app/project.ts";
 import { plainStyle, type Output, type Style, type Thinking, type ToolView } from "./output.ts";
 import { parseCommand, Registry, tokenize } from "./registry.ts";
 import { defaultCommands } from "./commands/index.ts";
@@ -25,7 +25,7 @@ import { formatAge } from "./age.ts";
 import { deliverSubagents, subagentChildRegistry, subagentGrants, subagentNudge } from "../harness/subagent.ts";
 import type { ChatEntry } from "../harness/entries.ts";
 import { deliverForks } from "../harness/fork-tools.ts";
-import { openThread } from "./project.ts";
+import { openThread } from "../app/project.ts";
 import { followSkills, skillsWaiting } from "./skills.ts";
 import { SYSTEM_PROMPT, type HostEnvironment } from "../harness/environment.ts";
 import { hostEnvironment } from "./environment.ts";
