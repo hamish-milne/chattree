@@ -597,8 +597,8 @@ export class Controller implements HostedController {
           void this.#sendGraph().catch(() => undefined);
           return made;
         },
-        onForkDraft: (branch, message) => {
-          this.#prefill(branch, message);
+        onForkDraft: (branch, first) => {
+          this.#prefill(branch, first);
           this.#notify(`The model started ${branch} and left a first message for it in its composer`);
         },
       });
