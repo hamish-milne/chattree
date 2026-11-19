@@ -1,0 +1,155 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { describe, test } from "node:test";
+import { runInit } from "../../app/init.ts";
+import { nodeHost } from "../../hosts/node.ts";
+import { Controller } from "../../ui/controller/controller.ts";
+import { parseEvent, type UiEvent } from "../../ui/model/protocol.ts";
+import { tempDir } from "../support/tmp.ts";
+
+const host = nodeHost();
+
+async function rig(extraEnv: Record<string, string> = {}, fetcher?: typeof fetch) {
+  const dir = await tempDir();
+  const project = join(dir, "p");
+  const env = { host, cwd: dir, env: { CHATTREE_ENVIRONMENT: "off", CHATTREE_SETTINGS: join(dir, "s.yml"), ...extraEnv }, now: Date.now };
+  await runInit(env, { dir: project, provider: "none" });
+  const events: UiEvent[] = [];
+  const c = new Controller({
+    env,
+    folders: [project],
+    session: "test",
+    ...(fetcher === undefined ? {} : { fetch: fetcher }),
+    send: (e) => {
+      const r = parseEvent(e);
+      assert.ok(r.ok, JSON.stringify(r));
+      events.push(e);
+    },
+  });
+  c.handle({ type: "ready", view: "config" });
+  await c.idle();
+  const form = () => {
+    const f = events.findLast((e) => e.type === "form.set");
+    assert.ok(f?.type === "form.set");
+    return f.form;
+  };
+  const notice = () => {
+    const n = events.findLast((e) => e.type === "notice");
+    return n?.type === "notice" ? n.message : "";
+  };
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: project, encoding: "utf8" }).trim();
+  const put = (base: string, extra: Record<string, unknown> = {}) =>
+    c.handle({ type: "form.edit", id: "harness", value: { ...form().value, ...provider(base, extra) } });
+  return { c, put, dir, project, events, form, notice, git };
+}
+
+const provider = (base_url: string, extra: Record<string, unknown> = {}) => ({
+  providers: { local: { $tag: "openai-compatible", base_url, ...extra } },
+});
+
+describe("the controller, settings", () => {
+  test("the sheet opens on harness.yml as it is, with the generated schema and no problems", async () => {
+    const { form } = await rig();
+    const f = form();
+    assert.equal(f.id, "harness");
+    assert.deepEqual(f.issues, []);
+    assert.equal(f.dirty, false);
+    assert.ok("properties" in f.schema);
+  });
+
+  test("an edit is checked: a key pasted in place of a variable name is a problem, a good provider is not", async () => {
+    const { c, put, form } = await rig();
+    put("http://localhost:1/v1", { api_key_env: "sk-abc123 def" });
+    await c.idle();
+    assert.ok(form().issues.some((i) => i.path.startsWith("providers.local")));
+    assert.equal(form().dirty, true);
+    put("http://localhost:1/v1");
+    await c.idle();
+    assert.deepEqual(form().issues, []);
+  });
+
+  test("saving writes the file, keeps its comments, and commits it alone with the person's message", async () => {
+    const { c, put, project, form, git, notice } = await rig();
+    const before = await readFile(join(project, "harness.yml"), "utf8");
+    put("http://localhost:1/v1");
+    c.handle({ type: "form.save", id: "harness", message: "add a local server" });
+    await c.idle();
+    assert.equal(form().dirty, false);
+    assert.match(notice(), /saved and committed/);
+    const text = await readFile(join(project, "harness.yml"), "utf8");
+    assert.match(text, /openai-compatible/);
+    for (const line of before.split("\n").filter((l) => l.startsWith("#"))) assert.ok(text.includes(line), line);
+    assert.equal(git("log", "-1", "--format=%s"), "harness.yml: add a local server");
+    assert.equal(git("show", "--name-only", "--format=", "HEAD"), "harness.yml");
+    assert.equal(git("status", "--porcelain", "--", "harness.yml"), "");
+  });
+
+  test("a form with problems is not saved; reverting returns to the file", async () => {
+    const { c, put, project, form, git, notice } = await rig();
+    const head = git("rev-parse", "HEAD");
+    put("not a url");
+    c.handle({ type: "form.save", id: "harness" });
+    await c.idle();
+    assert.match(notice(), /has problems/);
+    assert.equal(git("rev-parse", "HEAD"), head);
+    assert.doesNotMatch(await readFile(join(project, "harness.yml"), "utf8"), /not a url/);
+    c.handle({ type: "form.revert", id: "harness" });
+    await c.idle();
+    assert.equal(form().dirty, false);
+    assert.deepEqual(form().value["providers"] ?? {}, {});
+  });
+
+  test("a provider is tried as it is in the edit: its keys, then what the server lists", async () => {
+    const asked: string[] = [];
+    const fetcher: typeof fetch = (url, init) => {
+      asked.push(`${String(url)} ${new Headers(init?.headers).get("authorization") ?? ""}`);
+      return Promise.resolve(Response.json({ data: [{ id: "qwen3:4b" }, { id: "llama3" }] }));
+    };
+    const { c, put, events } = await rig({}, fetcher);
+    put("http://srv/v1", { api_key_env: "SRV_KEY" });
+    c.handle({ type: "provider.test", provider: "local" });
+    await c.idle();
+    const status = () => events.findLast((e) => e.type === "provider.status");
+    const s = status();
+    assert.ok(s?.type === "provider.status");
+    assert.equal(s.status.state, "error");
+    assert.match(s.status.detail ?? "", /SRV_KEY is not set/);
+    assert.deepEqual(asked, []);
+  });
+
+  test("with the key set the server's models are listed, authenticated", async () => {
+    const asked: string[] = [];
+    const fetcher: typeof fetch = (url, init) => {
+      asked.push(`${String(url)} ${new Headers(init?.headers).get("authorization") ?? ""}`);
+      return Promise.resolve(Response.json({ data: [{ id: "qwen3:4b" }, { id: "llama3" }] }));
+    };
+    const { c, put, events } = await rig({ SRV_KEY: "secret-1234" }, fetcher);
+    put("http://srv/v1/", { api_key_env: "SRV_KEY" });
+    c.handle({ type: "provider.test", provider: "local" });
+    c.handle({ type: "provider.models", provider: "local" });
+    await c.idle();
+    const s = events.findLast((e) => e.type === "provider.status");
+    assert.ok(s?.type === "provider.status");
+    assert.deepEqual([s.status.state, s.status.detail], ["ok", "2 models"]);
+    const m = events.findLast((e) => e.type === "provider.models");
+    assert.ok(m?.type === "provider.models");
+    assert.deepEqual(
+      m.list.models.map((x) => x.id),
+      ["qwen3:4b", "llama3"],
+    );
+    assert.deepEqual(asked, ["http://srv/v1/models Bearer secret-1234", "http://srv/v1/models Bearer secret-1234"]);
+    assert.ok(!JSON.stringify(events).includes("secret-1234"));
+  });
+
+  test("a server that cannot be reached is an error with the address in it", async () => {
+    const { c, put, events } = await rig({}, () => Promise.reject(new Error("connect ECONNREFUSED")));
+    put("http://srv/v1");
+    c.handle({ type: "provider.test", provider: "local" });
+    await c.idle();
+    const s = events.findLast((e) => e.type === "provider.status");
+    assert.ok(s?.type === "provider.status");
+    assert.match(s.status.detail ?? "", /could not reach http:\/\/srv\/v1: connect ECONNREFUSED/);
+  });
+});

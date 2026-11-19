@@ -80,7 +80,7 @@ describe("the controller, reading", () => {
 
   test("what is not built yet is a notice, not an exception", async () => {
     const { c, events } = await rig();
-    c.handle({ type: "provider.test", provider: "x" });
+    c.handle({ type: "instructions.add", path: "AGENTS.md" });
     await c.idle();
     assert.equal(events.at(-1)?.type, "notice");
     await c.close();

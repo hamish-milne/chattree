@@ -1856,10 +1856,30 @@ export class Conversation {
     what: string,
     commit: boolean,
   ): Promise<void> {
+    return this.#changeConfigFile(edit, `approvals: ${what}`, commit);
+  }
+
+  /**
+   * Replace `harness.yml` with what `edit` makes of it and commit that file alone (`harness.yml: <message>`). A file that was
+   * approved stays approved: the person who saves it has just read it.
+   */
+  saveConfig(
+    edit: (text: string, nowMs: number) => Promise<{ ok: true; text: string } | { ok: false; message: string }>,
+    message: string,
+  ): Promise<void> {
+    return this.#changeConfigFile(edit, `harness.yml: ${message === "" ? "update settings" : message}`, true);
+  }
+
+  #changeConfigFile(
+    edit: (text: string, nowMs: number) => Promise<{ ok: true; text: string } | { ok: false; message: string }>,
+    subject: string,
+    commit: boolean,
+  ): Promise<void> {
     return this.#transaction(async () => {
       const path = this.host.path.join(this.dir, CONFIG_FILE);
-      if ((await this.host.fs.stat(path)) === undefined) throw new ConversationError(`there is no ${CONFIG_FILE} to hold the approval`);
-      const r = await edit(dec.decode(await this.host.fs.read(path)), this.now());
+      const exists = (await this.host.fs.stat(path)) !== undefined;
+      if (!exists && !commit) throw new ConversationError(`there is no ${CONFIG_FILE} to hold the approval`);
+      const r = await edit(exists ? dec.decode(await this.host.fs.read(path)) : "", this.now());
       if (!r.ok) throw new ConversationError(`${CONFIG_FILE}: ${r.message}`);
       await this.#keepTrust(() => this.host.fs.writeAtomic(path, enc.encode(r.text)));
       if (!commit) return;
@@ -1867,7 +1887,7 @@ export class Conversation {
       await this.git.add([CONFIG_FILE]);
       const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
       const hash = await this.git.commit({
-        message: `approvals: ${what}`,
+        message: subject,
         trailers: [
           ["Chattree-Offset", String(size)],
           ["Chattree-Config", "true"],

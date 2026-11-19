@@ -1,3 +1,6 @@
+import { isDeepStrictEqual } from "node:util";
+import { providerRegistry } from "../../app/providers.ts";
+import type { AdapterRegistry } from "../../providers/registry.ts";
 import { hostEnvironment } from "../../app/environment.ts";
 import { createFork, findProject, nextForkName, openThread, threadDir, type Project } from "../../app/project.ts";
 import { buildToolSet, type ToolSet } from "../../app/toolset.ts";
@@ -23,6 +26,8 @@ import { runThread } from "./run-thread.ts";
 import { mapGraph } from "./map-graph.ts";
 import { approvalView, statusBar, threadBanner, threadStatus } from "./map-status.ts";
 import type { Block } from "../model/transcript.ts";
+import type { FormIssue, FormSpec } from "../model/form.ts";
+import { HARNESS_FORM, checkHarness, checkProvider, harnessForm, readHarness, withValue } from "./settings.ts";
 import { headlessPlatform, type Platform } from "./platform.ts";
 
 export interface ControllerOptions {
@@ -34,6 +39,8 @@ export interface ControllerOptions {
   platform?: Platform;
   /** Names this session in the run leases it takes, so it can tell its own running threads from another window's. */
   session?: string;
+  /** For asking a model server what it offers; the platform's by default. */
+  fetch?: typeof fetch;
 }
 
 /** A repository that holds a conversation, as the controller has it open. */
@@ -115,6 +122,10 @@ export class Controller implements HostedController {
   #active = 0;
   #quiet: (() => void)[] = [];
   readonly #lastStatus = new Map<string, ThreadStatus>();
+  /** The `harness.yml` form: what is saved, what is being edited, and what is wrong with it. */
+  #harness: { saved: Record<string, unknown>; working: Record<string, unknown>; issues: FormIssue[] } | undefined;
+  #registry: AdapterRegistry | undefined;
+  #settingsOpen = false;
   #seq = 0;
 
   constructor(o: ControllerOptions) {
@@ -215,6 +226,9 @@ export class Controller implements HostedController {
     this.#repo = { folder, project: found, main, convo, trunk: keep?.trunk ?? (await this.#trunkOf(main)), checkedOut: found.branch };
     this.#selected = keep?.selected ?? found.branch;
     await old?.convo.close();
+    // The settings are the new repository's: the sheet, if it is open, shows them.
+    this.#harness = undefined;
+    if (this.#settingsOpen) await this.#sendHarness();
   }
 
   async #dropHandles(): Promise<void> {
@@ -682,6 +696,75 @@ export class Controller implements HostedController {
     if (this.#selected === thread) await this.#openChat(repo.checkedOut);
   }
 
+  // ---- settings --------------------------------------------------------------------------------------------
+
+  #providers(): AdapterRegistry {
+    return (this.#registry ??= providerRegistry(this.#o.env));
+  }
+
+  #harnessForm(): FormSpec {
+    const h = this.#harness;
+    if (h === undefined) throw new AppError("the settings are not open");
+    return harnessForm(this.#providers(), h.saved, h.working, h.issues);
+  }
+
+  /** Read the file again (`reread`, or when it was never read) and send the form. */
+  async #sendHarness(reread = true, id = HARNESS_FORM): Promise<void> {
+    if (id !== HARNESS_FORM) throw new AppError(`there is no form ${id}`);
+    if (reread || this.#harness === undefined) {
+      const repo = this.#open();
+      const file = await readHarness(await this.#handle(repo, repo.trunk));
+      const issues = file.issues.length > 0 ? file.issues : await checkHarness(file.value, this.#providers());
+      this.#harness = { saved: file.value, working: file.value, issues };
+    }
+    this.#emit({ type: "form.set", form: this.#harnessForm() });
+  }
+
+  async #editHarness(id: string, value: Record<string, unknown>): Promise<void> {
+    if (id !== HARNESS_FORM) throw new AppError(`there is no form ${id}`);
+    if (this.#harness === undefined) await this.#sendHarness();
+    const h = this.#harness;
+    if (h === undefined) return;
+    this.#harness = { ...h, working: value, issues: await checkHarness(value, this.#providers()) };
+    this.#emit({ type: "form.set", form: this.#harnessForm() });
+  }
+
+  async #saveHarness(id: string, commitMessage: string): Promise<void> {
+    if (id !== HARNESS_FORM) throw new AppError(`there is no form ${id}`);
+    const h = this.#harness;
+    if (h === undefined) throw new AppError("the settings are not open");
+    if (h.issues.length > 0) throw new AppError("harness.yml has problems", "fix them first");
+    if (isDeepStrictEqual(h.saved, h.working)) return;
+    const repo = this.#open();
+    const convo = await this.#handle(repo, repo.trunk);
+    await convo.saveConfig((text) => withValue(text, h.saved, h.working), commitMessage);
+    // Providers are built when a thread is opened: threads opened before this change begin again with the file as it is now.
+    const trunk = repo.trunk;
+    for (const [name, handle] of [...this.#handles]) {
+      if (name === trunk || this.#runs.has(name)) continue;
+      this.#handles.delete(name);
+      await handle.close();
+    }
+    this.#harness = { ...h, saved: h.working };
+    this.#emit({ type: "form.set", form: this.#harnessForm() });
+    this.#notify("harness.yml saved and committed");
+    await this.#sendGraph();
+  }
+
+  async #checkProvider(name: string, status: boolean): Promise<void> {
+    if (this.#harness === undefined) await this.#sendHarness();
+    const working = this.#harness?.working ?? {};
+    if (status) this.#emit({ type: "provider.status", provider: name, status: { state: "checking" } });
+    const r = await checkProvider(name, working, {
+      registry: this.#providers(),
+      env: this.#o.env.env,
+      fetch: this.#o.fetch ?? fetch,
+      now: this.#o.env.now,
+    });
+    if (status) this.#emit({ type: "provider.status", provider: name, status: r.status });
+    else this.#emit({ type: "provider.models", provider: name, list: r.list });
+  }
+
   async #trust(thread: string): Promise<void> {
     const repo = this.#open();
     const h = await this.#handle(repo, thread);
@@ -743,6 +826,23 @@ export class Controller implements HostedController {
       case "ready":
         if (intent.view === "graph") await this.#sendGraph();
         else if (intent.view === "chat" && this.#selected !== undefined) await this.#openChat(this.#selected);
+        else if (intent.view === "config") {
+          this.#settingsOpen = true;
+          await this.#sendHarness();
+        }
+        return;
+      case "form.edit":
+        await this.#editHarness(intent.id, intent.value);
+        return;
+      case "form.save":
+        await this.#saveHarness(intent.id, intent.message ?? "");
+        return;
+      case "form.revert":
+        await this.#sendHarness(true, intent.id);
+        return;
+      case "provider.test":
+      case "provider.models":
+        await this.#checkProvider(intent.provider, intent.type === "provider.test");
         return;
       case "thread.open":
         await this.#openChat(intent.thread, intent.commit);
