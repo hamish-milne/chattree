@@ -10,6 +10,7 @@ declare const styles: {
   readonly form_help: string;
   readonly form_issues: string;
   readonly form_raw: string;
+  readonly json: string;
   readonly kind_boolean: string;
   readonly number: string;
   readonly reset: string;

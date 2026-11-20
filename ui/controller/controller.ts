@@ -538,7 +538,17 @@ export class Controller implements HostedController {
     const blocks = await mapEntries(
       items,
       { blob: (sha) => h.store.get(sha) },
-      { spends, ...(run === undefined ? {} : { awaiting: run.awaiting, running: run.running, inFlight: true }) },
+      {
+        spends,
+        // The call a held question is about is waiting for the person too, or its block would not show the question.
+        ...(run === undefined && ask === undefined
+          ? {}
+          : {
+              awaiting: new Set([...(run?.awaiting ?? []), ...(ask === undefined ? [] : [ask.callId])]),
+              running: run?.running ?? new Set<string>(),
+              inFlight: true,
+            }),
+      },
     );
     const setup = await h.setup();
     const ledger = await h.ledger();

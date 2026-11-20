@@ -372,6 +372,18 @@
   flex-direction: column;
   gap: 8px;
 }
+/* Stays in the corner while the settings scroll; the first row sits beside it, not under it. */
+.model_settings_close {
+  position: sticky;
+  top: 0;
+  align-self: flex-end;
+  z-index: 1;
+  margin: -4px -6px -26px 0;
+}
+.model_settings_close ~ form,
+.model_settings_close ~ div {
+  padding-right: 22px;
+}
 .model_settings > * {
   max-width: 520px;
 }

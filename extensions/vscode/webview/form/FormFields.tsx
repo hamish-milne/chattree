@@ -4,6 +4,7 @@
  * controller and shows the answer, including what is wrong.
  */
 import type { JSX } from "preact";
+import { useState } from "preact/hooks";
 import type { Field, FormModel } from "chattree/ui/model/form-model";
 import css from "./form.module.css";
 import { cn, pick } from "../cn.ts";
@@ -113,6 +114,37 @@ function Control({ form, field }: { form: Form; field: Field }): JSX.Element | n
           }
         />
       );
+    case "pick": {
+      const fallback = field.options.find((o) => JSON.stringify(o.value) === JSON.stringify(field.fallback))?.label;
+      return (
+        <select
+          {...common}
+          value={field.current ?? (field.custom ? "custom" : "")}
+          onChange={(e) => {
+            const option = field.options.find((o) => o.key === e.currentTarget.value);
+            if (option !== undefined) form.set(field.path, option.value);
+          }}
+        >
+          {field.current === undefined && !field.custom && (
+            <option value="" disabled={!field.optional}>
+              {fallback === undefined ? "Provider default" : `Default (${fallback})`}
+            </option>
+          )}
+          {field.custom && (
+            <option value="custom" disabled>
+              Custom (set in harness.yml)
+            </option>
+          )}
+          {field.options.map((o) => (
+            <option key={o.key} value={o.key}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      );
+    }
+    case "json":
+      return <JsonBox form={form} field={field} common={common} />;
     case "raw":
       return <pre class={css.form_raw}>{JSON.stringify(field.value, null, 2)}</pre>;
     default:
@@ -120,9 +152,47 @@ function Control({ form, field }: { form: Form; field: Field }): JSX.Element | n
   }
 }
 
+/** An object of anything, as JSON text: kept when it parses to an object, and a problem is said beside it until it does. */
+function JsonBox({ form, field, common }: { form: Form; field: Field & { kind: "json" }; common: Record<string, unknown> }): JSX.Element {
+  const [bad, setBad] = useState<string | undefined>(undefined);
+  const shownText = field.value === undefined ? "" : JSON.stringify(field.value, null, 2);
+  return (
+    <span class={css.json}>
+      <textarea
+        {...common}
+        rows={Math.max(2, shownText.split("\n").length)}
+        spellcheck={false}
+        placeholder={'{ "name": "value" }'}
+        value={shownText}
+        onChange={(e) => {
+          const raw = e.currentTarget.value.trim();
+          if (raw === "") {
+            setBad(undefined);
+            form.remove(field.path);
+            return;
+          }
+          try {
+            const parsed: unknown = JSON.parse(raw);
+            if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("it must be an object");
+            setBad(undefined);
+            form.set(field.path, parsed);
+          } catch (err) {
+            setBad(err instanceof Error ? err.message : "not JSON");
+          }
+        }}
+      />
+      {bad !== undefined && (
+        <small class={css.form_issues} role="alert">
+          {bad}
+        </small>
+      )}
+    </span>
+  );
+}
+
 /** Puts an optional setting back to what the provider does when it is not set. */
 function Reset({ form, field }: { form: Form; field: Field }): JSX.Element | null {
-  if (!field.optional || field.kind === "group" || field.kind === "map" || field.kind === "boolean") return null;
+  if (!field.optional || field.kind === "group" || field.kind === "map" || field.kind === "boolean" || field.kind === "json") return null;
   const set = field.kind === "list" ? field.value.length > 0 : field.value !== undefined;
   return (
     <button

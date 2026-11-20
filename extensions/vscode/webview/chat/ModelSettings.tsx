@@ -2,7 +2,9 @@
 import type { JSX } from "preact";
 import type { ChatModel } from "chattree/ui/model/chat-model";
 import { humanize } from "chattree/ui/model/form-model";
+import { Icon } from "../icons.tsx";
 import { FormView } from "../form/FormFields.tsx";
+import { cn } from "../cn.ts";
 import css from "./chat.module.css";
 import formCss from "../form/form.module.css";
 
@@ -55,6 +57,14 @@ export function ModelSettings({ model }: { model: Model }): JSX.Element | null {
   );
   return (
     <section class={css.model_settings} id="model-settings" aria-label="Model settings">
+      <button
+        class={cn("icon-button", css.model_settings_close)}
+        title="Close"
+        aria-label="Close model settings"
+        onClick={() => model.closeSettings()}
+      >
+        <Icon name="x" />
+      </button>
       {form === undefined ? lead : <FormView form={form} compact lead={lead} />}
     </section>
   );

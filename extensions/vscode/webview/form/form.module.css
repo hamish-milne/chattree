@@ -150,6 +150,15 @@ input.switch:checked::after {
 .slider.unset {
   opacity: 0.5;
 }
+.json {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.json textarea {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+}
 .reset {
   padding: 0 4px;
   line-height: 1;

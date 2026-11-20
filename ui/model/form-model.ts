@@ -39,6 +39,16 @@ export type Field = Common &
     /** An object whose keys the person chooses (providers, tool grants): each entry is a group. */
     | { kind: "map"; entries: { key: string; fields: Field[] }[]; template: Field[] }
     | { kind: "raw"; value: unknown }
+    /** One of a few fixed values of different kinds (on, off or a word): `current` is the key of the option the value is, `custom` when it is something else the schema allows (an object). */
+    | {
+        kind: "pick";
+        options: { key: string; label: string; value: unknown }[];
+        current: string | undefined;
+        custom: boolean;
+        value: unknown;
+      }
+    /** An object of anything: edited as JSON text. */
+    | { kind: "json"; value: Json | undefined }
   );
 
 const isObject = (x: unknown): x is Json => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -73,6 +83,33 @@ export function removeIn(value: Json, path: readonly string[]): Json {
   return { ...value, [head]: removeIn(objectOf(value[head]), rest) };
 }
 
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b);
+
+/**
+ * The choices of a union of fixed values (`true | false | "turn"`, or words and an object of settings): each becomes an option, with a
+ * label from `x-labels` (by the value as JSON), `On`/`Off` for booleans, or the word put into words. Undefined if the schema is not that.
+ */
+function pickOptions(schema: Json): { options: { key: string; label: string; value: unknown }[] } | undefined {
+  const members = Array.isArray(schema["anyOf"]) ? schema["anyOf"].filter(isObject) : [];
+  if (members.length < 2) return undefined;
+  const labels = objectOf(schema["x-labels"]);
+  const values: unknown[] = [];
+  for (const m of members) {
+    if ("const" in m) values.push(m["const"]);
+    else if (Array.isArray(m["enum"])) values.push(...m["enum"].map((x: unknown) => x));
+    else if (m["type"] === "boolean") values.push(true, false);
+    else if (m["type"] !== "object") return undefined;
+  }
+  if (values.length === 0) return undefined;
+  const options = values.map((value) => {
+    const key = JSON.stringify(value);
+    const named = text(labels[typeof value === "string" ? value : key]);
+    const label = named ?? (typeof value === "boolean" ? (value ? "On" : "Off") : typeof value === "string" ? humanize(value) : key);
+    return { key, label, value };
+  });
+  return { options };
+}
+
 function fieldOf(key: string, schema: Json, value: unknown, path: string[], issues: Map<string, string[]>, optional = true): Field {
   const common: Common = {
     path,
@@ -84,6 +121,11 @@ function fieldOf(key: string, schema: Json, value: unknown, path: string[], issu
     advanced: schema["x-advanced"] === true,
     issues: issues.get(dotted(path)) ?? [],
   };
+  const picks = pickOptions(schema);
+  if (picks !== undefined) {
+    const current = picks.options.find((o) => same(o.value, value))?.key;
+    return { ...common, kind: "pick", ...picks, current, custom: value !== undefined && current === undefined, value };
+  }
   const options = Array.isArray(schema["enum"]) ? schema["enum"].filter((o): o is string => typeof o === "string") : undefined;
   if (options !== undefined && options.length > 0) return { ...common, kind: "choice", options, value: text(value) };
   switch (schema["type"]) {
@@ -116,6 +158,9 @@ function fieldOf(key: string, schema: Json, value: unknown, path: string[], issu
         : patterns.length === 1
           ? patterns[0]
           : undefined;
+      // An object of anything (a record of unknowns) has no fields to draw: it is JSON.
+      if (isObject(extra) && !isObject(schema["properties"]) && Object.keys(extra).length === 0)
+        return { ...common, kind: "json", value: value === undefined ? undefined : objectOf(value) };
       if (isObject(extra) && !isObject(schema["properties"])) {
         const entries = Object.keys(objectOf(value)).map((k) => ({
           key: k,

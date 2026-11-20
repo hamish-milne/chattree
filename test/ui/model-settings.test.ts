@@ -68,6 +68,37 @@ describe("the fields of a settings schema", () => {
     );
   });
 
+  test("a union of fixed values is a pick, and an object of anything is JSON", () => {
+    const sc = {
+      type: "object",
+      properties: {
+        replay: {
+          anyOf: [{ type: "boolean" }, { const: "turn", type: "string" }],
+          "x-labels": { turn: "This turn only" },
+          "x-default": false,
+        },
+        tags: { anyOf: [{ enum: ["auto", "off"] }, { type: "object", properties: { open: { type: "string" } } }] },
+        extra: { type: "object", patternProperties: { "^.*$": {} } },
+      },
+    };
+    const f = (value: Record<string, unknown>) =>
+      formFields({ id: "f", title: "t", schema: sc, value, issues: [], dirty: false, saveLabel: "Save" }).fields;
+    const [replay, tags, extra] = f({ replay: "turn", tags: { open: "<t>" } });
+    assert.ok(replay?.kind === "pick");
+    assert.deepEqual(
+      replay.options.map((o) => o.label),
+      ["On", "Off", "This turn only"],
+    );
+    assert.equal(replay.current, '"turn"');
+    assert.ok(tags?.kind === "pick" && tags.custom && tags.current === undefined, "an object value is custom");
+    assert.deepEqual(
+      tags.options.map((o) => o.label),
+      ["Auto", "Off"],
+    );
+    assert.ok(extra?.kind === "json" && extra.value === undefined);
+    assert.ok(f({ replay: false })[0]?.kind === "pick");
+  });
+
   test("humanize", () => {
     assert.equal(humanize("max_output_tokens"), "Max output tokens");
     assert.equal(humanize("reasoning-effort"), "Reasoning effort");

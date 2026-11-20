@@ -63,7 +63,23 @@ async function rig(script: Reply[], pollMs = 0) {
     await c.close();
     await server.close();
   };
-  return { c, events, project, server, types, finish, matchesSnapshot, view };
+  /** A second controller on the same project, as after the editor was reloaded. */
+  const reopen = async () => {
+    const v = new ChatModel(() => {});
+    const c2 = new Controller({
+      pollMs,
+      env,
+      folders: [project],
+      session: "test",
+      send: (e) => {
+        v.apply(e);
+      },
+    });
+    c2.handle({ type: "ready", view: "chat" });
+    await c2.idle();
+    return { c: c2, view: v };
+  };
+  return { c, events, project, server, types, finish, matchesSnapshot, view, reopen };
 }
 
 describe("the controller, turns", () => {
@@ -563,10 +579,44 @@ describe("the controller, turns", () => {
       c.handle({ type: "thread.open", thread: "topic-a" });
       await c.idle();
       assert.equal(view.approval.value?.callId, "k1", "the fork's question is shown");
+      const call = view.blocks.value.find((b) => b.type === "tool" && b.id === "k1");
+      assert.ok(call?.type === "tool" && call.status === "awaiting_approval", "on the call, where the buttons are");
       c.handle({ type: "chat.approve", callId: "k1", allow: true });
       await c.idle();
       const texts = view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
       assert.ok(texts.includes("Done there."), `the fork went on: ${texts.join(" | ")}`);
+    } finally {
+      await finish();
+    }
+  });
+
+  test("a call that waits for approval is asked again after a reload, wherever the person goes", async () => {
+    const { c, finish, reopen } = await rig([
+      callTools({ id: "c1", name: "fork", args: { name: "topic-a", message: "Look into topic A" } }),
+      answer("Started."),
+      callTools({ id: "k1", name: "run", args: { command: "echo from the fork" } }),
+      answer("Done there."),
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "split this up" });
+      await c.idle();
+      c.handle({ type: "chat.approve", callId: "c1", allow: true });
+      await c.idle();
+      await c.close();
+      const again = await reopen();
+      again.c.handle({ type: "thread.open", thread: "topic-a" });
+      await again.c.idle();
+      assert.equal(again.view.approval.value?.callId, "k1", "the question is there again, though nothing was running");
+      const call = again.view.blocks.value.find((b) => b.type === "tool" && b.id === "k1");
+      assert.ok(
+        call?.type === "tool" && call.status === "awaiting_approval",
+        "and the call it is about shows it, which is where the buttons are",
+      );
+      again.c.handle({ type: "chat.approve", callId: "k1", allow: true });
+      await again.c.idle();
+      const texts = again.view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
+      assert.ok(texts.includes("Done there."), texts.join(" | "));
+      await again.c.close();
     } finally {
       await finish();
     }

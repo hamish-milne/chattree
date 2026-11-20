@@ -72,7 +72,12 @@ export const compatibleSettings = strictObject({
    * to tool calls) need it.
    */
   replay_reasoning: opt(
-    Type.Union([Type.Boolean(), Type.Literal("turn")], { title: "Send earlier reasoning back", "x-default": false, "x-advanced": true }),
+    Type.Union([Type.Boolean(), Type.Literal("turn")], {
+      title: "Send earlier reasoning back",
+      "x-labels": { turn: "This turn only" },
+      "x-default": false,
+      "x-advanced": true,
+    }),
   ),
   /**
    * Reasoning that a server leaves inline in the text as `<think>…</think>`. `auto` (the default) looks only at the very start

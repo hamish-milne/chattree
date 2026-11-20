@@ -377,6 +377,19 @@ export function chatFixture(): ChatState {
           cache_ttl: { enum: ["5m", "1h"], title: "Prompt cache lifetime", "x-default": "5m", "x-advanced": true },
           effort: { type: "string", title: "Effort", "x-advanced": true },
           thinking: { title: "Thinking", "x-advanced": true },
+          replay_reasoning: {
+            anyOf: [{ type: "boolean" }, { const: "turn", type: "string" }],
+            title: "Send earlier reasoning back",
+            "x-labels": { turn: "This turn only" },
+            "x-default": false,
+            "x-advanced": true,
+          },
+          extra: {
+            type: "object",
+            patternProperties: { "^.*$": {} },
+            title: "Extra request fields",
+            "x-advanced": true,
+          },
         },
       },
       value: {

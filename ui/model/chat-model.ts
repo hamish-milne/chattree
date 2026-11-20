@@ -271,6 +271,9 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
       if (!next.delete(id)) next.add(id);
       toggled.value = next;
     },
+    closeSettings(): void {
+      settingsOpen.value = false;
+    },
     toggleSettings(): void {
       settingsOpen.value = !settingsOpen.peek();
     },

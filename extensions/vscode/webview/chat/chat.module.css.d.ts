@@ -44,6 +44,7 @@ declare const styles: {
   readonly level_warning: string;
   readonly model_chip: string;
   readonly model_settings: string;
+  readonly model_settings_close: string;
   readonly notice: string;
   readonly notice_detail: string;
   readonly notice_title: string;
