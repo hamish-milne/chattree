@@ -1038,6 +1038,8 @@ export class Controller implements HostedController {
       throw new AppError("that question is no longer waiting for an answer");
     const r = await this.#bg.pump.answer(thread, callId, choice);
     if (r.status !== "recorded") throw new AppError("that question is no longer waiting for an answer");
+    // The answer is what the thread was waiting for: it carries on, rather than being left as a request owed since it was first looked at.
+    this.#owedAt.set(thread, "answered");
     await this.#publish(thread);
   }
 

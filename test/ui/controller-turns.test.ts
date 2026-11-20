@@ -547,4 +547,28 @@ describe("the controller, turns", () => {
       await finish();
     }
   });
+
+  test("a question a fork asks while the pump runs it is asked when the person goes there", async () => {
+    const { c, view, finish } = await rig([
+      callTools({ id: "c1", name: "fork", args: { name: "topic-a", message: "Look into topic A" } }),
+      answer("Started."),
+      callTools({ id: "k1", name: "run", args: { command: "echo from the fork" } }),
+      answer("Done there."),
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "split this up" });
+      await c.idle();
+      c.handle({ type: "chat.approve", callId: "c1", allow: true });
+      await c.idle();
+      c.handle({ type: "thread.open", thread: "topic-a" });
+      await c.idle();
+      assert.equal(view.approval.value?.callId, "k1", "the fork's question is shown");
+      c.handle({ type: "chat.approve", callId: "k1", allow: true });
+      await c.idle();
+      const texts = view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
+      assert.ok(texts.includes("Done there."), `the fork went on: ${texts.join(" | ")}`);
+    } finally {
+      await finish();
+    }
+  });
 });

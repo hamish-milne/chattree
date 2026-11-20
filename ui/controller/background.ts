@@ -85,9 +85,9 @@ export class Background {
     const start = entries.findLast((e) => e.$tag === "branch_start" && e.context === "fresh");
     const sub = start?.$tag === "branch_start" && start.kind === "subagent";
     this.#subs.set(convo.branch, sub);
-    // A thread the controller has run is looked at with its own tools, so reports to it are delivered and what it waits for is known;
+    // A thread the controller has run, or that the person has open (its tools are brought up to date there), is looked at with its own tools, so reports to it are delivered and what it waits for is known;
     // the controller starts its requests (`leave`), the pump only says when one is owed.
-    if (!sub && this.#host.ran(convo.branch)) {
+    if (!sub && (this.#host.ran(convo.branch) || this.#host.owns(convo.branch))) {
       let own: ToolSet;
       try {
         own = await this.#host.toolsetFor(convo.branch);
