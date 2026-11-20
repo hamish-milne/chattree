@@ -38,7 +38,7 @@ export type LeaseState =
   | { state: "free" }
   | { state: "live"; owner: LeaseOwner; until: number; holding: string[] }
   /** A lease whose holder is gone or past its deadline: whatever it was running may have been cut off. */
-  | { state: "stale"; owner: LeaseOwner; until: number };
+  | { state: "stale"; owner: LeaseOwner; until: number; holds?: string[] };
 
 /** What `hold` and `follow` say about the lease as they found it. */
 export type LeaseBefore = "free" | "stale" | "ours";
@@ -165,6 +165,7 @@ export class LeaseStore {
   readonly #backend: LeaseBackend;
   readonly #mine = new Map<string, Mine>();
   readonly #chain = new Map<string, Promise<unknown>>();
+  readonly #staleHolds = new Map<string, string[]>();
 
   /** A backend, or (the usual case) `fs` and `file`: where a thread's lease file lives, under the repository's shared git directory. */
   constructor(backend: LeaseBackend);
@@ -197,7 +198,11 @@ export class LeaseStore {
     return (await this.#look(branch, env, seen)).state;
   }
 
-  async #look(branch: string, env: LeaseEnv, seen: Set<string>): Promise<{ state: LeaseState; rev?: string; mine?: boolean }> {
+  async #look(
+    branch: string,
+    env: LeaseEnv,
+    seen: Set<string>,
+  ): Promise<{ state: LeaseState; rev?: string; mine?: boolean; holds?: string[] }> {
     const r = await this.#read(branch);
     if (r === undefined) return { state: { state: "free" } };
     const f = r.file;
@@ -214,7 +219,8 @@ export class LeaseStore {
             owner: f.owner,
             until,
             holding: [
-              ...Object.entries(f.holds).flatMap(([k, expires]) => (expires > now ? [k] : [])),
+              // `exec:` marks say a call started (for a later loop to read if this host dies), not what the thread is busy with.
+              ...Object.entries(f.holds).flatMap(([k, expires]) => (expires > now && !k.startsWith("exec:") ? [k] : [])),
               ...Object.values(f.follows).map((b) => `thread ${b}`),
             ],
           },
@@ -229,7 +235,12 @@ export class LeaseStore {
           return { state: { state: "live", owner: f.owner, until: s.until, holding: [`thread ${followed}`] }, rev: r.rev, mine };
       }
     }
-    return { state: { state: "stale", owner: f.owner, until }, rev: r.rev, mine };
+    return { state: { state: "stale", owner: f.owner, until, holds: Object.keys(f.holds) }, rev: r.rev, mine, holds: Object.keys(f.holds) };
+  }
+
+  /** The holds of the stale lease the last `hold` or `follow` on this thread took over, or undefined if they could not be read (or it was not stale). */
+  staleHolds(branch: string): readonly string[] | undefined {
+    return this.#staleHolds.get(branch);
   }
 
   /** Hold the thread's lease for `key` until `until`, taking the lease if nobody holds it. Throws `ThreadBusy` if a live holder in another process has it. */
@@ -267,6 +278,7 @@ export class LeaseStore {
         this.#mine.delete(branch); // the lease was lost or taken over: start again, as for one we never had
       }
       let before: LeaseBefore = "free";
+      this.#staleHolds.delete(branch);
       for (;;) {
         const m: Mine = { owner, since: env.now(), holds: {}, follows: {}, rev: "" };
         change(m);
@@ -279,7 +291,12 @@ export class LeaseStore {
         const state = look.state;
         if (state.state === "live" && look.mine !== true) throw new ThreadBusy(branch, state);
         if (state.state !== "free") {
-          if (state.state === "stale") before = "stale";
+          if (state.state === "stale") {
+            before = "stale";
+            // What the dead holder was holding for, when it can be read: a call that was started is among it (see `staleHolds`).
+            if (look.holds === undefined) this.#staleHolds.delete(branch);
+            else this.#staleHolds.set(branch, look.holds);
+          }
           if (look.rev !== undefined) await this.#backend.remove(branch, look.rev).catch(() => false); // someone else may take it over first: the loop starts again
         }
       }

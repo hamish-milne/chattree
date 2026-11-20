@@ -83,3 +83,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 - *Change what the model is shown:* `context.ts` and `context-builder.ts` (and the renderer for new wording; a changed wording is a new renderer id).
 - *Add a limit or cost meter:* `limits.ts`, `ledger.ts`, `estimate.ts` and the price tables in `providers/pricing.ts`.
 - *Change setup classification:* `setup.ts` for core kinds, the adapter's `classify` for provider-specific ones.
+
+## Whether a call started
+
+A loop marks a call as started just before its tool runs, as a hold `exec:<call id>` on the thread's run lease (dropped once the result is recorded; it is not listed as what the thread is busy with). When a host dies the next loop finds the lease stale and reads what it held: a call with no `exec` mark was still waiting for a decision, so it is carried on (it runs, or asks again) rather than answered "did not run"; a call with the mark may have run and is answered as lost. If the stale lease cannot be read, every call counts as possibly started. Time and how long a person took to answer never decide this.

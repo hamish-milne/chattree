@@ -285,22 +285,38 @@ async function* loopBody(convo: Conversation, opts: LoopOptions): AsyncGenerator
 class RunLease {
   /** The lease as the loop found it: `stale` means the host that held it died, so a call without a result may have started. */
   readonly before: LeaseBefore;
+  /** What the dead holder was holding for, if `before` is `stale` and that could be read. */
+  readonly #stale: readonly string[] | undefined;
   readonly #convo: Conversation;
   readonly #owner: LeaseOwner;
-  private constructor(convo: Conversation, owner: LeaseOwner, before: LeaseBefore) {
+  private constructor(convo: Conversation, owner: LeaseOwner, before: LeaseBefore, stale: readonly string[] | undefined) {
     this.#convo = convo;
     this.#owner = owner;
     this.before = before;
+    this.#stale = stale;
+  }
+  /**
+   * Whether a call without a result is known not to have started when the earlier loop died. A call is marked started (`exec:<id>`, held until its
+   * result is recorded) just before its tool runs, so if the dead holder's marks could be read and it has none for this call, the call was
+   * still waiting for a decision and nothing of it ran. Otherwise (or if they could not be read) it may have.
+   */
+  provenNotStarted(callId: string): boolean {
+    return this.before === "stale" && this.#stale !== undefined && !this.#stale.includes(`exec:${callId}`);
   }
   static async take(convo: Conversation, owner: LeaseOwner): Promise<RunLease> {
     const store = await convo.leaseStore();
     const before = await store.hold(convo.branch, owner, convo.leaseEnv, "loop", convo.now() + LEASE_HEADROOM_MS);
-    return new RunLease(convo, owner, before);
+    return new RunLease(convo, owner, before, store.staleHolds(convo.branch));
   }
   /** The loop will be busy for `ms` more (a request, a tool call), then needs the lease for the usual headroom. */
   async busyFor(ms: number): Promise<void> {
     const store = await this.#convo.leaseStore();
     await store.hold(this.#convo.branch, this.#owner, this.#convo.leaseEnv, "loop", this.#convo.now() + ms + LEASE_HEADROOM_MS);
+  }
+  /** Hold the lease under `key` for `ms` more (plus the usual headroom): a mark that outlives the loop if the host dies. */
+  async mark(key: string, ms: number): Promise<void> {
+    const store = await this.#convo.leaseStore();
+    await store.hold(this.#convo.branch, this.#owner, this.#convo.leaseEnv, key, this.#convo.now() + ms + LEASE_HEADROOM_MS);
   }
   async follow(key: string, branch: string): Promise<void> {
     await (await this.#convo.leaseStore()).follow(this.#convo.branch, this.#owner, this.#convo.leaseEnv, key, branch);
@@ -588,6 +604,9 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
         ? undefined
         : new Promise<"timeout">((resolve) => (timer = setTimeout(() => (resolve("timeout"), own.abort()), allowed * 1000 + graceMs)));
     await lease.busyFor(allowed === "thread" ? 0 : allowed * 1000 + graceMs);
+    // The call is started from here: a host that dies now leaves this mark, which is how the next loop knows it may have run.
+    const execKey = `exec:${call.call_id}`;
+    await lease.mark(execKey, allowed === "thread" ? 0 : allowed * 1000 + graceMs);
     const followKey = `call:${call.call_id}`;
     let out: ToolOutput;
     try {
@@ -624,6 +643,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
     } finally {
       if (timer !== undefined) clearTimeout(timer);
       await lease.drop(followKey).catch(() => undefined);
+      await lease.drop(execKey).catch(() => undefined);
       await lease.busyFor(0).catch(() => undefined);
     }
     yield* record(call, out, t0);
@@ -656,6 +676,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       call !== undefined &&
       stopReason() === undefined &&
       ((opts.waitForApproval === true && lease.before !== "stale") ||
+        lease.provenNotStarted(id) ||
         registry.get(call.name)?.resumable === true ||
         decisions.get(id)?.allow === false);
     if (!carryOn) {

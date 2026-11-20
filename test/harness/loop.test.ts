@@ -928,7 +928,7 @@ describe("the run lease", () => {
     assert.deepEqual(await convo.leaseState(), { state: "free" });
   });
 
-  test("a lease the host that died left behind: the call that was waiting is not run, it is answered as not run", async () => {
+  test("a lease the host that died left behind, with the call marked as started: it is answered as not run", async () => {
     const ran: string[] = [];
     const registry = reg(keyed("echo", ran));
     const { convo } = await fresh(registry, CFG);
@@ -936,9 +936,11 @@ describe("the run lease", () => {
     await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
     await convo.append({ $tag: "approval", call_id: "c1", allow: true });
 
-    // Another process held the thread and its clock has run out: the history does not say whether c1 started.
+    // Another process held the thread and died with c1 started: the history does not say how far it got.
     const { store, handle } = await otherProcess(convo);
-    await store.hold(convo.branch, { pid: 99 }, { now: () => convo.now() - 3_600_000 }, "loop", convo.now() - 3_500_000);
+    const gone = { now: () => convo.now() - 3_600_000 };
+    await store.hold(convo.branch, { pid: 99 }, gone, "loop", convo.now() - 3_500_000);
+    await store.hold(convo.branch, { pid: 99 }, gone, "exec:c1", convo.now() - 3_500_000);
     assert.equal((await convo.leaseState()).state, "stale");
     const state = await tip(convo, registry);
     assert.equal(state.kind, "run");
@@ -955,6 +957,34 @@ describe("the run lease", () => {
     assert.deepEqual(ran, []);
     const [r] = await results(convo);
     assert.match(str(r!.content), /did not run/);
+    assert.deepEqual(await convo.leaseState(), { state: "free" });
+  });
+
+  test("a lease the host that died left behind, with the call not yet started: the call the person allowed runs", async () => {
+    const ran: string[] = [];
+    const registry = reg(keyed("echo", ran));
+    const { convo } = await fresh(registry, CFG);
+    queue = [calls(call("c1", "echo")), answer("done")];
+    // The first loop is asking in place and the host dies there: the lease it held is stale, with no mark for the call.
+    await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    const { store, handle } = await otherProcess(convo);
+    const gone = { now: () => convo.now() - 3_600_000 };
+    await store.hold(convo.branch, { pid: 99 }, gone, "loop", convo.now() - 3_500_000);
+    await convo.append({ $tag: "approval", call_id: "c1", allow: true });
+    assert.equal((await convo.leaseState()).state, "stale");
+    const state = await tip(convo, registry);
+    assert.equal(state.kind, "run");
+    if (state.kind === "run")
+      assert.deepEqual(
+        state.calls.map((c) => [c.callId, c.status]),
+        [["c1", "approved"]],
+      );
+    void handle;
+
+    queue = [answer("after")];
+    const { result } = await drive(convo, registry, { grants: convo.grantStore(), waitForApproval: true });
+    assert.equal(result.status, "completed");
+    assert.deepEqual(ran, ["c1"]);
     assert.deepEqual(await convo.leaseState(), { state: "free" });
   });
 

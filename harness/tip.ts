@@ -165,7 +165,9 @@ export async function classifyCalls(input: TipInput, callIds: readonly string[])
   const decisions = decisionsIn(entries);
   const held = threadGrantsIn(entries);
   const out: CallNeed[] = [];
-  const interrupted = input.lease?.state === "stale";
+  const stale = input.lease?.state === "stale" ? input.lease : undefined;
+  // A call the dead host had not marked started (`exec:<id>`, see `loop.ts`) was still waiting for a decision: nothing of it ran.
+  const interrupted = (id: string): boolean => stale !== undefined && (stale.holds === undefined || stale.holds.includes(`exec:${id}`));
   for (const id of callIds) {
     const call = calls.get(id);
     if (call === undefined) continue;
@@ -180,7 +182,7 @@ export async function classifyCalls(input: TipInput, callIds: readonly string[])
       out.push({ ...base, args: checked.args, status: "declined", ...(decision.reason === undefined ? {} : { message: decision.reason }) });
       continue;
     }
-    if (interrupted && checked.tool.resumable !== true) {
+    if (interrupted(id) && checked.tool.resumable !== true) {
       out.push({ ...base, args: checked.args, status: "lost" });
       continue;
     }

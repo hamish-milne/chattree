@@ -220,7 +220,7 @@ function plainRunTool(opts: RunToolOptions): Tool {
     definition: {
       name: "run",
       description:
-        "Run a command in the workspace, written in a cross-platform bash-like syntax with common shell utilities (cat, ls, grep, sed, sort, wc, ...), as well as programs available to the host (node, ...). It is not a real shell: the supported syntax is quotes, `|` pipes, `<` `>` `>>` with workspace files, `*` `?` `[...]` `{a,b}` globs, `2>&1`, and `$NAME` for environment variables the user has allowed. Not supported: `;` `&&` `||` `&`, loops and conditions (`for`, `while`, `if`), `$(...)`, backticks, subshells, heredocs, `VAR=x cmd` and `~` (use the script tool for those, which needs the user's approval). Returns the exit code, then stdout and stderr in the order they were produced.",
+        "Run a command in the workspace, written in a cross-platform bash-like syntax with common shell utilities (cat, ls, grep, sed, sort, wc, ...), as well as programs available to the host (node, ...). It is not a real shell: the supported syntax is quotes, `|` pipes, `<` `>` `>>` with workspace files, `*` `?` `[...]` `{a,b}` globs, `2>&1`, and `$NAME` for environment variables the user has allowed. Not supported: `;` `&&` `||` `&` (to start something that keeps running, such as a server, a watcher or a long build, set `background: true`: it returns a job at once, and you read its output and stop it with the job tools), loops and conditions (`for`, `while`, `if`), `$(...)`, backticks, subshells, heredocs, `VAR=x cmd` and `~` (use the script tool for those, which needs the user's approval). Returns the exit code, then stdout and stderr in the order they were produced.",
       input_schema: {
         type: "object",
         additionalProperties: false,
@@ -300,7 +300,7 @@ function plainScriptTool(opts: RunToolOptions): Tool {
     definition: {
       name: "script",
       description:
-        "Run a POSIX sh script (`sh -c`; on Windows busybox's ash) in the workspace. Plain POSIX only: no bash extras such as `{1..3}`, `[[ ]]` or arrays (write `for i in 1 2 3` or use `seq`). Use it for shell syntax (&&, ;, loops, $(...), redirecting stderr, $variables) that the run tool does not do. It always needs the user's approval, so prefer run for a single command. Other languages (bash, python, powershell) are started with run when the host has them. Returns the exit code, then stdout and stderr in the order they were produced.",
+        "Run a POSIX sh script (`sh -c`; on Windows busybox's ash) in the workspace. Plain POSIX only: no bash extras such as `{1..3}`, `[[ ]]` or arrays (write `for i in 1 2 3` or use `seq`). Use it for shell syntax (&&, ;, loops, $(...), redirecting stderr, $variables) that the run tool does not do. A trailing `&` does not start a background job here: set `background: true` for that. It always needs the user's approval, so prefer run for a single command. Other languages (bash, python, powershell) are started with run when the host has them. Returns the exit code, then stdout and stderr in the order they were produced.",
       input_schema: {
         type: "object",
         additionalProperties: false,
