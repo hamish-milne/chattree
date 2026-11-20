@@ -6,6 +6,7 @@
 import { computed, createModel, signal } from "@preact/signals-core";
 import type { Activity, Approval, ForwardedQuestion, ChatBanner, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
 import { FormModel } from "./form-model.ts";
+import { activeLevel, withLevel } from "./levels.ts";
 import type { UiEvent, UiIntent } from "./protocol.ts";
 import type { FileRef } from "./file-ref.ts";
 import type { Block } from "./transcript.ts";
@@ -77,6 +78,12 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     blocks.value = blocks.value.map((b) => (b.id === id ? f(b) : b));
   };
   const name = (): string | undefined => thread.peek()?.name;
+  /** The thinking level the settings are at (`custom`: set, but not to a level), undefined when the model has none or none is set. */
+  const thinking = computed(() => {
+    const levels = models.value?.levels;
+    const form = settings.value;
+    return levels === undefined || form === undefined ? undefined : activeLevel(levels, form.spec.value.value);
+  });
 
   return {
     thread,
@@ -85,6 +92,7 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     composer,
     approval,
     models,
+    thinking,
     banner,
     settings,
     settingsOpen,
@@ -217,6 +225,12 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     undoChange(): void {
       const b = banner.peek();
       if (b?.kind === "unusual_change") this.rewind(b.before);
+    },
+    /** Put the settings at a thinking level (undefined: the provider's default, none of the settings a level sets). */
+    setThinking(level: string | undefined): void {
+      const levels = models.peek()?.levels;
+      const form = settings.peek();
+      if (levels !== undefined && form !== undefined) form.replace(withLevel(levels, form.spec.peek().value, level));
     },
     chooseModel(id: string): void {
       if (id !== models.peek()?.current) send({ type: "chat.model", model: id });

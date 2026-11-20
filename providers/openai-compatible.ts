@@ -36,25 +36,44 @@ import { asJson, asString, jsonList, jsonOr, messageText, parseJsonObject, type 
 // ---- settings -------------------------------------------------------------------------------------------------
 
 const opt = Type.Optional;
-const positive = Type.Integer({ minimum: 1 });
 const nonEmpty = Type.String({ minLength: 1 });
 
 export const compatibleSettings = strictObject({
   /** Per-request cap on output, reasoning included (sent as `max_tokens`, or the parameter the provider config names). Required: the cost limit is computed from it. */
-  max_output_tokens: positive,
-  temperature: opt(Type.Number({ minimum: 0, maximum: 2 })),
-  top_p: opt(Type.Number({ minimum: 0, maximum: 1 })),
-  stop: opt(Type.Array(nonEmpty, { maxItems: 4 })),
-  seed: opt(Type.Integer()),
+  max_output_tokens: Type.Integer({
+    minimum: 1,
+    title: "Max output tokens",
+    description: "The most the model may write in one response, reasoning included.",
+  }),
+  temperature: opt(Type.Number({ minimum: 0, maximum: 2, title: "Temperature", description: "Lower is steadier, higher is more varied." })),
+  top_p: opt(
+    Type.Number({
+      minimum: 0,
+      maximum: 1,
+      title: "Top P",
+      description: "Only the likeliest words that add up to this chance are considered.",
+    }),
+  ),
+  stop: opt(
+    Type.Array(nonEmpty, {
+      maxItems: 4,
+      title: "Stop sequences",
+      description: "The response ends when it would write one of these.",
+      "x-advanced": true,
+    }),
+  ),
+  seed: opt(Type.Integer({ title: "Seed", description: "The same seed asks for the same answer to the same prompt.", "x-advanced": true })),
   /** `reasoning_effort`, for servers and models that take it. Changing it changes what the server computes, so it counts as a cache break. */
-  reasoning_effort: opt(nonEmpty),
+  reasoning_effort: opt(Type.String({ minLength: 1, title: "Reasoning effort", "x-advanced": true })),
   /**
    * Send the model's earlier reasoning back (as `reasoning_content`) with the assistant messages. `"turn"`: only what the same model
    * wrote since the last user message, which is where it matters (between tool calls) and what model makers say to send; `true`: all of
    * it, for the template to sort out; `false` (the default): none, as most chat templates drop it and a few (those that expect it next
    * to tool calls) need it.
    */
-  replay_reasoning: opt(Type.Union([Type.Boolean(), Type.Literal("turn")])),
+  replay_reasoning: opt(
+    Type.Union([Type.Boolean(), Type.Literal("turn")], { title: "Send earlier reasoning back", "x-default": false, "x-advanced": true }),
+  ),
   /**
    * Reasoning that a server leaves inline in the text as `<think>…</think>`. `auto` (the default) looks only at the very start
    * of each response and costs nothing when there is no tag; `off` never splits (use it if answers may begin with a literal
@@ -63,13 +82,13 @@ export const compatibleSettings = strictObject({
    * reasoning); an object names other tags.
    */
   think_tags: opt(
-    Type.Union([
-      Type.Enum(["auto", "off", "implicit"]),
-      strictObject({ open: nonEmpty, close: nonEmpty, implicit_open: opt(Type.Boolean()) }),
-    ]),
+    Type.Union(
+      [Type.Enum(["auto", "off", "implicit"]), strictObject({ open: nonEmpty, close: nonEmpty, implicit_open: opt(Type.Boolean()) })],
+      { title: "Inline reasoning tags", "x-default": "auto", "x-advanced": true },
+    ),
   ),
   /** Extra top-level request fields for server extensions (`top_k`, `min_p`, `chat_template_kwargs`, Ollama's `think`). Cannot override the fields the adapter owns. */
-  extra: opt(record(Type.String(), Type.Unknown())),
+  extra: opt(record(Type.String(), Type.Unknown(), { title: "Extra request fields", "x-advanced": true })),
 });
 export type CompatibleSettings = Static<typeof compatibleSettings>;
 

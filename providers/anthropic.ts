@@ -36,28 +36,53 @@ const positive = Type.Integer({ minimum: 1 });
 const nonEmpty = Type.String({ minLength: 1 });
 
 const display = opt(Type.Enum(["summarized", "omitted"]));
+const THINKING = { title: "Thinking", "x-advanced": true };
 /** What an agent's `model.settings` may hold for this provider. Unknown keys are refused: a typo here costs money. */
 export const anthropicSettings = strictObject({
   /** Per-request cap on output, thinking included. Required: the cost limit is computed from it. */
-  max_output_tokens: positive,
+  max_output_tokens: Type.Integer({
+    minimum: 1,
+    title: "Max output tokens",
+    description: "The most the model may write in one response, thinking included.",
+  }),
   thinking: opt(
-    Type.Union([
-      strictObject({ type: Type.Literal("adaptive"), display }),
-      strictObject({ type: Type.Literal("enabled"), budget_tokens: positive, display }),
-      strictObject({ type: Type.Literal("disabled") }),
-    ]),
+    Type.Union(
+      [
+        strictObject({ type: Type.Literal("adaptive"), display }),
+        strictObject({ type: Type.Literal("enabled"), budget_tokens: positive, display }),
+        strictObject({ type: Type.Literal("disabled") }),
+      ],
+      THINKING,
+    ),
   ),
   /** `output_config.effort`; the accepted names depend on the model. Changing it invalidates the prompt cache. */
-  effort: opt(nonEmpty),
-  temperature: opt(Type.Number({ minimum: 0, maximum: 1 })),
-  top_p: opt(Type.Number({ minimum: 0, maximum: 1 })),
-  top_k: opt(positive),
-  stop_sequences: opt(Type.Array(nonEmpty)),
+  effort: opt(Type.String({ minLength: 1, title: "Effort", "x-advanced": true })),
+  temperature: opt(
+    Type.Number({ minimum: 0, maximum: 1, title: "Temperature", description: "Lower is steadier, higher is more varied.", "x-default": 1 }),
+  ),
+  top_p: opt(
+    Type.Number({
+      minimum: 0,
+      maximum: 1,
+      title: "Top P",
+      description: "Only the likeliest words that add up to this chance are considered.",
+    }),
+  ),
+  top_k: opt(
+    Type.Integer({ minimum: 1, title: "Top K", description: "Only this many of the likeliest words are considered.", "x-advanced": true }),
+  ),
+  stop_sequences: opt(
+    Type.Array(nonEmpty, {
+      title: "Stop sequences",
+      description: "The response ends when it would write one of these.",
+      "x-advanced": true,
+    }),
+  ),
   /**
    * How long the prompt cache lives after each use: `5m` (the default, writes cost 1.25x input) or `1h` (writes cost 2x).
    * Reads cost the same either way. Use `1h` when the gaps between requests are longer than five minutes.
    */
-  cache_ttl: opt(Type.Enum(["5m", "1h"])),
+  cache_ttl: opt(Type.Enum(["5m", "1h"], { title: "Prompt cache lifetime", "x-default": "5m", "x-advanced": true })),
 });
 export type AnthropicSettings = Static<typeof anthropicSettings>;
 

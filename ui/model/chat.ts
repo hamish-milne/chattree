@@ -91,6 +91,15 @@ export type ForwardedQuestion = Static<typeof forwardedQuestion>;
 export const modelChoice = strictObject({
   current: Type.String(),
   options: Type.Array(strictObject({ id: Type.String({ minLength: 1 }), label: Type.String(), provider: Type.String() })),
+  /**
+   * The current model's named thinking levels from the catalog, each with the settings that make it: the view offers them as a
+   * choice, and a level is in effect when the thread's settings hold all of its values.
+   */
+  levels: Type.Optional(
+    Type.Array(strictObject({ name: Type.String({ minLength: 1 }), settings: Type.Record(Type.String(), Type.Unknown()) })),
+  ),
+  /** The level the catalog starts the model at, one of `levels`. */
+  defaultLevel: Type.Optional(Type.String()),
 });
 export type ModelChoice = Static<typeof modelChoice>;
 

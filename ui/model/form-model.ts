@@ -15,7 +15,15 @@ interface Common {
   /** Where the value is in the whole value. */
   path: string[];
   key: string;
+  /** What the form calls it: the schema's `title`, or the key put into words ("max_output_tokens" is "Max output tokens"). */
+  label: string;
   description: string | undefined;
+  /** What the provider does when it is not set, if the schema says (`x-default`): shown instead of an empty field. */
+  fallback: unknown;
+  /** The object it is in does not require it, so it may be left unset (and put back to the default). */
+  optional: boolean;
+  /** The schema marks it as a setting few people touch (`x-advanced`): the view keeps it out of the way. */
+  advanced: boolean;
   /** What is wrong with this value, from the controller. */
   issues: string[];
 }
@@ -38,6 +46,12 @@ const objectOf = (x: unknown): Json => (isObject(x) ? x : {});
 const text = (x: unknown): string | undefined => (typeof x === "string" ? x : undefined);
 const num = (x: unknown): number | undefined => (typeof x === "number" ? x : undefined);
 
+/** A key in words: "max_output_tokens" is "Max output tokens". */
+export function humanize(key: string): string {
+  const words = key.replace(/[_-]+/g, " ").trim();
+  return words === "" ? key : `${words.charAt(0).toUpperCase()}${words.slice(1)}`;
+}
+
 /** A path in the dotted form issues use. */
 export const dotted = (path: readonly string[]): string => path.join(".");
 
@@ -59,8 +73,17 @@ export function removeIn(value: Json, path: readonly string[]): Json {
   return { ...value, [head]: removeIn(objectOf(value[head]), rest) };
 }
 
-function fieldOf(key: string, schema: Json, value: unknown, path: string[], issues: Map<string, string[]>): Field {
-  const common: Common = { path, key, description: text(schema["description"]), issues: issues.get(dotted(path)) ?? [] };
+function fieldOf(key: string, schema: Json, value: unknown, path: string[], issues: Map<string, string[]>, optional = true): Field {
+  const common: Common = {
+    path,
+    key,
+    label: text(schema["title"]) ?? humanize(key),
+    description: text(schema["description"]),
+    fallback: schema["x-default"],
+    optional,
+    advanced: schema["x-advanced"] === true,
+    issues: issues.get(dotted(path)) ?? [],
+  };
   const options = Array.isArray(schema["enum"]) ? schema["enum"].filter((o): o is string => typeof o === "string") : undefined;
   if (options !== undefined && options.length > 0) return { ...common, kind: "choice", options, value: text(value) };
   switch (schema["type"]) {
@@ -77,7 +100,7 @@ function fieldOf(key: string, schema: Json, value: unknown, path: string[], issu
         value: num(value),
       };
     case "boolean":
-      return { ...common, kind: "boolean", value: value === true };
+      return { ...common, kind: "boolean", value: value === undefined ? schema["x-default"] === true : value === true };
     case "array": {
       const items = objectOf(schema["items"]);
       if (items["type"] === "string" && Array.isArray(value) && value.every((v) => typeof v === "string"))
@@ -110,13 +133,18 @@ function fieldOf(key: string, schema: Json, value: unknown, path: string[], issu
 /** The fields of an object schema, in the schema's order, then anything in the value the schema does not describe (as raw). */
 export function objectFields(schema: Json, value: Json, path: string[], issues: Map<string, string[]>): Field[] {
   const props = objectOf(schema["properties"]);
-  const fields = Object.entries(props).map(([k, s]) => fieldOf(k, objectOf(s), value[k], [...path, k], issues));
+  const required = Array.isArray(schema["required"]) ? schema["required"] : [];
+  const fields = Object.entries(props).map(([k, s]) => fieldOf(k, objectOf(s), value[k], [...path, k], issues, !required.includes(k)));
   for (const k of Object.keys(value))
     if (!(k in props))
       fields.push({
         path: [...path, k],
         key: k,
+        label: k,
         description: undefined,
+        fallback: undefined,
+        optional: true,
+        advanced: true,
         issues: issues.get(dotted([...path, k])) ?? [],
         kind: "raw",
         value: value[k],

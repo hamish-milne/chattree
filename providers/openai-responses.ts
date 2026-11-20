@@ -50,30 +50,44 @@ import { asJson, asString, jsonList, jsonOr, messageText, optString, parseJsonOb
 // ---- settings -------------------------------------------------------------------------------------------------
 
 const opt = Type.Optional;
-const positive = Type.Integer({ minimum: 1 });
-const nonEmpty = Type.String({ minLength: 1 });
 
 export const openaiSettings = strictObject({
   /** Per-request cap on output, reasoning included. Required: the cost limit is computed from it. */
-  max_output_tokens: positive,
+  max_output_tokens: Type.Integer({
+    minimum: 1,
+    title: "Max output tokens",
+    description: "The most the model may write in one response, reasoning included.",
+  }),
   /** Request reasoning (summaries, and the encrypted items that make replay possible). Set false for models that do not reason. Default true. */
-  reasoning: opt(Type.Boolean()),
+  reasoning: opt(Type.Boolean({ title: "Reasoning", "x-default": true, "x-advanced": true })),
   /** `reasoning.effort`; the accepted names depend on the model. Changing it changes the cached prefix. */
-  effort: opt(nonEmpty),
+  effort: opt(Type.String({ minLength: 1, title: "Effort", "x-advanced": true })),
   /** `reasoning.summary`. Default `auto`. */
-  reasoning_summary: opt(Type.Enum(["auto", "concise", "detailed"])),
-  temperature: opt(Type.Number({ minimum: 0, maximum: 2 })),
-  top_p: opt(Type.Number({ minimum: 0, maximum: 1 })),
-  service_tier: opt(nonEmpty),
+  reasoning_summary: opt(
+    Type.Enum(["auto", "concise", "detailed"], { title: "Reasoning summary", "x-default": "auto", "x-advanced": true }),
+  ),
+  temperature: opt(
+    Type.Number({ minimum: 0, maximum: 2, title: "Temperature", description: "Lower is steadier, higher is more varied.", "x-default": 1 }),
+  ),
+  top_p: opt(
+    Type.Number({
+      minimum: 0,
+      maximum: 1,
+      title: "Top P",
+      description: "Only the likeliest words that add up to this chance are considered.",
+      "x-default": 1,
+    }),
+  ),
+  service_tier: opt(Type.String({ minLength: 1, title: "Service tier", "x-advanced": true })),
   /**
    * How long the prompt cache lives (`prompt_cache_options.ttl`): `30m` (the default; writes cost 1.25x input) or
    * `12h` (2.5x). For GPT-5.6 and later; earlier models use `prompt_cache_retention`, which you can pass in `extra`.
    */
-  cache_ttl: opt(Type.Enum(["30m", "12h"])),
+  cache_ttl: opt(Type.Enum(["30m", "12h"], { title: "Prompt cache lifetime", "x-default": "30m", "x-advanced": true })),
   /** Let the server compact the conversation once it passes this many tokens (`context_management`). The compaction item is kept and replayed. */
-  compact_threshold: opt(positive),
+  compact_threshold: opt(Type.Integer({ minimum: 1, title: "Compact after tokens", "x-advanced": true })),
   /** Extra top-level request fields for servers with extensions (Ollama's `think`). Cannot override the fields the adapter owns. */
-  extra: opt(record(Type.String(), Type.Unknown())),
+  extra: opt(record(Type.String(), Type.Unknown(), { title: "Extra request fields", "x-advanced": true })),
 });
 export type OpenAISettings = Static<typeof openaiSettings>;
 

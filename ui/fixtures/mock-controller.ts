@@ -321,6 +321,8 @@ export class MockController {
       model: {
         current: options.find((o) => o.label === t.model)?.id ?? "anthropic/claude-sonnet-5-5",
         options,
+        ...(base.model.levels === undefined ? {} : { levels: base.model.levels }),
+        ...(base.model.defaultLevel === undefined ? {} : { defaultLevel: base.model.defaultLevel }),
       },
       ...(base.settings === undefined ? {} : { settings: this.form("model-settings").working }),
     };

@@ -10,6 +10,10 @@ import { cn, pick } from "../cn.ts";
 
 type Form = InstanceType<typeof FormModel>;
 
+/** A default value as the person reads it. */
+const shown = (x: unknown): string =>
+  typeof x === "string" || typeof x === "number" || typeof x === "boolean" ? String(x) : JSON.stringify(x);
+
 const idOf = (path: readonly string[]): string => `f-${path.join("-")}`;
 
 function Control({ form, field }: { form: Form; field: Field }): JSX.Element | null {
@@ -18,23 +22,53 @@ function Control({ form, field }: { form: Form; field: Field }): JSX.Element | n
   const common = { id, "aria-invalid": invalid, "aria-describedby": invalid ? `${id}-issues` : undefined };
   switch (field.kind) {
     case "string":
-      return <input {...common} type="text" value={field.value} onChange={(e) => form.set(field.path, e.currentTarget.value)} />;
-    case "number":
       return (
         <input
           {...common}
-          type="number"
-          step={field.integer ? 1 : "any"}
-          min={field.min}
-          max={field.max}
-          value={field.value ?? ""}
-          onChange={(e) => {
-            const raw = e.currentTarget.value;
-            if (raw === "") form.remove(field.path);
-            else form.set(field.path, Number(raw));
-          }}
+          type="text"
+          placeholder={typeof field.fallback === "string" ? field.fallback : "Provider default"}
+          value={field.value}
+          onChange={(e) => form.set(field.path, e.currentTarget.value)}
         />
       );
+    case "number": {
+      const { min, max } = field;
+      const slider = min !== undefined && max !== undefined;
+      const fallback = typeof field.fallback === "number" ? field.fallback : undefined;
+      const range = slider ? max - min : 0;
+      const step = field.integer ? 1 : range <= 2 ? 0.05 : 0.1;
+      const set = (raw: string): void => {
+        if (raw === "") form.remove(field.path);
+        else form.set(field.path, Number(raw));
+      };
+      return (
+        <span class={css.number}>
+          {slider && (
+            <input
+              type="range"
+              class={cn(css.slider, field.value === undefined && css.unset)}
+              aria-label={field.label}
+              min={min}
+              max={max}
+              step={step}
+              value={field.value ?? fallback ?? min}
+              onInput={(e) => set(e.currentTarget.value)}
+            />
+          )}
+          <input
+            {...common}
+            type="number"
+            step={field.integer ? 1 : "any"}
+            min={field.min}
+            max={field.max}
+            placeholder={fallback === undefined ? "Default" : String(fallback)}
+            value={field.value ?? ""}
+            onChange={(e) => set(e.currentTarget.value)}
+          />
+          <Reset form={form} field={field} />
+        </span>
+      );
+    }
     case "boolean":
       return (
         <input
@@ -50,8 +84,8 @@ function Control({ form, field }: { form: Form; field: Field }): JSX.Element | n
       return (
         <select {...common} value={field.value ?? ""} onChange={(e) => form.set(field.path, e.currentTarget.value)}>
           {field.value === undefined && (
-            <option value="" disabled>
-              (not set)
+            <option value="" disabled={!field.optional}>
+              {field.fallback === undefined ? "Provider default" : `Default (${shown(field.fallback)})`}
             </option>
           )}
           {field.options.map((o) => (
@@ -86,12 +120,31 @@ function Control({ form, field }: { form: Form; field: Field }): JSX.Element | n
   }
 }
 
+/** Puts an optional setting back to what the provider does when it is not set. */
+function Reset({ form, field }: { form: Form; field: Field }): JSX.Element | null {
+  if (!field.optional || field.kind === "group" || field.kind === "map" || field.kind === "boolean") return null;
+  const set = field.kind === "list" ? field.value.length > 0 : field.value !== undefined;
+  return (
+    <button
+      type="button"
+      class={cn("icon-button", css.reset, !set && css.reset_idle)}
+      tabIndex={set ? 0 : -1}
+      aria-hidden={!set}
+      title="Back to the default"
+      aria-label={`Reset ${field.label}`}
+      onClick={() => form.remove(field.path)}
+    >
+      ↺
+    </button>
+  );
+}
+
 function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
   const id = idOf(field.path);
   if (field.kind === "group") {
     return (
       <fieldset class={css.form_group}>
-        <legend>{field.key}</legend>
+        <legend>{field.label}</legend>
         {field.description !== undefined && <p class={css.form_help}>{field.description}</p>}
         <Fields form={form} fields={field.fields} />
         <Issues id={id} issues={field.issues} />
@@ -101,7 +154,7 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
   if (field.kind === "map") {
     return (
       <fieldset class={css.form_group}>
-        <legend>{field.key}</legend>
+        <legend>{field.label}</legend>
         {field.description !== undefined && <p class={css.form_help}>{field.description}</p>}
         {field.entries.map((e) => (
           <fieldset key={e.key} class={cn(css.form_group, css.entry)}>
@@ -125,8 +178,9 @@ function FieldView({ form, field }: { form: Form; field: Field }): JSX.Element {
   }
   return (
     <div class={cn(css.form_field, pick(css, `kind_${field.kind}`))}>
-      <label for={id}>{field.key}</label>
+      <label for={id}>{field.label}</label>
       <Control form={form} field={field} />
+      {field.kind !== "number" && <Reset form={form} field={field} />}
       {field.description !== undefined && <p class={css.form_help}>{field.description}</p>}
       <Issues id={id} issues={field.issues} />
     </div>
@@ -152,13 +206,19 @@ export function Fields({ form, fields }: { form: Form; fields: Field[] }): JSX.E
   );
 }
 
-/** A whole form: its fields, the problems with no field of their own, and the save and revert buttons. */
-export function FormView({ form }: { form: Form }): JSX.Element {
+/**
+ * A whole form: its fields, the problems with no field of their own, and the save and revert buttons. `compact` sets the labels beside
+ * the controls and keeps the settings the schema calls advanced behind a disclosure, for a form that sits in a corner of another view.
+ * `lead` is drawn before the fields.
+ */
+export function FormView({ form, compact = false, lead }: { form: Form; compact?: boolean; lead?: JSX.Element | null }): JSX.Element {
   const spec = form.spec.value;
   const tree = form.tree.value;
+  const main = compact ? tree.fields.filter((f) => !f.advanced) : tree.fields;
+  const more = compact ? tree.fields.filter((f) => f.advanced) : [];
   return (
     <form
-      class={css.form}
+      class={cn(css.form, compact && css.compact)}
       onSubmit={(e) => {
         e.preventDefault();
         form.save();
@@ -169,7 +229,14 @@ export function FormView({ form }: { form: Form }): JSX.Element {
           {tree.unplaced.map((i) => (i.path === "" ? i.message : `${i.path} ${i.message}`)).join("; ")}
         </p>
       )}
-      <Fields form={form} fields={tree.fields} />
+      {lead}
+      <Fields form={form} fields={main} />
+      {more.length > 0 && (
+        <details class={css.advanced} open={more.some((f) => f.issues.length > 0)}>
+          <summary>Advanced</summary>
+          <Fields form={form} fields={more} />
+        </details>
+      )}
       <div class={css.form_buttons}>
         <button
           type="submit"

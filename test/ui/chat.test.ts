@@ -423,7 +423,7 @@ describe("the mock controller, with the models on top of it", () => {
     form.set(["temperature"], 5);
     assert.deepEqual(
       form.spec.value.issues.map((i) => i.message),
-      ["must be at most 2"],
+      ["must be at most 1"],
     );
     form.save();
     assert.equal(events.findLast((e) => e.type === "notice")?.type, "notice");

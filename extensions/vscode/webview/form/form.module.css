@@ -95,3 +95,92 @@ input.switch:checked::after {
   display: flex;
   gap: 8px;
 }
+
+/* A form in a corner of another view: label beside control, quieter text, buttons that stay in sight. */
+.compact {
+  gap: 6px;
+}
+.compact .form_field {
+  display: grid;
+  grid-template-columns: 136px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 8px;
+  row-gap: 1px;
+}
+.compact .form_field > label {
+  grid-column: 1;
+  font-weight: 400;
+}
+.compact .form_field > :is(input, select, textarea, .number) {
+  grid-column: 2;
+  min-width: 0;
+}
+.compact .form_field > .reset {
+  grid-column: 3;
+}
+.compact .form_field > :is(.form_help, .form_issues) {
+  grid-column: 2 / -1;
+  font-size: 11px;
+}
+.compact .form_field.kind_boolean {
+  display: grid;
+}
+.compact .form_field.kind_boolean > input {
+  justify-self: start;
+}
+.compact .form_field.kind_boolean > label {
+  order: 0;
+}
+.number {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.number > input[type="number"] {
+  flex: none;
+  width: 92px;
+  max-width: 92px;
+}
+.slider {
+  flex: 1;
+  min-width: 60px;
+  margin: 0;
+  accent-color: var(--vscode-button-background);
+}
+.slider.unset {
+  opacity: 0.5;
+}
+.reset {
+  padding: 0 4px;
+  line-height: 1;
+}
+/* Kept in the layout so the controls do not move when a value is set. */
+.reset_idle {
+  visibility: hidden;
+}
+.advanced {
+  border-top: 1px solid var(--vscode-panel-border);
+  padding-top: 4px;
+}
+.advanced > summary {
+  cursor: pointer;
+  padding: 2px 0 6px;
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+}
+.advanced[open] > summary {
+  margin-bottom: 2px;
+}
+.advanced[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.compact .form_buttons {
+  position: sticky;
+  bottom: -10px;
+  margin: 0 -14px -10px;
+  padding: 8px 14px;
+  background: var(--vscode-editorWidget-background);
+  border-top: 1px solid var(--vscode-panel-border);
+}

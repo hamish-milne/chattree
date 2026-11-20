@@ -370,10 +370,10 @@
   background: var(--vscode-editorWidget-background);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .model_settings > * {
-  max-width: 560px;
+  max-width: 520px;
 }
 
 /* Composer and status bar */

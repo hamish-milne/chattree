@@ -507,7 +507,16 @@ export class Controller implements HostedController {
     const options = [...convo.catalog].flatMap(([provider, models]) =>
       Object.keys(models).map((id) => ({ id: `${provider}/${id}`, label: id, provider })),
     );
-    return { current, options };
+    const slash = current.indexOf("/");
+    const info = slash <= 0 ? undefined : convo.catalog.get(current.slice(0, slash))?.[current.slice(slash + 1)];
+    const levels = Object.entries(info?.reasoning ?? {}).map(([name, settings]) => ({ name, settings }));
+    return {
+      current,
+      options,
+      ...(levels.length === 0
+        ? {}
+        : { levels, ...(info?.default_reasoning === undefined ? {} : { defaultLevel: info.default_reasoning }) }),
+    };
   }
 
   /** Everything the chat shows about a thread: read from its history and its working tree, nothing remembered but the composer. */
