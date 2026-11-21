@@ -32,7 +32,11 @@ interface Item {
   limit?: number;
 }
 
-async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{ text: string; ok: boolean }> {
+async function readOne(
+  ctx: ToolContext,
+  item: Item,
+  mmRead: boolean,
+): Promise<{ text: string; ok: boolean; touched?: { path: string; version: string } }> {
   const { host, workspace } = ctx;
   const failed = (path: string, why: string) => ({ text: `=== ${path}: ${why} ===`, ok: false });
   let bytes: Uint8Array;
@@ -80,8 +84,10 @@ async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{
     return failed(name, "not UTF-8 text");
   }
   // A blob is addressed by its content hash, so it has no file version for `edit` to check.
-  const v = item.path.startsWith("blob:") ? "" : `, version ${await versionOf(bytes)}`;
-  if (text === "") return { text: `=== ${name} (empty file${v}) ===`, ok: true };
+  const version = item.path.startsWith("blob:") ? undefined : await versionOf(bytes);
+  const v = version === undefined ? "" : `, version ${version}`;
+  const touched = version === undefined ? {} : { touched: { path: name, version } };
+  if (text === "") return { text: `=== ${name} (empty file${v}) ===`, ok: true, ...touched };
   const all = text.split("\n");
   if (all.at(-1) === "") all.pop();
   const offset = item.offset ?? 0;
@@ -95,7 +101,7 @@ async function readOne(ctx: ToolContext, item: Item, mmRead: boolean): Promise<{
     offset + slice.length < all.length
       ? `\n... ${all.length - offset - slice.length} more lines; read again with offset ${offset + slice.length} for the rest`
       : "";
-  return { text: `=== ${name} (${head}) ===\n${lineNumbered(slice, offset + 1)}${more}`, ok: true };
+  return { text: `=== ${name} (${head}) ===\n${lineNumbered(slice, offset + 1)}${more}`, ok: true, ...touched };
 }
 
 export function readTool(opts: { mmRead?: boolean } = {}): Tool {
@@ -119,7 +125,7 @@ export function readTool(opts: { mmRead?: boolean } = {}): Tool {
     allowKeys: () => [ALL],
     async execute(args, ctx) {
       const r = await readOne(ctx, { path: stringArg(args, "path"), ...optItem(args) }, opts.mmRead === true);
-      return { content: r.text, is_error: !r.ok };
+      return { content: r.text, is_error: !r.ok, ...(r.touched === undefined ? {} : { touched: [r.touched] }) };
     },
   };
 }

@@ -51,7 +51,9 @@ export function writeTool(): Tool {
         }
         const bytes = enc.encode(content);
         await host.fs.writeAtomic(abs, bytes, { keepMode: true });
+        const version = await versionOf(bytes);
         return {
+          touched: [{ path: name, version }],
           content:
             before === undefined
               ? `created ${name} (${bytes.length} bytes, version ${await versionOf(bytes)})`

@@ -213,7 +213,8 @@ function startedByCall(entries: readonly ChatEntry[]): boolean {
   for (let i = entries.length - 1; i >= 0; i--) {
     const e = nth(entries, i);
     if (e.$tag === "branch_start") return e.kind === "fork" && e.context === "inherit";
-    if (e.$tag !== "tool_result" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection") return false;
+    if (e.$tag !== "tool_result" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection" && e.$tag !== "file_touch")
+      return false;
   }
   return false;
 }
@@ -236,6 +237,7 @@ export async function foldTip(input: TipInput): Promise<TipState> {
       e.$tag !== "agent_setup" &&
       e.$tag !== "approval" &&
       e.$tag !== "injection" &&
+      e.$tag !== "file_touch" &&
       // A job the person stopped is on the record, but is not a reason to run: the model hears of it with whatever comes next.
       !(e.$tag === "job_event" && e.by === "user"),
   );

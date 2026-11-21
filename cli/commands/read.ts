@@ -33,7 +33,7 @@ const history: Command = {
       yield { type: "error", message: `${args[0]} is not a number of entries` };
       return;
     }
-    const shown = (await entriesOf(ctx)).filter((e) => e.$tag !== "header").slice(-n);
+    const shown = (await entriesOf(ctx)).filter((e) => e.$tag !== "header" && e.$tag !== "file_touch").slice(-n);
     for (const value of shown) yield { type: "entry", value };
   },
 };
@@ -51,7 +51,7 @@ const show: Command = {
       yield "error" in r ? { type: "error", message: r.error } : { type: "text", text: r.text };
       return;
     }
-    const all = (await entriesOf(ctx)).filter((e) => e.$tag !== "header");
+    const all = (await entriesOf(ctx)).filter((e) => e.$tag !== "header" && e.$tag !== "file_touch");
     let entry: ChatEntry | undefined;
     if (/^\d+$/.test(want) && Number(want) <= all.length) entry = all[all.length - Number(want)];
     else entry = all.find((e) => "id" in e && e.id.startsWith(want));

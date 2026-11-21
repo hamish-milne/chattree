@@ -32,6 +32,8 @@ export interface ToolContext {
    * as long as that thread's lease is live, and no longer.
    */
   lease?: { follow(branch: string): Promise<void> };
+  /** The file as the model last saw it against these bytes: a numbered diff, or undefined when it is not known (never seen, too old, binary). For a tool that refuses a stale edit and can say what changed. */
+  changedSinceSeen?: (path: string, bytes: Uint8Array) => Promise<string | undefined>;
   /** For a tool that prints as it goes (a command): show text as it comes, on the channel it came on. Present for a background job. */
   output?: (channel: "stdin" | "stdout" | "stderr", text: string) => void;
 }
@@ -56,6 +58,8 @@ export interface ToolOutput {
   /** What the model is shown besides `content`: only for a model that takes it (the tool is not offered to one that does not). */
   media?: ToolMedia[];
   is_error?: boolean;
+  /** Files this call read or wrote, with the version the model was told (the file tools' 8 hex digits): recorded as a `file_touch` so later changes by anyone else can be noticed. Paths are relative to the workspace. */
+  touched?: readonly { path: string; version: string }[];
   /** The tool already committed the entry that answers this call (a merge's `subagent_result`): the loop records no `tool_result`. `content` is what the host shows. */
   recorded?: boolean;
   /** The tool ends the conversation's loop: the calls after it in the same response do not run and no further request is made (a subagent's report). */

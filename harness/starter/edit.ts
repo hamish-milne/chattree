@@ -218,10 +218,13 @@ export function editTool(): Tool {
         const given = /[0-9a-f]{8}/i.exec(f.version)?.[0]?.toLowerCase();
         if (given === undefined)
           throw new EditFailed(`\`version\` must be the 8 hex digits that read shows after "version" (the file is at ${now} now)`);
-        if (given !== now)
+        if (given !== now) {
+          const diff = await ctx.changedSinceSeen?.(name, bytes);
           throw new EditFailed(
-            `${name} has changed since you read it (you gave ${given}, it is at ${now} now); read it again and use its numbers`,
+            `${name} has changed since you read it (you gave ${given}, it is at ${now} now); read it again and use its numbers` +
+              (diff === undefined ? "" : `. What changed since you last saw it, with the new line numbers:\n${diff}`),
           );
+        }
         const change: Change = { content: f.content ?? "" };
         if (f.start !== undefined) change.start = f.start;
         // A single line is the common case and models leave `end` out: it means the same line.
@@ -236,11 +239,10 @@ export function editTool(): Tool {
         const out = applyChanges(original, [change]);
         const written = enc.encode(out.text);
         await host.fs.writeAtomic(abs, written, { keepMode: true });
+        const newVersion = await versionOf(written);
         return {
-          content: [
-            `edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, version ${await versionOf(written)})`,
-            ...out.report,
-          ].join("\n"),
+          touched: [{ path: name, version: newVersion }],
+          content: [`edited ${name} (now ${out.lines} line${out.lines === 1 ? "" : "s"}, version ${newVersion})`, ...out.report].join("\n"),
         };
       } catch (err) {
         if (!(err instanceof EditFailed) && !(err instanceof Error && err.name === "PathRefused")) throw err;

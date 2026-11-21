@@ -1,3 +1,4 @@
+import { diffSinceSeen, recordTouches } from "./external-changes.ts";
 import type { Conversation } from "./conversation.ts";
 import { isMcpTool, serverOf } from "./mcp/servers.ts";
 import type { ChangeKind } from "./entries.ts";
@@ -404,6 +405,8 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       ...(full === undefined ? {} : { full }),
       ...(media.length === 0 ? {} : { media }),
     });
+    // What the call read or wrote is remembered, so a later change by anyone else can be told to the model. Not worth failing the call.
+    if (out.touched !== undefined && out.touched.length > 0) await recordTouches(convo, out.touched).catch(() => undefined);
     yield {
       type: "tool.result",
       callId: call.call_id,
@@ -618,6 +621,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
         host: convo.host,
         blobs: convo.store,
         setup: () => convo.setup(),
+        changedSinceSeen: (path, bytes) => diffSinceSeen(convo, path, bytes),
         lease: { follow: (branch) => lease.follow(followKey, branch) },
       });
       const res = timedOut === undefined ? await running : await Promise.race([running, timedOut]);

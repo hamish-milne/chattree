@@ -33,6 +33,9 @@ export function vscodePlatform(snapshots: SnapshotProvider): Platform {
         line === undefined || endLine === undefined ? undefined : new vscode.Range(line, 0, endLine, Number.MAX_SAFE_INTEGER);
       await vscode.window.showTextDocument(uri, { preview: true, ...(selection === undefined ? {} : { selection }) });
     },
+    async beforeSend() {
+      if (vscode.workspace.getConfiguration("chattree").get<boolean>("saveBeforeSend", true)) await vscode.workspace.saveAll(false);
+    },
     copy: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
     async pickFiles() {
       const picked = await vscode.window.showOpenDialog({ canSelectMany: true, openLabel: "Attach" });

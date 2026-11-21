@@ -43,6 +43,16 @@
     "Other"
   ],
   "contributes": {
+    "configuration": {
+      "title": "chattree",
+      "properties": {
+        "chattree.saveBeforeSend": {
+          "type": "boolean",
+          "default": true,
+          "description": "Save all open files when a chat message is sent, so the model sees your latest edits."
+        }
+      }
+    },
     "viewsContainers": {
       "activitybar": [
         {

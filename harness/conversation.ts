@@ -541,6 +541,8 @@ export function describeEntry(e: ChatEntry): string {
       return `approval: ${oneLine(e.call_id, 40)} ${e.allow ? "allowed" : "declined"}`;
     case "injection":
       return `injection: ${oneLine(e.key, 40)}`;
+    case "file_touch":
+      return `file_touch: ${(e.files ?? []).length} file(s)${e.dropped === undefined ? "" : `, ${e.dropped.length} dropped`}`;
     case "interrupted":
       return `interrupted: ${e.by}`;
   }

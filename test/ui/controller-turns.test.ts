@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { runInit } from "../../app/init.ts";
@@ -574,6 +574,30 @@ describe("the controller, turns", () => {
       const ended = events.filter((e) => e.type === "graph.jobs").at(-1);
       assert.ok(ended?.type === "graph.jobs" && ended.jobs === undefined, "the graph no longer shows a running job");
       assert.equal(server.seen.length, requests, "no request was made for it");
+    } finally {
+      await finish();
+    }
+  });
+
+  test("a file the model read and the person then changed is told to the model with the next message, as a diff", async () => {
+    const { c, server, project, finish } = await rig([
+      callTools({ id: "c1", name: "read", args: { path: "a.txt" } }),
+      answer("Read it."),
+      answer("Noted."),
+    ]);
+    try {
+      await writeFile(join(project, "a.txt"), "alpha\nbeta\ngamma\n");
+      c.handle({ type: "chat.send", text: "read a.txt" });
+      await c.idle();
+      assert.equal(server.seen.length, 2);
+      await writeFile(join(project, "a.txt"), "alpha\nBETA\ngamma\n");
+      c.handle({ type: "chat.send", text: "I edited it" });
+      await c.idle();
+      assert.equal(server.seen.length, 3);
+      const last = server.seen.at(-1)?.body ?? "";
+      assert.match(last, /changed outside your own file tools/);
+      assert.match(last, /-beta/);
+      assert.match(last, /\+BETA/);
     } finally {
       await finish();
     }

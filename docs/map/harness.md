@@ -17,6 +17,7 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 | `context-builder.ts` | `buildContext`: entries to a provider-neutral `ModelContext` (system, instructions, turns, tools, cache hints). Pure. |
 | `setup.ts` | The agent's state folded from `agent_setup` entries; `ChangeNotAllowed` and the change classification (ADR 13, 14). |
 | `definitions.ts` | Pinned definitions: tools, instructions, skills, MCP stored as name plus hash, with `blob` or `external` storage (ADR 21). |
+| `external-changes.ts` | Tracks files the model touched (`file_touch` entries), and injects a numbered diff when they change outside its tools (ADR 37). |
 | `blob-store.ts` | Blobs as content-addressed files in the worktree; recording store for direct-to-git commits. |
 | `journal.ts` | The journal of a request in flight, beside the repository, so `open` can recover paid output (ADR 18). |
 | `index-cache.ts` | Optional on-disk cache of a branch's entry index; never trusted without checks. |

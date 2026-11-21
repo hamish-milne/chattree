@@ -1810,6 +1810,34 @@ export const harnessSchema: Record<string, unknown> = {
           },
           default: {},
         },
+        external_changes: {
+          type: "object",
+          properties: {
+            enabled: {
+              type: "boolean",
+              default: true,
+            },
+            max_files: {
+              type: "integer",
+              minimum: 1,
+              maximum: 500,
+              default: 50,
+            },
+            window_share: {
+              type: "number",
+              exclusiveMinimum: 0,
+              maximum: 1,
+              default: 0.25,
+            },
+            max_diff_bytes: {
+              type: "integer",
+              minimum: 200,
+              default: 12000,
+            },
+          },
+          additionalProperties: false,
+          default: {},
+        },
       },
       additionalProperties: false,
       default: {},

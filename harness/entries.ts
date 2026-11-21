@@ -28,7 +28,7 @@ import { ULID_RE } from "./ulid.ts";
  * what this build does not know, which is an error (update chattree), not something to skip. A major bump narrows or
  * changes it (a new required field), and a build reads only the majors it has entry types for (`entryTypesByMajor`).
  */
-export const FORMAT = { format: "chatlog", major: 2, minor: 9 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 10 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -300,6 +300,30 @@ export const injection = strictObject({
   text,
 });
 
+/**
+ * Which files the model has seen, and at what version (format 2.10). Bookkeeping: the model is not shown it. A tool that read or wrote
+ * a file adds a line for it (`files`); before each request the harness compares those versions with the files as they are now. When it
+ * has told the model of a change (an `injection` under `external-changes`) it adds the new versions here, and names in `dropped` the
+ * files whose version it could not give (too large, deleted, or no longer relevant), which the model must read again.
+ * `version` is the 8 hex digits the file tools show; `blob` is the git object id of the same bytes, so the old text can be found again
+ * for a diff whatever happened to the history in between.
+ */
+export const fileTouch = strictObject({
+  $tag: Type.Literal("file_touch"),
+  id: ulid,
+  files: Type.Optional(
+    Type.Array(
+      strictObject({
+        path: nonEmpty,
+        version: Type.String({ pattern: "^[0-9a-f]{8}$" }),
+        blob: Type.String({ pattern: "^[0-9a-f]{40}([0-9a-f]{24})?$" }),
+      }),
+      { minItems: 1 },
+    ),
+  ),
+  dropped: Type.Optional(Type.Array(nonEmpty, { minItems: 1 })),
+});
+
 export const branchStart = strictObject({
   $tag: Type.Literal("branch_start"),
   id: ulid,
@@ -441,6 +465,7 @@ export type ChatEntry =
   | Static<typeof jobEvent>
   | Static<typeof approval>
   | Static<typeof injection>
+  | Static<typeof fileTouch>
   | Static<typeof interrupted>;
 
 export const entryTypes = [
@@ -457,6 +482,7 @@ export const entryTypes = [
   defineEntry("job_event", jobEvent),
   defineEntry("approval", approval),
   defineEntry("injection", injection),
+  defineEntry("file_touch", fileTouch),
   defineEntry("interrupted", interrupted),
 ];
 

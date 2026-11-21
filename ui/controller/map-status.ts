@@ -26,7 +26,7 @@ export interface StatusInput {
   self: (owner: LeaseOwner) => boolean;
 }
 
-const QUIET = new Set(["header", "agent_setup", "approval", "injection"]);
+const QUIET = new Set(["header", "agent_setup", "approval", "injection", "file_touch"]);
 
 /**
  * `running` is a request in flight in this session and `elsewhere` one in another process. A thread waiting on a decision is

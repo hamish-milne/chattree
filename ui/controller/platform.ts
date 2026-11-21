@@ -23,6 +23,8 @@ export interface Platform {
   copy(text: string): Promise<void>;
   /** Let the person pick files; none if they cancel. */
   pickFiles(): Promise<PickedFile[]>;
+  /** Called before a message is put on the thread, so an editor can save what the person has open for the model to see. */
+  beforeSend?(): Promise<void>;
 }
 
 const unavailable = (what: string): never => {

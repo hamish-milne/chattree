@@ -1016,6 +1016,7 @@ export class Controller implements HostedController {
     await h.assertConfigTrusted();
     if (h.providers.size === 0 || (await h.setup()).model === undefined)
       throw new AppError("there is no model for this thread yet", "add a provider in the settings first");
+    await this.#platform.beforeSend?.().catch(() => undefined);
     const composer = this.#composer(thread);
     const content: Parameters<Conversation["append"]>[0] & { $tag: "user" } = {
       $tag: "user",
@@ -1106,7 +1107,7 @@ export class Controller implements HostedController {
   async #lastEntryId(h: Conversation): Promise<string | undefined> {
     const entries = (await h.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
     const last = entries.findLast(
-      (e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection",
+      (e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection" && e.$tag !== "file_touch",
     );
     return last !== undefined && "id" in last && typeof last.id === "string" ? last.id : undefined;
   }

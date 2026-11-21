@@ -76,6 +76,8 @@ export function summarizeEntry(e: ChatEntry | undefined, fallback: string): stri
       return `${e.allow ? "allowed" : "declined"} ${e.call_id}`;
     case "injection":
       return `injection ${e.key}: ${flat(e.text)}`;
+    case "file_touch":
+      return `files seen: ${(e.files ?? []).map((f) => f.path).join(", ")}${e.dropped === undefined ? "" : ` (no longer tracked: ${e.dropped.join(", ")})`}`;
     case "interrupted":
       return `interrupted by ${e.by}`;
     case "header":
@@ -183,6 +185,7 @@ const TAGGED: Record<string, string> = {
   job_event: "job",
   approval: "approval",
   injection: "injection",
+  file_touch: "files",
   branch_start: "start",
   header: "header",
   gc: "blob gc",

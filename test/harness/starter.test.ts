@@ -70,6 +70,35 @@ describe("the starter tools are valid registry entries", () => {
   });
 });
 
+describe("file tools report what they touched", () => {
+  test("read, write and edit return the path and version they told the model, and a stale edit shows what changed when the harness can say", async () => {
+    const { dir, registry } = await workspace({ "a.txt": "one\ntwo\n" });
+    const run = async (name: string, args: unknown, extra: Partial<ToolContext> = {}) => {
+      const checked = registry.check({ name, args });
+      if ("error" in checked) throw new Error(checked.error);
+      return (await checked.tool.execute(checked.args, {
+        signal: new AbortController().signal,
+        callId: "c",
+        workspace: dir,
+        host,
+        ...extra,
+      })) as ToolOutput;
+    };
+    const read = await run("read", { path: "a.txt" });
+    const v = /version ([0-9a-f]{8})/.exec(read.content)?.[1] ?? "";
+    assert.deepEqual(read.touched, [{ path: "a.txt", version: v }]);
+    const wrote = await run("write", { path: "b.txt", content: "x\n" });
+    assert.equal(wrote.touched?.[0]?.path, "b.txt");
+    const edited = await run("edit", { path: "a.txt", version: v, start: 1, content: "ONE" });
+    assert.equal(edited.touched?.[0]?.path, "a.txt");
+    assert.notEqual(edited.touched?.[0]?.version, v);
+    const stale = await run("edit", { path: "a.txt", version: v, start: 1, content: "x" }, { changedSinceSeen: async () => "1\t+ONE" });
+    assert.equal(stale.is_error, true);
+    assert.match(stale.content, /What changed since you last saw it, with the new line numbers:\n1\t\+ONE/);
+    assert.equal((await run("read", { path: "blob:" + "0".repeat(64) })).touched, undefined);
+  });
+});
+
 describe("background commands", () => {
   test("a job with timeout_seconds 0 has no lease, keeps its name, logs stdin and stdout, and runs in plain mode", async () => {
     const { registry, dir } = await workspace();

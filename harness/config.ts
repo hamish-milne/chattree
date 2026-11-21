@@ -265,6 +265,18 @@ export const harnessConfig = strictObject({
       commands: withDefault(Type.Boolean(), true),
     }),
     rules: withDefault(record(pattern(/^[a-z0-9][a-z0-9_.-]*$/, "lowercase letters, digits, and . _ -"), injectionRule), {}),
+    /**
+     * Tell the model when a file it has read or written was changed by someone else (the person in an editor, a formatter, a
+     * build): a diff against the version it saw, before the next request. `max_files` is how many of the most recently seen
+     * files are watched; a file seen longer ago than `window_share` of the context window, or cut from the context by a
+     * compaction or trim, is only marked as no longer valid; `max_diff_bytes` bounds the diff text in one note.
+     */
+    external_changes: section({
+      enabled: withDefault(Type.Boolean(), true),
+      max_files: withDefault(Type.Integer({ minimum: 1, maximum: 500 }), 50),
+      window_share: withDefault(Type.Number({ exclusiveMinimum: 0, maximum: 1 }), 0.25),
+      max_diff_bytes: withDefault(Type.Integer({ minimum: 200 }), 12000),
+    }),
   }),
   /**
    * Keeping the context within the window. With `auto` on, a request that would reach `threshold_tokens` (default: 70%

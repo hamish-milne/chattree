@@ -315,7 +315,14 @@ class Mapper {
       case "agent_setup":
         return this.#setup(e, commit);
       case "injection":
-        this.#notice(e, commit, "injection", "info", `Reminder added: ${e.key}`, await this.#text(e.text));
+        this.#notice(
+          e,
+          commit,
+          "injection",
+          "info",
+          e.key === "external-changes" ? "Files changed outside the chat" : `Reminder added: ${e.key}`,
+          await this.#text(e.text),
+        );
         return;
       case "branch_start":
         this.#notice(

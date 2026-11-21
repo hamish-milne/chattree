@@ -11,7 +11,7 @@ const RECENT = 10;
 export async function recentEntries(engine: Engine): Promise<string[]> {
   const entries = (await engine.convo.readEntries())
     .flatMap((e) => (e.ok ? [e.value] : []))
-    .filter((e): e is ChatEntry => e.$tag !== "agent_setup");
+    .filter((e): e is ChatEntry => e.$tag !== "agent_setup" && e.$tag !== "file_touch");
   let from = entries.length - RECENT;
   const lastUser = entries.map((e) => e.$tag).lastIndexOf("user");
   if (lastUser >= 0) from = Math.max(from, lastUser);

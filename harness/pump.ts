@@ -284,7 +284,7 @@ export class Pump {
   async #lastEntryId(convo: Conversation): Promise<string | undefined> {
     const entries = (await convo.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
     const last = entries.findLast(
-      (e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection",
+      (e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection" && e.$tag !== "file_touch",
     );
     return last !== undefined && "id" in last && typeof last.id === "string" ? last.id : undefined;
   }

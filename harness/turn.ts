@@ -6,6 +6,7 @@ import { StreamAccumulator } from "./partial.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
 import { environmentRule, type HostEnvironment } from "./environment.ts";
 import { autoCompact, compactionSettings } from "./compaction.ts";
+import { EXTERNAL_DEFAULTS, syncExternalFiles, type ExternalSettings } from "./external-changes.ts";
 import { compactionRule, rulesFromConfig, runInjections, type InjectionRule } from "./injections.ts";
 import { usageRecord } from "./ledger.ts";
 import { servedModelId, stable } from "./setup.ts";
@@ -93,6 +94,23 @@ export async function* requestStream(convo: Conversation, opts: TurnOptions): As
   let prepared = await prepareContext(convo, opts);
   prepared = await autoCompact(convo, opts, prepared);
   // Injection rules see the request as it would go out; what they write goes into the transcript, and the context is built again from it.
+  try {
+    const config = await convo.readConfig();
+    const ext = config?.ok === true ? config.value.injections.external_changes : undefined;
+    const settings: ExternalSettings =
+      ext === undefined
+        ? EXTERNAL_DEFAULTS
+        : { enabled: ext.enabled, maxFiles: ext.max_files, windowShare: ext.window_share, maxDiffBytes: ext.max_diff_bytes };
+    if (await syncExternalFiles(convo, settings, prepared.estimate?.contextWindow)) prepared = await prepareContext(convo, opts);
+  } catch (e) {
+    prepared = {
+      ...prepared,
+      warnings: [
+        ...prepared.warnings,
+        { kind: "injection_failed", message: `changes to files could not be checked: ${e instanceof Error ? e.message : String(e)}` },
+      ],
+    };
+  }
   const rules = await injectionRulesFor(convo, opts);
   const injected = await runInjections(convo, rules, prepared);
   if (injected.appended > 0) prepared = await prepareContext(convo, opts);

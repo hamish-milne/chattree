@@ -5,7 +5,8 @@
 import type { ChatEntry } from "../harness/entries.ts";
 
 /** Entries that can be named: everything but the header, which has no id. */
-export const nameable = (entries: readonly ChatEntry[]): ChatEntry[] => entries.filter((e) => e.$tag !== "header");
+export const nameable = (entries: readonly ChatEntry[]): ChatEntry[] =>
+  entries.filter((e) => e.$tag !== "header" && e.$tag !== "file_touch");
 
 /**
  * Which entry a word means: a number counts back from the last entry (1 is the last, as in `/show`), anything else is the
