@@ -65,6 +65,27 @@ export const activity = strictObject({
 });
 export type Activity = Static<typeof activity>;
 
+export const JOB_STATES = ["running", "completed", "failed", "stopped", "lost"] as const;
+
+/** A background job of the thread, as the jobs list shows it. */
+export const jobView = strictObject({
+  id: Type.String({ minLength: 1 }),
+  /** What it is (`run: pnpm test`). */
+  label: Type.String(),
+  /** The name the model gave it, shown in place of the label. */
+  name: Type.Optional(Type.String()),
+  /** No time limit: a server or watcher, which does not keep the thread busy. */
+  daemon: Type.Boolean(),
+  status: Type.Enum(JOB_STATES),
+  startedAt: Type.Integer({ minimum: 0 }),
+  endedAt: Type.Optional(Type.Integer({ minimum: 0 })),
+});
+export type JobView = Static<typeof jobView>;
+
+/** A piece of a job's terminal: what was typed (`stdin`, the command line) or what came back. Plain text, no colour codes. */
+export const logChunk = strictObject({ channel: Type.Enum(["stdin", "stdout", "stderr"]), text: Type.String() });
+export type LogChunk = Static<typeof logChunk>;
+
 /** A tool call that waits for a yes or a no. */
 export const approval = strictObject({
   callId: Type.String({ minLength: 1 }),
@@ -138,6 +159,8 @@ export const chatState = strictObject({
   forwarded: Type.Optional(Type.Array(forwardedQuestion)),
   activity: Type.Optional(activity),
   banner: Type.Optional(chatBanner),
+  /** The thread's background jobs, oldest first; absent when it has none. */
+  jobs: Type.Optional(Type.Array(jobView)),
   /** The model picker and the form for its settings, which the view shows in the expandable section. */
   model: modelChoice,
   settings: Type.Optional(formSpec),

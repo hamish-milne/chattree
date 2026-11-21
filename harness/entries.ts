@@ -28,7 +28,7 @@ import { ULID_RE } from "./ulid.ts";
  * what this build does not know, which is an error (update chattree), not something to skip. A major bump narrows or
  * changes it (a new required field), and a build reads only the majors it has entry types for (`entryTypesByMajor`).
  */
-export const FORMAT = { format: "chatlog", major: 2, minor: 8 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 9 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -389,6 +389,11 @@ export const jobEvent = strictObject({
   summary: text,
   /** Everything it printed (a blob when large). */
   output: Type.Optional(text),
+  /**
+   * Who stopped it, for `stopped` (format 2.9). `user`: the person stopped it from the jobs list. The model is shown the entry with its
+   * next request like any other, but the entry alone does not ask for a request.
+   */
+  by: Type.Optional(Type.Literal("user")),
 });
 
 /**

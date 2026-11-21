@@ -22,6 +22,9 @@ declare const styles: {
   readonly graph_tools: string;
   readonly halo: string;
   readonly in_fold: string;
+  readonly jobs: string;
+  readonly jobs_count: string;
+  readonly jobs_spin: string;
   readonly label: string;
   readonly lanes: string;
   readonly merged: string;

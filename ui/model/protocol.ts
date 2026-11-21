@@ -6,8 +6,20 @@
  */
 import { Type, type Static } from "typebox";
 import { safeParse, strictObject, type ParseResult } from "../../src/validate.ts";
-import { THREAD_STATUSES, graphData, hash, repoList } from "./graph.ts";
-import { activity, approval, forwardedQuestion, chatBanner, chatState, chatThread, composer, modelChoice, statusBar } from "./chat.ts";
+import { THREAD_STATUSES, graphData, graphThread, hash, repoList } from "./graph.ts";
+import {
+  activity,
+  approval,
+  forwardedQuestion,
+  chatBanner,
+  chatState,
+  chatThread,
+  composer,
+  jobView,
+  logChunk,
+  modelChoice,
+  statusBar,
+} from "./chat.ts";
 import { formSpec } from "./form.ts";
 import { instructionState, providerModels, providerStatus } from "./settings.ts";
 import { block } from "./transcript.ts";
@@ -34,6 +46,8 @@ export const event = Type.Union([
   ev("workspace.uncommitted", { thread: name, from: name, files: Type.Array(Type.String()) }),
   /** A thread started or stopped working. */
   ev("graph.status", { thread: name, status: Type.Enum(THREAD_STATUSES) }),
+  /** Background jobs run on a thread (or none do any more: `jobs` absent). */
+  ev("graph.jobs", { thread: name, jobs: graphThread.properties.jobs }),
   /** The thread the graph highlights as open in the chat. */
   ev("graph.selected", { thread: Type.Optional(name), commit: Type.Optional(hash) }),
   /** A thread was opened in the chat: everything about it, replacing what was shown. */
@@ -60,6 +74,13 @@ export const event = Type.Union([
   /** The questions of threads below this one that wait for the person (all of them, each time). */
   ev("chat.forwarded", { questions: Type.Array(forwardedQuestion) }),
   ev("chat.activity", { activity: Type.Optional(activity) }),
+  /** The open thread's background jobs (all of them, each time). */
+  ev("chat.jobs", { jobs: Type.Array(jobView) }),
+  /**
+   * Text for the terminal of the job the view is watching (`job.watch`). `reset`: this is the whole log, replacing what is shown;
+   * otherwise the chunks are added at the end. `dropped` counts characters the log had to forget from its start.
+   */
+  ev("job.log", { job: name, chunks: Type.Array(logChunk), reset: Type.Boolean(), dropped: Type.Optional(Type.Integer({ minimum: 0 })) }),
   /** The thread cannot take messages for this reason; absent when it can. */
   ev("chat.banner", { banner: Type.Optional(chatBanner) }),
   /** A form's new state: after an edit (with its issues), a save, or when it first opens. */
@@ -115,6 +136,11 @@ export const intent = Type.Union([
   ev("workspace.switch", { thread: name, uncommitted: Type.Optional(Type.Literal("snapshot")), remember: Type.Optional(Type.Boolean()) }),
   ev("chat.send", { text: Type.String(), queued: Type.Optional(Type.Boolean()) }),
   ev("chat.stop", {}),
+  /** Start showing a job's terminal; the answer is `job.log` with `reset`, then more as text arrives. One job is watched at a time. */
+  ev("job.watch", { job: name }),
+  ev("job.unwatch", {}),
+  /** Stop a running job. It is recorded in the transcript, but the model is not asked to answer for it. */
+  ev("job.stop", { job: name }),
   /** Carry on a thread that stalled (`StatusBar.stalled`): the same run as after a message, with no new message. */
   ev("chat.resume", {}),
   ev("chat.draft", { text: Type.String() }),

@@ -1,3 +1,4 @@
+import type { JobLog } from "./job-log.ts";
 import type { BlobStore } from "../src/index.ts";
 import type { Host } from "../src/host.ts";
 import { pinDefinition, type ToolDefinition } from "./definitions.ts";
@@ -31,6 +32,8 @@ export interface ToolContext {
    * as long as that thread's lease is live, and no longer.
    */
   lease?: { follow(branch: string): Promise<void> };
+  /** For a tool that prints as it goes (a command): show text as it comes, on the channel it came on. Present for a background job. */
+  output?: (channel: "stdin" | "stdout" | "stderr", text: string) => void;
 }
 
 /** What a tool may look at to decide about approvals: the workspace and the host that can inspect it. */
@@ -71,10 +74,14 @@ export interface StartedJob {
   started: {
     /**
      * How long the job may run, which is how long it holds the thread's run lease (the tool stops it then): a number of seconds, or
-     * `{ follows }`, a thread whose own lease says whether the work is still going (a subagent's branch). Required: a job with no bound
-     * could not be told from a dead one.
+     * `{ follows }`, a thread whose own lease says whether the work is still going (a subagent's branch). Absent: no time limit (a
+     * server, a watcher). Such a job holds no lease, so it does not keep the thread busy; it lives as long as the process does.
      */
-    lease: { seconds: number } | { follows: string };
+    lease?: { seconds: number } | { follows: string };
+    /** A name the model gave it, for the person to read in place of the command. */
+    name?: string;
+    /** What it prints as it goes, for the person to watch and for `job_output` to read before it ends. */
+    log?: JobLog;
     /** One line for the call's result (`started job j1`) and for notifications. */
     summary: string;
     /** Settles when the job is over; never rejects (a failure is an `is_error` output). */

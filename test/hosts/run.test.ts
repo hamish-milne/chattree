@@ -27,6 +27,18 @@ const alive = (pid: number): boolean => {
 };
 
 describe("run", () => {
+  test("onOutput is called with each piece as it arrives, on the channel it came on", async () => {
+    const cwd = await tempDir();
+    const seen: string[] = [];
+    const r = await run({
+      cwd,
+      stages: [[node, "-e", "process.stdout.write('out\\n'); process.stderr.write('err\\n')"]],
+      onOutput: (channel, chunk) => seen.push(`${channel}:${dec.decode(chunk)}`),
+    });
+    assert.equal(r.exitCode, 0);
+    assert.deepEqual([...seen].sort(), ["stderr:err\n", "stdout:out\n"]);
+  });
+
   test("collects stdout and stderr in the order they arrived, with the exit code", async () => {
     const cwd = await tempDir();
     const r = await run({

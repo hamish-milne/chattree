@@ -259,9 +259,29 @@ button.chevron:focus-visible {
 .status_elsewhere {
   color: var(--vscode-descriptionForeground);
 }
+.jobs {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--vscode-descriptionForeground);
+}
+.jobs_spin {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 2px solid var(--vscode-progressBar-background, #0e70c0);
+  border-right-color: transparent;
+  animation: spin 0.9s linear infinite;
+}
+.jobs_count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
 @media (prefers-reduced-motion: reduce) {
   .status_running,
-  .status_awaiting {
+  .status_awaiting,
+  .jobs_spin {
     animation: none;
   }
 }

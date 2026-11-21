@@ -107,6 +107,9 @@ describe("the protocol", () => {
     { type: "notice", level: "warning", message: "the lock is held by another window" },
     { type: "settings.open", page: "providers" },
     { type: "chat.banner", banner: { kind: "untrusted", state: "changed" } },
+    { type: "chat.jobs", jobs: [{ id: "j1", label: "run: pnpm dev", name: "dev server", daemon: true, status: "running", startedAt: 1 }] },
+    { type: "job.log", job: "j1", reset: true, chunks: [{ channel: "stderr", text: "warn\n" }], dropped: 3 },
+    { type: "graph.jobs", thread: "main", jobs: { count: 1, timed: false } },
   ];
   const intents: unknown[] = [
     { type: "ready", view: "chat" },
@@ -126,6 +129,9 @@ describe("the protocol", () => {
     { type: "thread.delete", thread: "idea" },
     { type: "chat.send", text: "go" },
     { type: "chat.stop" },
+    { type: "job.watch", job: "j1" },
+    { type: "job.unwatch" },
+    { type: "job.stop", job: "j1" },
     { type: "chat.resume" },
     { type: "chat.draft", text: "wip" },
     { type: "chat.attach" },

@@ -4,7 +4,8 @@
  * `script` is the escape hatch: a string for POSIX `sh -c`, which always needs approval. Both use the host's `run` and are
  * refused on a host that cannot run commands.
  */
-import type { RunOutcome } from "../../src/host.ts";
+import type { RunOutcome, RunSpec } from "../../src/host.ts";
+import { JobLog } from "../job-log.ts";
 import { CommandSyntax, parseCommand, type ParsedCommand } from "./command.ts";
 import { GlobError, expandGlob } from "./glob.ts";
 import { NotAvailable, portableStage, shellStage } from "./portable.ts";
@@ -154,10 +155,26 @@ function report(outcome: RunOutcome, timeoutSeconds: number, extra: string[], mm
 
 const timeoutProp = {
   type: "integer",
-  minimum: 1,
+  minimum: 0,
   maximum: MAX_TIMEOUT,
-  description: `Seconds before the command is killed. Default 120 (3600 with background), at most ${MAX_TIMEOUT}.`,
+  description: `Seconds before the command is killed. Default 120 (3600 with background), at most ${MAX_TIMEOUT}. With background, 0 means no limit, for a server or watcher that runs until it is stopped.`,
 };
+
+const nameProp = {
+  type: "string",
+  description: 'With background: a short name for the job ("dev server", "unit tests"), shown to the user in place of the command.',
+};
+
+/** What a command is told so that it prints plain text: no colour, no pager, no cursor control. */
+const PLAIN_ENV: Readonly<Record<string, string>> = { NO_COLOR: "1", CLICOLOR: "0", FORCE_COLOR: "0", TERM: "dumb", PAGER: "cat" };
+
+/** Forward a command's output to the job's log as it arrives, if there is one. */
+function streamTo(ctx: ToolContext): Pick<RunSpec, "onOutput"> | Record<string, never> {
+  const output = ctx.output;
+  if (output === undefined) return {};
+  const decoders = { stdout: new TextDecoder(), stderr: new TextDecoder() };
+  return { onOutput: (channel, chunk) => output(channel, decoders[channel].decode(chunk, { stream: true })) };
+}
 
 const backgroundProp = {
   type: "boolean",
@@ -181,19 +198,34 @@ function backgroundable(tool: Tool, label: (args: Record<string, unknown>) => st
       args["background"] === true ? 60 : Math.min(optNumberArg(args, "timeout_seconds") ?? defaultSeconds ?? 120, MAX_TIMEOUT),
     definition: {
       ...tool.definition,
-      input_schema: { ...schema, properties: { ...properties, background: backgroundProp } },
+      input_schema: { ...schema, properties: { ...properties, background: backgroundProp, name: nameProp } },
     },
     async execute(args, ctx) {
-      if (args["background"] !== true) return inner(args, ctx);
+      const { background: _b, name: rawName, ...rest } = args;
+      if (args["background"] !== true) {
+        if (optNumberArg(args, "timeout_seconds") === 0)
+          return { content: "timeout_seconds 0 (no limit) is only for a job started with background: true", is_error: true };
+        return inner(rest, ctx);
+      }
       const stop = new AbortController();
-      const { background: _b, ...rest } = args;
-      // A background job runs for up to an hour unless the caller asks for less; it is not bound to the foreground timeout.
-      const done = inner({ timeout_seconds: 3600, ...rest }, { ...ctx, signal: stop.signal }).then(
+      const log = new JobLog();
+      const name = typeof rawName === "string" && rawName.trim() !== "" ? oneLine(rawName, 60) : undefined;
+      // A background job runs for up to an hour unless the caller asks for less (or for no limit with 0); it is not bound to the foreground timeout.
+      const done = inner({ timeout_seconds: 3600, ...rest }, { ...ctx, signal: stop.signal, output: (c, t) => log.append(c, t) }).then(
         (r): ToolOutput => (isStarted(r) ? { content: "nested background job", is_error: true } : r),
         (e: unknown): ToolOutput => ({ content: `The tool failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true }),
       );
-      const seconds = Math.min(optNumberArg(args, "timeout_seconds") ?? 3600, MAX_TIMEOUT);
-      return { started: { lease: { seconds }, summary: label(args), done, stop: () => stop.abort() } };
+      const asked = optNumberArg(args, "timeout_seconds");
+      return {
+        started: {
+          ...(asked === 0 ? {} : { lease: { seconds: Math.min(asked ?? 3600, MAX_TIMEOUT) } }),
+          ...(name === undefined ? {} : { name }),
+          log,
+          summary: label(args),
+          done,
+          stop: () => stop.abort(),
+        },
+      };
     },
   };
 }
@@ -241,7 +273,8 @@ function plainRunTool(opts: RunToolOptions): Tool {
     async execute(args, ctx) {
       const { host, workspace } = ctx;
       if (host.run === undefined) return { content: "this host cannot run commands", is_error: true };
-      const timeout = Math.min(optNumberArg(args, "timeout_seconds") ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
+      const asked = optNumberArg(args, "timeout_seconds");
+      const timeout = Math.min(asked ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
       try {
         const parsed = parseCommand(stringArg(args, "command"), envLookup(opts.env));
         const { stages, verbatim } = await prepare(parsed, ctx, opts);
@@ -259,15 +292,18 @@ function plainRunTool(opts: RunToolOptions): Tool {
           target = await resolveInWorkspace(host, workspace, out.target.text, "write");
           if ((await host.fs.stat(target))?.isDirectory === true) throw new RunRefused(`${out.target.text} is a directory`);
         }
+        ctx.output?.("stdin", `$ ${stringArg(args, "command")}\n`);
         const outcome = await host.run({
           stages,
           ...(verbatim.some((v) => v) ? { verbatim } : {}),
           cwd: workspace,
+          env: PLAIN_ENV,
+          ...streamTo(ctx),
           ...(stdin === undefined ? {} : { stdin }),
           ...(out === undefined ? {} : { captureStdout: true, maxOutput: MAX_REDIRECT_BYTES }),
           unsetEnv: opts.secretEnv ?? [],
           unsetEnvPattern: SECRET_ENV_PATTERN,
-          timeoutMs: timeout * 1000,
+          ...(asked === 0 ? {} : { timeoutMs: timeout * 1000 }),
           signal: ctx.signal,
         });
         const extra: string[] = [];
@@ -313,7 +349,8 @@ function plainScriptTool(opts: RunToolOptions): Tool {
     },
     async execute(args, ctx) {
       if (ctx.host.run === undefined) return { content: "this host cannot run commands", is_error: true };
-      const timeout = Math.min(optNumberArg(args, "timeout_seconds") ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
+      const asked = optNumberArg(args, "timeout_seconds");
+      const timeout = Math.min(asked ?? opts.timeoutSeconds ?? 120, MAX_TIMEOUT);
       let stage: string[];
       try {
         stage = shellStage(stringArg(args, "script"), ctx.host.platform, opts.busybox);
@@ -321,12 +358,15 @@ function plainScriptTool(opts: RunToolOptions): Tool {
         if (e instanceof NotAvailable) return { content: e.message, is_error: true };
         throw e;
       }
+      ctx.output?.("stdin", `${stringArg(args, "script").replace(/\n$/, "")}\n`);
       const outcome = await ctx.host.run({
         stages: [stage],
         cwd: ctx.workspace,
+        env: PLAIN_ENV,
+        ...streamTo(ctx),
         unsetEnv: opts.secretEnv ?? [],
         unsetEnvPattern: SECRET_ENV_PATTERN,
-        timeoutMs: timeout * 1000,
+        ...(asked === 0 ? {} : { timeoutMs: timeout * 1000 }),
         signal: ctx.signal,
       });
       return report(outcome, timeout, [], opts.mmRead === true);

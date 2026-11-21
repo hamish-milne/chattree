@@ -542,6 +542,43 @@ describe("the controller, turns", () => {
     }
   });
 
+  test("a background job with no time limit shows in the jobs list and the graph, its terminal fills, and stopping it does not wake the model", async () => {
+    const { c, events, server, view, finish } = await rig([
+      callTools({
+        id: "c1",
+        name: "run",
+        args: { command: 'node -e "setTimeout(() => {}, 30000)"', background: true, timeout_seconds: 0, name: "waiter" },
+      }),
+      answer("Started."),
+    ]);
+    try {
+      c.handle({ type: "chat.send", text: "go" });
+      await c.idle();
+      c.handle({ type: "chat.approve", callId: "c1", allow: true });
+      await c.idle();
+      assert.deepEqual(
+        view.jobs.value.map((j) => [j.id, j.name, j.daemon, j.status]),
+        [["j1", "waiter", true, "running"]],
+      );
+      const graphJobs = events.filter((e) => e.type === "graph.jobs").at(-1);
+      assert.ok(graphJobs?.type === "graph.jobs" && graphJobs.jobs?.count === 1 && graphJobs.jobs.timed === false);
+      view.watched.value = "j1"; // the view's own state when the person opens the terminal; the rig's view sends nothing
+      c.handle({ type: "job.watch", job: "j1" });
+      await c.idle();
+      assert.match(view.log.value.chunks[0]?.text ?? "", /^\$ node -e /);
+      const requests = server.seen.length;
+      c.handle({ type: "job.stop", job: "j1" });
+      for (let i = 0; i < 100 && view.jobs.value[0]?.status === "running"; i++) await new Promise((r) => setTimeout(r, 50));
+      await c.idle();
+      assert.equal(view.jobs.value[0]?.status, "stopped");
+      const ended = events.filter((e) => e.type === "graph.jobs").at(-1);
+      assert.ok(ended?.type === "graph.jobs" && ended.jobs === undefined, "the graph no longer shows a running job");
+      assert.equal(server.seen.length, requests, "no request was made for it");
+    } finally {
+      await finish();
+    }
+  });
+
   test("allowing with a grant offers the keys and covers the next like call", async () => {
     const { c, events, finish } = await rig([
       callTools({ id: "c1", name: "run", args: { command: "echo one" } }),

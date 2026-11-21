@@ -1,5 +1,6 @@
 import type { Conversation } from "./conversation.ts";
 import type { ChatEntry } from "./entries.ts";
+import type { JobLog, LogChunk } from "./job-log.ts";
 import type { StartedJob, Tool, ToolOutput } from "./tools.ts";
 import { ALL } from "./approvals.ts";
 import type { LeaseOwner } from "./lease.ts";
@@ -25,12 +26,19 @@ export interface JobInfo {
   call_id: string;
   /** One line: what it is (`run: pnpm test`). */
   label: string;
+  /** What the model called it, when it gave a name. */
+  name?: string;
+  /** True for a job with no time limit (a server, a watcher): it does not keep the thread busy. */
+  daemon: boolean;
   status: JobStatus;
   startedAt: number;
   endedAt?: number;
   /** What it printed, once it has ended. */
   output?: string;
 }
+
+/** What the registry tells a watcher (the UI): a job started or changed, or text arrived in a job's log. */
+export type JobsEvent = { type: "job"; job: JobInfo } | { type: "log"; id: string; chunk: LogChunk };
 
 export interface JobsOptions {
   /** Also ask the host to send a request when an event is committed while idle (`background.resume`). Default false. */
@@ -63,9 +71,18 @@ export class JobRegistry {
   readonly #opts: JobsOptions;
   readonly #jobs = new Map<
     string,
-    JobInfo & { stop: () => void; stopped: boolean; settle?: NonNullable<StartedJob["started"]["settle"]> }
+    JobInfo & {
+      stop: () => void;
+      stopped: boolean;
+      /** The user stopped it (from the jobs list): the model hears of it with the next event, and nothing is started for it. */
+      byUser: boolean;
+      log?: JobLog;
+      settle?: NonNullable<StartedJob["started"]["settle"]>;
+    }
   >();
+  readonly #watchers = new Set<(e: JobsEvent) => void>();
   readonly #uncommitted: string[] = [];
+  readonly #userStopped = new Set<string>();
   #next = 1;
   #loops = 0;
   #queue: Promise<unknown> = Promise.resolve();
@@ -104,19 +121,26 @@ export class JobRegistry {
       label: started.summary,
       status: "running" as JobStatus,
       startedAt: this.#convo.now(),
+      daemon: started.lease === undefined,
+      ...(started.name === undefined ? {} : { name: started.name }),
       stop: () => started.stop(),
       stopped: false,
+      byUser: false,
+      ...(started.log === undefined ? {} : { log: started.log }),
       ...(started.settle === undefined ? {} : { settle: started.settle }),
     };
     this.#jobs.set(id, job);
     // The job holds the thread's run lease until it ends or its time is up, so the thread is known to be busy after the loop has stopped.
+    // A job with no time limit holds none: it is not work the thread waits for.
     try {
-      await this.#holdLease(id, started.lease);
+      if (started.lease !== undefined) await this.#holdLease(id, started.lease);
     } catch (e) {
       this.#jobs.delete(id);
       started.stop();
       throw e;
     }
+    started.log?.subscribe((chunk) => this.#tell({ type: "log", id, chunk }));
+    this.#tell({ type: "job", job: this.#info(job) });
     void started.done.then(
       (out) => this.#ended(job, out),
       (e: unknown) => this.#ended(job, { content: `The job failed: ${e instanceof Error ? e.message : String(e)}`, is_error: true }),
@@ -140,7 +164,7 @@ export class JobRegistry {
    * A job with a time bound holds the lease for that long; a job that waits on another thread follows that thread's lease
    * instead, so the lease is released when that thread's work is over.
    */
-  async #holdLease(id: string, lease: StartedJob["started"]["lease"]): Promise<void> {
+  async #holdLease(id: string, lease: NonNullable<StartedJob["started"]["lease"]>): Promise<void> {
     const convo = this.#convo;
     const store = await convo.leaseStore();
     const owner = this.#opts.owner ?? {};
@@ -149,14 +173,48 @@ export class JobRegistry {
     else await store.follow(convo.branch, owner, convo.leaseEnv, `job:${id}`, lease.follows);
   }
 
+  #info(job: JobInfo): JobInfo {
+    const { id, call_id, label, name, daemon, status, startedAt, endedAt, output } = job;
+    return {
+      id,
+      call_id,
+      label,
+      daemon,
+      status,
+      startedAt,
+      ...(name === undefined ? {} : { name }),
+      ...(endedAt === undefined ? {} : { endedAt }),
+      ...(output === undefined ? {} : { output }),
+    };
+  }
+
+  #tell(e: JobsEvent): void {
+    for (const w of this.#watchers) w(e);
+  }
+
+  /** Be told when a job starts or ends, and as text arrives in a job's log. Returns the way to stop. */
+  watch(fn: (e: JobsEvent) => void): () => void {
+    this.#watchers.add(fn);
+    return () => void this.#watchers.delete(fn);
+  }
+
+  /** What a job has printed, tagged by channel; undefined for a job that does not keep a log (or is not known). */
+  logOf(id: string): { chunks: readonly LogChunk[]; dropped: number } | undefined {
+    const log = this.#jobs.get(id)?.log;
+    return log === undefined ? undefined : { chunks: log.chunks(), dropped: log.dropped };
+  }
+
   #ended(job: JobInfo & { stopped: boolean }, out: ToolOutput): void {
-    void this.#convo
-      .leaseStore()
-      .then((store) => store.drop(this.#convo.branch, `job:${job.id}`))
-      .catch(() => undefined);
+    if (!job.daemon) {
+      void this.#convo
+        .leaseStore()
+        .then((store) => store.drop(this.#convo.branch, `job:${job.id}`))
+        .catch(() => undefined);
+    }
     job.status = job.stopped ? "stopped" : out.is_error === true ? "failed" : "completed";
     job.endedAt = this.#convo.now();
     job.output = out.content;
+    this.#tell({ type: "job", job: this.#info(job) });
     this.#uncommitted.push(job.id);
     if (!this.#busy()) void this.flush().catch(() => undefined); // the next flush retries
   }
@@ -167,18 +225,22 @@ export class JobRegistry {
   }
 
   list(): JobInfo[] {
-    return [...this.#jobs.values()].map(({ stop: _s, stopped: _t, settle: _x, ...info }) => info);
+    return [...this.#jobs.values()].map((j) => this.#info(j));
   }
 
   get(id: string): JobInfo | undefined {
     return this.list().find((j) => j.id === id);
   }
 
-  /** Ask a running job to stop. False if there is no such job or it is not running. */
-  stop(id: string): boolean {
+  /**
+   * Ask a running job to stop. False if there is no such job or it is not running. `by: "user"` records that a person did it: the
+   * entry says so, and the model is not woken for it (it hears with the next event).
+   */
+  stop(id: string, by: "model" | "user" = "model"): boolean {
     const job = this.#jobs.get(id);
     if (job === undefined || job.status !== "running") return false;
     job.stopped = true;
+    if (by === "user") job.byUser = true;
     job.stop();
     return true;
   }
@@ -201,9 +263,10 @@ export class JobRegistry {
   }
 
   /** What a job printed: from the live job, else from the `job_event` entry in the history. */
-  async output(id: string): Promise<{ status: JobStatus; output: string | undefined } | undefined> {
+  async output(id: string): Promise<{ status: JobStatus; output: string | undefined; running?: boolean } | undefined> {
     const live = this.#jobs.get(id);
-    if (live !== undefined) return { status: live.status, output: live.output };
+    // A job still running shows what it has printed so far.
+    if (live !== undefined) return { status: live.status, output: live.output ?? live.log?.output(), running: live.status === "running" };
     for (const e of (await this.#entries()).reverse()) {
       if (e.$tag === "job_event" && e.job === id) {
         const out =
@@ -249,7 +312,8 @@ export class JobRegistry {
           }
         }
         const secs = Math.max(0, Math.round(((job.endedAt ?? job.startedAt) - job.startedAt) / 1000));
-        const summary = `${job.label} ${job.status} after ${secs}s`;
+        const summary = `${job.name === undefined ? job.label : `${job.name} (${job.label})`} ${job.status}${job.byUser ? " by the user" : ""} after ${secs}s`;
+        if (job.byUser) this.#userStopped.add(id);
         await this.#convo.append({
           $tag: "job_event",
           job: id,
@@ -258,6 +322,7 @@ export class JobRegistry {
           status: job.status === "running" ? "lost" : job.status,
           summary,
           ...(job.output === undefined ? {} : { output: job.output }),
+          ...(job.byUser ? { by: "user" as const } : {}),
         });
         this.#uncommitted.shift();
         done.push({ job: id, status: job.status, summary });
@@ -268,7 +333,8 @@ export class JobRegistry {
     return run.then((done) => {
       if (done.length > 0 && !this.#busy()) {
         this.#opts.onCommitted?.(done);
-        if (this.#opts.resume === true) this.#opts.onResume?.();
+        // A job a person stopped is recorded, but the model is not asked to react: it hears with whatever comes next.
+        if (this.#opts.resume === true && done.some((d) => !this.#userStopped.has(d.job))) this.#opts.onResume?.();
       }
       return done;
     });
@@ -333,7 +399,10 @@ export function jobTools(registry: JobRegistry): Tool[] {
             jobs.length === 0
               ? "No background jobs."
               : jobs
-                  .map((j) => `${j.id}  ${j.status}  ${j.label}${j.status === "running" ? `  (running ${ago(now - j.startedAt)})` : ""}`)
+                  .map(
+                    (j) =>
+                      `${j.id}  ${j.status}  ${j.name === undefined ? j.label : `${j.name} (${j.label})`}${j.status === "running" ? `  (running ${ago(now - j.startedAt)}${j.daemon ? ", no time limit" : ""})` : ""}`,
+                  )
                   .join("\n"),
         };
       },
@@ -342,7 +411,7 @@ export function jobTools(registry: JobRegistry): Tool[] {
       definition: {
         name: "job_output",
         description:
-          "Read what a finished background job printed, from a character offset. A job that is still running has nothing to read yet; you are told when it ends. Returns the text and the offset to continue from.",
+          "Read what a background job printed, from a character offset. A job that is still running shows what it has printed so far (you are told when it ends; call again from the offset it gives to read more). After a job ends its text starts with an exit status line, so offsets from before it ended do not carry over. Returns the text and the offset to continue from.",
         input_schema: {
           type: "object",
           additionalProperties: false,
@@ -359,13 +428,13 @@ export function jobTools(registry: JobRegistry): Tool[] {
         const id = stringArg(args, "job");
         const found = await registry.output(id);
         if (found === undefined) return { content: `There is no job ${id}.`, is_error: true };
-        if (found.output === undefined) return { content: `Job ${id} is ${found.status}: there is no output yet.` };
+        if (found.output === undefined) return { content: `Job ${id} is ${found.status}: it has printed nothing yet.` };
         const offset = optNumberArg(args, "offset") ?? 0;
         const limit = optNumberArg(args, "limit") ?? 8000;
         const part = found.output.slice(offset, offset + limit);
         const end = offset + part.length;
         return {
-          content: `${part === "" ? "(nothing at that offset)" : part}\n[job ${id} ${found.status}; ${end >= found.output.length ? `end of output at ${end}` : `continue from offset ${end}`}]`,
+          content: `${part === "" ? "(nothing at that offset)" : part}\n[job ${id} ${found.status}; ${end >= found.output.length ? (found.running === true ? `nothing more yet at ${end}; it is still running` : `end of output at ${end}`) : `continue from offset ${end}`}]`,
         };
       },
     },

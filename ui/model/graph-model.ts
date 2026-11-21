@@ -132,6 +132,19 @@ export const GraphModel = createModel((send: (intent: UiIntent) => void) => {
           if (d !== undefined) data.value = { ...d, threads: d.threads.map((t) => (t.name === e.thread ? { ...t, status: e.status } : t)) };
           return true;
         }
+        case "graph.jobs": {
+          const d = data.value;
+          if (d !== undefined)
+            data.value = {
+              ...d,
+              threads: d.threads.map((t) => {
+                if (t.name !== e.thread) return t;
+                const { jobs: _old, ...rest } = t;
+                return e.jobs === undefined ? rest : { ...rest, jobs: e.jobs };
+              }),
+            };
+          return true;
+        }
         case "graph.selected":
           selected.value = { thread: e.thread, commit: e.commit };
           return true;

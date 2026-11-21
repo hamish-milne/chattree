@@ -29,7 +29,7 @@ Calls ask the user before they run unless an approval covers them. A tool contro
 
 ## Background and long-running tools
 
-- `background: true` lets the model start the tool with `background: true` in its arguments (add that property to the schema). `execute` then returns a `StartedJob` at once with a lease (how long it may run), a one-line summary, a `done` promise that never rejects, and a `stop()`. The result arrives as a `job_event` entry.
+- `background: true` lets the model start the tool with `background: true` in its arguments (add that property to the schema). `execute` then returns a `StartedJob` at once with a one-line summary, a `done` promise that never rejects, and a `stop()`. The `lease` says how long it may run (it is how long the job holds the thread's run lease); leave it out for a job with no time limit (a server or watcher), which holds no lease and so does not keep the thread busy. Optional too: `name` (what the model called it, shown to the person) and `log`, a `JobLog` the tool fills as it prints (`ctx.output(channel, text)` is the tool's way to write to it): the jobs popup shows it live, and `job_output` reads it while the job runs. The result arrives as a `job_event` entry.
 - `timeout(args)` sets the seconds a call may take (default `limits.max_tool_seconds`).
 - `resumable: true` says a call that was interrupted by a crash may be executed again when the loop restarts, instead of being answered "did not run". Only do this if `execute` can find what its first run did from the call id.
 

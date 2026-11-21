@@ -4,7 +4,18 @@
  * It follows the controller's events and sends intents; it knows nothing of VS Code or the DOM.
  */
 import { computed, createModel, signal } from "@preact/signals-core";
-import type { Activity, Approval, ForwardedQuestion, ChatBanner, ChatState, Composer, ModelChoice, StatusBar } from "./chat.ts";
+import type {
+  Activity,
+  Approval,
+  ForwardedQuestion,
+  ChatBanner,
+  ChatState,
+  Composer,
+  JobView,
+  LogChunk,
+  ModelChoice,
+  StatusBar,
+} from "./chat.ts";
 import { FormModel } from "./form-model.ts";
 import { activeLevel, withLevel } from "./levels.ts";
 import type { UiEvent, UiIntent } from "./protocol.ts";
@@ -28,6 +39,17 @@ export interface FileMenu {
   y: number;
 }
 
+/** More terminal text at the end: the last piece joins the new first one when they are on the same channel. */
+export function appendChunks(have: readonly LogChunk[], more: readonly LogChunk[]): readonly LogChunk[] {
+  const out = have.map((c) => ({ ...c }));
+  for (const c of more) {
+    const last = out[out.length - 1];
+    if (last?.channel === c.channel) last.text += c.text;
+    else out.push({ ...c });
+  }
+  return out;
+}
+
 export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   const thread = signal<Thread | undefined>(undefined);
   const blocks = signal<readonly Block[]>([]);
@@ -42,6 +64,11 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
   /** Blocks whose open state is the opposite of their default. */
   const toggled = signal<ReadonlySet<string>>(new Set());
   const settingsOpen = signal(false);
+  const jobs = signal<readonly JobView[]>([]);
+  const jobsOpen = signal(false);
+  /** The job whose terminal is open, and what it has printed. */
+  const watched = signal<string | undefined>(undefined);
+  const log = signal<{ chunks: readonly LogChunk[]; dropped: number }>({ chunks: [], dropped: 0 });
   /** The block to scroll to and ping. `n` counts, so asking for the same commit again still shows. */
   const reveal = signal<{ commit: string; n: number } | undefined>(undefined);
 
@@ -78,6 +105,12 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     blocks.value = blocks.value.map((b) => (b.id === id ? f(b) : b));
   };
   const name = (): string | undefined => thread.peek()?.name;
+  /** The chip: how many jobs are running, and whether the spinner shows (one has a time limit; otherwise only servers and watchers run). */
+  const jobsSummary = computed(() => {
+    const running = jobs.value.filter((j) => j.status === "running");
+    return { running: running.length, total: jobs.value.length, timed: running.some((j) => !j.daemon) };
+  });
+  const watchedJob = computed(() => jobs.value.find((j) => j.id === watched.value));
   /** The thinking level the settings are at (`custom`: set, but not to a level), undefined when the model has none or none is set. */
   const thinking = computed(() => {
     const levels = models.value?.levels;
@@ -96,6 +129,12 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     banner,
     settings,
     settingsOpen,
+    jobs,
+    jobsOpen,
+    jobsSummary,
+    watched,
+    watchedJob,
+    log,
     activity,
     forwarded,
     reveal,
@@ -123,6 +162,10 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
           settings.value = e.state.settings === undefined ? undefined : new FormModel(e.state.settings, send);
           toggled.value = new Set();
           settingsOpen.value = false;
+          jobs.value = e.state.jobs ?? [];
+          jobsOpen.value = false;
+          watched.value = undefined;
+          log.value = { chunks: [], dropped: 0 };
           reveal.value = undefined;
           return true;
         case "chat.append":
@@ -172,6 +215,17 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
           return true;
         case "chat.activity":
           activity.value = e.activity;
+          return true;
+        case "chat.jobs":
+          jobs.value = e.jobs;
+          if (watched.peek() !== undefined && !e.jobs.some((j) => j.id === watched.peek())) watched.value = undefined;
+          if (e.jobs.length === 0) jobsOpen.value = false;
+          return true;
+        case "job.log":
+          if (e.job !== watched.peek()) return true;
+          log.value = e.reset
+            ? { chunks: e.chunks, dropped: e.dropped ?? 0 }
+            : { chunks: appendChunks(log.peek().chunks, e.chunks), dropped: log.peek().dropped };
           return true;
         case "form.set":
           return settings.peek()?.apply(e) ?? false;
@@ -273,6 +327,28 @@ export const ChatModel = createModel((send: (intent: UiIntent) => void) => {
     },
     closeSettings(): void {
       settingsOpen.value = false;
+    },
+    toggleJobs(): void {
+      jobsOpen.value = !jobsOpen.peek();
+      if (!jobsOpen.peek()) this.unwatchJob();
+    },
+    closeJobs(): void {
+      jobsOpen.value = false;
+      this.unwatchJob();
+    },
+    /** Open a job's terminal. */
+    watchJob(id: string): void {
+      watched.value = id;
+      log.value = { chunks: [], dropped: 0 };
+      send({ type: "job.watch", job: id });
+    },
+    unwatchJob(): void {
+      if (watched.peek() === undefined) return;
+      watched.value = undefined;
+      send({ type: "job.unwatch" });
+    },
+    stopJob(id: string): void {
+      send({ type: "job.stop", job: id });
     },
     toggleSettings(): void {
       settingsOpen.value = !settingsOpen.peek();

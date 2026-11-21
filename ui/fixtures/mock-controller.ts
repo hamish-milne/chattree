@@ -6,7 +6,7 @@
  *
  * Time comes from an injected `sleep`, so a test runs a whole turn at once and reads the events afterwards.
  */
-import type { ChatState, StatusBar } from "../model/chat.ts";
+import type { ChatState, JobView, LogChunk, StatusBar } from "../model/chat.ts";
 import type { GraphCommit, GraphData, GraphKind, RepoEntry, ThreadStatus } from "../model/graph.ts";
 import type { FormSpec } from "../model/form.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
@@ -76,6 +76,40 @@ const REPO_FIXTURES: readonly RepoEntry[] = [
   },
 ];
 
+const mockJobs = (): JobView[] => {
+  const now = Date.now();
+  return [
+    { id: "j1", label: "run: pnpm dev", name: "dev server", daemon: true, status: "running", startedAt: now - 8 * 60_000 },
+    { id: "j2", label: "run: pnpm test", name: "unit tests", daemon: false, status: "running", startedAt: now - 40_000 },
+    { id: "j3", label: "script: tsc --noEmit", daemon: false, status: "completed", startedAt: now - 5 * 60_000, endedAt: now - 4 * 60_000 },
+  ];
+};
+
+const mockJobLogs = (): [string, LogChunk[]][] => [
+  [
+    "j1",
+    [
+      { channel: "stdin", text: "$ pnpm dev\n" },
+      { channel: "stdout", text: "  VITE v6.0.0  ready in 312 ms\n\n  Local:   http://localhost:5173/\n" },
+      { channel: "stderr", text: "warn: the CJS build of Vite's Node API is deprecated\n" },
+    ],
+  ],
+  [
+    "j2",
+    [
+      { channel: "stdin", text: "$ pnpm test\n" },
+      { channel: "stdout", text: "RUN  v3.0.0\n\n✓ http.test.ts (12 tests)\n" },
+    ],
+  ],
+  [
+    "j3",
+    [
+      { channel: "stdin", text: "$ tsc --noEmit\n" },
+      { channel: "stdout", text: "exit 0\n(no output)" },
+    ],
+  ],
+];
+
 export class MockController {
   private readonly emit: (e: UiEvent) => void;
   private readonly sleep: (ms: number) => Promise<void>;
@@ -92,6 +126,10 @@ export class MockController {
   private turn: Promise<void> | undefined;
   private aborted = false;
   private answer: ((allow: boolean) => void) | undefined;
+  /** The pretend background jobs of the main thread, what each printed, and the one whose terminal is open. */
+  private jobs: JobView[] = mockJobs();
+  private readonly jobLogs = new Map<string, LogChunk[]>(mockJobLogs());
+  private watching: string | undefined;
   /** The thread checked out in the project folder; the others have worktrees of their own (or none, once merged). */
   private checkedOut: string = THREADS.main;
   /** Files the person changed by hand in the project folder, not yet in any commit. */
@@ -107,6 +145,7 @@ export class MockController {
     this.sleep = options.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms)));
     const settings = chatFixture().settings;
     for (const f of [configFixture(), ...(settings === undefined ? [] : [settings])]) this.forms.set(f.id, { saved: f, working: f });
+    this.markGraphJobs();
   }
 
   /** Resolves when no turn is running and nothing is queued. */
@@ -222,6 +261,24 @@ export class MockController {
       case "chat.approve":
         this.answer?.(intent.allow);
         return;
+      case "job.watch": {
+        this.watching = intent.job;
+        this.emit({ type: "job.log", job: intent.job, chunks: structuredClone(this.jobLogs.get(intent.job) ?? []), reset: true });
+        const job = this.jobs.find((j) => j.id === intent.job);
+        if (job?.status === "running") this.streamJob(job);
+        return;
+      }
+      case "job.unwatch":
+        this.watching = undefined;
+        return;
+      case "job.stop": {
+        const job = this.jobs.find((j) => j.id === intent.job);
+        if (job === undefined || job.status !== "running") return;
+        job.status = "stopped";
+        job.endedAt = Date.now();
+        this.emitJobs();
+        return;
+      }
       case "chat.model":
         this.setModel(intent.model);
         return;
@@ -287,6 +344,43 @@ export class MockController {
     return f;
   }
 
+  private markGraphJobs(): { count: number; timed: boolean } | undefined {
+    const running = this.jobs.filter((j) => j.status === "running");
+    const jobs = running.length === 0 ? undefined : { count: running.length, timed: running.some((j) => !j.daemon) };
+    const t = this.graph.threads.find((x) => x.name === THREADS.main);
+    if (t !== undefined) {
+      if (jobs === undefined) delete t.jobs;
+      else t.jobs = jobs;
+    }
+    return jobs;
+  }
+
+  private emitJobs(): void {
+    this.chats.delete(THREADS.main);
+    if (this.current === THREADS.main) this.emit({ type: "chat.jobs", jobs: structuredClone(this.jobs) });
+    const jobs = this.markGraphJobs();
+    this.emit({ type: "graph.jobs", thread: THREADS.main, ...(jobs === undefined ? {} : { jobs }) });
+  }
+
+  /** A running job prints a few more lines while its terminal is open. */
+  private streamJob(job: JobView): void {
+    const lines: LogChunk[] = [
+      { channel: "stdout", text: job.daemon ? "GET /api/users 200 12ms\n" : "✓ retry.test.ts (4 tests)\n" },
+      { channel: "stderr", text: job.daemon ? "warn: slow query (840ms)\n" : "warn: 1 test is slow\n" },
+      { channel: "stdout", text: job.daemon ? "GET /api/health 200 1ms\n" : "✓ backoff.test.ts (6 tests)\n" },
+    ];
+    const p = (async () => {
+      for (const c of lines) {
+        await this.sleep(700);
+        if (this.watching !== job.id || job.status !== "running") return;
+        this.jobLogs.set(job.id, [...(this.jobLogs.get(job.id) ?? []), c]);
+        this.emit({ type: "job.log", job: job.id, chunks: [c], reset: false });
+      }
+    })();
+    this.tasks.add(p);
+    void p.finally(() => this.tasks.delete(p));
+  }
+
   private thread(name: string): GraphData["threads"][number] {
     const t = this.graph.threads.find((x) => x.name === name);
     if (t === undefined) throw new Error(`no thread ${name}`);
@@ -326,6 +420,7 @@ export class MockController {
       },
       ...(base.settings === undefined ? {} : { settings: this.form("model-settings").working }),
     };
+    if (name === THREADS.main && this.jobs.length > 0) state.jobs = structuredClone(this.jobs);
     // A fork whose harness.yml was edited since the person approved it: the pretend thread that shows the banner.
     if (name === THREADS.old) state.banner = { kind: "untrusted", state: "changed" };
     // A thread whose model the provider swapped for another: the pretend thread that shows the banner for an unusual change.

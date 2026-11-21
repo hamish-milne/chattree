@@ -17,3 +17,5 @@ Making it an entry keeps the transcript the source of truth and replayable. Resu
 ## Notes
 
 A fork inherits a still-running parent's "started job" result; recovery on the fork marks it lost but says the parent owns it.
+
+A job may have no time limit (`timeout_seconds: 0`): it holds no lease, and the model sees it in `jobs`. `job_output` reads a running job's output so far. A person can stop a job from the jobs list; its `job_event` has `by: "user"` and does not by itself start a request.

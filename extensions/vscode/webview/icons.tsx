@@ -70,6 +70,12 @@ const PATHS = {
       <path d="M6 13.5h4M8 10.5v3" />
     </>
   ),
+  jobs: (
+    <>
+      <rect x="2" y="3" width="12" height="10" rx="1.4" />
+      <path d="m5 6.4 2 1.6-2 1.6M8.6 10h2.4" />
+    </>
+  ),
   back: <path d="M13 8H3.5M7.5 3.5 3 8l4.5 4.5" />,
   trash: <path d="M3 4.5h10M6 4.5V3h4v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5" />,
 } as const;

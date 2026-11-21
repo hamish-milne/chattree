@@ -313,6 +313,7 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
       child.stderr.on("error", () => undefined);
       child.stderr.on("data", (c: Uint8Array) => {
         outBytes = keep(output, outBytes, c);
+        spec.onOutput?.("stderr", c);
       });
       if (!last) {
         const next = i + 1;
@@ -324,10 +325,12 @@ function runCommand(spec: RunSpec): Promise<RunOutcome> {
       } else if (spec.captureStdout === true) {
         child.stdout.on("data", (c: Uint8Array) => {
           stdoutBytes = keep(stdoutChunks, stdoutBytes, c);
+          spec.onOutput?.("stdout", c);
         });
       } else {
         child.stdout.on("data", (c: Uint8Array) => {
           outBytes = keep(output, outBytes, c);
+          spec.onOutput?.("stdout", c);
         });
       }
       if (i === 0) child.stdin.end(spec.stdin);

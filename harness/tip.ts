@@ -230,9 +230,15 @@ export async function foldTip(input: TipInput): Promise<TipState> {
     const on = calls.flatMap((c) => (c.status === "blocked" && c.on !== undefined ? [c.on] : []));
     return on.length > 0 ? { kind: "blocked", calls, on } : { kind: "run", calls };
   }
-  const last = [...entries]
-    .reverse()
-    .find((e) => e.$tag !== "header" && e.$tag !== "agent_setup" && e.$tag !== "approval" && e.$tag !== "injection");
+  const last = [...entries].reverse().find(
+    (e) =>
+      e.$tag !== "header" &&
+      e.$tag !== "agent_setup" &&
+      e.$tag !== "approval" &&
+      e.$tag !== "injection" &&
+      // A job the person stopped is on the record, but is not a reason to run: the model hears of it with whatever comes next.
+      !(e.$tag === "job_event" && e.by === "user"),
+  );
   switch (last?.$tag) {
     case "user":
       return { kind: "ready", cause: "human" };

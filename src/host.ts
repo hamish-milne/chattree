@@ -114,6 +114,8 @@ export interface RunSpec {
   maxOutput?: number;
   /** Aborting kills the whole process group. */
   signal?: AbortSignal;
+  /** Called with each piece of output as it arrives (before `maxOutput` applies): stderr of every stage and the last stage's stdout. */
+  onOutput?(channel: "stdout" | "stderr", chunk: Uint8Array): void;
   /**
    * Windows only: stages (by index) whose arguments are already a command line and are passed as they are, without the usual
    * quoting (for `cmd.exe /s /c "..."`). Ignored elsewhere.

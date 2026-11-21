@@ -49,7 +49,8 @@ How the pieces fit: a `Conversation` (one thread, one branch, one `chat.yml`) is
 | `tool-schema.ts`, `schema-project.ts`, `tool-args.ts` | Argument validation (TypeBox, with an ajv-parity corpus); what a model is shown of a tool's schema (ADR 25); typed readers for arguments. |
 | `loop.ts` | The tool loop (ADR 26): request, run each call in order, write each result as its own entry, repeat. Provider-neutral; yields events. |
 | `approvals.ts` | The pure part of approvals: expiry, coverage, editing the `allow` map in the file text. |
-| `jobs.ts` | Background jobs and their `job_event` entries (ADR 28). |
+| `jobs.ts` | Background jobs and their `job_event` entries (ADR 28). A job with no `lease` (`timeout_seconds: 0`) is a daemon: it holds no run lease and lives as long as the process. `watch` tells the UI of job changes and log text; `stop(id, "user")` records the stop with `by: "user"` (format 2.9), which `foldTip` ignores, so the model hears of it with the next event instead of being woken. |
+| `job-log.ts` | `JobLog`: what a job printed, tagged `stdin`/`stdout`/`stderr`, ANSI-stripped, capped at 1 M characters (oldest dropped). Fed by `Host.run`'s `onOutput` through `ToolContext.output`. Commands run with `NO_COLOR`, `TERM=dumb` and the like so most print plain text. |
 | `runs.ts`, `pump.ts`, `tip.ts` | The run manager (one owner for every running loop in a process); the pump that works out from each tip what needs no person (`blockedOn(thread)` says which threads a blocked one waits for); what a thread's tip needs, derived from history. |
 | `subagent.ts`, `subagent-models.ts`, `fork-tools.ts`, `thread-tools.ts` | The `subagent`, `fork`, `merge`, `thread_read` and `thread_send` tools and the model allowlist (ADR 29). Who may talk to whom is worked out from history, never from what the model says. |
 | `search.ts`, `search-tool.ts` | Lexical search over threads and the tool that exposes it, with permission keys. |

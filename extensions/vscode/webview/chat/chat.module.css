@@ -812,3 +812,183 @@
     animation: none;
   }
 }
+
+/* Background jobs: the chip in the status bar, the popup above it, and the terminal for one job. */
+.status_wrap {
+  position: relative;
+  flex: none;
+}
+.jobs_chip.jobs_idle {
+  opacity: 0.7;
+}
+.jobs {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 100%;
+  max-width: 460px;
+  max-height: min(360px, 60vh);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--vscode-editorWidget-border, var(--vscode-panel-border));
+  border-radius: 6px;
+  background: var(--vscode-editorWidget-background);
+  box-shadow: 0 2px 10px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.3));
+  z-index: 5;
+  font-size: 12px;
+}
+.jobs.jobs_wide {
+  max-width: none;
+  height: min(420px, 70vh);
+  max-height: none;
+}
+.jobs_head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 10px;
+  border-bottom: 1px solid var(--vscode-panel-border);
+}
+.jobs_title {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job_list {
+  list-style: none;
+  margin: 0;
+  padding: 2px 0;
+  overflow-y: auto;
+}
+.job_row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-right: 8px;
+}
+.job_row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.job_open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.job_text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.job_name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job_sub {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job_mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+}
+.job_spin {
+  width: 10px;
+  height: 10px;
+  margin: 0 2px;
+  border-radius: 50%;
+  border: 2px solid var(--vscode-progressBar-background);
+  border-right-color: transparent;
+  animation: spin 0.9s linear infinite;
+}
+.job_daemon {
+  width: 8px;
+  height: 8px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: var(--vscode-progressBar-background);
+}
+.job_completed {
+  color: var(--vscode-testing-iconPassed);
+}
+.job_failed {
+  color: var(--vscode-testing-iconFailed);
+}
+.job_stopped,
+.job_lost {
+  color: var(--vscode-descriptionForeground);
+}
+.job_stop {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--vscode-button-secondaryBackground, var(--vscode-panel-border));
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, inherit);
+  font-size: 11px;
+  cursor: pointer;
+}
+.job_stop:hover {
+  background: var(--vscode-button-secondaryHoverBackground, var(--vscode-toolbar-hoverBackground));
+}
+/* The terminal: plain text, with each channel in a colour of its own. */
+.term {
+  flex: 1;
+  min-height: 120px;
+  margin: 0;
+  padding: 8px 10px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--vscode-editor-font-family);
+  font-size: var(--vscode-editor-font-size, 12px);
+  line-height: 1.4;
+  background: var(--vscode-terminal-background, var(--vscode-editor-background));
+  color: var(--vscode-terminal-foreground, var(--vscode-editor-foreground));
+}
+.term_stdin {
+  color: var(--vscode-terminal-ansiBrightBlue, #3b8eea);
+  font-weight: 600;
+}
+.term_stdout {
+  color: var(--vscode-terminal-foreground, var(--vscode-editor-foreground));
+}
+.term_stderr {
+  color: var(--vscode-terminal-ansiRed, #cd3131);
+}
+.term_note {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+.term_legend {
+  flex: none;
+  display: flex;
+  gap: 12px;
+  padding: 3px 10px;
+  font-size: 10px;
+  font-family: var(--vscode-editor-font-family);
+  border-top: 1px solid var(--vscode-panel-border);
+  background: var(--vscode-terminal-background, var(--vscode-editor-background));
+}

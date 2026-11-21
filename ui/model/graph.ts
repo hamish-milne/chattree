@@ -59,6 +59,8 @@ export const graphThread = strictObject({
   archived: Type.Optional(Type.Boolean()),
   /** It has been merged back (a `fork_merge` or `subagent_result` entry exists). */
   merged: Type.Optional(Type.Boolean()),
+  /** Background jobs running on it: how many, and whether any has a time limit (otherwise they are all servers or watchers). Absent when none run. */
+  jobs: Type.Optional(strictObject({ count: Type.Integer({ minimum: 1 }), timed: Type.Boolean() })),
 });
 export type GraphThread = Static<typeof graphThread>;
 

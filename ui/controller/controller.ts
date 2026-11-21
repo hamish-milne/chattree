@@ -20,7 +20,8 @@ import type { HostEnvironment } from "../../harness/environment.ts";
 import type { Approval, ApprovalRequest, LoopEvent } from "../../harness/loop.ts";
 import { attachmentKind } from "../../harness/attachments.ts";
 import type { HostedController } from "../host/web-host.ts";
-import type { Activity, ChatState, Composer, ModelChoice, StatusBar } from "../model/chat.ts";
+import type { Activity, ChatState, Composer, JobView, LogChunk, ModelChoice, StatusBar } from "../model/chat.ts";
+import type { JobsEvent } from "../../harness/jobs.ts";
 import type { GraphData, RepoEntry, ThreadStatus } from "../model/graph.ts";
 import type { UiEvent, UiIntent } from "../model/protocol.ts";
 import { diffBlocks } from "./diff-blocks.ts";
@@ -177,6 +178,12 @@ export class Controller implements HostedController {
   #active = 0;
   #quiet: (() => void)[] = [];
   readonly #lastStatus = new Map<string, ThreadStatus>();
+  /** The background jobs of each thread that has started a tool set, and what the views were last told about them. */
+  readonly #jobSets = new Map<string, ToolSet>();
+  readonly #jobsSent = new Map<string, string>();
+  readonly #graphJobsSent = new Map<string, string>();
+  /** The job whose terminal is open in the view, and the text that has arrived since the last send. */
+  #watching: { thread: string; job: string; pending: LogChunk[]; timer?: ReturnType<typeof setTimeout> | undefined } | undefined;
   /** The `harness.yml` form: what is saved, what is being edited, and what is wrong with it. */
   #harness: { saved: Record<string, unknown>; working: Record<string, unknown>; issues: FormIssue[] } | undefined;
   #registry: AdapterRegistry | undefined;
@@ -468,6 +475,7 @@ export class Controller implements HostedController {
       merged: await repo.convo.mergedBranches(),
       checkedOut: repo.checkedOut,
       statuses: await this.#statuses(repo),
+      jobs: this.#runningJobs(),
     });
   }
 
@@ -614,6 +622,7 @@ export class Controller implements HostedController {
             ? {}
             : { activity: { phase: "blocked" as const, since: 0, detail: blockedOn.join(",") } }),
         ...(banner === undefined ? {} : { banner }),
+        ...(this.#jobViews(name).length === 0 ? {} : { jobs: this.#jobViews(name) }),
         model: this.#models(h, setup.model === undefined ? "" : `${setup.model.provider}/${setup.model.id}`),
         ...(settings === undefined ? {} : { settings }),
       },
@@ -626,6 +635,8 @@ export class Controller implements HostedController {
     if (repo === undefined) throw new AppError("there is no conversation open");
     const { state, items } = await this.#chatState(repo, name);
     this.#selected = name;
+    this.#unwatchJob();
+    this.#jobsSent.set(name, JSON.stringify(state.jobs ?? []));
     this.#sent = sentOf(state);
     this.#emit({ type: "chat.open", state });
     this.#emit({ type: "graph.selected", thread: name, ...(commit === undefined ? {} : { commit }) });
@@ -755,8 +766,102 @@ export class Controller implements HostedController {
       });
       this.#toolsets.set(convo, p);
       p.catch(() => this.#toolsets.delete(convo));
+      void p.then(
+        (set) => {
+          this.#jobSets.set(thread, set);
+          set.jobs.watch((e) => this.#onJob(thread, e));
+        },
+        () => undefined,
+      );
     }
     return p;
+  }
+
+  // ---- background jobs -------------------------------------------------------------------------------------
+
+  #jobViews(thread: string): JobView[] {
+    return (this.#jobSets.get(thread)?.jobs.list() ?? []).map((j) => ({
+      id: j.id,
+      label: j.label,
+      daemon: j.daemon,
+      status: j.status,
+      startedAt: j.startedAt,
+      ...(j.name === undefined ? {} : { name: j.name }),
+      ...(j.endedAt === undefined ? {} : { endedAt: j.endedAt }),
+    }));
+  }
+
+  #graphJobs(thread: string): { count: number; timed: boolean } | undefined {
+    const running = this.#jobViews(thread).filter((j) => j.status === "running");
+    return running.length === 0 ? undefined : { count: running.length, timed: running.some((j) => !j.daemon) };
+  }
+
+  #runningJobs(): Map<string, { count: number; timed: boolean }> {
+    const out = new Map<string, { count: number; timed: boolean }>();
+    for (const thread of this.#jobSets.keys()) {
+      const j = this.#graphJobs(thread);
+      if (j !== undefined) out.set(thread, j);
+    }
+    return out;
+  }
+
+  #onJob(thread: string, e: JobsEvent): void {
+    if (e.type === "log") {
+      const w = this.#watching;
+      if (w === undefined || w.thread !== thread || w.job !== e.id) return;
+      w.pending.push(e.chunk);
+      // Text comes in bursts: send it a few times a second, not once per write.
+      w.timer ??= setTimeout(() => this.#flushLog(), 60);
+      return;
+    }
+    const g = this.#graphJobs(thread);
+    const gs = JSON.stringify(g ?? null);
+    if (this.#graphJobsSent.get(thread) !== gs) {
+      this.#graphJobsSent.set(thread, gs);
+      this.#emit({ type: "graph.jobs", thread, ...(g === undefined ? {} : { jobs: g }) });
+    }
+    if (thread !== this.#selected) return;
+    const views = this.#jobViews(thread);
+    const vs = JSON.stringify(views);
+    if (this.#jobsSent.get(thread) === vs) return;
+    this.#jobsSent.set(thread, vs);
+    this.#emit({ type: "chat.jobs", jobs: views });
+  }
+
+  #flushLog(): void {
+    const w = this.#watching;
+    if (w === undefined) return;
+    w.timer = undefined;
+    const chunks = w.pending.splice(0);
+    if (chunks.length > 0) this.#emit({ type: "job.log", job: w.job, chunks, reset: false });
+  }
+
+  /** Open a job's terminal in the view: all it has printed, then more as it comes. */
+  #watchJob(job: string): void {
+    const thread = this.#selected;
+    if (thread === undefined) return;
+    this.#unwatchJob();
+    this.#watching = { thread, job, pending: [] };
+    const set = this.#jobSets.get(thread);
+    const log = set?.jobs.logOf(job);
+    const info = set?.jobs.get(job);
+    // A job that kept no log (it ended before this process) shows what its event recorded.
+    const chunks: LogChunk[] =
+      log !== undefined ? log.chunks.map((c) => ({ ...c })) : info?.output === undefined ? [] : [{ channel: "stdout", text: info.output }];
+    this.#emit({ type: "job.log", job, chunks, reset: true, ...(log === undefined || log.dropped === 0 ? {} : { dropped: log.dropped }) });
+  }
+
+  #unwatchJob(): void {
+    const w = this.#watching;
+    if (w?.timer !== undefined) clearTimeout(w.timer);
+    this.#watching = undefined;
+  }
+
+  /** The person stopped a job: it is recorded in the transcript, and the model hears of it with its next event. */
+  #stopJob(job: string): void {
+    const thread = this.#selected;
+    const set = thread === undefined ? undefined : this.#jobSets.get(thread);
+    if (set === undefined || !set.jobs.stop(job, "user")) throw new AppError(`job ${job} is not running`);
   }
 
   /** The model is streaming: show what has arrived in a block of its own, which the committed blocks replace when the request ends. */
@@ -1580,6 +1685,15 @@ export class Controller implements HostedController {
         return;
       case "chat.approve":
         await this.#approve(intent.callId, intent.allow, intent.grant);
+        return;
+      case "job.watch":
+        this.#watchJob(intent.job);
+        return;
+      case "job.unwatch":
+        this.#unwatchJob();
+        return;
+      case "job.stop":
+        this.#stopJob(intent.job);
         return;
       case "chat.resume":
         await this.#resume();

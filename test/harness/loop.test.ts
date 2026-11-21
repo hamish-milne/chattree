@@ -9,6 +9,7 @@ import { Conversation } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { LimitExceeded } from "../../harness/limits.ts";
 import { JobRegistry, jobTools } from "../../harness/jobs.ts";
+import { JobLog } from "../../harness/job-log.ts";
 import { foldTip, unanswered } from "../../harness/tip.ts";
 import { LeaseStore, ThreadBusy } from "../../harness/lease.ts";
 import { verifyHistory } from "../../harness/verify.ts";
@@ -1176,13 +1177,74 @@ describe("background jobs", () => {
     const out = (args: Record<string, unknown>) => t["job_output"]!.execute(args, ctx).then((r) => r as ToolOutput);
     assert.match((await out({ job: "j9" })).content, /There is no job j9/);
     await jobs.start("c1", { lease: { seconds: 60 }, summary: "thing", done: g.promise, stop: () => undefined });
-    assert.match((await out({ job: "j1" })).content, /running: there is no output yet/);
+    assert.match((await out({ job: "j1" })).content, /running: it has printed nothing yet/);
     g.resolve({ content: "0123456789" });
     await settle();
     assert.equal((await out({ job: "j1", limit: 4 })).content, "0123\n[job j1 completed; continue from offset 4]");
     assert.equal((await out({ job: "j1", offset: 8 })).content, "89\n[job j1 completed; end of output at 10]");
     const again = new JobRegistry(convo);
     assert.match((await again.output("j1"))?.output ?? "", /0123456789/);
+  });
+
+  test("a job with no time limit holds no lease, is listed as such, and can be read while it runs", async () => {
+    const g = gate();
+    const { convo } = await fresh(reg(echo));
+    const jobs = new JobRegistry(convo);
+    const log = new JobLog();
+    const seen: string[] = [];
+    jobs.watch((e) => seen.push(e.type === "log" ? `${e.chunk.channel}:${e.chunk.text}` : `${e.job.id}:${e.job.status}`));
+    await jobs.start("c1", { name: "dev server", log, summary: "run: serve", done: g.promise, stop: () => undefined });
+    assert.deepEqual(
+      jobs.list().map((j) => [j.id, j.daemon, j.name]),
+      [["j1", true, "dev server"]],
+    );
+    assert.equal((await convo.leaseState()).state, "free");
+    log.append("stdin", "$ serve\n");
+    log.append("stdout", "\u001b[32mlistening\u001b[0m\n");
+    log.append("stderr", "warn\n");
+    const t = Object.fromEntries(jobTools(jobs).map((x) => [x.definition.name, x]));
+    const ctx = { signal: new AbortController().signal, callId: "x", workspace: convo.dir, host };
+    const out = await t["job_output"]!.execute({ job: "j1" }, ctx);
+    assert.equal((out as ToolOutput).content, "listening\nwarn\n\n[job j1 running; nothing more yet at 15; it is still running]");
+    assert.deepEqual(
+      jobs.logOf("j1")?.chunks.map((c) => c.channel),
+      ["stdin", "stdout", "stderr"],
+    );
+    assert.ok(seen.includes("stdout:listening\n"));
+    g.resolve({ content: "exit 0" });
+    await settle();
+  });
+
+  test("a job the user stops is recorded as such and does not ask the model to resume", async () => {
+    const g = gate();
+    const { convo } = await fresh(reg(echo));
+    let resumed = 0;
+    const told: string[] = [];
+    const jobs = new JobRegistry(convo, {
+      resume: true,
+      onResume: () => resumed++,
+      onCommitted: (e) => told.push(...e.map((x) => x.summary)),
+    });
+    const abort = new AbortController();
+    abort.signal.addEventListener("abort", () => g.resolve({ content: "exit 143" }));
+    await jobs.start("c1", { lease: { seconds: 60 }, summary: "run: sleep", done: g.promise, stop: () => abort.abort() });
+    assert.equal(jobs.stop("j1", "user"), true);
+    await settle();
+    const [ev] = await events(convo);
+    assert.equal(ev!.status, "stopped");
+    assert.match(str(ev!.summary), /stopped by the user after/);
+    assert.equal(resumed, 0);
+    assert.equal(told.length, 1);
+    assert.equal(ev!.by, "user");
+    // The record alone is no reason to run: the tip is what it was before it, not "a job ended".
+    const tip = await foldTip({
+      entries: await entries(convo),
+      registry: reg(echo),
+      allow: (t) => convo.grantStore().allow(t),
+      nowMs: convo.now(),
+      ctx: { workspace: convo.dir, host: convo.host },
+    });
+    assert.notDeepEqual(tip, { kind: "ready", cause: "event" });
   });
 
   test("a job started and never ended in the history is marked lost once, and numbering continues after it", async () => {

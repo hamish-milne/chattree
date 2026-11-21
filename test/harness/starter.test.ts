@@ -59,7 +59,7 @@ describe("the starter tools are valid registry entries", () => {
     );
     assert.match(
       (registry.check({ name: "run", args: { argv: ["ls"] } }) as { error: string }).error,
-      /argv is not a known argument \(known: command, timeout_seconds, background\)/,
+      /argv is not a known argument \(known: command, timeout_seconds, background, name\)/,
     );
     assert.match((registry.check({ name: "run", args: {} }) as { error: string }).error, /command is required/);
     assert.match(
@@ -67,6 +67,38 @@ describe("the starter tools are valid registry entries", () => {
       /path is required \(the arguments are: path, content\)/,
       "a missing argument says what the tool takes",
     );
+  });
+});
+
+describe("background commands", () => {
+  test("a job with timeout_seconds 0 has no lease, keeps its name, logs stdin and stdout, and runs in plain mode", async () => {
+    const { registry, dir } = await workspace();
+    const lines: string[] = [];
+    const checked = registry.check({
+      name: "run",
+      args: { command: "node -p process.env.NO_COLOR+process.env.TERM", background: true, timeout_seconds: 0, name: "greeter" },
+    });
+    if ("error" in checked) throw new Error(checked.error);
+    const r = await checked.tool.execute(checked.args, { signal: new AbortController().signal, callId: "c1", workspace: dir, host });
+    assert.ok(isStarted(r));
+    assert.equal(r.started.lease, undefined, "no time limit, so no lease");
+    assert.equal(r.started.name, "greeter");
+    const out = await r.started.done;
+    assert.notEqual(out.is_error, true);
+    const log = r.started.log?.chunks() ?? [];
+    for (const c of log) lines.push(`${c.channel}:${c.text}`);
+    assert.match(lines[0] ?? "", /^stdin:\$ node -p /);
+    assert.ok(
+      lines.some((l) => l === "stdout:1dumb\n"),
+      lines.join("|"),
+    );
+  });
+
+  test("0 seconds (no limit) is refused unless the job is in the background", async () => {
+    const { call } = await workspace();
+    const r = await call("run", { command: "echo hi", timeout_seconds: 0 });
+    assert.equal(r.is_error, true);
+    assert.match(r.content, /only for a job started with background/);
   });
 });
 

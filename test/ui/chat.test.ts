@@ -131,6 +131,48 @@ describe("the chat model", () => {
     );
   });
 
+  test("the jobs chip counts running jobs, spins only while one has a time limit, and a job's terminal follows its log", () => {
+    const { chat, sent } = make();
+    const job = (id: string, daemon: boolean, status: "running" | "completed" = "running") => ({
+      id,
+      label: `run: ${id}`,
+      daemon,
+      status,
+      startedAt: 1,
+    });
+    chat.apply({ type: "chat.jobs", jobs: [] });
+    assert.deepEqual(chat.jobsSummary.value, { running: 0, total: 0, timed: false });
+    chat.apply({ type: "chat.jobs", jobs: [job("j1", true), job("j2", true, "completed")] });
+    assert.deepEqual(chat.jobsSummary.value, { running: 1, total: 2, timed: false }, "only a server runs: no spinner");
+    chat.apply({ type: "chat.jobs", jobs: [job("j1", true), job("j2", false)] });
+    assert.deepEqual(chat.jobsSummary.value, { running: 2, total: 2, timed: true });
+    chat.toggleJobs();
+    chat.watchJob("j2");
+    assert.deepEqual(sent.at(-1), { type: "job.watch", job: "j2" });
+    chat.apply({ type: "job.log", job: "j2", reset: true, chunks: [{ channel: "stdin", text: "$ go\n" }] });
+    chat.apply({
+      type: "job.log",
+      job: "j2",
+      reset: false,
+      chunks: [
+        { channel: "stdout", text: "a" },
+        { channel: "stdout", text: "b" },
+      ],
+    });
+    chat.apply({ type: "job.log", job: "j2", reset: false, chunks: [{ channel: "stderr", text: "!" }] });
+    chat.apply({ type: "job.log", job: "other", reset: false, chunks: [{ channel: "stdout", text: "ignored" }] });
+    assert.deepEqual(chat.log.value.chunks, [
+      { channel: "stdin", text: "$ go\n" },
+      { channel: "stdout", text: "ab" },
+      { channel: "stderr", text: "!" },
+    ]);
+    chat.stopJob("j2");
+    assert.deepEqual(sent.at(-1), { type: "job.stop", job: "j2" });
+    chat.closeJobs();
+    assert.deepEqual(sent.at(-1), { type: "job.unwatch" });
+    assert.equal(chat.jobsOpen.value, false);
+  });
+
   test("approval and the model choice send what they should, and choosing the current model sends nothing", () => {
     const { chat, sent } = make();
     chat.apply({ type: "chat.approval", approval: { callId: "c1", name: "run", summary: "run x", args: "{}" } });
@@ -192,6 +234,20 @@ describe("the mock controller, with the models on top of it", () => {
   };
   const tools = (chat: InstanceType<typeof ChatModel>) =>
     chat.blocks.value.filter((b): b is Extract<Block, { type: "tool" }> => b.type === "tool");
+
+  test("stopping a job in the mock marks it stopped, updates the graph, and the terminal shows its log", async () => {
+    const { graph, chat, controller } = rig();
+    assert.deepEqual(chat.jobsSummary.value, { running: 2, total: 3, timed: true });
+    assert.deepEqual(graph.data.value?.threads.find((t) => t.name === THREADS.main)?.jobs, { count: 2, timed: true });
+    chat.watchJob("j1");
+    assert.ok(chat.log.value.chunks.some((c) => c.channel === "stderr"));
+    chat.stopJob("j2");
+    assert.equal(chat.jobs.value.find((j) => j.id === "j2")?.status, "stopped");
+    assert.deepEqual(graph.data.value?.threads.find((t) => t.name === THREADS.main)?.jobs, { count: 1, timed: false });
+    chat.stopJob("j1");
+    assert.equal(graph.data.value?.threads.find((t) => t.name === THREADS.main)?.jobs, undefined);
+    await controller.idle();
+  });
 
   test("every event it sends is valid", async () => {
     const { events, chat, controller } = rig();

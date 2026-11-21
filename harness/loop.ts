@@ -635,7 +635,7 @@ async function* steps(convo: Conversation, opts: LoopOptions, lease: RunLease): 
       } else {
         const id = await opts.jobs.start(call.call_id, res.started);
         out = {
-          content: `started job ${id}: ${res.started.summary}. It keeps running; you will be told when it ends (jobs lists jobs, job_stop stops one).`,
+          content: `started job ${id}: ${res.started.name === undefined ? "" : `${res.started.name} (`}${res.started.summary}${res.started.name === undefined ? "" : ")"}. It keeps running${res.started.lease === undefined ? " until it is stopped" : ""}; you will be told when it ends (jobs lists jobs, job_output reads what it has printed so far, job_stop stops one).`,
         };
       }
     } catch (e) {

@@ -114,6 +114,17 @@ function Status({ status }: { status: ThreadStatus }): JSX.Element | null {
   );
 }
 
+/** Background jobs running on the thread: a spinner while one has a time limit, a still icon when only servers and watchers run. */
+function Jobs({ jobs }: { jobs: NonNullable<GraphThread["jobs"]> }): JSX.Element {
+  const label = `${jobs.count} background job${jobs.count === 1 ? "" : "s"} running`;
+  return (
+    <span class={css.jobs} role="img" aria-label={label} title={label}>
+      {jobs.timed ? <span class={css.jobs_spin} aria-hidden="true" /> : <Icon name="jobs" size={11} />}
+      {jobs.count > 1 && <span class={css.jobs_count}>{jobs.count}</span>}
+    </span>
+  );
+}
+
 function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.Element {
   return (
     <span
@@ -129,6 +140,7 @@ function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.El
         thread.model,
         thread.merged === true ? "merged" : undefined,
         thread.checkedOut === true ? "checked out in your workspace" : undefined,
+        thread.jobs === undefined ? undefined : `${thread.jobs.count} background job${thread.jobs.count === 1 ? "" : "s"} running`,
       ]
         .filter(Boolean)
         .join(" · ")}
@@ -140,6 +152,7 @@ function Pill({ thread, color }: { thread: GraphThread; color: string }): JSX.El
       )}
       <span class={css.pill_name}>{thread.name}</span>
       <Status status={thread.status} />
+      {thread.jobs !== undefined && <Jobs jobs={thread.jobs} />}
     </span>
   );
 }

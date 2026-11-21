@@ -17,6 +17,8 @@ export interface GraphInput {
   checkedOut?: string | undefined;
   /** What each thread is doing; one not listed is `running` if its journal is live and `idle` otherwise. */
   statuses?: ReadonlyMap<string, ThreadStatus>;
+  /** Background jobs running on each thread. */
+  jobs?: ReadonlyMap<string, { count: number; timed: boolean }>;
   /** A name the person gave a thread; otherwise its first message is the label. */
   titles?: ReadonlyMap<string, string>;
   /** The model each thread runs, as a label. */
@@ -69,7 +71,11 @@ export function mapGraph(i: GraphInput): GraphData {
       ...(i.checkedOut === b.name ? { checkedOut: true } : {}),
       ...(bi?.archived === true ? { archived: true } : {}),
       ...(i.merged.has(b.name) ? { merged: true } : {}),
+      ...jobsOf(i.jobs?.get(b.name)),
     };
   });
   return { trunk: i.graph.trunk, threads, commits };
 }
+
+const jobsOf = (j: { count: number; timed: boolean } | undefined): { jobs?: { count: number; timed: boolean } } =>
+  j === undefined ? {} : { jobs: j };
