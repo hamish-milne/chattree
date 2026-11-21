@@ -561,7 +561,7 @@ describe("the controller, turns", () => {
         [["j1", "waiter", true, "running"]],
       );
       const graphJobs = events.filter((e) => e.type === "graph.jobs").at(-1);
-      assert.ok(graphJobs?.type === "graph.jobs" && graphJobs.jobs?.count === 1 && graphJobs.jobs.timed === false);
+      assert.ok(graphJobs?.type === "graph.jobs" && graphJobs.jobs?.count === 1 && !graphJobs.jobs.timed);
       view.watched.value = "j1"; // the view's own state when the person opens the terminal; the rig's view sends nothing
       c.handle({ type: "job.watch", job: "j1" });
       await c.idle();
