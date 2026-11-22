@@ -16,4 +16,4 @@ Putting files and chat in one history makes fork points whole snapshots. Forking
 
 ## Notes
 
-A production split (transcript and scratch in the repo, project code in a submodule with extra metadata and a saved diff) is planned, not built.
+The production split (transcript and scratch in the repo, project code in a submodule) is ADR 38.

@@ -41,3 +41,4 @@ Format: context, decision, why, notes. A record is not edited when a decision ch
 - [35](0035-ui-architecture.md) The UI is a controller over the harness, with views that only draw
 - [36](0036-app-layer.md) Application services are their own layer, between the hosts and the harness
 - [37](0037-external-changes.md) Files changed outside the chat are told to the model
+- [38](0038-attached-repositories.md) Production code lives in attached repositories, with its uncommitted state recorded
