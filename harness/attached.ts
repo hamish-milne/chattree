@@ -16,7 +16,7 @@
  * `refs/chattree/undone/<thread>/`.
  */
 import { parse, stringify } from "yaml";
-import type { Git, Identity } from "../src/index.ts";
+import { GitError, type Git, type Identity } from "../src/index.ts";
 import type { Host } from "../src/host.ts";
 
 /** The record, at the top of the thread's worktree. Generated: the harness rewrites it from the repositories' state. */
@@ -120,9 +120,20 @@ export async function snapshotRepo(
   await host.fs.mkdir(dir);
   const index = host.path.join(dir, `index-${thread.replace(/[^A-Za-z0-9._-]/g, "_")}`);
   const env = { GIT_INDEX_FILE: index };
-  if ((await host.fs.stat(index)) === undefined) await repo.run(["read-tree", head], { env });
-  await repo.run(["add", "--all", "--", "."], { env });
-  const tree = await repo.text(["write-tree"], { env });
+  const build = async (): Promise<string> => {
+    if ((await host.fs.stat(index)) === undefined) await repo.run(["read-tree", head], { env });
+    await repo.run(["add", "--all", "--", "."], { env });
+    return repo.text(["write-tree"], { env });
+  };
+  let tree: string;
+  try {
+    tree = await build();
+  } catch (e) {
+    // The private index remembers blobs by id and by stat: if the repository has since lost one (a prune), start it again.
+    if (!(e instanceof GitError)) throw e;
+    await host.fs.remove(index);
+    tree = await build();
+  }
   const ref = snapshotRef(thread);
   const headTree = await repo.treeOf(head);
   if (tree === headTree) {

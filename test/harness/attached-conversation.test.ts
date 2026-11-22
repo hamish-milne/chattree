@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile, rm, stat, writeFile } from "node:fs/promises";
+import { readFile, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Git } from "../../src/index.ts";
@@ -141,7 +141,6 @@ describe("threads and their code", () => {
     const { attached } = await convo.fork(undefined, { name: "f" });
     assert.deepEqual(attached, undefined);
     assert.equal(await exists(join(root, "conv", ATTACHED_FILE)), false);
-    await rm(root, { recursive: true, force: true });
   });
 });
 
