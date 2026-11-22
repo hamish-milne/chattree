@@ -28,7 +28,7 @@ import { ULID_RE } from "./ulid.ts";
  * what this build does not know, which is an error (update chattree), not something to skip. A major bump narrows or
  * changes it (a new required field), and a build reads only the majors it has entry types for (`entryTypesByMajor`).
  */
-export const FORMAT = { format: "chatlog", major: 2, minor: 10 } as const;
+export const FORMAT = { format: "chatlog", major: 2, minor: 11 } as const;
 
 // ---- building blocks -------------------------------------------------------------------------------------
 
@@ -334,6 +334,12 @@ export const branchStart = strictObject({
   brief: Type.Optional(text),
   /** For a subagent: the tool call in the parent that started it. */
   call_id: Type.Optional(Type.String()),
+  /**
+   * How code in attached repositories is meant to come back (format 2.11, ADR 38). `share`, or none: the changes stay uncommitted and merge
+   * as the files do. `thread`: the thread commits and rebases onto its parent's code before merging. `parent`: the thread commits and its
+   * parent integrates the branch. Mostly an instruction to the thread; `merge` goes by what it finds.
+   */
+  integrate: Type.Optional(Type.Enum(["share", "thread", "parent"])),
 });
 
 /**
@@ -344,6 +350,18 @@ const mergedFiles = strictObject({
   changed: Type.Array(Type.String()),
   added: Type.Array(Type.String()),
   discarded: Type.Array(Type.String()),
+});
+
+/**
+ * What happened to the code of one attached repository in a merge (format 2.11, ADR 38). `note` is what the parent is told: what
+ * landed, or where the commits are and the git commands to bring them in.
+ */
+const codeMerge = strictObject({
+  path: Type.String(),
+  outcome: Type.Enum(["merged_state", "fast_forward", "left"]),
+  /** For `left`: the branch that holds the thread's commits. */
+  branch: Type.Optional(Type.String()),
+  note: text,
 });
 
 /** How a merge went. With policy "trunk" every conflict was resolved to the parent's version. */
@@ -372,6 +390,8 @@ export const subagentResult = strictObject({
   files: mergedFiles,
   /** Format 1.1. */
   merge: Type.Optional(mergeReport),
+  /** What came of the code in attached repositories (format 2.11). Absent when none changed. */
+  code: Type.Optional(Type.Array(codeMerge)),
   /** What the subagent spent. */
   spend: Type.Optional(spendRollup),
 });
@@ -390,6 +410,8 @@ export const forkMerge = strictObject({
   summary: text,
   files: mergedFiles,
   merge: mergeReport,
+  /** What came of the code in attached repositories (format 2.11). Absent when none changed. */
+  code: Type.Optional(Type.Array(codeMerge)),
   /** What the fork spent since it diverged, or since it was last merged. */
   spend: Type.Optional(spendRollup),
 });

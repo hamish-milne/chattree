@@ -130,6 +130,10 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
     if (input.readText === undefined) throw new Error(`a blob-backed text (${t.sha256.slice(0, 12)}) needs readText`);
     return input.readText(t);
   };
+  const codeNotes = async (
+    code: readonly { path: string; note: string | { sha256: string; bytes: number } }[] | undefined,
+  ): Promise<{ path: string; note: string }[] | undefined> =>
+    code === undefined ? undefined : Promise.all(code.map(async (c) => ({ path: c.path, note: await text(c.note) })));
   const keepReasoning = (provider: string, model: string, b: EntryBlock): boolean =>
     (b.$tag !== "reasoning" && b.$tag !== "provider_compaction") ||
     (provider === input.target.provider && model === input.target.model && b.provider === input.target.provider);
@@ -297,30 +301,32 @@ export async function buildContext(entries: readonly ChatEntry[], input: BuildIn
         break;
       case "subagent_result": {
         const summary = await text(e.summary);
+        const code = await codeNotes(e.code);
         raw.push({
           role: "result",
           result: {
             call_id: e.call_id,
             is_error: false,
-            content: render.subagentResult(summary, e.files),
+            content: render.subagentResult(summary, e.files, code),
             truncated: false,
-            fallback: render.subagentResultUnattached(summary, e.files),
+            fallback: render.subagentResultUnattached(summary, e.files, code),
           },
         });
         break;
       }
       case "fork_merge": {
         const summary = await text(e.summary);
-        if (e.call_id === undefined) userText(render.forkMerge(summary, e.files));
+        const code = await codeNotes(e.code);
+        if (e.call_id === undefined) userText(render.forkMerge(summary, e.files, code));
         else
           raw.push({
             role: "result",
             result: {
               call_id: e.call_id,
               is_error: false,
-              content: render.subagentResult(summary, e.files),
+              content: render.subagentResult(summary, e.files, code),
               truncated: false,
-              fallback: render.forkMerge(summary, e.files),
+              fallback: render.forkMerge(summary, e.files, code),
             },
           });
         break;

@@ -1,6 +1,6 @@
 # ADR 38: Production code lives in attached repositories, with its uncommitted state recorded
 
-Status: accepted (recording, restoring and per-thread checkouts are built; merging, the prompt and editor support follow)
+Status: accepted (recording, restoring, per-thread checkouts and merging are built; the prompt and editor support follow)
 
 ## Context
 
@@ -18,6 +18,14 @@ The thread's repository stays the scratch space and the transcript. Production c
 - Switching the project folder to another thread trades the code with it: both folders' repositories are detached and put to the state each thread recorded. The person's own branch stays with the thread that was on it, unless it has moved on since, when the thread continues on a `chattree/` branch.
 - Every append commits `attached.yml` with the entry (a single `append` commits the worktree's changes together with the entry, `appendMany` snapshots first), so the record is never behind the transcript.
 - The model commits in an attached repository only when the person asks (a line in their instructions can make that standing).
+
+- **Merging** goes by what the thread did to its code, not by a mode it was given. Each state (a snapshot, or HEAD when clean) is a commit, so the states can be merged with `git merge-tree --merge-base` (hence ADR 39).
+  1. No commits since the thread began: the code is merged as files are (three ways, the parent's version kept in a conflict) and lands uncommitted in the parent. Always allowed for a thread started with `integrate: share` (the default); `attached.merge.state` can turn it off for others.
+  2. Commits and nothing uncommitted, in a parent with nothing uncommitted: a fast-forward, which is the thread rebasing onto the parent first. If the thread is behind, the merge stops and says `git rebase <parent branch>`. `attached.merge.rebase` can turn it off, and `integrate: parent` skips it.
+  3. Otherwise (the parent is mid-work, or 2 is off): the merge changes no code. The thread's commits are left on a branch (the thread's own, or `<attached.branch_prefix>/<thread>`), and the parent's note gives the git commands, stash and pop included.
+  4. Commits and uncommitted changes together are an error with commands for committing or folding the commits into the changes.
+  `integrate` (`share`, `thread`, `parent`) is recorded in `branch_start` and is mostly an instruction to the thread. A subagent's own `merge` tool checks 2 and 4 before handing back, so it can fix its side.
+- Every snapshot of the chain also keeps the repository's HEAD reachable, so commits a rebase or reset left behind survive the person's `git gc`.
 
 ## Why
 

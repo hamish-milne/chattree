@@ -186,6 +186,7 @@ describe("JSON Schema", () => {
 
   test("core keys, and one variant per adapter discriminated by a $tag const", () => {
     assert.deepEqual(Object.keys(schema.properties).sort(), [
+      "attached",
       "attachments",
       "background",
       "compaction",

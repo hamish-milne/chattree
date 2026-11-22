@@ -9,7 +9,7 @@ pnpm install
 pnpm chattree --help
 ```
 
-`pnpm chattree` runs `cli/chattree.ts`. You need Node 22.18 or later and Git 2.38 or later (chattree checks the Git version and says so if it is too old; Ubuntu 22.04 ships 2.34, so install a newer one there).
+`pnpm chattree` runs `cli/chattree.ts`. You need Node 22.18 or later and Git 2.40 or later (chattree checks the Git version and says so if it is too old; Ubuntu 22.04 ships 2.34, so install a newer one there).
 
 ## Create a conversation
 

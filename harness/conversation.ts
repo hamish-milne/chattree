@@ -27,6 +27,7 @@ import {
   type LockOptions,
   type MergeTreeResult,
   type Pipeline,
+  type TreeEdit,
 } from "../src/index.ts";
 import { canonicalInstructionPath, changedFiles, instructionText, isRepoPath } from "./instruction-files.ts";
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs, setupBlobs } from "./blob-store.ts";
@@ -34,7 +35,16 @@ import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { addGrants, revokeGrants, untilMs } from "./approvals.ts";
 import { swapIgnored } from "./workspace-swap.ts";
 import {
+  CODE_DEFAULTS,
   ATTACHED_FILE,
+  assessCode,
+  attachedAtRev,
+  codeFacts,
+  codeProblem,
+  formatAttached,
+  gitlinksAt,
+  type AttachedState,
+  type CodeSettings,
   AttachedError,
   attachCodeWorktrees,
   recordedAttached,
@@ -335,6 +345,8 @@ export interface ForkOptions {
   checkout?: boolean;
   /** Where to check it out. Default: `<dir>.branches/<encoded branch name>`. */
   worktree?: string;
+  /** How code in attached repositories is meant to come back (see `branch_start.integrate`). Default: shared. */
+  integrate?: "share" | "thread" | "parent";
 }
 
 export interface ForkResult {
@@ -360,6 +372,8 @@ export interface SpawnOptions {
   from?: string | EntryRef;
   checkout?: boolean;
   worktree?: string;
+  /** How code in attached repositories is meant to come back (see `branch_start.integrate`). Default: shared. */
+  integrate?: "share" | "thread" | "parent";
 }
 
 export interface FinishOptions {
@@ -395,8 +409,28 @@ export interface MergeOutcome {
   report: MergeReport;
   /** The tip of the child's branch that was merged. */
   childTip: string;
+  /** What came of the code in attached repositories (ADR 38); empty when none changed. */
+  code: CodeResult[];
+  /** What was done to the receiving thread's checkouts of them. */
+  attached: RestoreResult[];
+}
+
+/** One attached repository's code in a merge, as recorded in the merge entry. */
+export interface CodeResult {
+  path: string;
+  outcome: "merged_state" | "fast_forward" | "left";
+  branch?: string;
+  note: string;
 }
 export type SubagentOutcome = MergeOutcome;
+
+interface CodePlan {
+  /** Edits to the merged tree: the gitlinks as the decision has them, and the record. */
+  edits: TreeEdit[];
+  results: CodeResult[];
+  /** The states the receiving thread's checkouts are put to once the merge is in. */
+  apply: AttachedState[];
+}
 
 export interface MergeForkOptions {
   /** What was discussed and decided in the fork. */
@@ -2147,7 +2181,13 @@ export class Conversation {
     const ref = await this.#resolveEntry(at);
     const name = opts.name ?? `fork/${this.#nextId()}`;
     await this.#assertNewBranch(name);
-    const marker: NewEntry = { $tag: "branch_start", kind: "fork", from: { branch: this.branch, commit: ref.commit }, context: "inherit" };
+    const marker: NewEntry = {
+      $tag: "branch_start",
+      kind: "fork",
+      from: { branch: this.branch, commit: ref.commit },
+      context: "inherit",
+      ...(opts.integrate === undefined ? {} : { integrate: opts.integrate }),
+    };
     return this.#newBranch(name, ref.commit, marker, opts);
   }
 
@@ -2547,6 +2587,7 @@ export class Conversation {
       context: "fresh",
       brief: opts.brief,
       call_id: opts.callId,
+      ...(opts.integrate === undefined ? {} : { integrate: opts.integrate }),
     };
     return this.#newBranch(name, from, marker, opts);
   }
@@ -2570,6 +2611,7 @@ export class Conversation {
       summary: opts.summary,
       files: m.files,
       merge: m.merge,
+      ...(m.code === undefined ? {} : { code: m.code }),
       ...(m.spend === undefined ? {} : { spend: m.spend }),
     }));
   }
@@ -2590,6 +2632,7 @@ export class Conversation {
       summary: opts.summary,
       files: m.files,
       merge: m.merge,
+      ...(m.code === undefined ? {} : { code: m.code }),
       ...(m.spend === undefined ? {} : { spend: m.spend }),
     }));
   }
@@ -2617,6 +2660,7 @@ export class Conversation {
       tip: string;
       files: { changed: string[]; added: string[]; discarded: string[] };
       merge: { policy: "trunk"; base: string; conflicts: MergeConflict[] };
+      code?: CodeResult[];
       spend?: Spend;
     }) => NewEntry,
   ): Promise<MergeOutcome> {
@@ -2635,6 +2679,7 @@ export class Conversation {
       const base = await this.git.mergeBase(head, tip);
       if (base === undefined) throw new ConversationError(`branches ${this.branch} and ${childBranch} have no common history`);
 
+      const plan = await this.#planCode(childBranch, head, tip, base);
       const merged = await this.git.mergeTree(head, tip);
       const childChanges = await this.git.diff(base, tip, [".", `:(exclude)${CHAT_FILE}`, `:(exclude)${BLOBS_DIR}`]);
       const summary = summarizeMerge(childChanges, merged);
@@ -2646,6 +2691,7 @@ export class Conversation {
           tip,
           files: { changed: summary.changed, added: summary.added, discarded: summary.discarded },
           merge: { policy: "trunk", base, conflicts: summary.conflicts },
+          ...(plan === undefined || plan.results.length === 0 ? {} : { code: plan.results }),
           ...(spend === undefined ? {} : { spend }),
         }),
       );
@@ -2658,6 +2704,7 @@ export class Conversation {
 
       const tree = await this.git.rewriteTree(merged.tree, [
         ...merged.conflictedPaths.filter((p) => p !== CHAT_FILE).map((path) => ({ path, from: head })),
+        ...(plan?.edits ?? []),
         { path: CHAT_FILE, data },
         ...Conversation.#blobEdits(prepared.blobs),
       ]);
@@ -2667,6 +2714,7 @@ export class Conversation {
         Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts),
       );
       await this.git.fastForward(commit);
+      const attached = plan === undefined ? [] : await this.#applyCode(plan);
       // The merged file is approved when it is the file either side was approved with (the merge takes a file from one
       // side whole).
       const store = await this.#trusts();
@@ -2688,10 +2736,142 @@ export class Conversation {
         entry,
         report,
       });
-      return { entry, report, childTip: tip };
+      return { entry, report, childTip: tip, code: plan?.results ?? [], attached };
     });
     if (removeWorktree) await this.removeWorktree(childBranch);
     return outcome;
+  }
+
+  /** The `integrate` a thread was started with (the last `branch_start` of its transcript says). */
+  async #integrateOf(rev: string): Promise<"share" | "thread" | "parent" | undefined> {
+    const entries = (await this.readEntriesAt(rev)).flatMap((e) => (e.ok ? [e.value] : []));
+    const start = entries.findLast((e) => e.$tag === "branch_start");
+    return start?.$tag === "branch_start" ? start.integrate : undefined;
+  }
+
+  async #codeSettings(): Promise<CodeSettings> {
+    const cfg = await this.readConfig();
+    if (cfg?.ok !== true) return CODE_DEFAULTS;
+    const a = cfg.value.attached;
+    return { state: a.merge.state, rebase: a.merge.rebase, prefix: a.branch_prefix };
+  }
+
+  /**
+   * Decide what a merge does to the code in attached repositories (ADR 38) before anything is written: the commit's tree gets the
+   * record and the gitlinks the decision implies (a plain tree merge would take the child's commit as if it were a file), and the
+   * entry gets a note. A thread whose code cannot be merged stops the merge with a message that says how to put it right.
+   */
+  async #planCode(childBranch: string, head: string, tip: string, base: string): Promise<CodePlan | undefined> {
+    const [links, theirLinks] = [await gitlinksAt(this.git, head), await gitlinksAt(this.git, tip)];
+    if (links.length === 0 && theirLinks.length === 0) return undefined;
+    const [ours, theirs, before] = [
+      await attachedAtRev(this.git, head),
+      await attachedAtRev(this.git, tip),
+      await attachedAtRev(this.git, base),
+    ];
+    const settings = await this.#codeSettings();
+    const integrate = await this.#integrateOf(tip);
+    const theirTree = (await this.git.worktrees()).find((w) => w.branch === `refs/heads/${childBranch}`)?.path ?? this.dir;
+    const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
+    const edits: TreeEdit[] = [...new Set([...links, ...theirLinks])].map((path) => ({ path, from: head }));
+    const states = [...ours];
+    const results: CodeResult[] = [];
+    const apply: AttachedState[] = [];
+    for (const t of theirs) {
+      const o = ours.find((x) => x.path === t.path);
+      const b = before.find((x) => x.path === t.path);
+      if (o === undefined || b === undefined) continue;
+      let outcome;
+      try {
+        outcome = await assessCode(
+          this.host,
+          this.git.withCwd(this.host.path.join(this.dir, t.path)),
+          {
+            path: t.path,
+            before: b,
+            ours: o,
+            theirs: t,
+            integrate,
+            settings,
+            ourThread: this.branch,
+            theirThread: childBranch,
+            ourDir: this.host.path.join(this.dir, t.path),
+            theirDir: this.host.path.join(theirTree, t.path),
+          },
+          committer,
+          Conversation.#dateOpt(this.#opts).date,
+        );
+      } catch (e) {
+        if (e instanceof AttachedError) throw new ConversationError(e.message);
+        throw e;
+      }
+      const at = states.findIndex((x) => x.path === t.path);
+      if (outcome.kind === "state") {
+        states[at] = outcome.state;
+        apply.push(outcome.state);
+        results.push({ path: t.path, outcome: "merged_state", note: outcome.note });
+      } else if (outcome.kind === "fast_forward") {
+        const { snapshot: _s, ...rest } = o;
+        const moved = { ...rest, base: outcome.to };
+        states[at] = moved;
+        apply.push(moved);
+        edits.push({ path: t.path, from: tip });
+        results.push({ path: t.path, outcome: "fast_forward", note: outcome.note });
+      } else if (outcome.kind === "left") {
+        results.push({ path: t.path, outcome: "left", branch: outcome.branch, note: outcome.note });
+      }
+    }
+    const data = new TextEncoder().encode(formatAttached(states));
+    return { edits: [...edits, ...(states.length === 0 ? [] : [{ path: ATTACHED_FILE, data }])], results, apply };
+  }
+
+  /** Put the receiving thread's checkouts as the merge decided. */
+  async #applyCode(plan: CodePlan): Promise<RestoreResult[]> {
+    if (plan.apply.length === 0) return [];
+    return restoreAttached(this.host, this.git, this.branch, plan.apply, this.#opts.committer ?? DEFAULT_COMMITTER);
+  }
+
+  /**
+   * What stops this thread's code from being merged into the thread it came from, as a message with the commands that put it right
+   * (undefined when nothing does). A subagent's `merge` tool asks before handing back, so the subagent can fix its own side: commits
+   * together with uncommitted changes, or commits that have to be rebased onto a parent that has moved on and has nothing uncommitted.
+   */
+  async codeMergeProblem(): Promise<string | undefined> {
+    if ((await this.host.fs.stat(this.host.path.join(this.dir, ".gitmodules"))) === undefined) return undefined;
+    const entries = (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
+    const start = entries.findLast((e) => e.$tag === "branch_start");
+    if (start?.$tag !== "branch_start") return undefined;
+    await this.snapshot();
+    const parentBranch = start.from.branch;
+    const parentWt = (await this.git.worktrees()).find((w) => w.branch === `refs/heads/${parentBranch}`);
+    const [head, parentTip] = [await this.git.head(), await this.git.revParse(`refs/heads/${parentBranch}`)];
+    if (parentWt === undefined || head === undefined || parentTip === undefined) return undefined;
+    const base = (await this.git.mergeBase(head, parentTip)) ?? start.from.commit;
+    const [theirs, before, recorded] = [
+      (await recordedAttached(this.host, this.dir)).states,
+      await attachedAtRev(this.git, base),
+      await attachedAtRev(this.git, parentTip),
+    ];
+    const settings = await this.#codeSettings();
+    for (const t of theirs) {
+      const b = before.find((x) => x.path === t.path);
+      const rec = recorded.find((x) => x.path === t.path);
+      if (b === undefined || rec === undefined) continue;
+      const parentRepo = this.git.withCwd(this.host.path.join(parentWt.path, t.path));
+      const [live, branch] = [await parentRepo.revParse("HEAD"), await parentRepo.currentBranch()];
+      if (live === undefined) continue;
+      const ours: AttachedState = { path: t.path, base: live, ...(branch === undefined ? {} : { branch }) };
+      const mine = this.git.withCwd(this.host.path.join(this.dir, t.path));
+      const clean = (await parentRepo.status()).length === 0;
+      const facts = await codeFacts(mine, { before: b, ours, theirs: t });
+      const problem = codeProblem(
+        facts,
+        { path: t.path, before: b, ours, settings, integrate: start.integrate, theirDir: this.host.path.join(this.dir, t.path) },
+        clean,
+      );
+      if (problem !== undefined) return problem;
+    }
+    return undefined;
   }
 
   /**

@@ -22,4 +22,4 @@ export function compareVersions(a: GitVersion, b: GitVersion): number {
 export const formatVersion = (v: GitVersion): string => `${v.major}.${v.minor}.${v.patch}`;
 
 /** The oldest git accepted at start-up (`Git.open` refuses older ones). A handle can be given a different minimum. */
-export const MIN_GIT_VERSION: GitVersion = { major: 2, minor: 38, patch: 0 };
+export const MIN_GIT_VERSION: GitVersion = { major: 2, minor: 40, patch: 0 };

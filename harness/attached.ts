@@ -123,12 +123,16 @@ export async function snapshotRepo(
   if ((await host.fs.stat(index)) === undefined) await repo.run(["read-tree", head], { env });
   await repo.run(["add", "--all", "--", "."], { env });
   const tree = await repo.text(["write-tree"], { env });
-  if (tree === (await repo.treeOf(head))) return state;
+  const ref = snapshotRef(thread);
+  const headTree = await repo.treeOf(head);
+  if (tree === headTree) {
+    await keepCommit(repo, ref, head, headTree, thread, who, date);
+    return state;
+  }
 
   if (previous?.snapshot !== undefined && previous.base === head && (await repo.treeOf(previous.snapshot)) === tree)
     return { ...state, snapshot: previous.snapshot };
 
-  const ref = snapshotRef(thread);
   const tip = await repo.revParse(ref);
   const snapshot = await repo.commitTree(tree, tip === undefined ? [head] : [head, tip], {
     message: `chattree: uncommitted changes of ${thread}`,
@@ -138,6 +142,31 @@ export async function snapshotRepo(
   });
   await repo.run(["update-ref", ref, snapshot]);
   return { ...state, snapshot };
+}
+
+/**
+ * Keep HEAD reachable. A commit the person or the model made, rebased or reset away is recorded in `attached.yml` and may be needed to
+ * rewind, but nothing in the repository need point at it any more. When the chain's tip is not already on top of this HEAD, add an
+ * empty commit that is, once per HEAD that has been seen.
+ */
+async function keepCommit(
+  repo: Git,
+  ref: string,
+  head: string,
+  headTree: string,
+  thread: string,
+  who: Identity,
+  date?: string,
+): Promise<void> {
+  const tip = await repo.revParse(ref);
+  if (tip !== undefined && (await repo.revParse(`${tip}^1`)) === head) return;
+  const keep = await repo.commitTree(headTree, tip === undefined ? [head] : [head, tip], {
+    message: `chattree: ${thread} is at ${head.slice(0, 8)}`,
+    author: who,
+    committer: who,
+    ...(date === undefined ? {} : { date }),
+  });
+  await repo.run(["update-ref", ref, keep]);
 }
 
 export interface SyncResult {
@@ -251,26 +280,24 @@ export async function recordedAttached(host: Host, dir: string): Promise<{ state
 }
 
 /**
- * The branch a thread works on in an attached repository. A thread's own branch (`chattree/...`) stays. The person's branch stays
- * only if it is still where the thread left it and nobody else has claimed it: two threads cannot have a branch checked out at once,
- * and a thread must not move a branch the person has since moved on.
+ * The branch a thread keeps in an attached repository when the folders trade threads. A branch stays if it is still where the thread left
+ * it (or gone) and nobody else has claimed it: two threads cannot have a branch checked out at once, and a thread must not move a branch
+ * the person has since moved on. Otherwise the thread is left on a detached HEAD at its commit.
  */
-async function codeBranchFor(repo: Git, s: AttachedState, thread: string, claimed: Set<string>): Promise<string | undefined> {
+async function codeBranchFor(repo: Git, s: AttachedState, claimed: Set<string>): Promise<string | undefined> {
   if (s.branch === undefined) return undefined;
-  const own = `chattree/${thread}`;
-  if (s.branch.startsWith("chattree/")) return s.branch;
   const tip = await repo.revParse(`refs/heads/${s.branch}`);
   if ((tip === undefined || tip === s.base) && !claimed.has(s.branch)) {
     claimed.add(s.branch);
     return s.branch;
   }
-  return own;
+  return undefined;
 }
 
 /**
  * Give a thread's new worktree its own checkout of each attached repository: a linked worktree of the repository in the project
- * folder, on a branch of the thread's own, with the recorded commit and uncommitted state. (A parent worktree starts with the
- * submodules empty.)
+ * folder, on a detached HEAD at the recorded commit with the recorded uncommitted state. (A parent worktree starts with the submodules
+ * empty.) The thread starts the branch itself if it is to make commits.
  */
 export async function attachCodeWorktrees(
   host: Host,
@@ -283,7 +310,6 @@ export async function attachCodeWorktrees(
   const { states, problem } = await recordedAttached(host, worktree);
   const results: RestoreResult[] = problem === undefined ? [] : [problem];
   const mapped: AttachedState[] = [];
-  const branch = `chattree/${thread}`;
   for (const s of states) {
     const source = git.withCwd(host.path.join(projectDir, s.path));
     const dest = host.path.join(worktree, s.path);
@@ -300,16 +326,10 @@ export async function attachCodeWorktrees(
         results.push({ path: s.path, restored: "none", warnings: [`commit ${s.base.slice(0, 8)} is not in ${s.path}`] });
         continue;
       }
-      const exists = (await source.revParse(`refs/heads/${branch}`)) !== undefined;
-      await source.run([
-        "worktree",
-        "add",
-        "--quiet",
-        "--no-track",
-        ...(exists ? ["--", dest, branch] : ["-b", branch, "--", dest, s.base]),
-      ]);
+      await source.run(["worktree", "add", "--quiet", "--detach", "--", dest, s.base]);
     }
-    mapped.push({ ...s, branch });
+    const { branch: _branch, ...detached } = s;
+    mapped.push(detached);
   }
   results.push(...(await restoreAttached(host, git.withCwd(worktree), thread, mapped, who)));
   return results;
@@ -352,13 +372,213 @@ export async function tradeCode(
     for (const s of a.states) {
       const repo = git.withCwd(host.path.join(a.dir, s.path));
       const branch =
-        (await host.fs.stat(host.path.join(a.dir, s.path, ".git"))) === undefined
-          ? undefined
-          : await codeBranchFor(repo, s, a.thread, claimed);
+        (await host.fs.stat(host.path.join(a.dir, s.path, ".git"))) === undefined ? undefined : await codeBranchFor(repo, s, claimed);
       const { branch: _was, ...rest } = s;
       mapped.push(branch === undefined ? rest : { ...rest, branch });
     }
     results.push(...(await restoreAttached(host, git.withCwd(a.dir), a.thread, mapped, who)));
   }
   return results;
+}
+
+// ---- merging the code of two threads (ADR 38) ------------------------------------------------------------------------------
+
+export interface CodeSettings {
+  /** A thread with no commits may merge its code like files. (A thread told to `share` always may.) */
+  state: boolean;
+  /** A thread with commits may be fast-forwarded into a parent that has nothing uncommitted. */
+  rebase: boolean;
+  /** What a branch made for a thread's commits is called: `<prefix>/<thread>`. */
+  prefix: string;
+}
+export const CODE_DEFAULTS: CodeSettings = { state: true, rebase: true, prefix: "chattree" };
+
+export interface CodeMergeInput {
+  path: string;
+  /** The thread being merged, as the receiving one last knew it (at the commit they diverged or were last merged). */
+  before: AttachedState;
+  /** The receiving thread now. */
+  ours: AttachedState;
+  /** The thread being merged now. */
+  theirs: AttachedState;
+  integrate: "share" | "thread" | "parent" | undefined;
+  settings: CodeSettings;
+  /** The receiving thread's branch (names the snapshot chain a merged state is added to). */
+  ourThread: string;
+  /** The merged thread's branch. */
+  theirThread: string;
+  /** The code in each thread's worktree, as paths a command can use. */
+  ourDir: string;
+  theirDir: string;
+}
+
+/** How the code of one attached repository came across. */
+export type CodeOutcome =
+  | { kind: "unchanged" }
+  /** Merged as files are: the receiving thread's code is now `state`, uncommitted. */
+  | { kind: "state"; state: AttachedState; conflicts: string[]; note: string }
+  /** The receiving thread's branch (or detached HEAD) moved to the thread's commit. */
+  | { kind: "fast_forward"; to: string; commits: number; note: string }
+  /** Nothing changed in the receiving thread's code: its commits are on `branch` for it to integrate. */
+  | { kind: "left"; branch: string; commits: number; note: string };
+
+const quote = (p: string): string => (/^[A-Za-z0-9_./:@%+=,-]+$/.test(p) ? p : `"${p.replace(/(["\\$`])/g, "\\$1")}"`);
+const short = (oid: string): string => oid.slice(0, 8);
+const commitOf = (s: AttachedState): string => s.snapshot ?? s.base;
+
+/** What a thread did to its code since `before`. */
+export interface CodeFacts {
+  hasCommits: boolean;
+  hasUncommitted: boolean;
+  /** The files are as they were (whatever the commits). */
+  unchanged: boolean;
+  /** The thread's HEAD is the receiving thread's HEAD or after it. */
+  descends: boolean;
+}
+
+export async function codeFacts(repo: Git, i: Pick<CodeMergeInput, "before" | "ours" | "theirs">): Promise<CodeFacts> {
+  const hasCommits = i.theirs.base !== i.before.base;
+  const hasUncommitted = i.theirs.snapshot !== undefined;
+  const unchanged = (await repo.treeOf(commitOf(i.theirs))) === (await repo.treeOf(commitOf(i.before)));
+  const descends = i.theirs.base === i.ours.base || (await repo.isAncestor(i.ours.base, i.theirs.base));
+  return { hasCommits, hasUncommitted, unchanged, descends };
+}
+
+/**
+ * What stops the thread's code being merged, as a message with the commands that put it right; undefined when nothing does. The
+ * thread's own side only (commits and uncommitted changes together; behind a parent that has nothing uncommitted), which is what the
+ * thread itself can fix, so the thread's `merge` tool can check it before handing back.
+ */
+export function codeProblem(
+  f: CodeFacts,
+  i: Pick<CodeMergeInput, "path" | "before" | "ours" | "settings" | "integrate" | "theirDir">,
+  oursClean: boolean,
+): string | undefined {
+  const dir = quote(i.theirDir);
+  if (f.hasCommits && f.hasUncommitted)
+    return (
+      `The code in ${i.path} has commits and uncommitted changes, which cannot be merged together. Either commit the changes ` +
+      `(git -C ${dir} add -A && git -C ${dir} commit -m "<what changed>") or fold the commits into uncommitted changes ` +
+      `(git -C ${dir} reset ${short(i.before.base)}), then merge again.`
+    );
+  if (f.hasCommits && oursClean && i.settings.rebase && i.integrate !== "parent" && !f.descends) {
+    const onto = i.ours.branch ?? short(i.ours.base);
+    return (
+      `The code in ${i.path} has commits, and the code it came from has moved on (it is at ${short(i.ours.base)}${i.ours.branch === undefined ? "" : ` on ${i.ours.branch}`}). ` +
+      `Rebase yours onto it (git -C ${dir} rebase ${onto}), resolve any conflicts, and merge again.`
+    );
+  }
+  return undefined;
+}
+
+const countCommits = async (repo: Git, from: string, to: string): Promise<number> =>
+  Number((await repo.text(["rev-list", "--count", `${from}..${to}`], { readOnly: true })) || "0");
+
+/**
+ * Decide how one attached repository's code comes across in a merge, and prepare it (a commit for a merged state, a branch for the
+ * commits left): nothing in the receiving thread's checkout is touched; `restoreAttached` does that afterwards. Throws `AttachedError`
+ * with the commands to run when the thread's code is in a state that cannot be merged.
+ *
+ * Without commits, the code is merged as the files are: three ways, the state at `before` against the two states now, where both
+ * changed the same file the receiving thread's version is kept. With commits and a receiving thread that has nothing uncommitted, it is
+ * a fast-forward (the thread rebases first; `codeProblem` says so if it has not). Otherwise the commits are left on a branch, and the
+ * receiving thread integrates them with ordinary git.
+ */
+export async function assessCode(host: Host, repo: Git, i: CodeMergeInput, who: Identity, date?: string): Promise<CodeOutcome> {
+  const facts = await codeFacts(repo, i);
+  const oursClean = i.ours.snapshot === undefined;
+  const problem = codeProblem(facts, i, oursClean);
+  if (problem !== undefined) throw new AttachedError(problem);
+
+  if (!facts.hasCommits) {
+    if (facts.unchanged) return { kind: "unchanged" };
+    if (!(i.settings.state || i.integrate === undefined || i.integrate === "share"))
+      throw new AttachedError(
+        `Merging uncommitted code is turned off here (attached.merge.state): commit the changes in ${i.path} ` +
+          `(git -C ${quote(i.theirDir)} add -A && git -C ${quote(i.theirDir)} commit -m "<what changed>") and merge again.`,
+      );
+    const merged = await repo.mergeTree(commitOf(i.ours), commitOf(i.theirs), { base: commitOf(i.before) });
+    const tree =
+      merged.conflictedPaths.length === 0
+        ? merged.tree
+        : await repo.rewriteTree(
+            merged.tree,
+            merged.conflictedPaths.map((path) => ({ path, from: commitOf(i.ours) })),
+          );
+    const { snapshot: _old, ...rest } = i.ours;
+    if (tree === (await repo.treeOf(i.ours.base)))
+      return { kind: "state", state: rest, conflicts: merged.conflictedPaths, note: stateNote(i, merged.conflictedPaths) };
+    const ref = snapshotRef(i.ourThread);
+    const tip = await repo.revParse(ref);
+    const snapshot = await repo.commitTree(tree, tip === undefined ? [i.ours.base] : [i.ours.base, tip], {
+      message: `chattree: the code of ${i.theirThread} merged into ${i.ourThread}`,
+      author: who,
+      committer: who,
+      ...(date === undefined ? {} : { date }),
+    });
+    await repo.run(["update-ref", ref, snapshot]);
+    return { kind: "state", state: { ...rest, snapshot }, conflicts: merged.conflictedPaths, note: stateNote(i, merged.conflictedPaths) };
+  }
+
+  const commits = await countCommits(repo, i.before.base, i.theirs.base);
+  if (oursClean && i.settings.rebase && i.integrate !== "parent" && facts.descends) {
+    const where = i.ours.branch === undefined ? "your checkout" : i.ours.branch;
+    return {
+      kind: "fast_forward",
+      to: i.theirs.base,
+      commits,
+      note: `the ${commits} commit${commits === 1 ? "" : "s"} of the thread in ${i.path} were added to ${where}, which is now at ${short(i.theirs.base)}.`,
+    };
+  }
+
+  // Left for the receiving thread: the commits need a branch to be found by.
+  let branch = i.theirs.branch;
+  if (branch === undefined) {
+    const name = `${i.settings.prefix}/${i.theirThread}`;
+    const tip = await repo.revParse(`refs/heads/${name}`);
+    branch = tip === undefined || tip === i.theirs.base ? name : `${name}-${short(i.theirs.base)}`;
+    await repo.run(["update-ref", `refs/heads/${branch}`, i.theirs.base]);
+  }
+  const ours = quote(i.ourDir);
+  const why = !oursClean
+    ? "you have uncommitted changes there"
+    : !i.settings.rebase
+      ? "merging commits automatically is turned off here (attached.merge.rebase)"
+      : "it was asked to be left for you";
+  const stash = oursClean
+    ? ""
+    : `Stash your uncommitted changes first (git -C ${ours} stash) and restore them after (git -C ${ours} stash pop). `;
+  const onto = i.ours.branch ?? short(i.ours.base);
+  return {
+    kind: "left",
+    branch,
+    commits,
+    note:
+      `the ${commits} commit${commits === 1 ? "" : "s"} of the thread in ${i.path} are on the branch ${branch} and are not in your code yet (${why}). ${stash}` +
+      `For a linear history rebase it (git -C ${quote(i.theirDir)} rebase ${onto}) and fast-forward (git -C ${ours} merge --ff-only ${branch}); ` +
+      `or merge it as it is (git -C ${ours} merge ${branch}).`,
+  };
+}
+
+function stateNote(i: CodeMergeInput, conflicts: readonly string[]): string {
+  return (
+    `the code changes of the thread in ${i.path} were merged into yours as uncommitted changes, as files are.` +
+    (conflicts.length === 0 ? "" : ` Where both of you changed the same file yours was kept: ${conflicts.join(", ")}.`)
+  );
+}
+
+/** The gitlinks (attached repositories) in a commit's tree, by path. */
+export async function gitlinksAt(git: Git, rev: string): Promise<string[]> {
+  const out = await git.run(["ls-tree", "-r", "-z", rev], { readOnly: true });
+  return dec
+    .decode(out.stdout)
+    .split("\u0000")
+    .filter((r) => r.startsWith("160000 "))
+    .map((r) => r.slice(r.indexOf("\t") + 1));
+}
+
+/** The record as a commit holds it. */
+export async function attachedAtRev(git: Git, rev: string): Promise<AttachedState[]> {
+  const bytes = await git.readFileAt(rev, ATTACHED_FILE);
+  return bytes === undefined ? [] : parseAttached(dec.decode(bytes));
 }

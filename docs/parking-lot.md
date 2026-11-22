@@ -179,7 +179,7 @@ merge:
 
 The policy used is the one recorded in the *receiving* branch's configuration at merge time, and the merge entry records which rule applied to each path, so a later reader never has to guess.
 
-**How hunk-level could be done.** `git merge-tree --write-tree` (which we already use, git ≥ 2.38) reports conflicted paths but does not itself offer per-hunk resolution at our minimum version. Two routes:
+**How hunk-level could be done.** `git merge-tree --write-tree` (which we already use, git ≥ 2.38; `--merge-base` needs 2.40) reports conflicted paths but does not itself offer per-hunk resolution at our minimum version. Two routes:
 
 1. For each conflicted path, run `git merge-file -p --ours|--theirs|--union <current> <base> <other>` on the three versions (read through `catFile`) and write the result into the merge tree with `rewriteTree`. `merge-file` has existed for a very long time, resolves conflicting *hunks* (not whole files) by the chosen side, and needs no new git version. Binary files must be detected first and kept at file level.
 2. Use `merge-tree -X ours|theirs` if and when the minimum version is raised to one that has it (to be checked before relying on it).

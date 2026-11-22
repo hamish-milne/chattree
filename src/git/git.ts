@@ -700,12 +700,17 @@ export class Git {
 
   /**
    * Merge two commits in memory (no worktree, index or ref is touched) and report the result: the merged
-   * tree, which paths conflict, and git's messages. A conflicted merge is a normal result, not an error.
+   * tree, which paths conflict, and git's messages. A conflicted merge is a normal result, not an error. `base` (a commit) is
+   * used instead of the commits' common ancestor.
    */
-  async mergeTree(ours: string, theirs: string): Promise<MergeTreeResult> {
+  async mergeTree(ours: string, theirs: string, opts: { base?: string } = {}): Promise<MergeTreeResult> {
     assertSafeArg("revision", ours);
     assertSafeArg("revision", theirs);
-    const r = await this.run(["merge-tree", "--write-tree", "-z", "--name-only", ours, theirs], { ok: [1], readOnly: true });
+    if (opts.base !== undefined) assertSafeArg("revision", opts.base);
+    const r = await this.run(
+      ["merge-tree", "--write-tree", "-z", "--name-only", ...(opts.base === undefined ? [] : [`--merge-base=${opts.base}`]), ours, theirs],
+      { ok: [1], readOnly: true },
+    );
     const f = dec.decode(r.stdout).split("\u0000");
     const tree = f[0] ?? "";
     let i = 1;

@@ -34,3 +34,11 @@ What you have typed but not sent lives in your *session*, not in the history: th
 ## Context management
 
 A long conversation can outgrow the model's context window. `/compact trim` leaves old tool output and reasoning out of what the model sees; `/compact <from> <to>` replaces a range with a summary. Both can happen automatically (set in `harness.yml`). The full history stays in Git either way.
+
+## Code in an attached repository
+
+Production code can live in a git submodule of the thread's repository. The thread's repository is then the scratch space and the transcript, and the submodule holds the code that is to ship. The model is free to use git inside it.
+
+- Whatever is uncommitted in the code is recorded with every snapshot (in `attached.yml`), so rewinding or forking a thread brings the code back as it was.
+- A thread other than the one in the project folder gets its own checkout of the code, detached at the commit it started from.
+- Merging a fork or a subagent merges its code by what it finds. A thread that made no commits has its changes merged as files are, arriving uncommitted. One with commits that has been rebased onto a parent with nothing uncommitted is fast-forwarded in. Otherwise its commits are left on a branch, with the git commands to bring them in. A thread with both commits and uncommitted changes is told to commit or fold them first. A subagent is told this when it hands back, while it can still fix it.

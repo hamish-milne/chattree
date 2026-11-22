@@ -28,13 +28,13 @@ export interface Renderer {
   /** The summary a compaction stands for, shown where the compacted range began. */
   compaction(summary: string): string;
   /** A fork merged back into this branch. */
-  forkMerge(summary: string, files: MergedFiles): string;
+  forkMerge(summary: string, files: MergedFiles, code?: readonly CodeNote[]): string;
   /** A background job that ended, shown as a message. `output` is everything it printed, if anything. */
   jobEvent(job: string, status: string, summary: string, output: string | undefined): string;
   /** A subagent's result, as the result of the call that started it. */
-  subagentResult(summary: string, files: MergedFiles): string;
+  subagentResult(summary: string, files: MergedFiles, code?: readonly CodeNote[]): string;
   /** A subagent's result when no call here started it (the call was compacted away): shown as a message. */
-  subagentResultUnattached(summary: string, files: MergedFiles): string;
+  subagentResultUnattached(summary: string, files: MergedFiles, code?: readonly CodeNote[]): string;
   /** A tool call whose arguments were still arriving when the response was interrupted. It did not run. */
   cutOffCall(toolName: string): string;
   /** The result given to a call that never got one. */
@@ -66,6 +66,15 @@ export type Renderers = Readonly<Record<string, Renderer>>;
 
 export const DEFAULT_RENDERER = "chattree-english-v1";
 
+/** What came of the code in an attached repository (ADR 38): the note the harness wrote with the merge. */
+export interface CodeNote {
+  path: string;
+  note: string;
+}
+
+const codeNote = (code: readonly CodeNote[] | undefined): string =>
+  code === undefined ? "" : code.map((c) => `\n[Code in ${c.path}: ${c.note}]`).join("");
+
 function filesNote(f: MergedFiles): string {
   const parts: string[] = [];
   if (f.added.length > 0) parts.push(`added: ${f.added.join(", ")}`);
@@ -77,8 +86,8 @@ function filesNote(f: MergedFiles): string {
 /** The first renderer. Frozen: see the rules above. */
 export const chattreeEnglishV1: Renderer = Object.freeze({
   compaction: (summary: string) => `[Summary of the earlier conversation]\n${summary}`,
-  forkMerge: (summary: string, files: MergedFiles) =>
-    `[A side conversation that branched from this one was merged back]\n${summary}${filesNote(files)}`,
+  forkMerge: (summary: string, files: MergedFiles, code?: readonly CodeNote[]) =>
+    `[A side conversation that branched from this one was merged back]\n${summary}${filesNote(files)}${codeNote(code)}`,
   jobEvent: (job: string, status: string, summary: string, output: string | undefined) => {
     const shown =
       output === undefined || output === ""
@@ -88,8 +97,9 @@ export const chattreeEnglishV1: Renderer = Object.freeze({
           : `${output.slice(0, 3000)}\n[... ${output.length - 4000} characters left out; job_output ${job} reads them ...]\n${output.slice(-1000)}`;
     return `[Background job ${job} ${status}] ${summary}\n${shown}`;
   },
-  subagentResult: (summary: string, files: MergedFiles) => `${summary}${filesNote(files)}`,
-  subagentResultUnattached: (summary: string, files: MergedFiles) => `[A subagent finished]\n${summary}${filesNote(files)}`,
+  subagentResult: (summary: string, files: MergedFiles, code?: readonly CodeNote[]) => `${summary}${filesNote(files)}${codeNote(code)}`,
+  subagentResultUnattached: (summary: string, files: MergedFiles, code?: readonly CodeNote[]) =>
+    `[A subagent finished]\n${summary}${filesNote(files)}${codeNote(code)}`,
   cutOffCall: (toolName: string) => `[A call to ${toolName} was cut off before it finished and did not run]`,
   toolDidNotRun: () => "The tool did not run: the conversation was interrupted before it produced a result.",
   subagentBrief: (brief: string) => brief,

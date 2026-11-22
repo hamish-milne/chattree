@@ -1711,6 +1711,33 @@ export const harnessSchema: Record<string, unknown> = {
       additionalProperties: false,
       default: {},
     },
+    attached: {
+      type: "object",
+      properties: {
+        branch_prefix: {
+          type: "string",
+          pattern: "^[A-Za-z0-9][A-Za-z0-9_/-]*$",
+          default: "chattree",
+        },
+        merge: {
+          type: "object",
+          properties: {
+            state: {
+              type: "boolean",
+              default: true,
+            },
+            rebase: {
+              type: "boolean",
+              default: true,
+            },
+          },
+          additionalProperties: false,
+          default: {},
+        },
+      },
+      additionalProperties: false,
+      default: {},
+    },
     attachments: {
       type: "object",
       properties: {

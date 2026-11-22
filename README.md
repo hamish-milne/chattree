@@ -8,7 +8,7 @@ pnpm chattree init        # start a conversation in this directory
 pnpm chattree chat        # talk
 ```
 
-Needs Node 22.18 or later (it runs the TypeScript directly, with no build step) and Git 2.38 or later.
+Needs Node 22.18 or later (it runs the TypeScript directly, with no build step) and Git 2.40 or later.
 
 ## Documentation
 

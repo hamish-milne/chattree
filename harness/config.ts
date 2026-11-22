@@ -233,6 +233,15 @@ export const harnessConfig = strictObject({
    * folder, such as a Python virtual environment); `leave` keeps them where they are.
    */
   workspace: section({ switch: section({ ignored: withDefault(Type.Enum(["move", "leave"]), "move") }) }),
+  /**
+   * Repositories attached to the thread (git submodules, ADR 38). `branch_prefix` is what a thread's branch there is suggested to be
+   * called. In `merge`, `state` lets a thread that made no commits merge its code like files (a thread told to `share` always may);
+   * `rebase` lets one with commits be fast-forwarded into a parent that has none uncommitted. Off, both leave the branch for the parent.
+   */
+  attached: section({
+    branch_prefix: withDefault(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_/-]*$" }), "chattree"),
+    merge: section({ state: withDefault(Type.Boolean(), true), rebase: withDefault(Type.Boolean(), true) }),
+  }),
   /** Files added to messages (`Conversation.attach`). The default cap is 20 MiB. */
   attachments: section({ max_bytes: withDefault(Type.Integer({ minimum: 1 }), 20 * 1024 * 1024) }),
   /**

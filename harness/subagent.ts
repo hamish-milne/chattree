@@ -56,7 +56,7 @@ export const HAND_BACK =
   "When your task is done, call the merge tool with a summary of what you did and found. That is how your work is handed back; do not end with a plain reply.";
 
 /** What a child's `merge` tool takes and what it does: nothing but end the child's loop; the report is read from the call. */
-function reportTool(): Tool {
+function reportTool(check?: () => Promise<string | undefined>): Tool {
   return {
     definition: {
       name: "merge",
@@ -70,17 +70,24 @@ function reportTool(): Tool {
       },
     },
     allowKeys: () => null,
-    execute: (args) => {
+    execute: async (args) => {
       const summary = stringArg(args, "summary").trim();
-      if (summary === "") return Promise.resolve({ content: "summary must not be empty: say what you did and found", is_error: true });
-      return Promise.resolve({ content: "Handed back. Your work is finished.", finish: true });
+      if (summary === "") return { content: "summary must not be empty: say what you did and found", is_error: true };
+      // Code in an attached repository that cannot be merged as it is: say how to fix it now, while the one who can is still here.
+      const problem = await check?.();
+      if (problem !== undefined) return { content: `Not handed back yet. ${problem}`, is_error: true };
+      return { content: "Handed back. Your work is finished.", finish: true };
     },
   };
 }
 
 /** The registry a child works with: the leaf tools it was given, the MCP tools it connected (`extra`), and the `merge` tool that hands its work back. */
-export function subagentChildRegistry(base: ToolRegistry, extra: readonly Tool[] = []): ToolRegistry {
-  return new ToolRegistry([...base.names().flatMap((n) => base.get(n) ?? []), ...extra, reportTool()]);
+export function subagentChildRegistry(
+  base: ToolRegistry,
+  extra: readonly Tool[] = [],
+  check?: () => Promise<string | undefined>,
+): ToolRegistry {
+  return new ToolRegistry([...base.names().flatMap((n) => base.get(n) ?? []), ...extra, reportTool(check)]);
 }
 
 /**
@@ -213,7 +220,13 @@ export function subagentTool(deps: SubagentDeps): Tool {
   };
 
   /** Make the child's branch (or find the one an earlier execution of this call made) and pin its tools; false when the workspace could not be made. */
-  const prepare = async (brief: string, name: string, callId: string, model: ModelSetup | undefined): Promise<boolean> => {
+  const prepare = async (
+    brief: string,
+    name: string,
+    callId: string,
+    model: ModelSetup | undefined,
+    integrate: "share" | "thread" | "parent" | undefined,
+  ): Promise<boolean> => {
     const branches = await deps.convo.listBranches();
     let child: Conversation;
     if (branches.some((b) => b.name === name)) {
@@ -221,7 +234,12 @@ export function subagentTool(deps: SubagentDeps): Tool {
       // A crash between making the branch and giving it its setup leaves it without a model.
       if ((await child.setup()).model === undefined) await setupChild(child, model);
     } else {
-      const spawned = await deps.convo.spawnSubagent({ brief: `${brief}\n\n${HAND_BACK}`, callId, name });
+      const spawned = await deps.convo.spawnSubagent({
+        brief: `${brief}\n\n${HAND_BACK}`,
+        callId,
+        name,
+        ...(integrate === undefined ? {} : { integrate }),
+      });
       if (spawned.conversation === undefined) return false;
       child = spawned.conversation;
       await setupChild(child, model);
@@ -267,6 +285,12 @@ export function subagentTool(deps: SubagentDeps): Tool {
           background: {
             type: "boolean",
             description: "Return at once and carry on while the subagent works; you are told when it is done. Default false.",
+          },
+          code: {
+            type: "string",
+            enum: ["share", "thread", "parent"],
+            description:
+              "Only when code repositories are attached. How the subagent's changes there come back: share (default): it leaves them uncommitted and they merge as files do; thread: it commits, and rebases onto your code before merging; parent: it commits and you integrate its branch yourself.",
           },
         },
       },
@@ -315,7 +339,10 @@ export function subagentTool(deps: SubagentDeps): Tool {
           };
       }
       const name = subagentBranch(label, ctx.callId);
-      if (!(await prepare(brief, name, ctx.callId, choice.model)))
+      const code = optStringArg(args, "code");
+      if (code !== undefined && code !== "share" && code !== "thread" && code !== "parent")
+        return { content: "code must be share, thread or parent", is_error: true };
+      if (!(await prepare(brief, name, ctx.callId, choice.model, code)))
         return { content: "the subagent's workspace could not be made", is_error: true };
       if (args["background"] === true) return { content: `started subagent ${name}. You will be told when it is done.` };
       const st = await lookChild(deps.convo, name);

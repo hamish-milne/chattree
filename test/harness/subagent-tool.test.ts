@@ -576,7 +576,7 @@ describe("choosing the subagent's model", () => {
     const { tools } = await withSubagent();
     const def = tools.get("subagent")?.definition;
     assert.ok(def !== undefined);
-    assert.deepEqual(Object.keys((def.input_schema as { properties: object }).properties), ["brief", "name", "background"]);
+    assert.deepEqual(Object.keys((def.input_schema as { properties: object }).properties), ["brief", "name", "background", "code"]);
     assert.doesNotMatch(def.description, /Models:/);
   });
 

@@ -119,7 +119,12 @@ export class Background {
       jobs: set.jobs,
       media: mediaFor(this.#host.env, () => convo.git.commonDir()),
     };
-    if (sub) return { ...base, registry: subagentChildRegistry(set.childRegistry), grants: subagentGrants(convo.grantStore(), set.merge) };
+    if (sub)
+      return {
+        ...base,
+        registry: subagentChildRegistry(set.childRegistry, [], () => convo.codeMergeProblem()),
+        grants: subagentGrants(convo.grantStore(), set.merge),
+      };
     // A thread that is not a subagent runs by itself only if its pinned tools are exactly the ones a child gets: a fork that was started to.
     const d = await toolDrift(convo, set.childRegistry);
     if (d.missing.length + d.changed.length + d.extra.length > 0) return undefined;

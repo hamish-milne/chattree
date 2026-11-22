@@ -10,7 +10,7 @@ Format: context, decision, why, notes. A record is not edited when a decision ch
 - [4](0004-commit-trailers-and-byte-prefix-history.md) Commit trailers record the entry and the file offset
 - [5](0005-crash-safety-by-ordering-and-recovery.md) Crash safety: append, fsync, commit, then recover on open
 - [6](0006-subagent-merge-takes-the-trunk.md) A subagent merge takes the trunk on conflict and reports it
-- [7](0007-minimum-git-2-38.md) Minimum Git version is 2.38
+- [7](0007-minimum-git-2-38.md) Minimum Git version is 2.38 (superseded by 39)
 - [8](0008-single-repository-workspace.md) One repository holds transcript, config, blobs and workspace files
 - [9](0009-format-version-is-reader-state.md) The format version is the state of a read; no forward compatibility
 - [10](0010-canonical-yaml-subset-transcript.md) The transcript is a strict, canonical YAML subset that only chattree writes
@@ -42,3 +42,4 @@ Format: context, decision, why, notes. A record is not edited when a decision ch
 - [36](0036-app-layer.md) Application services are their own layer, between the hosts and the harness
 - [37](0037-external-changes.md) Files changed outside the chat are told to the model
 - [38](0038-attached-repositories.md) Production code lives in attached repositories, with its uncommitted state recorded
+- [39](0039-minimum-git-2-40.md) Minimum Git version is 2.40

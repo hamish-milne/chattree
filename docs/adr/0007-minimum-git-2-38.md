@@ -1,4 +1,4 @@
-# ADR 7: Minimum Git version is 2.38
+# ADR 7: Minimum Git version is 2.38 (superseded by ADR 39)
 
 Status: accepted
 

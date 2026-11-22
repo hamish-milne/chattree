@@ -27,4 +27,4 @@ chattree is an agent harness that keeps every conversation in Git. You talk to a
 
 ## Requirements
 
-Node 22.18 or later and Git 2.38 or later. chattree runs its TypeScript directly; there is no build step.
+Node 22.18 or later and Git 2.40 or later. chattree runs its TypeScript directly; there is no build step.
