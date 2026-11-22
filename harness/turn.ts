@@ -4,6 +4,7 @@ import { prepareContext, type PrepareOptions, type Prepared } from "./request.ts
 import { Journal, RequestSuperseded, type JournalOptions } from "./journal.ts";
 import { StreamAccumulator } from "./partial.ts";
 import { assistantFromCompleted, toEntryBlocks } from "./blocks.ts";
+import { attachedRule } from "./attached-note.ts";
 import { environmentRule, type HostEnvironment } from "./environment.ts";
 import { autoCompact, compactionSettings } from "./compaction.ts";
 import { EXTERNAL_DEFAULTS, syncExternalFiles, type ExternalSettings } from "./external-changes.ts";
@@ -78,7 +79,22 @@ async function injectionRulesFor(convo: Conversation, opts: TurnOptions): Promis
             ...(config?.ok === true ? { show: config.value.injections.environment_details } : {}),
           }),
         ];
-  return [...where, ...fromConfig, ...(compaction.auto === "off" ? [] : [compactionRule(compaction)]), ...(opts.injections ?? [])];
+  const attached =
+    config?.ok === true && !config.value.attached.note
+      ? []
+      : [
+          attachedRule(convo, {
+            guidance: config?.ok === true ? config.value.attached.guidance : true,
+            prefix: config?.ok === true ? config.value.attached.branch_prefix : "chattree",
+          }),
+        ];
+  return [
+    ...where,
+    ...attached,
+    ...fromConfig,
+    ...(compaction.auto === "off" ? [] : [compactionRule(compaction)]),
+    ...(opts.injections ?? []),
+  ];
 }
 
 /**

@@ -1714,6 +1714,14 @@ export const harnessSchema: Record<string, unknown> = {
     attached: {
       type: "object",
       properties: {
+        note: {
+          type: "boolean",
+          default: true,
+        },
+        guidance: {
+          type: "boolean",
+          default: true,
+        },
         branch_prefix: {
           type: "string",
           pattern: "^[A-Za-z0-9][A-Za-z0-9_/-]*$",

@@ -4,7 +4,9 @@ import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Git } from "../../src/index.ts";
 import { ATTACHED_FILE, parseAttached } from "../../harness/attached.ts";
+import { attachedRule } from "../../harness/attached-note.ts";
 import { Conversation } from "../../harness/conversation.ts";
+import { injectionContext } from "../../harness/injections.ts";
 import { subagentChildRegistry } from "../../harness/subagent.ts";
 import { ToolRegistry } from "../../harness/tools.ts";
 import { nodeHost } from "../../hosts/node.ts";
@@ -309,5 +311,52 @@ describe("a subagent's merge tool", () => {
       .get("merge")
       ?.execute({ summary: "done" }, {} as never);
     assert.equal(fine && "finish" in fine ? fine.finish : undefined, true);
+  });
+});
+
+describe("the note about attached repositories", () => {
+  const settings = { guidance: true, prefix: "chattree" };
+  const ctxOf = (entries: Parameters<typeof injectionContext>[0]) => injectionContext(entries, {} as never, 0);
+  const text = async (c: Conversation, entries: Parameters<typeof injectionContext>[0] = []) => {
+    const out = await attachedRule(c, settings)(ctxOf(entries));
+    return out === undefined || Array.isArray(out) ? undefined : (out as { text: string }).text;
+  };
+
+  test("lists the repositories and says the workspace is scratch space; a thread with none is told nothing", async () => {
+    const { convo } = await rig();
+    const t = await text(convo);
+    assert.match(t ?? "", /Attached repository: `code`/);
+    assert.match(t ?? "", /scratch space/);
+    assert.match(t ?? "", /Commit there only when the user asks/);
+    assert.doesNotMatch(t ?? "", /come back|shared with the thread/, "the thread in the project folder has nobody to come back to");
+    const bare = await Conversation.create(host, join(await tempDir(), "conv"), {});
+    assert.equal(await text(bare), undefined);
+  });
+
+  test("the guidance can be left out, and the note is not repeated while it would say the same", async () => {
+    const { convo } = await rig();
+    const quiet = await attachedRule(convo, { guidance: false, prefix: "chattree" })(ctxOf([]));
+    assert.doesNotMatch((quiet as { text: string }).text, /scratch/);
+    const first = (await text(convo)) ?? "";
+    const entries = [{ $tag: "injection" as const, id: "01ARZ3NDEKTSV4RRFFQ69G0001", key: "attached-repos", text: first }];
+    assert.equal(await text(convo, entries), undefined);
+  });
+
+  test("a fork is told how its code comes back, by what it was started with", async () => {
+    const { convo } = await rig();
+    const start = (integrate?: "share" | "thread" | "parent") => [
+      {
+        $tag: "branch_start" as const,
+        id: "01ARZ3NDEKTSV4RRFFQ69G0002",
+        kind: "fork" as const,
+        from: { branch: "main", commit: "abc" },
+        context: "inherit" as const,
+        ...(integrate === undefined ? {} : { integrate }),
+      },
+    ];
+    assert.match((await text(convo, start())) ?? "", /leave them uncommitted/);
+    assert.match((await text(convo, start("share"))) ?? "", /leave them uncommitted/);
+    assert.match((await text(convo, start("thread"))) ?? "", /git switch -c chattree\/.*rebased onto/s);
+    assert.match((await text(convo, start("parent"))) ?? "", /for the thread you came from to integrate/);
   });
 });

@@ -1,6 +1,6 @@
 # ADR 38: Production code lives in attached repositories, with its uncommitted state recorded
 
-Status: accepted (recording, restoring, per-thread checkouts and merging are built; the prompt and editor support follow)
+Status: accepted (recording, restoring, per-thread checkouts, merging and the model's note are built; editor support follows)
 
 ## Context
 
@@ -25,6 +25,7 @@ The thread's repository stays the scratch space and the transcript. Production c
   3. Otherwise (the parent is mid-work, or 2 is off): the merge changes no code. The thread's commits are left on a branch (the thread's own, or `<attached.branch_prefix>/<thread>`), and the parent's note gives the git commands, stash and pop included.
   4. Commits and uncommitted changes together are an error with commands for committing or folding the commits into the changes.
   `integrate` (`share`, `thread`, `parent`) is recorded in `branch_start` and is mostly an instruction to the thread. A subagent's own `merge` tool checks 2 and 4 before handing back, so it can fix its side.
+- **The model is told** by an `attached-repos` injection (not the system prompt, whose git line now says only that git is fine in the repositories a note names): the repositories, that the workspace is scratch space and the repositories are where work that ships goes, that commits wait for the user to ask, and, for a fork or subagent, what its `integrate` asks of it. `attached.note` and `attached.guidance` switch the parts off.
 - Every snapshot of the chain also keeps the repository's HEAD reachable, so commits a rebase or reset left behind survive the person's `git gc`.
 
 ## Why

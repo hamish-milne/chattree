@@ -136,7 +136,7 @@ describe("automatic summaries", () => {
   });
 
   test("never in the middle of a tool loop: a long result there is left alone, and nothing is written", async () => {
-    const { server, dir } = await started([callRun("c1", "cat big.txt"), answer("it is long")], full(5000));
+    const { server, dir } = await started([callRun("c1", "cat big.txt"), answer("it is long")], full(5100));
     try {
       const r = await session(dir, ["show me big.txt"]);
       assert.equal(r.code, 0, r.all);

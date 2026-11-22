@@ -239,6 +239,13 @@ export const harnessConfig = strictObject({
    * `rebase` lets one with commits be fast-forwarded into a parent that has none uncommitted. Off, both leave the branch for the parent.
    */
   attached: section({
+    /** Tell the model which repositories are attached (once, and again when that changes), and how its code is to come back. */
+    note: withDefault(Type.Boolean(), true),
+    /**
+     * With the note: say that the workspace is scratch space and the attached repositories are where the work that is to ship goes,
+     * and that commits there wait for the user to ask. Off, if your instruction files say that in your own words.
+     */
+    guidance: withDefault(Type.Boolean(), true),
     branch_prefix: withDefault(Type.String({ pattern: "^[A-Za-z0-9][A-Za-z0-9_/-]*$" }), "chattree"),
     merge: section({ state: withDefault(Type.Boolean(), true), rebase: withDefault(Type.Boolean(), true) }),
   }),
