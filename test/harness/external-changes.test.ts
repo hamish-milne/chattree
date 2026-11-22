@@ -93,7 +93,11 @@ describe("syncExternalFiles", () => {
     await seen(convo, dir, "a.txt", "one\ntwo\n");
     await writeFile(join(dir, "a.txt"), "one\n2\n");
     await convo.git.addAll();
-    await convo.git.commit({ message: "the person's own commit" });
+    await convo.git.commit({
+      message: "the person's own commit",
+      author: { name: "t", email: "t@t" },
+      committer: { name: "t", email: "t@t" },
+    });
     await writeFile(join(dir, "a.txt"), "one\n2\nthree\n");
     assert.equal(await syncExternalFiles(convo, EXTERNAL_DEFAULTS, undefined), true);
     const [note] = await notes(convo);
