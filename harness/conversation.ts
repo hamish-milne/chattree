@@ -33,6 +33,17 @@ import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs, setupBlobs } fr
 import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { addGrants, revokeGrants, untilMs } from "./approvals.ts";
 import { swapIgnored } from "./workspace-swap.ts";
+import {
+  ATTACHED_FILE,
+  AttachedError,
+  attachCodeWorktrees,
+  recordedAttached,
+  removeCodeWorktrees,
+  restoreAttached,
+  syncAttached,
+  tradeCode,
+  type RestoreResult,
+} from "./attached.ts";
 import { LeaseStore, sharedLeaseStore, type LeaseEnv, type LeaseOwner, type LeaseState } from "./lease.ts";
 import { refLeaseBackend } from "./lease-ref.ts";
 import type { GrantStore } from "./loop.ts";
@@ -334,6 +345,8 @@ export interface ForkResult {
   from: string;
   /** A handle on the new branch's worktree (when `checkout` is not false). */
   conversation: Conversation | undefined;
+  /** What was done to give the worktree its own copy of each attached repository (ADR 38). */
+  attached?: RestoreResult[];
 }
 
 export interface SpawnOptions {
@@ -443,6 +456,8 @@ export interface SwitchWorkspaceResult {
   /** Ignored entries traded, and those left with the reason. */
   moved: string[];
   left: { name: string; reason: string }[];
+  /** What was done to the attached repositories (ADR 38); empty when there are none. */
+  attached: RestoreResult[];
 }
 
 export interface WorktreeCleanup {
@@ -1487,6 +1502,7 @@ export class Conversation {
         throw new ConversationError(
           `${CHAT_FILE} is ${after} bytes after appending ${bytes.length} to ${before}: something else wrote to it`,
         );
+      await this.#recordAttached();
       await this.git.addAll();
       const commit = await this.git.commit(Conversation.#commitFor(decoded.value, id, after, this.#opts, false, extraTrailers));
       this.#size = after;
@@ -2159,8 +2175,13 @@ export class Conversation {
     const start = await this.#startBranch(name, from, marker);
     await this.#inheritTrust(name, from);
     let conversation: Conversation | undefined;
-    if (opts.checkout !== false) conversation = await this.#checkoutBranch(name, opts.worktree);
-    return { branch: name, start, from, conversation };
+    let attached: RestoreResult[] | undefined;
+    if (opts.checkout !== false) {
+      const made = await this.#checkoutBranch(name, opts.worktree);
+      conversation = made.conversation;
+      attached = made.attached;
+    }
+    return { branch: name, start, from, conversation, ...(attached === undefined ? {} : { attached }) };
   }
 
   /**
@@ -2223,8 +2244,35 @@ export class Conversation {
     return this.#transaction(() => this.#snapshotLocked());
   }
 
+  /**
+   * Record the attached repositories' state in `attached.yml` so the snapshot that follows holds it (ADR 38). A repository that
+   * cannot be read must not stop the conversation: its state is then not recorded this time.
+   */
+  async #recordAttached(): Promise<void> {
+    if ((await this.host.fs.stat(this.host.path.join(this.dir, ".gitmodules"))) === undefined) return;
+    try {
+      await syncAttached(
+        this.host,
+        this.git,
+        this.branch,
+        this.#opts.committer ?? DEFAULT_COMMITTER,
+        Conversation.#dateOpt(this.#opts).date,
+      );
+    } catch (e) {
+      if (!(e instanceof GitError || e instanceof AttachedError)) throw e;
+    }
+  }
+
+  /** Put the attached repositories back as the worktree's `attached.yml` says (after the worktree moved to another commit). */
+  async #restoreAttached(): Promise<RestoreResult[]> {
+    const { states, problem } = await recordedAttached(this.host, this.dir);
+    const out: RestoreResult[] = problem === undefined ? [] : [problem];
+    return [...out, ...(await restoreAttached(this.host, this.git, this.branch, states, this.#opts.committer ?? DEFAULT_COMMITTER))];
+  }
+
   async #snapshotLocked(): Promise<string | undefined> {
     const size = await this.#assertIntact();
+    await this.#recordAttached();
     if (await this.git.isClean()) return undefined;
     await this.git.addAll();
     const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
@@ -2251,7 +2299,7 @@ export class Conversation {
    * running, and when the target is not an earlier commit that holds the thread's header. Other processes holding this
    * thread open must reopen it.
    */
-  rewind(target: string): Promise<{ from: string; to: string; ref: string }> {
+  rewind(target: string): Promise<{ from: string; to: string; ref: string; attached: RestoreResult[] }> {
     return this.#transaction(async () => {
       const a = await this.activity();
       if (a.state === "request" && a.live) throw new ConversationError("a request is running on this thread; /abort it first");
@@ -2274,7 +2322,7 @@ export class Conversation {
       this.#idx = undefined;
       this.#foreign = [];
       this.#size = (await this.host.fs.stat(this.#file))?.size ?? 0;
-      return { from, to, ref };
+      return { from, to, ref, attached: await this.#restoreAttached() };
     });
   }
 
@@ -2334,6 +2382,19 @@ export class Conversation {
       }
     }
 
+    // The code in an attached repository is not "unsaved" (a snapshot keeps it) but it must be recorded before the folders change hands.
+    for (const side of sides) {
+      if (snapshots.some((x) => x.branch === side.branch)) continue;
+      if ((await this.host.fs.stat(this.host.path.join(side.path, ".gitmodules"))) === undefined) continue;
+      const handle = await Conversation.open(this.host, side.path, this.#opts);
+      try {
+        const commit = await handle.snapshot();
+        if (commit !== undefined) snapshots.push({ branch: side.branch, commit });
+      } finally {
+        await handle.close();
+      }
+    }
+
     const cfg = await this.readConfig();
     const mode = opts.ignored ?? (cfg?.ok === true ? cfg.value.workspace.switch.ignored : "move");
 
@@ -2384,7 +2445,23 @@ export class Conversation {
         }
         throw new ConversationError(`could not switch to ${target}: ${e instanceof Error ? e.message : String(e)}${undone.join("")}`);
       }
-      return { from, to: target, project: main.path, fromWorktree: otherPath, snapshots, moved: swap.moved, left: swap.left };
+      // The folders have traded threads; the code in them trades too. A failure here leaves the threads switched and says so.
+      let attached: RestoreResult[] = [];
+      if ((await this.host.fs.stat(this.host.path.join(main.path, ATTACHED_FILE))) !== undefined || otherPath !== undefined) {
+        try {
+          attached = await tradeCode(
+            this.host,
+            this.git,
+            [...(otherPath === undefined ? [] : [{ dir: otherPath, thread: from }]), { dir: main.path, thread: target }],
+            this.#opts.committer ?? DEFAULT_COMMITTER,
+          );
+        } catch (e) {
+          attached = [
+            { path: ".", restored: "none", warnings: [`the code was not switched: ${e instanceof Error ? e.message : String(e)}`] },
+          ];
+        }
+      }
+      return { from, to: target, project: main.path, fromWorktree: otherPath, snapshots, moved: swap.moved, left: swap.left, attached };
     } finally {
       for (const l of locks.reverse()) await l.release();
     }
@@ -2651,6 +2728,9 @@ export class Conversation {
         throw new ConversationError(`branch ${branch} is not merged into ${this.branch}; keep its worktree or pass force`);
     }
     try {
+      const project = (await this.git.worktrees())[0]?.path;
+      if (project !== undefined && project !== wt.path)
+        await removeCodeWorktrees(this.host, this.git, project, wt.path, opts.force === true);
       await this.git.removeWorktree(wt.path, opts.force === true ? { force: true } : {});
     } catch (e) {
       if (e instanceof GitError && opts.force !== true)
@@ -2749,12 +2829,19 @@ export class Conversation {
     return this.host.path.join(`${this.dir}.branches`, encodeURIComponent(name));
   }
 
-  async #checkoutBranch(name: string, at?: string): Promise<Conversation> {
+  async #checkoutBranch(name: string, at?: string): Promise<{ conversation: Conversation; attached?: RestoreResult[] }> {
     const path = at ?? this.#defaultWorktree(name);
-    const existing = (await this.git.worktrees()).find((w) => w.branch === `refs/heads/${name}`);
-    if (existing !== undefined) return Conversation.open(this.host, existing.path, this.#opts);
+    const worktrees = await this.git.worktrees();
+    const existing = worktrees.find((w) => w.branch === `refs/heads/${name}`);
+    if (existing !== undefined) return { conversation: await Conversation.open(this.host, existing.path, this.#opts) };
     await this.git.addWorktree(path, { branch: name });
-    return Conversation.open(this.host, path, this.#opts);
+    const project = worktrees[0]?.path;
+    // The worktree has the submodules empty: its thread gets its own copy of the code, from the project folder's repositories.
+    const attached =
+      project === undefined || (await this.host.fs.stat(this.host.path.join(path, ".gitmodules"))) === undefined
+        ? undefined
+        : await attachCodeWorktrees(this.host, this.git, project, path, name, this.#opts.committer ?? DEFAULT_COMMITTER);
+    return { conversation: await Conversation.open(this.host, path, this.#opts), ...(attached === undefined ? {} : { attached }) };
   }
 
   /**
@@ -2887,7 +2974,7 @@ export class Conversation {
   /** A handle on another branch, checking it out in a worktree first if it has none. */
   async openBranch(name: string, opts: { worktree?: string } = {}): Promise<Conversation> {
     if ((await this.git.revParse(`refs/heads/${name}`)) === undefined) throw new ConversationError(`no such branch: ${name}`);
-    return this.#checkoutBranch(name, opts.worktree);
+    return (await this.#checkoutBranch(name, opts.worktree)).conversation;
   }
 
   // ---- reading ---------------------------------------------------------------------------------------------

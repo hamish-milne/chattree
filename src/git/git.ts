@@ -372,7 +372,9 @@ export class Git {
 
   /** Paths with changes in the worktree or index, including untracked files. Empty means clean. */
   async status(): Promise<StatusEntry[]> {
-    const r = await this.run(["status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames"], { readOnly: true });
+    const r = await this.run(["status", "--porcelain=v2", "-z", "--untracked-files=all", "--no-renames", "--ignore-submodules=dirty"], {
+      readOnly: true,
+    });
     const out: StatusEntry[] = [];
     // Porcelain v2 records: the path is the last field and follows a fixed number of space-separated fields,
     // and it may contain spaces itself, so the rest of the line is rejoined.

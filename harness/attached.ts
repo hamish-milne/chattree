@@ -94,7 +94,7 @@ export async function discoverAttached(host: Host, git: Git): Promise<{ path: st
     const path = rec.slice(tab + 1);
     // A submodule that was never initialised is an empty directory: nothing is attached there yet.
     if ((await host.fs.stat(host.path.join(git.cwd, path, ".git"))) === undefined) continue;
-    found.push({ path, commit: rec.slice(7, tab).split(" ")[1] ?? "" });
+    found.push({ path, commit: rec.slice(7, tab).split(" ")[0] ?? "" });
   }
   return found.sort((a, b) => (a.path < b.path ? -1 : 1));
 }
@@ -229,6 +229,136 @@ export async function restoreAttached(
       await repo.run(["reset", "--quiet"]); // the index as HEAD has it: the changes show as the person would have made them
     }
     results.push({ path: s.path, restored: snapshot === undefined ? "base" : "snapshot", warnings });
+  }
+  return results;
+}
+
+const attachedAt = async (host: Host, dir: string): Promise<AttachedState[] | { error: string }> => {
+  const file = host.path.join(dir, ATTACHED_FILE);
+  if ((await host.fs.stat(file)) === undefined) return [];
+  try {
+    return parseAttached(dec.decode(await host.fs.read(file)));
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+};
+
+/** What `attached.yml` in a worktree says; empty when it has none, and a warning result when it cannot be read. */
+export async function recordedAttached(host: Host, dir: string): Promise<{ states: AttachedState[]; problem?: RestoreResult }> {
+  const r = await attachedAt(host, dir);
+  if (Array.isArray(r)) return { states: r };
+  return { states: [], problem: { path: ATTACHED_FILE, restored: "none", warnings: [r.error] } };
+}
+
+/**
+ * The branch a thread works on in an attached repository. A thread's own branch (`chattree/...`) stays. The person's branch stays
+ * only if it is still where the thread left it and nobody else has claimed it: two threads cannot have a branch checked out at once,
+ * and a thread must not move a branch the person has since moved on.
+ */
+async function codeBranchFor(repo: Git, s: AttachedState, thread: string, claimed: Set<string>): Promise<string | undefined> {
+  if (s.branch === undefined) return undefined;
+  const own = `chattree/${thread}`;
+  if (s.branch.startsWith("chattree/")) return s.branch;
+  const tip = await repo.revParse(`refs/heads/${s.branch}`);
+  if ((tip === undefined || tip === s.base) && !claimed.has(s.branch)) {
+    claimed.add(s.branch);
+    return s.branch;
+  }
+  return own;
+}
+
+/**
+ * Give a thread's new worktree its own checkout of each attached repository: a linked worktree of the repository in the project
+ * folder, on a branch of the thread's own, with the recorded commit and uncommitted state. (A parent worktree starts with the
+ * submodules empty.)
+ */
+export async function attachCodeWorktrees(
+  host: Host,
+  git: Git,
+  projectDir: string,
+  worktree: string,
+  thread: string,
+  who: Identity,
+): Promise<RestoreResult[]> {
+  const { states, problem } = await recordedAttached(host, worktree);
+  const results: RestoreResult[] = problem === undefined ? [] : [problem];
+  const mapped: AttachedState[] = [];
+  const branch = `chattree/${thread}`;
+  for (const s of states) {
+    const source = git.withCwd(host.path.join(projectDir, s.path));
+    const dest = host.path.join(worktree, s.path);
+    if ((await host.fs.stat(host.path.join(projectDir, s.path, ".git"))) === undefined) {
+      results.push({
+        path: s.path,
+        restored: "none",
+        warnings: [`${s.path} is not checked out in the project folder, so this thread has no copy of it`],
+      });
+      continue;
+    }
+    if ((await host.fs.stat(host.path.join(dest, ".git"))) === undefined) {
+      if ((await source.objectInfo([`${s.base}^{commit}`]))[0] === undefined) {
+        results.push({ path: s.path, restored: "none", warnings: [`commit ${s.base.slice(0, 8)} is not in ${s.path}`] });
+        continue;
+      }
+      const exists = (await source.revParse(`refs/heads/${branch}`)) !== undefined;
+      await source.run([
+        "worktree",
+        "add",
+        "--quiet",
+        "--no-track",
+        ...(exists ? ["--", dest, branch] : ["-b", branch, "--", dest, s.base]),
+      ]);
+    }
+    mapped.push({ ...s, branch });
+  }
+  results.push(...(await restoreAttached(host, git.withCwd(worktree), thread, mapped, who)));
+  return results;
+}
+
+/** Remove a worktree's checkouts of the attached repositories (git will not remove a worktree that has submodules). */
+export async function removeCodeWorktrees(host: Host, git: Git, projectDir: string, worktree: string, force: boolean): Promise<void> {
+  for (const { path } of await discoverAttached(host, git.withCwd(worktree))) {
+    const source = git.withCwd(host.path.join(projectDir, path));
+    try {
+      await source.run(["worktree", "remove", ...(force ? ["--force"] : []), "--", host.path.join(worktree, path)]);
+    } catch (e) {
+      if (e instanceof Error && /is not a working tree/.test(e.message)) continue;
+      throw e;
+    }
+  }
+}
+
+/**
+ * Two worktrees have traded threads (`switchWorkspace`): trade the code to match. Each folder's repositories are put to the state
+ * `attached.yml` now says there, after both are detached so a branch can move from one to the other.
+ */
+export async function tradeCode(
+  host: Host,
+  git: Git,
+  sides: readonly { dir: string; thread: string }[],
+  who: Identity,
+): Promise<RestoreResult[]> {
+  const all = await Promise.all(sides.map(async (s) => ({ ...s, ...(await recordedAttached(host, s.dir)) })));
+  const results: RestoreResult[] = all.flatMap((a) => (a.problem === undefined ? [] : [a.problem]));
+  for (const a of all)
+    for (const s of a.states) {
+      const repo = git.withCwd(host.path.join(a.dir, s.path));
+      if ((await host.fs.stat(host.path.join(a.dir, s.path, ".git"))) !== undefined && (await repo.currentBranch()) !== undefined)
+        await repo.detach();
+    }
+  const claimed = new Set<string>();
+  for (const a of all) {
+    const mapped: AttachedState[] = [];
+    for (const s of a.states) {
+      const repo = git.withCwd(host.path.join(a.dir, s.path));
+      const branch =
+        (await host.fs.stat(host.path.join(a.dir, s.path, ".git"))) === undefined
+          ? undefined
+          : await codeBranchFor(repo, s, a.thread, claimed);
+      const { branch: _was, ...rest } = s;
+      mapped.push(branch === undefined ? rest : { ...rest, branch });
+    }
+    results.push(...(await restoreAttached(host, git.withCwd(a.dir), a.thread, mapped, who)));
   }
   return results;
 }
