@@ -43,6 +43,7 @@ import {
   codeProblem,
   formatAttached,
   gitlinksAt,
+  mayHaveAttached,
   type AttachedState,
   type CodeSettings,
   AttachedError,
@@ -54,6 +55,7 @@ import {
   tradeCode,
   type RestoreResult,
 } from "./attached.ts";
+import { relinkExternal } from "./external.ts";
 import { LeaseStore, sharedLeaseStore, type LeaseEnv, type LeaseOwner, type LeaseState } from "./lease.ts";
 import { refLeaseBackend } from "./lease-ref.ts";
 import type { GrantStore } from "./loop.ts";
@@ -2285,11 +2287,29 @@ export class Conversation {
   }
 
   /**
+   * Attach a code repository that is not a child of the project (ADR 38): `name` in the project folder becomes a link to it, and its
+   * state is recorded at once, in a snapshot. Calling it again with a new `target` is how a moved repository is found. See `external.ts`.
+   */
+  async linkExternal(name: string, target: string): Promise<void> {
+    await relinkExternal(this.host, this.git, name, target);
+    await this.#transaction(async () => {
+      await syncAttached(
+        this.host,
+        this.git,
+        this.branch,
+        this.#opts.committer ?? DEFAULT_COMMITTER,
+        Conversation.#dateOpt(this.#opts).date,
+      );
+      await this.#snapshotLocked();
+    });
+  }
+
+  /**
    * Record the attached repositories' state in `attached.yml` so the snapshot that follows holds it (ADR 38). A repository that
    * cannot be read must not stop the conversation: its state is then not recorded this time.
    */
   async #recordAttached(): Promise<void> {
-    if ((await this.host.fs.stat(this.host.path.join(this.dir, ".gitmodules"))) === undefined) return;
+    if (!(await mayHaveAttached(this.host, this.dir))) return;
     try {
       await syncAttached(
         this.host,
@@ -2425,7 +2445,7 @@ export class Conversation {
     // The code in an attached repository is not "unsaved" (a snapshot keeps it) but it must be recorded before the folders change hands.
     for (const side of sides) {
       if (snapshots.some((x) => x.branch === side.branch)) continue;
-      if ((await this.host.fs.stat(this.host.path.join(side.path, ".gitmodules"))) === undefined) continue;
+      if (!(await mayHaveAttached(this.host, side.path))) continue;
       const handle = await Conversation.open(this.host, side.path, this.#opts);
       try {
         const commit = await handle.snapshot();
@@ -2763,12 +2783,13 @@ export class Conversation {
    */
   async #planCode(childBranch: string, head: string, tip: string, base: string): Promise<CodePlan | undefined> {
     const [links, theirLinks] = [await gitlinksAt(this.git, head), await gitlinksAt(this.git, tip)];
-    if (links.length === 0 && theirLinks.length === 0) return undefined;
     const [ours, theirs, before] = [
       await attachedAtRev(this.git, head),
       await attachedAtRev(this.git, tip),
       await attachedAtRev(this.git, base),
     ];
+    // Neither side has anything attached (a gitlink, or a repository linked in from elsewhere): the merge is of files only.
+    if (links.length + theirLinks.length + ours.length + theirs.length === 0) return undefined;
     const settings = await this.#codeSettings();
     const integrate = await this.#integrateOf(tip);
     const theirTree = (await this.git.worktrees()).find((w) => w.branch === `refs/heads/${childBranch}`)?.path ?? this.dir;
@@ -2815,7 +2836,8 @@ export class Conversation {
         const moved = { ...rest, base: outcome.to };
         states[at] = moved;
         apply.push(moved);
-        edits.push({ path: t.path, from: tip });
+        // A linked-in repository has no gitlink to move: the record says where it is.
+        if (theirLinks.includes(t.path)) edits.push({ path: t.path, from: tip });
         results.push({ path: t.path, outcome: "fast_forward", note: outcome.note });
       } else if (outcome.kind === "left") {
         results.push({ path: t.path, outcome: "left", branch: outcome.branch, note: outcome.note });
@@ -2837,7 +2859,7 @@ export class Conversation {
    * together with uncommitted changes, or commits that have to be rebased onto a parent that has moved on and has nothing uncommitted.
    */
   async codeMergeProblem(): Promise<string | undefined> {
-    if ((await this.host.fs.stat(this.host.path.join(this.dir, ".gitmodules"))) === undefined) return undefined;
+    if (!(await mayHaveAttached(this.host, this.dir))) return undefined;
     const entries = (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
     const start = entries.findLast((e) => e.$tag === "branch_start");
     if (start?.$tag !== "branch_start") return undefined;
@@ -3018,7 +3040,7 @@ export class Conversation {
     const project = worktrees[0]?.path;
     // The worktree has the submodules empty: its thread gets its own copy of the code, from the project folder's repositories.
     const attached =
-      project === undefined || (await this.host.fs.stat(this.host.path.join(path, ".gitmodules"))) === undefined
+      project === undefined || !(await mayHaveAttached(this.host, path))
         ? undefined
         : await attachCodeWorktrees(this.host, this.git, project, path, name, this.#opts.committer ?? DEFAULT_COMMITTER);
     return { conversation: await Conversation.open(this.host, path, this.#opts), ...(attached === undefined ? {} : { attached }) };

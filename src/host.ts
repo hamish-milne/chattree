@@ -73,6 +73,11 @@ export interface Fs {
   mkdir(path: string): Promise<void>;
   /** Names (not paths) of a directory's entries. Rejects if it does not exist. */
   readdir(path: string): Promise<string[]>;
+  /**
+   * Make `path` a link to the directory `target` (a symbolic link; a junction on Windows, which needs no privilege). Optional: a host
+   * with no real file system leaves it out. `remove` takes a link away without touching what it points at.
+   */
+  link?(target: string, path: string): Promise<void>;
   /** The path with every symbolic link resolved, or undefined if it does not exist. */
   realpath(path: string): Promise<string | undefined>;
   /**

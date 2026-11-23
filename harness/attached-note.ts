@@ -5,7 +5,7 @@
  */
 import type { Conversation } from "./conversation.ts";
 import type { InjectionContext, InjectionRule } from "./injections.ts";
-import { discoverAttached } from "./attached.ts";
+import { discoverAttached, mayHaveAttached } from "./attached.ts";
 
 export const ATTACHED_NOTE_KEY = "attached-repos";
 
@@ -50,7 +50,7 @@ export function attachedNoteText(
 /** Say which repositories are attached on the first request in a thread, and again only when the text would differ. */
 export function attachedRule(convo: Conversation, settings: AttachedNoteSettings): InjectionRule {
   return async (ctx: InjectionContext) => {
-    if ((await convo.host.fs.stat(convo.host.path.join(convo.dir, ".gitmodules"))) === undefined) return undefined;
+    if (!(await mayHaveAttached(convo.host, convo.dir))) return undefined;
     const paths = (await discoverAttached(convo.host, convo.git)).map((a) => a.path);
     const start = ctx.entries.findLast((e) => e.$tag === "branch_start");
     const text = attachedNoteText(paths, start?.$tag === "branch_start" ? start.integrate : undefined, start !== undefined, settings);

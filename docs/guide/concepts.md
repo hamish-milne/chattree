@@ -41,4 +41,5 @@ Production code can live in a git submodule of the thread's repository. The thre
 
 - Whatever is uncommitted in the code is recorded with every snapshot (in `attached.yml`), so rewinding or forking a thread brings the code back as it was.
 - A thread other than the one in the project folder gets its own checkout of the code, detached at the commit it started from.
+- The code does not have to be inside the thread's repository. A repository anywhere on the machine can be linked in under a name (a symbolic link, kept out of git), and then behaves the same. `/push` pushes the code's branch, then the conversation's.
 - Merging a fork or a subagent merges its code by what it finds. A thread that made no commits has its changes merged as files are, arriving uncommitted. One with commits that has been rebased onto a parent with nothing uncommitted is fast-forwarded in. Otherwise its commits are left on a branch, with the git commands to bring them in. A thread with both commits and uncommitted changes is told to commit or fold them first. A subagent is told this when it hands back, while it can still fix it.

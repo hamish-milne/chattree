@@ -10,6 +10,7 @@ import { draftCommands } from "./drafts.ts";
 import { execCommands } from "./exec.ts";
 import { metaCommands } from "./meta.ts";
 import { miscCommands } from "./misc.ts";
+import { pushCommands } from "./push.ts";
 import { readCommands } from "./read.ts";
 import { sessionCommands } from "./sessions.ts";
 import { setupCommands } from "./setup.ts";
@@ -32,6 +33,7 @@ export function defaultCommands(): Command[] {
     ...mcpCommands,
     ...miscCommands,
     ...undoCommands,
+    ...pushCommands,
     ...metaCommands,
     ...toolCommands,
     ...execCommands,

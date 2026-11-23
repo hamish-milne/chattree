@@ -84,10 +84,38 @@ export function parseAttached(text: string): AttachedState[] {
   });
 }
 
-/** The submodules of `git`'s worktree that are checked out: the paths, and the commit the parent records for each. */
+/** The config key listing the names of linked-in repositories (external.ts). */
+export const EXTERNAL_KEY = "chattree.external";
+
+/** The names the project lists as external attachments. */
+export async function externalAttached(git: Git): Promise<string[]> {
+  const r = await git.run(["config", "--local", "--get-all", EXTERNAL_KEY], { ok: [1], readOnly: true });
+  return r.exitCode === 1
+    ? []
+    : dec
+        .decode(r.stdout)
+        .split("\n")
+        .filter((l) => l !== "");
+}
+
+/** Whether the project folder can have anything attached: a submodule's `.gitmodules`, or the record of what has been (cheap: no git). */
+export async function mayHaveAttached(host: Host, dir: string): Promise<boolean> {
+  for (const f of [".gitmodules", ATTACHED_FILE]) if ((await host.fs.stat(host.path.join(dir, f))) !== undefined) return true;
+  return false;
+}
+
+/** The submodules of `git`'s worktree that are checked out, and the repositories linked in from elsewhere: the paths, and each one's commit. */
 export async function discoverAttached(host: Host, git: Git): Promise<{ path: string; commit: string }[]> {
   const out = await git.run(["ls-files", "-s", "-z"], { readOnly: true });
   const found: { path: string; commit: string }[] = [];
+  // Code that is not a child of the project is linked in under a name of its own (external.ts): the link's repository, not a gitlink.
+  for (const path of await externalAttached(git)) {
+    const head = await git
+      .withCwd(host.path.join(git.cwd, path))
+      .revParse("HEAD")
+      .catch(() => undefined);
+    if (head !== undefined) found.push({ path, commit: head });
+  }
   for (const rec of dec.decode(out.stdout).split("\u0000")) {
     if (!rec.startsWith("160000 ")) continue;
     const tab = rec.indexOf("\t");
@@ -592,4 +620,53 @@ export async function gitlinksAt(git: Git, rev: string): Promise<string[]> {
 export async function attachedAtRev(git: Git, rev: string): Promise<AttachedState[]> {
   const bytes = await git.readFileAt(rev, ATTACHED_FILE);
   return bytes === undefined ? [] : parseAttached(dec.decode(bytes));
+}
+
+// ---- pushing ---------------------------------------------------------------------------------------------------------------
+
+export interface PushResult {
+  /** The repository's path in the project, or "." for the conversation itself. */
+  path: string;
+  branch?: string;
+  pushed: boolean;
+  /** What happened, or why nothing did; for a failure, the command to run by hand. */
+  note: string;
+}
+
+async function pushOne(git: Git, path: string, remote: string | undefined): Promise<PushResult> {
+  const branch = await git.currentBranch();
+  if (branch === undefined)
+    return { path, pushed: false, note: `no branch is checked out (nothing to push): git switch -c <name> there, commit, and push it` };
+  const remotes = (await git.text(["remote"], { readOnly: true })).split("\n").filter((r) => r !== "");
+  const configured = (await git.getConfig(`branch.${branch}.remote`).catch(() => undefined))?.trim();
+  const to = remote ?? (configured !== undefined && configured !== "" ? configured : remotes.includes("origin") ? "origin" : remotes[0]);
+  if (to === undefined) return { path, branch, pushed: false, note: `${branch} has no remote to push to (git remote add <name> <url>)` };
+  try {
+    await git.run(["push", "--set-upstream", to, branch]);
+    return { path, branch, pushed: true, note: `pushed ${branch} to ${to}` };
+  } catch (e) {
+    const why = e instanceof Error ? (e.message.split("\n").find((l) => l.trim() !== "") ?? "") : String(e);
+    return {
+      path,
+      branch,
+      pushed: false,
+      note: `could not push ${branch} to ${to} (${why}); to retry: git -C ${path} push --set-upstream ${to} ${branch}`,
+    };
+  }
+}
+
+/**
+ * Push the code in each attached repository (the branch it has checked out), then the conversation's own branch when it has a remote.
+ * The code goes first: whoever fetches the conversation then finds the commits its record names. Stops at the first failure.
+ */
+export async function pushAttached(host: Host, git: Git, remote?: string): Promise<PushResult[]> {
+  const out: PushResult[] = [];
+  for (const { path } of await discoverAttached(host, git)) {
+    const r = await pushOne(git.withCwd(host.path.join(git.cwd, path)), path, remote);
+    out.push(r);
+    if (!r.pushed && r.branch !== undefined) return out;
+  }
+  const remotes = (await git.text(["remote"], { readOnly: true })).split("\n").filter((r) => r !== "");
+  if (remotes.length > 0 || remote !== undefined) out.push(await pushOne(git, ".", remote));
+  return out;
 }

@@ -15,7 +15,7 @@ Run commands from the shell as `chattree <verb>`, or inside a session as `/<comm
 
 ## Session commands
 
-**Chat.** `/say <text>` sends the draft with staged attachments (bare text does the same). `/retry` re-runs a request that failed before any reply. `/continue [text]` carries on after an interrupted reply. `/abort` stops the running request. `/attach <path>` stages a file (`/attachments` lists, `/detach` removes). `/draft`, `/drafts`, `/paste`, `/send`, `/discard` and `/edit` work on the draft and on named drafts. `/undo [n]` rewinds. `/more` pages long output.
+**Chat.** `/say <text>` sends the draft with staged attachments (bare text does the same). `/retry` re-runs a request that failed before any reply. `/continue [text]` carries on after an interrupted reply. `/abort` stops the running request. `/attach <path>` stages a file (`/attachments` lists, `/detach` removes). `/draft`, `/drafts`, `/paste`, `/send`, `/discard` and `/edit` work on the draft and on named drafts. `/undo [n]` rewinds. `/push [remote]` pushes the code in attached repositories, then the conversation's branch if it has a remote. `/more` pages long output.
 
 **Reading.** `/history [n]`, `/show <n|id>`, `/log`, `/status`, `/usage`, `/display` (how much reasoning and tool detail to show), `/export <file>`, `/search <query>`.
 

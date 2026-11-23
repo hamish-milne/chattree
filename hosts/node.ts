@@ -509,8 +509,17 @@ const nodeFs: Fs = {
       return true;
     } catch (e) {
       if (isCode(e, "ENOENT")) return false;
+      // A junction on Windows is a directory to `unlink`: take the link away (never what it points at, `rmdir` refuses a full directory).
+      if ((isCode(e, "EPERM") || isCode(e, "EISDIR")) && (await fsp.lstat(path)).isSymbolicLink()) {
+        await fsp.rmdir(path);
+        return true;
+      }
       throw e;
     }
+  },
+  async link(target, path) {
+    await fsp.mkdir(nodePath.dirname(path), { recursive: true });
+    await fsp.symlink(target, path, "junction");
   },
   async mkdir(path) {
     await fsp.mkdir(path, { recursive: true });
