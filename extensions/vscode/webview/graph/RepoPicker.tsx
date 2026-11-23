@@ -62,6 +62,7 @@ export function RepoPicker({ model }: { model: Model }): JSX.Element | null {
                       <span class={css.repo_path}>{r.path}</span>
                     </span>
                     {r.reason !== undefined && <span class="reason">{r.reason}</span>}
+                    {r.attachedAs !== undefined && <span class="reason">attached to the conversation above it</span>}
                   </span>
                 </button>
               ))}

@@ -99,6 +99,8 @@ export const repoEntry = strictObject({
   path: Type.String(),
   /** Whether it holds a chattree conversation; a repository that does not is listed but cannot be chosen. */
   chattree: Type.Boolean(),
+  /** The folder is a repository attached to the conversation above it (ADR 38): its path from there. Choosing it opens that conversation. */
+  attachedAs: Type.Optional(Type.String()),
   /** Why it cannot be chosen. */
   reason: Type.Optional(Type.String()),
   /**

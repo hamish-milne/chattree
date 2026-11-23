@@ -80,4 +80,25 @@ describe("what can be done with a workspace folder", () => {
       ],
     );
   });
+
+  test("a repository attached to a conversation belongs to it, and is listed once beside the project folder", async () => {
+    const dir = await tempDir();
+    const person = { name: "p", email: "p@p" };
+    const src = join(dir, "code-src");
+    const code = await Git.init(host, src, { branch: "main" });
+    await writeFile(join(src, "a.txt"), "one\n");
+    await code.add(["."]);
+    await code.commit({ message: "c1", author: person, committer: person });
+    const proj = join(dir, "conv");
+    await start(proj);
+    const git = await Git.open(host, { cwd: proj });
+    await git.run(["-c", "protocol.file.allow=always", "submodule", "add", "--quiet", src, "code"]);
+    await git.commit({ message: "attach", author: person, committer: person });
+    const inner = await inspectFolder({ host }, join(proj, "code"));
+    assert.equal(inner.state.kind, "conversation");
+    assert.equal(inner.attachedAs, "code");
+    assert.equal(host.path.resolve(inner.root), host.path.resolve(proj));
+    const all = await inspectWorkspace({ host }, [proj, join(proj, "code")]);
+    assert.equal(all.length, 1);
+  });
 });

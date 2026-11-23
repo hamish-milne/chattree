@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
 import { describe, test } from "node:test";
+import { writeFile } from "node:fs/promises";
+import { Git } from "../../src/index.ts";
 import { runInit } from "../../app/init.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { nodeHost } from "../../hosts/node.ts";
@@ -34,6 +36,37 @@ async function rig(extra: string[] = []) {
 }
 
 describe("the controller, reading", () => {
+  test("a workspace opened on an attached repository shows the conversation above it, marked as attached", async () => {
+    const dir = await tempDir();
+    const env = { host, cwd: dir, env: { CHATTREE_SETTINGS: join(dir, "settings", "settings.yml") }, now: Date.now };
+    const person = { name: "p", email: "p@p" };
+    const src = join(dir, "code-src");
+    const code = await Git.init(host, src, { branch: "main" });
+    await writeFile(join(src, "a.txt"), "one\n");
+    await code.add(["."]);
+    await code.commit({ message: "c1", author: person, committer: person });
+    const project = join(dir, "p");
+    await runInit(env, { dir: project, provider: "none" });
+    const git = await Git.open(host, { cwd: project });
+    await git.run(["-c", "protocol.file.allow=always", "submodule", "add", "--quiet", src, "code"]);
+    await git.commit({ message: "attach", author: person, committer: person });
+    const events: UiEvent[] = [];
+    const c = new Controller({ pollMs: 0, env, folders: [join(project, "code")], send: (e) => events.push(e), session: "test" });
+    c.handle({ type: "ready", view: "graph" });
+    await c.idle();
+    const repos = events.find((e) => e.type === "graph.repos");
+    assert.ok(repos?.type === "graph.repos");
+    assert.deepEqual(
+      repos.repos.repos.map((r) => [r.chattree, r.attachedAs]),
+      [[true, "code"]],
+    );
+    assert.ok(
+      events.some((e) => e.type === "graph.data"),
+      "the conversation above is open",
+    );
+    await c.close();
+  });
+
   test("the graph view gets the repositories, the graph and the selected thread", async () => {
     const { project, c, events } = await rig();
     c.handle({ type: "ready", view: "graph" });

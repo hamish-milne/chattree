@@ -12,6 +12,7 @@ import type { AppEnv } from "../../app/env.ts";
 import { AppError } from "../../app/errors.ts";
 import { inspectWorkspace, type WorkspaceFolder } from "../../app/workspace.ts";
 import { ChangeNotAllowed } from "../../harness/setup.ts";
+import type { RestoreResult } from "../../harness/attached.ts";
 import { WorkspaceDirty, type Conversation, type EntryRef } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { readCommitGraph } from "../../harness/graph.ts";
@@ -342,6 +343,11 @@ export class Controller implements HostedController {
     if (!this.#closed) this.#o.send(event);
   }
 
+  /** Where an attached repository could not be put back exactly as recorded, and why: each is a warning. */
+  #warnAttached(results: readonly RestoreResult[] | undefined): void {
+    for (const r of results ?? []) for (const w of r.warnings) this.#notify(`${r.path}: ${w}`, "warning");
+  }
+
   #notify(text: string, level: "info" | "warning" | "error" = "info"): void {
     this.#emit({ type: "notice", level, message: text });
   }
@@ -372,6 +378,7 @@ export class Controller implements HostedController {
       name: f.name,
       path: f.path,
       chattree: f.state.kind === "conversation",
+      ...(f.attachedAs !== undefined ? { attachedAs: f.attachedAs } : {}),
       ...(f.state.kind === "unusable" ? { reason: f.state.reason } : {}),
       ...(f.state.kind === "init" ? { init: f.state.mode, reason: "no conversation here yet" } : {}),
     }));
@@ -1275,11 +1282,12 @@ export class Controller implements HostedController {
     await this.#assertQuiet(repo, thread, "go back");
     const h = await this.#handle(repo, thread);
     const back = before ? await this.#before(h, commit) : undefined;
-    await h.rewind(back?.target.commit ?? commit);
+    const went = await h.rewind(back?.target.commit ?? commit);
     // Where it stands now is the person's doing: what it owes is theirs to continue, not for the pump to start.
     this.#owedAt.set(thread, await this.#lastEntryId(h));
     if (back !== undefined) this.#prefill(thread, back.text);
     this.#notify(`Went back to ${commit.slice(0, 7)}; what came after is kept and can be recovered`);
+    this.#warnAttached(went.attached);
     await this.#changed(thread);
   }
 
@@ -1313,8 +1321,11 @@ export class Controller implements HostedController {
     await this.#assertQuiet(repo, into, "merge into it");
     const target = await this.#handle(repo, into);
     await target.assertMergeable(from);
-    await target.mergeFork(from, { summary: await this.#summaryOf(repo, from) });
+    const merged = await target.mergeFork(from, { summary: await this.#summaryOf(repo, from) });
     this.#notify(`Merged ${from} into ${into}`);
+    // What became of the code in attached repositories: a branch left for the person to merge is the one thing they must act on.
+    for (const c of merged.code) this.#notify(`${c.path}: ${c.note}`, c.outcome === "left" ? "warning" : "info");
+    this.#warnAttached(merged.attached);
     await this.#changed(into, from);
   }
 
@@ -1592,8 +1603,9 @@ export class Controller implements HostedController {
     // The main thread is whatever was in the project folder when this began: remember it before the folder moves on.
     if ((await repo.main.git.getConfig("chattree.trunk").catch(() => undefined))?.trim() === undefined)
       await repo.main.git.setConfig("chattree.trunk", repo.trunk);
+    let switched: Awaited<ReturnType<Conversation["switchWorkspace"]>> | undefined;
     try {
-      await repo.convo.switchWorkspace(thread, snapshot ? { uncommitted: "snapshot" } : {});
+      switched = await repo.convo.switchWorkspace(thread, snapshot ? { uncommitted: "snapshot" } : {});
     } catch (e) {
       if (!(e instanceof WorkspaceDirty)) throw e;
       this.#emit({ type: "workspace.uncommitted", thread, from: was, files: e.files.flatMap((f) => f.paths) });
@@ -1602,6 +1614,7 @@ export class Controller implements HostedController {
     // Handles on the folders that traded branches are no longer on the branch they were opened for: begin again.
     await this.#enter(repo.folder, { trunk: repo.trunk, selected: this.#selected });
     this.#notify(`The project folder now has ${thread}`);
+    this.#warnAttached(switched?.attached);
     await this.#sendGraph();
     if (this.#selected !== undefined) await this.#openChat(this.#selected);
   }

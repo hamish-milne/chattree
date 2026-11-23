@@ -1,6 +1,6 @@
 # ADR 38: Production code lives in attached repositories, with its uncommitted state recorded
 
-Status: accepted (recording, restoring, per-thread checkouts, merging and the model's note are built; editor support follows)
+Status: accepted (recording, restoring, per-thread checkouts, merging and the model's note are built; the editor opens an attached folder as its conversation and shows what could not be restored)
 
 ## Context
 

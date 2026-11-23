@@ -20,6 +20,8 @@ export interface WorkspaceFolder {
   /** The top level of the repository that holds a conversation, which is where the project is (the folder itself, or an ancestor); else the folder. */
   root: string;
   state: FolderState;
+  /** The folder is itself an attached repository (a submodule) of the conversation at `root`: its path from there. */
+  attachedAs?: string;
 }
 
 const failure = (e: unknown): string => (e instanceof Error ? e.message : String(e));
@@ -55,6 +57,17 @@ export async function inspectFolder(env: Pick<AppEnv, "host">, path: string): Pr
       return folder(root, { kind: "unusable", reason: `the conversation in ${root} cannot be read: ${failure(e)}` });
     }
     return folder(root, { kind: "conversation" });
+  }
+  // A repository attached to a conversation (ADR 38) is a submodule of it: the folder belongs to the conversation above.
+  const above = await probe
+    ?.withCwd(root)
+    .run(["rev-parse", "--show-superproject-working-tree"], { ok: [128], readOnly: true })
+    .catch(() => undefined);
+  const parent = above === undefined || above.exitCode !== 0 ? "" : new TextDecoder().decode(above.stdout).trim();
+  if (parent !== "" && probe !== undefined) {
+    const outer = await inspectFolder(env, probe.hostPath(parent));
+    if (outer.state.kind === "conversation")
+      return { ...outer, path, name, attachedAs: host.path.relative(outer.root, root).replaceAll("\\", "/") };
   }
   if (host.path.resolve(root) === host.path.resolve(path)) return folder(root, { kind: "init", mode: "adopt" });
   return folder(root, {
