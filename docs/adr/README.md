@@ -44,3 +44,5 @@ Format: context, decision, why, notes. A record is not edited when a decision ch
 - [38](0038-attached-repositories.md) Production code lives in attached repositories, with its uncommitted state recorded
 - [39](0039-minimum-git-2-40.md) Minimum Git version is 2.40
 - [40](0040-quick-start.md) A quick start keeps the conversation outside the repository
+- [41](0041-transcript-stays-in-the-workspace.md) The transcript stays in the workspace the agent sees
+- [42](0042-jobs-are-approved-when-they-start.md) A background job is approved when it starts
