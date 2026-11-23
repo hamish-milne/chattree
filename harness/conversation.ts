@@ -21,12 +21,9 @@ import {
   parseFile,
   scan,
   type DecodeResult,
-  type DiffEntry,
   type Host,
   type Identity,
-  type MergeTreeResult,
   type Pipeline,
-  type TreeEdit,
 } from "../src/index.ts";
 import { canonicalInstructionPath, changedFiles, instructionText, isRepoPath } from "./instruction-files.ts";
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs, setupBlobs } from "./blob-store.ts";
@@ -35,17 +32,8 @@ import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { addGrants, revokeGrants, untilMs } from "./approvals.ts";
 import { swapIgnored } from "./workspace-swap.ts";
 import {
-  CODE_DEFAULTS,
   ATTACHED_FILE,
-  assessCode,
-  attachedAtRev,
-  codeFacts,
-  codeProblem,
-  formatAttached,
-  gitlinksAt,
   mayHaveAttached,
-  type AttachedState,
-  type CodeSettings,
   AttachedError,
   attachCodeWorktrees,
   recordedAttached,
@@ -98,7 +86,7 @@ import { usageRecord } from "./ledger.ts";
 import { nth } from "../src/nth.ts";
 
 /** The transcript, relative to the repository root. */
-export const CHAT_FILE = "chat.yml";
+export { CHAT_FILE };
 export { BLOBS_DIR };
 /** The harness configuration, relative to the repository root. */
 export const CONFIG_FILE = "harness.yml";
@@ -134,7 +122,6 @@ import type {
   SpawnOptions,
   FinishOptions,
   MergeConflict,
-  MergeReport,
   MergeOutcome,
   CodeResult,
   MergeForkOptions,
@@ -144,10 +131,12 @@ import type {
   SwitchWorkspaceResult,
   WorktreeCleanup,
   BranchInfo,
-  CodePlan,
 } from "./conversation-types.ts";
 export { ConversationError, NoModelPinned, WorkspaceDirty };
 export * from "./conversation-types.ts";
+import { applyCode, codeMergeProblem, planCode, type CodeMergeContext } from "./code-merge.ts";
+import { CHAT_FILE, describeEntry, slug, summarizeMerge } from "./entry-text.ts";
+export { describeEntry, summarizeMerge };
 
 const DEFAULT_COMMITTER: Identity = { name: "chattree", email: "chattree@localhost.invalid" };
 const enc = new TextEncoder();
@@ -169,113 +158,6 @@ function startsWith(bytes: Uint8Array, prefix: Uint8Array): boolean {
   if (prefix.length > bytes.length) return false;
   for (let i = 0; i < prefix.length; i++) if (bytes[i] !== prefix[i]) return false;
   return true;
-}
-
-function slug(s: string): string {
-  return (
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "unknown"
-  );
-}
-
-function oneLine(s: string, max: number): string {
-  // Control characters and Unicode line separators become spaces (built from code points to keep this file ASCII).
-  let flat = "";
-  for (const ch of s) {
-    const c = ch.codePointAt(0) ?? 0;
-    flat += c < 0x20 || c === 0x7f || c === 0x2028 || c === 0x2029 ? " " : ch;
-  }
-  flat = flat.replace(/ +/g, " ").trim();
-  const chars = Array.from(flat);
-  return chars.length > max ? `${chars.slice(0, max - 3).join("")}...` : flat;
-}
-
-/** Commit subject for an entry: readable in `git log --oneline`. */
-// oxlint-disable-next-line typescript/consistent-return -- the switch covers every case; the compiler checks it
-export function describeEntry(e: ChatEntry): string {
-  switch (e.$tag) {
-    case "header":
-      return "Start conversation";
-    case "user": {
-      const first = e.content.find((p) => p.$tag === "text");
-      const text = first === undefined ? "(attachment)" : typeof first.text === "string" ? first.text : "(large text)";
-      return `user: ${oneLine(text, 60)}`;
-    }
-    case "assistant": {
-      const calls = e.blocks.filter((b) => b.$tag === "tool_call").length;
-      return `assistant: ${e.stop_reason}${calls > 0 ? `, ${calls} tool call${calls === 1 ? "" : "s"}` : ""}`;
-    }
-    case "tool_result":
-      return `tool_result: ${oneLine(e.call_id, 40)}${e.is_error ? " (error)" : ""}`;
-    case "compaction":
-      return "compaction";
-    case "trim":
-      return `trim${e.by === "auto" ? ": automatic" : ""}`;
-    case "agent_setup":
-      return `agent_setup: ${e.reason}${e.model === undefined ? "" : ` ${oneLine(e.model.resolved ?? e.model.id, 40)}`}`;
-    case "branch_start":
-      return `branch_start: ${e.kind}`;
-    case "subagent_result":
-      return `subagent_result: ${oneLine(e.branch, 40)}`;
-    case "fork_merge":
-      return `fork_merge: ${oneLine(e.branch, 40)}`;
-    case "job_event":
-      return `job_event: ${oneLine(e.job, 20)} ${e.status}`;
-    case "approval":
-      return `approval: ${oneLine(e.call_id, 40)} ${e.allow ? "allowed" : "declined"}`;
-    case "injection":
-      return `injection: ${oneLine(e.key, 40)}`;
-    case "file_touch":
-      return `file_touch: ${(e.files ?? []).length} file(s)${e.dropped === undefined ? "" : `, ${e.dropped.length} dropped`}`;
-    case "interrupted":
-      return `interrupted: ${e.by}`;
-  }
-}
-
-const CONFLICT_TYPE = /^CONFLICT \((.+)\)$/;
-
-/**
- * Describe a trunk-wins merge: which of the child's changes landed, which were dropped, and why. A file is
- * "discarded" when it conflicted, because the trunk's version of the whole file was taken.
- */
-export function summarizeMerge(childChanges: readonly DiffEntry[], merge: MergeTreeResult): Omit<MergeReport, "base"> {
-  const own = (p: string): boolean => p === CHAT_FILE || p === BLOBS_DIR || p.startsWith(`${BLOBS_DIR}/`);
-  const kinds = new Map<string, Set<string>>();
-  const conflicted = new Set<string>(merge.conflictedPaths.filter((p) => !own(p)));
-  for (const m of merge.messages) {
-    const type = CONFLICT_TYPE.exec(m.type)?.[1];
-    if (type === undefined) continue;
-    for (const p of m.paths) {
-      if (own(p)) continue;
-      conflicted.add(p);
-      (kinds.get(p) ?? kinds.set(p, new Set()).get(p))?.add(type === "contents" ? "content" : type);
-    }
-  }
-  const changes = childChanges.filter((c) => !own(c.path));
-  const touched = new Set(changes.map((c) => c.path));
-  const byPath = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
-  const discarded = changes
-    .filter((c) => conflicted.has(c.path))
-    .map((c) => c.path)
-    .sort(byPath);
-  const landed = changes.filter((c) => !conflicted.has(c.path));
-  const conflicts: MergeConflict[] = [];
-  for (const [path, ks] of kinds) if (touched.has(path)) for (const kind of ks) conflicts.push({ path, kind });
-  conflicts.sort((a, b) => byPath(a.path, b.path) || byPath(a.kind, b.kind));
-  return {
-    changed: landed
-      .filter((c) => c.status !== "A")
-      .map((c) => c.path)
-      .sort(byPath),
-    added: landed
-      .filter((c) => c.status === "A")
-      .map((c) => c.path)
-      .sort(byPath),
-    discarded,
-    conflicts,
-  };
 }
 
 /**
@@ -2351,7 +2233,7 @@ export class Conversation {
       const base = await this.git.mergeBase(head, tip);
       if (base === undefined) throw new ConversationError(`branches ${this.branch} and ${childBranch} have no common history`);
 
-      const plan = await this.#planCode(childBranch, head, tip, base);
+      const plan = await this.#code((ctx) => planCode(ctx, childBranch, head, tip, base));
       const merged = await this.git.mergeTree(head, tip);
       const childChanges = await this.git.diff(base, tip, [".", `:(exclude)${CHAT_FILE}`, `:(exclude)${BLOBS_DIR}`]);
       const summary = summarizeMerge(childChanges, merged);
@@ -2386,7 +2268,7 @@ export class Conversation {
         Conversation.#commitFor(prepared.value, prepared.id, data.length, this.#opts),
       );
       await this.git.fastForward(commit);
-      const attached = plan === undefined ? [] : await this.#applyCode(plan);
+      const attached = plan === undefined ? [] : await this.#code((ctx) => applyCode(ctx, plan));
       // The merged file is approved when it is the file either side was approved with (the merge takes a file from one
       // side whole).
       const store = await this.#trusts();
@@ -2414,138 +2296,38 @@ export class Conversation {
     return outcome;
   }
 
-  /** The `integrate` a thread was started with (the last `branch_start` of its transcript says). */
-  async #integrateOf(rev: string): Promise<"share" | "thread" | "parent" | undefined> {
-    const entries = (await this.readEntriesAt(rev)).flatMap((e) => (e.ok ? [e.value] : []));
-    const start = entries.findLast((e) => e.$tag === "branch_start");
-    return start?.$tag === "branch_start" ? start.integrate : undefined;
+  /** The context the code merge works with. */
+  #codeContext(): CodeMergeContext {
+    return {
+      host: this.host,
+      git: this.git,
+      dir: this.dir,
+      branch: this.branch,
+      committer: this.#opts.committer ?? DEFAULT_COMMITTER,
+      date: Conversation.#dateOpt(this.#opts).date,
+      readEntries: () => this.readEntries(),
+      readEntriesAt: (rev) => this.readEntriesAt(rev),
+      readConfig: () => this.readConfig(),
+      snapshot: () => this.snapshot(),
+    };
   }
 
-  async #codeSettings(): Promise<CodeSettings> {
-    const cfg = await this.readConfig();
-    if (cfg?.ok !== true) return CODE_DEFAULTS;
-    const a = cfg.value.attached;
-    return { state: a.merge.state, rebase: a.merge.rebase, prefix: a.branch_prefix };
-  }
-
-  /**
-   * Decide what a merge does to the code in attached repositories (ADR 38) before anything is written: the commit's tree gets the
-   * record and the gitlinks the decision implies (a plain tree merge would take the child's commit as if it were a file), and the
-   * entry gets a note. A thread whose code cannot be merged stops the merge with a message that says how to put it right.
-   */
-  async #planCode(childBranch: string, head: string, tip: string, base: string): Promise<CodePlan | undefined> {
-    const [links, theirLinks] = [await gitlinksAt(this.git, head), await gitlinksAt(this.git, tip)];
-    const [ours, theirs, before] = [
-      await attachedAtRev(this.git, head),
-      await attachedAtRev(this.git, tip),
-      await attachedAtRev(this.git, base),
-    ];
-    // Neither side has anything attached (a gitlink, or a repository linked in from elsewhere): the merge is of files only.
-    if (links.length + theirLinks.length + ours.length + theirs.length === 0) return undefined;
-    const settings = await this.#codeSettings();
-    const integrate = await this.#integrateOf(tip);
-    const theirTree = (await this.git.worktrees()).find((w) => w.branch === `refs/heads/${childBranch}`)?.path ?? this.dir;
-    const committer = this.#opts.committer ?? DEFAULT_COMMITTER;
-    const edits: TreeEdit[] = [...new Set([...links, ...theirLinks])].map((path) => ({ path, from: head }));
-    const states = [...ours];
-    const results: CodeResult[] = [];
-    const apply: AttachedState[] = [];
-    for (const t of theirs) {
-      const o = ours.find((x) => x.path === t.path);
-      const b = before.find((x) => x.path === t.path);
-      if (o === undefined || b === undefined) continue;
-      let outcome;
-      try {
-        outcome = await assessCode(
-          this.host,
-          this.git.withCwd(this.host.path.join(this.dir, t.path)),
-          {
-            path: t.path,
-            before: b,
-            ours: o,
-            theirs: t,
-            integrate,
-            settings,
-            ourThread: this.branch,
-            theirThread: childBranch,
-            ourDir: this.host.path.join(this.dir, t.path),
-            theirDir: this.host.path.join(theirTree, t.path),
-          },
-          committer,
-          Conversation.#dateOpt(this.#opts).date,
-        );
-      } catch (e) {
-        if (e instanceof AttachedError) throw new ConversationError(e.message);
-        throw e;
-      }
-      const at = states.findIndex((x) => x.path === t.path);
-      if (outcome.kind === "state") {
-        states[at] = outcome.state;
-        apply.push(outcome.state);
-        results.push({ path: t.path, outcome: "merged_state", note: outcome.note });
-      } else if (outcome.kind === "fast_forward") {
-        const { snapshot: _s, ...rest } = o;
-        const moved = { ...rest, base: outcome.to };
-        states[at] = moved;
-        apply.push(moved);
-        // A linked-in repository has no gitlink to move: the record says where it is.
-        if (theirLinks.includes(t.path)) edits.push({ path: t.path, from: tip });
-        results.push({ path: t.path, outcome: "fast_forward", note: outcome.note });
-      } else if (outcome.kind === "left") {
-        results.push({ path: t.path, outcome: "left", branch: outcome.branch, note: outcome.note });
-      }
+  /** Run a code-merge step, turning what is wrong with the attached code into this conversation's own error. */
+  async #code<T>(run: (ctx: CodeMergeContext) => Promise<T>): Promise<T> {
+    try {
+      return await run(this.#codeContext());
+    } catch (e) {
+      if (e instanceof AttachedError) throw new ConversationError(e.message);
+      throw e;
     }
-    const data = new TextEncoder().encode(formatAttached(states));
-    return { edits: [...edits, ...(states.length === 0 ? [] : [{ path: ATTACHED_FILE, data }])], results, apply };
-  }
-
-  /** Put the receiving thread's checkouts as the merge decided. */
-  async #applyCode(plan: CodePlan): Promise<RestoreResult[]> {
-    if (plan.apply.length === 0) return [];
-    return restoreAttached(this.host, this.git, this.branch, plan.apply, this.#opts.committer ?? DEFAULT_COMMITTER);
   }
 
   /**
    * What stops this thread's code from being merged into the thread it came from, as a message with the commands that put it right
-   * (undefined when nothing does). A subagent's `merge` tool asks before handing back, so the subagent can fix its own side: commits
-   * together with uncommitted changes, or commits that have to be rebased onto a parent that has moved on and has nothing uncommitted.
+   * (undefined when nothing does).
    */
-  async codeMergeProblem(): Promise<string | undefined> {
-    if (!(await mayHaveAttached(this.host, this.dir))) return undefined;
-    const entries = (await this.readEntries()).flatMap((e) => (e.ok ? [e.value] : []));
-    const start = entries.findLast((e) => e.$tag === "branch_start");
-    if (start?.$tag !== "branch_start") return undefined;
-    await this.snapshot();
-    const parentBranch = start.from.branch;
-    const parentWt = (await this.git.worktrees()).find((w) => w.branch === `refs/heads/${parentBranch}`);
-    const [head, parentTip] = [await this.git.head(), await this.git.revParse(`refs/heads/${parentBranch}`)];
-    if (parentWt === undefined || head === undefined || parentTip === undefined) return undefined;
-    const base = (await this.git.mergeBase(head, parentTip)) ?? start.from.commit;
-    const [theirs, before, recorded] = [
-      (await recordedAttached(this.host, this.dir)).states,
-      await attachedAtRev(this.git, base),
-      await attachedAtRev(this.git, parentTip),
-    ];
-    const settings = await this.#codeSettings();
-    for (const t of theirs) {
-      const b = before.find((x) => x.path === t.path);
-      const rec = recorded.find((x) => x.path === t.path);
-      if (b === undefined || rec === undefined) continue;
-      const parentRepo = this.git.withCwd(this.host.path.join(parentWt.path, t.path));
-      const [live, branch] = [await parentRepo.revParse("HEAD"), await parentRepo.currentBranch()];
-      if (live === undefined) continue;
-      const ours: AttachedState = { path: t.path, base: live, ...(branch === undefined ? {} : { branch }) };
-      const mine = this.git.withCwd(this.host.path.join(this.dir, t.path));
-      const clean = (await parentRepo.status()).length === 0;
-      const facts = await codeFacts(mine, { before: b, ours, theirs: t });
-      const problem = codeProblem(
-        facts,
-        { path: t.path, before: b, ours, settings, integrate: start.integrate, theirDir: this.host.path.join(this.dir, t.path) },
-        clean,
-      );
-      if (problem !== undefined) return problem;
-    }
-    return undefined;
+  codeMergeProblem(): Promise<string | undefined> {
+    return this.#code(codeMergeProblem);
   }
 
   /**
