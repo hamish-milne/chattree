@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFile, rename, mkdir, writeFile } from "node:fs/promises";
+import { readFile, mkdir, writeFile } from "node:fs/promises";
+import { renameRetrying } from "../support/rename.ts";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { conversationsHome, linkNameFor, quickStart } from "../../app/quick-start.ts";
@@ -56,7 +57,7 @@ describe("quick start", () => {
     const { project, name } = await quickStart(env, { code, key: "." });
     const moved = join(dir, "other", "renamed");
     await mkdir(join(dir, "other"));
-    await rename(code, moved);
+    await renameRetrying(code, moved);
     const f = await inspectFolder({ host }, moved, [{ code: moved, project, name }]);
     assert.equal(f.state.kind, "conversation", "the folder is found by its new path");
     const gone = await inspectFolder({ host }, moved, [{ code: moved, project: join(dir, "nowhere"), name }]);

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { renameRetrying } from "../support/rename.ts";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Git } from "../../src/index.ts";
@@ -85,7 +86,7 @@ describe("code linked in from outside the project", () => {
     await say(convo, "hello");
     const moved = join(root, "elsewhere", "renamed");
     await mkdir(join(root, "elsewhere"));
-    await rename(src, moved);
+    await renameRetrying(src, moved);
     assert.equal(await externalTarget(host, convo.git, "code"), undefined, "the old link is dangling");
     await convo.linkExternal("code", moved);
     assert.equal(await readFile(join(link, "a.txt"), "utf8"), "one\n");
@@ -145,7 +146,7 @@ describe("code linked in from outside the project", () => {
     const exclude = join(dir, ".git", "info", "exclude");
     await writeFile(exclude, (await readFile(exclude, "utf8")).replace("/code\n", ""));
     // 2. Move the repository to where the link was and register it.
-    await rename(src, join(dir, "code"));
+    await renameRetrying(src, join(dir, "code"));
     await git.run(["-c", "protocol.file.allow=always", "submodule", "add", join(dir, "code"), "code"]);
     await git.commit({ message: "Attach the code as a submodule", author: person, committer: person });
     assert.equal(await readFile(join(dir, "code", "a.txt"), "utf8"), "uncommitted\n", "the uncommitted work moved with it");
