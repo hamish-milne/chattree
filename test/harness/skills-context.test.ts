@@ -279,6 +279,30 @@ describe("skills are appendable", () => {
   });
 });
 
+describe("a new thread's setup", () => {
+  test("a fork, a subagent and a new thread start with the parent's tool pins, and can read them", async () => {
+    const { convo } = await fresh([sk("a", "alpha")]);
+    await talk(convo);
+    const pin = await pinDefinition("tool", skillTool().definition, { store: "blob", blobs: convo.store });
+    await convo.setupChange({ tools: { set: { skill: pin } } }, { allow: ["tools_changed", "cache_break"] });
+    const parent = (await convo.setup()).tools;
+    assert.deepEqual(Object.keys(parent), ["skill"]);
+
+    const fork = await convo.fork();
+    assert.deepEqual((await fork.conversation?.setup())?.tools, parent, "the fork has the parent's tools");
+
+    const sub = await convo.spawnSubagent({ brief: "do it", callId: "c1" });
+    const child = sub.conversation as Conversation;
+    await convo.copySetupTo(child, "subagent");
+    assert.deepEqual((await child.setup()).tools, parent, "the subagent has the parent's tools until its host pins its own registry");
+
+    // A new thread starts from the first commit, so the blobs the pins name have to come along with them.
+    const fresh2 = await convo.newThread("side");
+    assert.deepEqual((await fresh2.setup()).tools, parent);
+    assert.ok((await fresh2.store.get(pin.hash)) !== undefined, "the pinned definition can be read in the new thread");
+  });
+});
+
 describe("the skill tool", () => {
   test("an unknown name is an error that lists what exists; no skills says so", async () => {
     const { convo } = await fresh([sk("b", "d"), sk("a", "d")]);

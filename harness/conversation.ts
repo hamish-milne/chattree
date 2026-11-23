@@ -31,6 +31,7 @@ import {
 } from "../src/index.ts";
 import { canonicalInstructionPath, changedFiles, instructionText, isRepoPath } from "./instruction-files.ts";
 import { BLOBS_DIR, HostBlobStore, RecordingBlobStore, blobRefs, setupBlobs } from "./blob-store.ts";
+import { isMcpTool } from "./mcp/servers.ts";
 import { harnessConfig, type HarnessConfig } from "./config.ts";
 import { addGrants, revokeGrants, untilMs } from "./approvals.ts";
 import { swapIgnored } from "./workspace-swap.ts";
@@ -2566,13 +2567,30 @@ export class Conversation {
     const source = await this.setup();
     if (source.model === undefined) return;
     const { provider, id, settings } = opts.model ?? source.model;
+    // A pin names a blob. A thread that starts from the conversation's first commit (a new thread) does not have the ones made since, and
+    // one that branched from here does already: the target gets those it lacks, before anything reads them.
+    // The tools of MCP servers are not copied: they follow the servers the new thread is given (`syncMcpTools`), and a child set to
+    // have none (`subagent.mcp: none`) must not start with their pins.
+    const ownTools = Object.fromEntries(Object.entries(source.tools).filter(([n]) => !isMcpTool(n)));
+    const blobs = setupBlobs({
+      instructions: source.instructions,
+      files: source.files,
+      tools: { set: ownTools },
+      skills: { set: source.skills },
+      mcp: { set: source.mcp },
+    });
+    for (const hash of new Set(blobs)) {
+      if ((await target.store.get(hash)) !== undefined) continue;
+      const data = await this.store.get(hash);
+      if (data !== undefined) await target.store.put(data);
+    }
     await target.setupChange(
       {
         model: { provider, id, ...(settings === undefined ? {} : { settings }) },
-        ...(Object.keys(source.tools).length > 0 ? { tools: source.tools } : {}),
         ...(source.instructions === undefined ? {} : { instructions: source.instructions }),
-        // A definition section is a delta: what a new agent starts with is `set`. (Tools are left to the host, which
-        // pins its own registry.)
+        // A definition section is a delta: what a new agent starts with is `set`. The tools are the parent's too; a host
+        // that gives the new thread a registry of its own (a subagent's) pins that over them (`syncTools` removes what it lacks).
+        ...(Object.keys(ownTools).length > 0 ? { tools: { set: ownTools } } : {}),
         ...(Object.keys(source.skills).length > 0 ? { skills: { set: source.skills } } : {}),
         ...(Object.keys(source.mcp).length > 0 ? { mcp: { set: source.mcp } } : {}),
         ...(source.pricing === undefined ? {} : { pricing: source.pricing }),

@@ -119,7 +119,6 @@ Reported while the module comments were written, then each read in the code on t
 
 **Real defects**
 
-- **`copySetupTo` ignores tools** (`harness/conversation.ts`). It passes `tools` as a name-to-pin map where a change expects `{set, remove}`, and `minimizeChange` reads only those keys, so a new thread or subagent starts with no tool pins from its parent. This is masked today because the CLI pins its own registry when the loop starts, but another host would get no tools, and the comment beside the line says tools are left to the host. First step: wrap it as skills and MCP are, with a test that a fork and a subagent start with the parent's pins, or delete the line and say so.
 - **`ensureLlamaServer` records a program's hash in memory before it is verified** (`localmodels/install.ts`). If the program then fails to start, the entry stays and the next `lock.save()` writes it; a later release file of the same name with a different hash is then refused. Low impact (the hash is of a download that was itself checked), but wrong. First step: set the entry after the verify step.
 - **The Responses chained-request fallback keys on the error message** matching `/previous_response/` (`providers/openai-responses.ts`), which breaks if the provider rewords it. First step: key on the error's code or status where the API gives one.
 - **A trim's worth-check assumes 4 bytes a token** while the summary budget and the estimator assume 3 (`harness/compaction.ts`; the config comment says 3). Pick one constant.
