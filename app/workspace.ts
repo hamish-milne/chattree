@@ -7,8 +7,11 @@ import type { AppEnv } from "./env.ts";
 export type FolderState =
   /** It holds a conversation (at `root`) that opens. */
   | { kind: "conversation" }
-  /** It holds none yet: `new` makes a git repository in it, `adopt` starts on the checked-out branch of the repository it is. */
-  | { kind: "init"; mode: "new" | "adopt" }
+  /**
+   * It holds none yet: `new` makes a git repository in it, `quick` is a repository (its top level) that gets a conversation of its own,
+   * kept outside it, with the repository attached to it (ADR 40).
+   */
+  | { kind: "init"; mode: "new" | "quick" }
   /** Nothing can be done with it, and why. */
   | { kind: "unusable"; reason: string };
 
@@ -20,17 +23,48 @@ export interface WorkspaceFolder {
   /** The top level of the repository that holds a conversation, which is where the project is (the folder itself, or an ancestor); else the folder. */
   root: string;
   state: FolderState;
-  /** The folder is itself an attached repository (a submodule) of the conversation at `root`: its path from there. */
+  /** The folder is itself an attached repository of the conversation at `root` (a submodule, or linked in): what the conversation calls it. */
   attachedAs?: string;
+  /** The folder's conversation was found through a `WorkspaceLink`: the link in the conversation is to be made again here if it is elsewhere. */
+  linked?: WorkspaceLink;
+}
+
+/**
+ * A code repository whose conversation is kept elsewhere, as the host's own record has it: the repository (absolute), the conversation's
+ * folder, and the name the repository has in the conversation. The record lives with the code, so it survives the code being moved.
+ */
+export interface WorkspaceLink {
+  code: string;
+  project: string;
+  name: string;
 }
 
 const failure = (e: unknown): string => (e instanceof Error ? e.message : String(e));
 
 /** Look at one folder: is there a conversation, can one be started, or neither. Never throws: a problem is the folder's `unusable` reason. */
-export async function inspectFolder(env: Pick<AppEnv, "host">, path: string): Promise<WorkspaceFolder> {
+export async function inspectFolder(
+  env: Pick<AppEnv, "host">,
+  path: string,
+  links: readonly WorkspaceLink[] = [],
+): Promise<WorkspaceFolder> {
   const { host } = env;
   const name = path.split(/[\\/]/).findLast((part) => part !== "") ?? path;
   const folder = (root: string, state: FolderState): WorkspaceFolder => ({ path, name, root, state });
+  const link = links.find((l) => host.path.resolve(l.code) === host.path.resolve(path));
+  if (link !== undefined) {
+    if ((await host.fs.stat(link.project)) === undefined)
+      return folder(path, {
+        kind: "unusable",
+        reason: `the conversation for this folder was kept in ${link.project}, which is not there now (remove ${link.name} from chattree.attach to start again)`,
+      });
+    const outer = await inspectFolder(env, link.project);
+    return outer.state.kind === "conversation"
+      ? { ...outer, path, name, attachedAs: link.name, linked: link }
+      : folder(path, {
+          kind: "unusable",
+          reason: `the conversation at ${link.project} cannot be used: ${outer.state.kind === "unusable" ? outer.state.reason : "it holds none"}`,
+        });
+  }
   if ((await host.fs.stat(path)) === undefined) return folder(path, { kind: "unusable", reason: "the folder does not exist" });
   const probe = await Git.open(host, { cwd: path }).catch(() => undefined);
   const top =
@@ -69,7 +103,7 @@ export async function inspectFolder(env: Pick<AppEnv, "host">, path: string): Pr
     if (outer.state.kind === "conversation")
       return { ...outer, path, name, attachedAs: host.path.relative(outer.root, root).replaceAll("\\", "/") };
   }
-  if (host.path.resolve(root) === host.path.resolve(path)) return folder(root, { kind: "init", mode: "adopt" });
+  if (host.path.resolve(root) === host.path.resolve(path)) return folder(root, { kind: "init", mode: "quick" });
   return folder(root, {
     kind: "unusable",
     reason: `inside the git repository ${root}, which has no conversation (start one in that folder)`,
@@ -77,10 +111,14 @@ export async function inspectFolder(env: Pick<AppEnv, "host">, path: string): Pr
 }
 
 /** The folders of the workspace, in order; two that belong to the same conversation are listed once. */
-export async function inspectWorkspace(env: Pick<AppEnv, "host">, paths: readonly string[]): Promise<WorkspaceFolder[]> {
+export async function inspectWorkspace(
+  env: Pick<AppEnv, "host">,
+  paths: readonly string[],
+  links: readonly WorkspaceLink[] = [],
+): Promise<WorkspaceFolder[]> {
   const out: WorkspaceFolder[] = [];
   for (const p of paths) {
-    const f = await inspectFolder(env, p);
+    const f = await inspectFolder(env, p, links);
     if (!out.some((o) => o.root === f.root && o.state.kind === "conversation" && f.state.kind === "conversation")) out.push(f);
   }
   return out;

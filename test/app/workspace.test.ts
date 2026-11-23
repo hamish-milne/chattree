@@ -16,7 +16,7 @@ const start = async (dir: string, adopt = false) =>
   runInit({ host, cwd: dir, env: { CHATTREE_SETTINGS: join(dir, "s", "settings.yml") }, now: Date.now }, { dir, provider: "none", adopt });
 
 describe("what can be done with a workspace folder", () => {
-  test("a plain folder can get a new repository; a repository that has none can be adopted", async () => {
+  test("a plain folder can get a new repository; a repository that has none can be given one of its own", async () => {
     const dir = await tempDir();
     await mkdir(join(dir, "plain"));
     assert.deepEqual((await inspectFolder({ host }, join(dir, "plain"))).state, { kind: "init", mode: "new" });
@@ -27,7 +27,7 @@ describe("what can be done with a workspace folder", () => {
     await writeFile(join(repo, "a.txt"), "a");
     await git.run(["add", "."]);
     await git.run(["commit", "-m", "a"]);
-    assert.deepEqual((await inspectFolder({ host }, repo)).state, { kind: "init", mode: "adopt" });
+    assert.deepEqual((await inspectFolder({ host }, repo)).state, { kind: "init", mode: "quick" });
   });
 
   test("a folder inside a repository without a conversation cannot be started, and says where to", async () => {

@@ -57,7 +57,7 @@ const REPO_FIXTURES: readonly RepoEntry[] = [
     path: "~/work/legacy-api",
     chattree: false,
     reason: "not a chattree repository (no conversation found)",
-    init: "adopt",
+    init: "quick",
   },
   {
     id: "scratch",
@@ -686,7 +686,7 @@ export class MockController {
     if (repo === undefined) return;
     if (repo.init === undefined) return this.notify("warning", `${repo.name}: ${repo.reason ?? "cannot be initialized"}`);
     if (this.turn !== undefined) return this.notify("warning", "A turn is running here; stop it before switching repository");
-    const trunk = repo.init === "adopt" ? "master" : "main";
+    const trunk = "main";
     this.repos = this.repos.map((r) => {
       if (r.id !== id) return r;
       const { init: _, reason: __, ...rest } = r;
@@ -719,7 +719,7 @@ export class MockController {
     this.forms.set("harness", { saved: bare, working: bare });
     this.emit({ type: "form.set", form: bare });
     this.emit({ type: "settings.open", page: "providers" });
-    this.notify("info", `Started a conversation in ${repo.path}${repo.init === "adopt" ? ` on its branch ${trunk}` : ""}`);
+    this.notify("info", repo.init === "quick" ? `Started a conversation for ${repo.path}` : `Started a conversation in ${repo.path}`);
   }
 
   /** Archive a thread or bring it back, as `Conversation.archive` does: not the trunk, not one that is working or checked out. */

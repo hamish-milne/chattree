@@ -18,6 +18,7 @@ chattree is an agent harness that keeps every conversation in Git. You talk to a
 |---|---|
 | [Getting started](getting-started.md) | Install, create a conversation, send a message |
 | [Concepts](concepts.md) | Threads, forks, subagents, the workspace, how history is stored |
+| [Attached repositories](attached-repositories.md) | Keeping your code apart from the conversation, quick start, moving to a submodule |
 | [Commands](commands.md) | Every command and verb |
 | [Configuration](configuration.md) | `harness.yml`, the user settings file, limits and approvals |
 | [Tools and approvals](tools-and-approvals.md) | What the model can do and how permission works |

@@ -37,6 +37,8 @@ A long conversation can outgrow the model's context window. `/compact trim` leav
 
 ## Code in an attached repository
 
+The full guide, including the editor's quick start, is [Attached repositories](attached-repositories.md).
+
 Production code can live in a git submodule of the thread's repository. The thread's repository is then the scratch space and the transcript, and the submodule holds the code that is to ship. The model is free to use git inside it.
 
 - Whatever is uncommitted in the code is recorded with every snapshot (in `attached.yml`), so rewinding or forking a thread brings the code back as it was.

@@ -75,7 +75,7 @@ describe("the protocol", () => {
         repos: [
           { id: "a", name: "a", path: "~/a", chattree: true },
           { id: "b", name: "b", path: "~/b", chattree: false, reason: "no conversation" },
-          { id: "c", name: "c", path: "~/c", chattree: false, init: "adopt" },
+          { id: "c", name: "c", path: "~/c", chattree: false, init: "quick" },
         ],
         current: "a",
       },

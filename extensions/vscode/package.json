@@ -46,6 +46,15 @@
     "configuration": {
       "title": "chattree",
       "properties": {
+        "chattree.attach": {
+          "type": "object",
+          "scope": "resource",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Which conversation each code repository in this folder has, as a map from the repository's path (relative to this folder, `.` for the folder itself) to the folder of its chattree conversation. Written by the quick start; it lives with the code, so it survives the folder being moved or renamed. "
+        },
         "chattree.saveBeforeSend": {
           "type": "boolean",
           "default": true,

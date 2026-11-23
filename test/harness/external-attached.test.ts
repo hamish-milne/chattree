@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { describe, test } from "node:test";
 import { Git } from "../../src/index.ts";
@@ -132,5 +132,30 @@ describe("code linked in from outside the project", () => {
     await (await Git.open(host, { cwd: src })).detach();
     const detached = await pushAttached(host, convo.git);
     assert.match(detached[0]?.note ?? "", /no branch/);
+  });
+
+  test("the steps in the guide for moving to a submodule work: nothing is lost, and threads carry on", async () => {
+    const { convo, src, dir, root } = await rig();
+    await writeFile(join(src, "a.txt"), "uncommitted\n");
+    await say(convo, "before");
+    const git = convo.git;
+    // 1. Stop treating it as linked in: the link, the config entry and the line in info/exclude.
+    await rm(join(dir, "code"));
+    await git.run(["config", "--local", "--unset-all", "chattree.external"]);
+    const exclude = join(dir, ".git", "info", "exclude");
+    await writeFile(exclude, (await readFile(exclude, "utf8")).replace("/code\n", ""));
+    // 2. Move the repository to where the link was and register it.
+    await rename(src, join(dir, "code"));
+    await git.run(["-c", "protocol.file.allow=always", "submodule", "add", join(dir, "code"), "code"]);
+    await git.commit({ message: "Attach the code as a submodule", author: person, committer: person });
+    assert.equal(await readFile(join(dir, "code", "a.txt"), "utf8"), "uncommitted\n", "the uncommitted work moved with it");
+    await say(convo, "after");
+    const [s] = parseAttached(await readFile(join(dir, ATTACHED_FILE), "utf8"));
+    assert.equal(s?.path, "code");
+    assert.ok(s?.snapshot !== undefined);
+    const { conversation } = await convo.fork(undefined, { name: "later" });
+    assert.ok(conversation !== undefined);
+    assert.equal(await readFile(join(conversation.dir, "code", "a.txt"), "utf8"), "uncommitted\n");
+    assert.ok(root.length > 0);
   });
 });

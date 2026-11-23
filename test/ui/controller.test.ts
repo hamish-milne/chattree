@@ -6,6 +6,9 @@ import { Git } from "../../src/index.ts";
 import { runInit } from "../../app/init.ts";
 import { Conversation } from "../../harness/conversation.ts";
 import { nodeHost } from "../../hosts/node.ts";
+import { externalTarget } from "../../harness/external.ts";
+import { headlessPlatform } from "../../ui/controller/platform.ts";
+import { mkdir, rename } from "node:fs/promises";
 import { Controller } from "../../ui/controller/controller.ts";
 import { parseEvent, type UiEvent } from "../../ui/model/protocol.ts";
 import { tempDir } from "../support/tmp.ts";
@@ -36,6 +39,63 @@ async function rig(extra: string[] = []) {
 }
 
 describe("the controller, reading", () => {
+  test("a quick start keeps the conversation outside the repository, the editor is told where, and a moved repository is linked again", async () => {
+    const dir = await tempDir();
+    const env = {
+      host,
+      cwd: dir,
+      env: { CHATTREE_DATA: join(dir, "data"), CHATTREE_SETTINGS: join(dir, "s", "settings.yml") },
+      now: Date.now,
+    };
+    const person = { name: "p", email: "p@p" };
+    const code = join(dir, "work", "app");
+    const git = await Git.init(host, code, { branch: "main" });
+    await writeFile(join(code, "a.txt"), "one\n");
+    await git.add(["."]);
+    await git.commit({ message: "c1", author: person, committer: person });
+    const saved: [string, string, string][] = [];
+    const platform = { ...headlessPlatform, saveAttach: (f: string, k: string, p: string) => (saved.push([f, k, p]), Promise.resolve()) };
+    const events: UiEvent[] = [];
+    const make = (folder: string, links: { code: string; project: string; key: string }[] = []) =>
+      new Controller({ pollMs: 0, env, folders: [folder], links, platform, send: (e) => events.push(e), session: "test" });
+
+    const c = make(code);
+    c.handle({ type: "ready", view: "graph" });
+    await c.idle();
+    const first = events.find((e) => e.type === "graph.repos");
+    assert.ok(first?.type === "graph.repos");
+    assert.deepEqual(
+      first.repos.repos.map((r) => [r.chattree, r.init]),
+      [[false, "quick"]],
+    );
+    c.handle({ type: "repo.init", id: code });
+    await c.idle();
+    assert.equal(saved.length, 1);
+    assert.deepEqual(saved[0]?.slice(0, 2), [code, "."]);
+    const project = saved[0]?.[2] ?? "";
+    assert.ok(project.startsWith(join(dir, "data")), project);
+    assert.equal((await git.status()).length, 0, "the repository is as it was");
+    await c.close();
+
+    // The folder is moved and renamed; the record that moved with it says where its conversation is.
+    const moved = join(dir, "work2", "renamed");
+    await mkdir(join(dir, "work2"));
+    await rename(code, moved);
+    events.length = 0;
+    const d = make(moved, [{ code: moved, project, key: "." }]);
+    d.handle({ type: "ready", view: "graph" });
+    await d.idle();
+    const again = events.find((e) => e.type === "graph.repos");
+    assert.ok(again?.type === "graph.repos");
+    assert.deepEqual(
+      again.repos.repos.map((r) => [r.chattree, r.attachedAs]),
+      [[true, "code"]],
+    );
+    const pgit = await Git.open(host, { cwd: project });
+    assert.equal(await externalTarget(host, pgit, "code"), await host.fs.realpath(moved));
+    await d.close();
+  });
+
   test("a workspace opened on an attached repository shows the conversation above it, marked as attached", async () => {
     const dir = await tempDir();
     const env = { host, cwd: dir, env: { CHATTREE_SETTINGS: join(dir, "settings", "settings.yml") }, now: Date.now };

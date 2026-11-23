@@ -4,6 +4,7 @@
  * is reached through `platform.ts`.
  */
 import { randomBytes } from "node:crypto";
+import { resolve } from "node:path";
 import * as vscode from "vscode";
 import { nodeHost } from "chattree/hosts/node";
 import { Controller } from "chattree/ui/controller/controller";
@@ -65,6 +66,13 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(vscode.workspace.registerTextDocumentContentProvider(SNAPSHOT_SCHEME, snapshots));
 
   const folders = (vscode.workspace.workspaceFolders ?? []).map((f) => f.uri.fsPath);
+  // Where each folder's code has its conversation (quick start): kept in the folder's own settings, so it moves with the code.
+  const links = (vscode.workspace.workspaceFolders ?? []).flatMap((f) => {
+    const map = vscode.workspace.getConfiguration("chattree", f.uri).inspect<Record<string, unknown>>("attach")?.workspaceFolderValue ?? {};
+    return Object.entries(map).flatMap(([key, project]) =>
+      typeof project === "string" && project !== "" ? [{ code: resolve(f.uri.fsPath, key), project, key }] : [],
+    );
+  });
   const env = { host: nodeHost(), cwd: folders[0] ?? process.cwd(), env: process.env, now: Date.now };
   const controllers: Controller[] = [];
   const bridge = new Bridge(
@@ -72,6 +80,7 @@ export function activate(context: vscode.ExtensionContext): void {
       const c = new Controller({
         env,
         folders,
+        links,
         send: emit,
         platform: vscodePlatform(snapshots),
         session: `vscode-${process.pid}`,

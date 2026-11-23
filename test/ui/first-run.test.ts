@@ -32,7 +32,7 @@ describe("starting a conversation in a workspace folder", () => {
     assert.deepEqual(
       graph.initializable.value.map((r) => [r.name, r.init]),
       [
-        ["legacy-api", "adopt"],
+        ["legacy-api", "quick"],
         ["scratch", "new"],
       ],
     );
@@ -69,18 +69,18 @@ describe("starting a conversation in a workspace folder", () => {
     void controller;
   });
 
-  test("a folder that is already a git repository asks first, and says the conversation shares its branch", () => {
+  test("a folder that is already a git repository asks first, and says the repository is not touched", () => {
     const { graph, events } = rig();
     graph.initRepo("legacy-api");
     assert.equal(graph.initializing.value, "legacy-api");
-    assert.match(graph.initConfirmation.value?.lines.join(" ") ?? "", /branch that is checked out/);
+    assert.match(graph.initConfirmation.value?.lines.join(" ") ?? "", /stay as they are/);
     graph.cancelInit();
     assert.equal(graph.repos.value?.current, "retry-client");
     graph.initRepo("legacy-api");
     events.length = 0;
     graph.confirmInit();
     assert.equal(graph.repos.value?.current, "legacy-api");
-    assert.equal(graph.data.value?.trunk, "master", "on the branch that was there");
+    assert.equal(graph.data.value?.trunk, "main");
   });
 
   test("a folder that cannot be initialized, or is already a conversation, sends nothing", () => {

@@ -36,6 +36,12 @@ export function vscodePlatform(snapshots: SnapshotProvider): Platform {
     async beforeSend() {
       if (vscode.workspace.getConfiguration("chattree").get<boolean>("saveBeforeSend", true)) await vscode.workspace.saveAll(false);
     },
+    async saveAttach(folder, key, project) {
+      const uri = vscode.Uri.file(folder);
+      const config = vscode.workspace.getConfiguration("chattree", uri);
+      const have = config.inspect<Record<string, string>>("attach")?.workspaceFolderValue ?? {};
+      await config.update("attach", { ...have, [key]: project }, vscode.ConfigurationTarget.WorkspaceFolder);
+    },
     copy: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
     async pickFiles() {
       const picked = await vscode.window.showOpenDialog({ canSelectMany: true, openLabel: "Attach" });

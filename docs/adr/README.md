@@ -43,3 +43,4 @@ Format: context, decision, why, notes. A record is not edited when a decision ch
 - [37](0037-external-changes.md) Files changed outside the chat are told to the model
 - [38](0038-attached-repositories.md) Production code lives in attached repositories, with its uncommitted state recorded
 - [39](0039-minimum-git-2-40.md) Minimum Git version is 2.40
+- [40](0040-quick-start.md) A quick start keeps the conversation outside the repository

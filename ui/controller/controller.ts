@@ -10,9 +10,10 @@ import { buildToolSet, type ToolSet } from "../../app/toolset.ts";
 import { localOwner } from "../../app/owner.ts";
 import type { AppEnv } from "../../app/env.ts";
 import { AppError } from "../../app/errors.ts";
-import { inspectWorkspace, type WorkspaceFolder } from "../../app/workspace.ts";
+import { inspectWorkspace, type WorkspaceFolder, type WorkspaceLink } from "../../app/workspace.ts";
 import { ChangeNotAllowed } from "../../harness/setup.ts";
 import type { RestoreResult } from "../../harness/attached.ts";
+import { externalTarget } from "../../harness/external.ts";
 import { WorkspaceDirty, type Conversation, type EntryRef } from "../../harness/conversation.ts";
 import type { ChatEntry } from "../../harness/entries.ts";
 import { readCommitGraph } from "../../harness/graph.ts";
@@ -50,12 +51,15 @@ import {
   readHarness,
   withValue,
 } from "./settings.ts";
+import { linkNameFor, quickStart } from "../../app/quick-start.ts";
 import { headlessPlatform, type Platform } from "./platform.ts";
 
 export interface ControllerOptions {
   env: AppEnv;
   /** The folders of the workspace, as the editor has them open. */
   folders: readonly string[];
+  /** Code repositories whose conversations are kept elsewhere (quick start), as the editor's record of them has it. */
+  links?: readonly { code: string; project: string; key: string }[];
   /** Send an event to the views. */
   send(event: UiEvent): void;
   platform?: Platform;
@@ -149,6 +153,7 @@ export class Controller implements HostedController {
   #seen: string | undefined;
   #refreshing = false;
   #folders: WorkspaceFolder[] = [];
+  #links: WorkspaceLink[] = [];
   #repo: Repo | undefined;
   #started: Promise<void> | undefined;
   #closed = false;
@@ -198,6 +203,7 @@ export class Controller implements HostedController {
   constructor(o: ControllerOptions) {
     this.#o = o;
     this.#platform = o.platform ?? headlessPlatform;
+    this.#links = (o.links ?? []).map((l) => ({ code: l.code, project: l.project, name: linkNameFor(l.key) }));
     this.#session = o.session ?? `ui-${Math.random().toString(36).slice(2, 10)}`;
     // CHATTREE_ENVIRONMENT=off leaves the note about this machine out, for tests that need the transcript to hold only what was typed.
     this.#environment = o.env.env["CHATTREE_ENVIRONMENT"] === "off" ? undefined : hostEnvironment(o.env);
@@ -357,7 +363,7 @@ export class Controller implements HostedController {
   /** Look at the folders and open the first that holds a conversation, once. */
   #start(): Promise<void> {
     return (this.#started ??= (async () => {
-      this.#folders = await inspectWorkspace(this.#o.env, this.#o.folders);
+      this.#folders = await inspectWorkspace(this.#o.env, this.#o.folders, this.#links);
       const first = this.#folders.find((f) => f.state.kind === "conversation");
       if (first !== undefined) await this.#enter(first);
       const every = this.#o.pollMs ?? 500;
@@ -398,6 +404,16 @@ export class Controller implements HostedController {
     const found = await findProject(env, folder.root);
     const main = found.mainRoot === found.root ? found : await findProject(env, found.mainRoot);
     const { convo } = await openThread(env, main, undefined, { providers: "optional" });
+    // The conversation was found through the code's own record of where it is: if the code has moved, its link is made again here.
+    const link = folder.linked;
+    if (link !== undefined) {
+      try {
+        if ((await externalTarget(env.host, convo.git, link.name)) !== (await env.host.fs.realpath(link.code)))
+          await convo.linkExternal(link.name, link.code);
+      } catch (e) {
+        this.#notify(`Could not link ${link.code} into its conversation: ${message(e)}`, "warning");
+      }
+    }
     const old = this.#repo;
     await this.#bg?.close();
     this.#bg = undefined;
@@ -422,9 +438,21 @@ export class Controller implements HostedController {
     if (folder.state.kind === "unusable") throw new AppError(`${folder.name}: ${folder.state.reason}`);
     if (folder.state.kind === "conversation") throw new AppError(`${folder.name} already has a conversation`);
     if (this.#runs.size > 0) throw new AppError("the model is working", "stop it before switching repository");
-    const adopt = folder.state.mode === "adopt";
-    const done = await runInit(this.#o.env, { dir: folder.path, provider: "none", ...(adopt ? { adopt: true } : {}) });
-    this.#folders = await inspectWorkspace(this.#o.env, this.#o.folders);
+    const quick = folder.state.mode === "quick";
+    let done: { branch: string } | undefined;
+    if (quick) {
+      // The repository keeps no file of ours: its conversation is in the data directory, with the repository attached to it, and the
+      // editor remembers where, with the code (`key` `.`: the workspace folder is the repository).
+      const started = await quickStart(this.#o.env, { code: folder.path, key: "." });
+      this.#links = [
+        ...this.#links.filter((l) => l.code !== folder.path),
+        { code: folder.path, project: started.project, name: started.name },
+      ];
+      await this.#platform.saveAttach?.(folder.path, ".", started.project);
+      if (this.#platform.saveAttach === undefined)
+        this.#notify("The link between this folder and its conversation is not saved here: it lasts until this window closes", "warning");
+    } else done = await runInit(this.#o.env, { dir: folder.path, provider: "none" });
+    this.#folders = await inspectWorkspace(this.#o.env, this.#o.folders, this.#links);
     const now = this.#folders.find((f) => f.path === id);
     if (now === undefined || now.state.kind !== "conversation")
       throw new AppError(`${folder.name} could not be opened after it was started`);
@@ -433,10 +461,10 @@ export class Controller implements HostedController {
     if (this.#repo !== undefined) await (await this.#handle(this.#repo, this.#repo.trunk)).approveConfig();
     this.#settingsOpen = true;
     await this.#sendGraph();
-    await this.#openChat(this.#repo?.checkedOut ?? done.branch);
+    await this.#openChat(this.#repo?.checkedOut ?? done?.branch ?? now.root);
     await this.#sendHarness();
     this.#emit({ type: "settings.open", page: "providers" });
-    this.#notify(`Started a conversation in ${folder.path}${adopt ? ` on its branch ${done.branch}` : ""}`);
+    this.#notify(quick ? `Started a conversation for ${folder.path}, kept in ${now.root}` : `Started a conversation in ${folder.path}`);
   }
 
   async #dropHandles(): Promise<void> {

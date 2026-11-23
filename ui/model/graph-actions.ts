@@ -126,10 +126,19 @@ export function deleteDialog(data: GraphData, name: string): { title: string; li
 }
 
 /**
- * The words of the confirmation before a conversation is started in a folder that is already a git repository: it
- * shares the checked-out branch, and every entry commits the working tree's pending changes with it.
+ * The words of the confirmation before a conversation is started in a folder that is already a git repository: a
+ * quick start keeps it outside the repository and adds nothing to it.
  */
 export function initDialog(repo: RepoEntry): { title: string; lines: string[]; confirm: string } {
+  if (repo.init === "quick")
+    return {
+      title: `Start a conversation for “${repo.name}”?`,
+      lines: [
+        `${repo.path} is a git repository. The conversation is kept in chattree's conversations folder, not in the repository, so your branches, commits and files stay as they are. All chattree adds are hidden refs under refs/chattree, which hold what it needs to put your work back.`,
+        "The agent works on the files as they are in your folder, and commits only when you ask. The link to the conversation is saved in this folder's .vscode/settings.json (chattree.attach), so it follows the folder if you move or rename it.",
+      ],
+      confirm: "Start conversation",
+    };
   return {
     title: `Start a conversation in “${repo.name}”?`,
     lines: [

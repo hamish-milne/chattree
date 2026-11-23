@@ -23,6 +23,11 @@ export interface Platform {
   copy(text: string): Promise<void>;
   /** Let the person pick files; none if they cancel. */
   pickFiles(): Promise<PickedFile[]>;
+  /**
+   * Remember, with the code and so that it moves with it, that the repository `key` (a path relative to the workspace folder, `.` for the
+   * folder itself) has its conversation at `project`. Absent where nothing can keep it: the link then lasts only this session.
+   */
+  saveAttach?(folder: string, key: string, project: string): Promise<void>;
   /** Called before a message is put on the thread, so an editor can save what the person has open for the model to see. */
   beforeSend?(): Promise<void>;
 }
