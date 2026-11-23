@@ -35,6 +35,22 @@ async function waitFor(pred: () => boolean | Promise<boolean>, what: string, ms 
   }
 }
 
+/**
+ * A check that asks again by typing `command`, but no more than twice a second: on a slow machine (Windows CI) a command every poll
+ * queues faster than the terminal answers, and the screen it waits for never settles.
+ */
+function retyping(t: { type(s: string): void }, command: string, seen: () => boolean): () => boolean {
+  let last = 0;
+  return () => {
+    if (seen()) return true;
+    if (Date.now() - last >= 500) {
+      last = Date.now();
+      t.type(command);
+    }
+    return false;
+  };
+}
+
 async function started(replies: Reply[], files: Record<string, string> = {}) {
   const server = await FakeServer.start(replies);
   const dir = join(await tempDir(), "p");
@@ -529,12 +545,18 @@ describe("/runs", () => {
       t.type("delegate\n\n");
       await waitFor(() => t.screen().includes("Allow this"), "the approval");
       t.type("y\n");
-      await waitFor(() => /sub\/slow-[0-9a-z]{6} {2}subagent {2}running/.test((t.type("/runs\n"), t.screen())), "the run listed");
+      await waitFor(
+        retyping(t, "/runs\n", () => /sub\/slow-[0-9a-z]{6} {2}subagent {2}running/.test(t.screen())),
+        "the run listed",
+      );
       const branch = /(sub\/slow-[0-9a-z]{6}) {2}subagent {2}running/.exec(t.screen())?.[1] as string;
       await waitFor(() => server.seen.length >= 2, "the child's request to be in flight");
       t.type(`/runs stop ${branch}\n`);
       await waitFor(() => t.screen().includes("stopping"), "the stop");
-      await waitFor(() => (t.type("/runs\n"), /subagent {2}idle/.test(t.screen())), "the run idle");
+      await waitFor(
+        retyping(t, "/runs\n", () => /subagent {2}idle/.test(t.screen())),
+        "the run idle",
+      );
       t.type(`/runs say ${branch} please wrap up\n`);
       await waitFor(() => t.screen().includes("parent is done"), "the parent reply");
       t.type("/quit\n");

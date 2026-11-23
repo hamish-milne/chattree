@@ -145,7 +145,7 @@ describe("the controller, turns that start other threads", () => {
         while (view.approval.value?.callId !== id && Date.now() < deadline) await new Promise((r) => setTimeout(r, 20));
         c.handle({ type: "chat.approve", callId: id, allow: true });
       }
-      const deadline = Date.now() + 20000;
+      const deadline = Date.now() + 60000;
       const texts = (): string[] => view.blocks.value.flatMap((b) => (b.type === "assistant" ? [b.markdown] : []));
       while (!texts().includes("Started.") && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));
       assert.ok(texts().includes("Started."), `finished: ${JSON.stringify(view.blocks.value.map((b) => b.type))}`);
