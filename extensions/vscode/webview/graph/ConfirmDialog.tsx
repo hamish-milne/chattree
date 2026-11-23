@@ -113,7 +113,7 @@ export function SwitchDialog({ model }: { model: Model }): JSX.Element | null {
   );
 }
 
-/** Asked before a conversation is started in a folder that is already a git repository (it shares the branch checked out there). */
+/** Asked before a conversation is started in a folder that is already a git repository (a quick start: the conversation is kept elsewhere). */
 export function InitDialog({ model }: { model: Model }): JSX.Element | null {
   const c = model.initConfirmation.value;
   const cancel = useRef<HTMLButtonElement>(null);
