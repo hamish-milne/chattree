@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "es2025",
+    "lib": ["es2025", "webworker", "esnext.disposable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "types": ["node", "vscode"],
+    "noEmit": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

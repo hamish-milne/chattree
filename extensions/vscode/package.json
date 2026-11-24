@@ -29,14 +29,15 @@
     "webdriverio": "9.33.1"
   },
   "scripts": {
-    "typecheck": "node --no-warnings tools/gen-css-types.mts && tsc -p tsconfig.json && tsc -p tools/tsconfig.json && tsc -p src/tsconfig.json && tsc -p e2e/tsconfig.json",
+    "typecheck": "node --no-warnings tools/gen-css-types.mts && tsc -p tsconfig.json && tsc -p tools/tsconfig.json && tsc -p src/tsconfig.json && tsc -p e2e/tsconfig.json && tsc -p probe/tsconfig.json",
     "build:web": "node --no-warnings tools/build-web.mts",
     "build:preview": "node --no-warnings tools/build-preview.mts",
     "preview": "node --no-warnings tools/serve-preview.mts",
     "dev": "node --no-warnings tools/dev.mts",
     "gen:css": "node --no-warnings tools/gen-css-types.mts",
     "build": "node --no-warnings tools/build-extension.mts",
-    "test:e2e": "pnpm build && wdio run e2e/wdio.conf.mts"
+    "test:e2e": "pnpm build && wdio run e2e/wdio.conf.mts",
+    "probe:inline": "node --no-warnings tools/build-probe.mts && wdio run e2e/probe.conf.mts"
   },
   "activationEvents": [],
   "categories": [

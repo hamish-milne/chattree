@@ -1,0 +1,31 @@
+{
+  "name": "completions-probe",
+  "displayName": "chattree completions probe",
+  "description": "Not for use: asks VS Code what its inline completion and inline edit APIs do, for the design of code completions in chattree",
+  "version": "0.0.1",
+  "private": true,
+  "license": "MIT",
+  "publisher": "chattree-probe",
+  "engines": {
+    "vscode": "^1.146.0"
+  },
+  "main": "./dist/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "enabledApiProposals": [
+    "inlineCompletionsAdditions"
+  ],
+  "contributes": {
+    "commands": [
+      {
+        "command": "completionsProbe.setMode",
+        "title": "completions probe: set mode"
+      },
+      {
+        "command": "completionsProbe.log",
+        "title": "completions probe: read the log"
+      }
+    ]
+  }
+}
