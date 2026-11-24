@@ -209,10 +209,28 @@ Size is set by latency, not by capability alone: roughly 1B to 7B (or a mixture-
 
 A replay bench, like `tools/dialect-bench.ts`, run over git history: a **fim** task blanks a syntactic region of a file at a commit and scores exact match and edit similarity against the original; a **next-edit** task gives the state and the previous diff and scores whether it found the right place and the right content (the paper's position match and exact match). Report time to the first token and in total, with the prefix cache cold and warm, and tokens used. Use repositories the models cannot have trained on (private, or commits after their cutoff). Our own history, where the transcript says what the thread was doing, is the source for the thread-brief comparison: the same task with no brief, a hand-written one and a generated one.
 
+### First results (2026-11-24)
+
+**The bench**, Qwen2.5-Coder-1.5B Q8_0 on `llama-server` (CPU, 2 cores), 12 tasks from this repository's TypeScript (so the model may have seen some of it), 64 tokens at most:
+
+- Both endpoints work, and neither needed special handling. `/infill` and a prompt we render ourselves from the Qwen format scored the same within noise (edit similarity 0.41 against 0.39, exact match 17% for both): with n=12 this says only that our rendering is not worse than the server's. Whether `/infill` is better for a model whose template the server knows less well is not answered.
+- Other files as context did not help at this size (exact 8% against 17%, similarity about the same) and tripled the prompt. One small model on a dozen tasks is not evidence against repo-level context; it is a reason to run it on the larger models.
+- The cache matters more than the endpoint: a cold 650-token prompt took about 10 s on this CPU, the warm repeat 1.5 to 5 s (it is mostly the 64 generated tokens at about 12 tokens a second). With other files, cold was about 21 s.
+- Block completions scored lowest (exact 0%), as expected for a 1.5B model.
+
+Not yet run: Mellum, Seed-Coder, StarCoder2, DeepSeek-Coder, and Sweep (the next-edit task and its scoring are not built). The sandbox has no GPU, so those runs belong on a machine that has one: `node tools/completion-bench.ts --model NAME=FORMAT ...`.
+
+**The VS Code probe** (`extensions/vscode/probe`, VS Code 1.147 under xvfb; `pnpm --filter ... probe:inline`):
+
+- Stable API: ghost text that inserts at the cursor works, single and multi-line, and is requested again automatically after typing and after an accept. A suggestion that replaces a range with text that does not extend what is already there is dropped silently (end of life "ignored", never shown), so a stable-only extension cannot show an edit to earlier lines.
+- With the proposed `inlineCompletionsAdditions` API, `isInlineEdit` with a range on an earlier line renders as a diff (old line struck through, new line below, a gutter marker); accepting applies it and moves the cursor. `handleDidShowCompletionItem` and `handleEndOfLifetime` (accepted, rejected, ignored) fire, which gives the acceptance signal the request discipline wants. `jumpToPosition` behaved as a jump first and did not apply the edit with the commands I ran; `displayLocation` looked like ordinary ghost text.
+- The proposal needs the `enabledApiProposals` entry in the manifest and, outside development, a launch flag. A provider with proposal members is refused outright without them. Whether the Marketplace accepts such an extension is from memory and unverified: check before relying on it. The fallback is stable ghost text for `fim` and for the part of an edit at the cursor.
+
 ### Open
 
-- Whether `localmodels` can serve a base model with no chat template and a FIM request (`/completion` is what the dialects use; whether `/infill` is better for a model is unchecked).
-- The editor side: VS Code's inline-completion provider is stable; the API for a next-edit suggestion shown away from the cursor was, as far as I know, still proposed: check before designing around it.
+- Whether `/infill` beats our own prompt for any model (see the results above; needs more models and more tasks).
+- Whether `localmodels` can serve a base model with no chat template and a FIM request (`/completion` is what the dialects use).
+- Whether the proposed edit API is usable in a published extension.
 - Whether the brief is a new entry kind, a file in the workspace, or the latest compaction summary.
 - Where the completion model is set: the project's settings, not a thread's, since a completion is not part of any one thread.
 
