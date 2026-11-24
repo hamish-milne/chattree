@@ -113,6 +113,10 @@ describe("filters", () => {
   test("a closing bracket the editor already has is not written twice, but a matching letter is kept", () => {
     assert.equal(trimSuffixOverlap("a + b)", ")\n"), "a + b");
     assert.equal(trimSuffixOverlap("a + b", "b\n"), "a + b");
+    // A closer that closes something in the suggestion is its own, not the editor's.
+    assert.equal(trimSuffixOverlap("items.slice(i, i + size)", ");\n"), "items.slice(i, i + size)");
+    assert.equal(trimSuffixOverlap('"abc"', '"\n'), '"abc"');
+    assert.equal(trimSuffixOverlap('abc"', '"\n'), "abc");
   });
 
   test("a model that goes on into the line that follows loses that line", () => {

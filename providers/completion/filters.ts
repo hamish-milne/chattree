@@ -4,6 +4,15 @@
  */
 
 const CLOSERS = new Set([")", "]", "}", ">", '"', "'", "`"]);
+const OPENER: Record<string, string> = { ")": "(", "]": "[", "}": "{", ">": "<" };
+
+/** Whether a closing character at the end of `text` closes nothing in it (so the editor's own, after the cursor, is the one it repeats). */
+function closesNothing(text: string, closer: string): boolean {
+  const count = (c: string): number => text.split(c).length - 1;
+  const opener = OPENER[closer];
+  // A quote closes nothing when it is the odd one out (the text before it pairs up its own); a bracket, when there are more closing ones than opening ones.
+  return opener === undefined ? count(closer) % 2 === 1 : count(closer) > count(opener);
+}
 
 /**
  * Cut off the end of `suggestion` that repeats the start of `suffix`: a model that writes the closing bracket the editor has already put
@@ -14,7 +23,7 @@ export function trimSuffixOverlap(suggestion: string, suffix: string): string {
   for (let k = head.length; k >= 1; k--) {
     const tail = head.slice(0, k);
     if (tail.trim() === "" || !suggestion.endsWith(tail)) continue;
-    if (k === 1 && !CLOSERS.has(tail)) continue;
+    if (k === 1 && !(CLOSERS.has(tail) && closesNothing(suggestion.slice(0, -1) + tail, tail))) continue;
     return suggestion.slice(0, suggestion.length - k);
   }
   // A last line equal to the first line after the cursor (a multi-line answer that went on into code that is already there).
