@@ -30,6 +30,7 @@ An adapter has a `$tag`, a provider schema, a settings schema per model, `catalo
 | `wire.ts` | Reading fields of JSON off the wire. |
 | `conformance.ts`, `fixtures.ts` | The checks every adapter's stream must pass, and record/replay of HTTP responses with chunk splitting, for tests. |
 | `dialect.ts`, `dialects/` | Our own prompt rendering and output parsing for local models over `/completion` (ADR 33); see below. |
+| `completion/` | Prompts for fill-in-the-middle and next-edit models, one declared format per model family (sentinels, order, other files), filters for the usual ways a suggestion goes wrong, and a client for llama-server's `/completion` and `/infill` that reports the server's timings. Not a dialect: no conversation, tools or reasoning. Only `tools/completion-bench.ts` uses it so far. |
 
 ## Dialects (`dialects/`)
 
