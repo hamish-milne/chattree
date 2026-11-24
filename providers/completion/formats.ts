@@ -1,0 +1,175 @@
+/**
+ * The completion formats that ship with chattree. Each model family has its own sentinels, its own order of prefix and suffix, and its own
+ * way of writing other files into the prompt, which is why the format is a declaration per family and not one prompt with the words changed.
+ *
+ * What was read, and where (2026-11-24): Seed-Coder, Mellum and DeepSeek-Coder from their model cards; Qwen2.5-Coder and StarCoder2 sentinels from
+ * their tokenizer files; Sweep's from its published `inference.py`. The layout of other files in Qwen2.5-Coder's and StarCoder2's prompts is from
+ * memory of their reports and is what `tools/completion-bench.ts` is there to check.
+ */
+import {
+  cutAtMarker,
+  defineFim,
+  type ContextFile,
+  type EditFormat,
+  type EditRequest,
+  type FimFormat,
+  type CompletionFormat,
+} from "./format.ts";
+
+/** Qwen2.5-Coder: prefix, suffix, middle; other files as `<|file_sep|>` sections after an optional `<|repo_name|>`. Also the base of Sweep. */
+export const qwenCoder = defineFim({
+  id: "qwen2.5-coder",
+  prefix: "<|fim_prefix|>",
+  suffix: "<|fim_suffix|>",
+  middle: "<|fim_middle|>",
+  order: "psm",
+  extraTokens: ["<|repo_name|>", "<|file_sep|>", "<|endoftext|>"],
+  stop: ["<|endoftext|>", "<|file_sep|>"],
+  files: {
+    repo: (name) => `<|repo_name|>${name}\n`,
+    header: (path) => `<|file_sep|>${path}\n`,
+    target: (path) => `<|file_sep|>${path}\n`,
+  },
+});
+
+/** Seed-Coder (ByteDance): the suffix comes first, then the prefix, then the middle; no place for other files is documented. */
+export const seedCoder = defineFim({
+  id: "seed-coder",
+  prefix: "<[fim-prefix]>",
+  suffix: "<[fim-suffix]>",
+  middle: "<[fim-middle]>",
+  order: "spm",
+});
+
+/** Mellum (JetBrains): suffix first; other files as `<filename>` sections before the file being completed. */
+export const mellum = defineFim({
+  id: "mellum",
+  prefix: "<fim_prefix>",
+  suffix: "<fim_suffix>",
+  middle: "<fim_middle>",
+  order: "spm",
+  extraTokens: ["<filename>", "<reponame>", "<fim_pad>"],
+  stop: ["<filename>"],
+  // Naming the file with no others is a guess: the card's example always has other files.
+  files: { header: (path) => `<filename>${path}\n`, target: (path) => `<filename>${path}\n`, nameAlone: true },
+});
+
+/** StarCoder2: prefix, suffix, middle; other files after `<repo_name>`, each after `<file_sep>`. */
+export const starcoder2 = defineFim({
+  id: "starcoder2",
+  prefix: "<fim_prefix>",
+  suffix: "<fim_suffix>",
+  middle: "<fim_middle>",
+  order: "psm",
+  extraTokens: ["<repo_name>", "<file_sep>", "<|endoftext|>"],
+  stop: ["<|endoftext|>", "<file_sep>"],
+  files: {
+    repo: (name) => `<repo_name>${name}`,
+    header: (path) => `<file_sep>${path}\n`,
+    target: (path) => `<file_sep>${path}\n`,
+  },
+});
+
+/** DeepSeek-Coder: the begin marker, the prefix, the hole marker, the suffix, the end marker. */
+export const deepseekCoder = defineFim({
+  id: "deepseek-coder",
+  prefix: "<｜fim▁begin｜>",
+  suffix: "<｜fim▁hole｜>",
+  middle: "<｜fim▁end｜>",
+  // The hole sits between the two texts, so the order of the tokens is begin, prefix, hole, suffix, end: that is `psm` with the sentinels as given.
+  order: "psm",
+});
+
+const FILE_SEP = "<|file_sep|>";
+const CURSOR = "<|cursor|>";
+
+/** Lines with their line ends kept (Python's `splitlines(True)`, for the line ends the editor uses). */
+function lineSpans(text: string): string[] {
+  return text.match(/[^\n]*\n|[^\n]+$/g) ?? [];
+}
+
+const chunk = (f: ContextFile): string => `${FILE_SEP}${f.path}\n${f.text}\n`;
+
+/**
+ * Sweep next-edit (Apache-2.0, 7B and 1.5B, on Qwen2.5-Coder): the file around the cursor, chunks from related files, the person's recent
+ * changes, then the block around the cursor three times: as it was before the last edit (`original/`), as it is with the cursor marked
+ * (`current/`), and `updated/`, which the model writes. The start of `updated/` is given: every line above the cursor's, so the model
+ * writes from the cursor's line on (or, after an insertion above the cursor, only the first line, so it can rewrite the lines between).
+ */
+export const sweepNextEdit: EditFormat = {
+  kind: "edit",
+  id: "sweep-next-edit",
+  tokens: [FILE_SEP, CURSOR, "<|endoftext|>"],
+  render(req: EditRequest) {
+    const lines = lineSpans(req.text);
+    const starts: number[] = [];
+    let acc = 0;
+    for (const l of lines) {
+      starts.push(acc);
+      acc += l.length;
+    }
+    // The line whose span holds the cursor; a cursor at the very end belongs to the last line.
+    let cursorLine = Math.max(0, lines.length - 1);
+    for (let i = 0; i < lines.length; i++) {
+      if (req.cursor < (starts[i] ?? 0) + (lines[i]?.length ?? 0)) {
+        cursorLine = i;
+        break;
+      }
+    }
+    const blockStart = Math.max(0, cursorLine - (req.linesBefore ?? 10));
+    const blockEnd = Math.min(lines.length, cursorLine + (req.linesAfter ?? 10) + 1);
+    const codeBlock = lines.slice(blockStart, blockEnd).join("");
+    const rel = Math.max(0, req.cursor - (starts[blockStart] ?? 0));
+    const withCursor = `${codeBlock.slice(0, rel)}${CURSOR}${codeBlock.slice(rel)}`;
+    const before = codeBlock.slice(0, rel);
+    let prefill: string;
+    if (req.changesAboveCursor === true) {
+      // The first line of the block, and the blank lines right after it, as far as the cursor.
+      const nl = before.indexOf("\n");
+      let end = nl < 0 ? 0 : nl + 1;
+      while (end < before.length && before[end] === "\n") end++;
+      prefill = before.slice(0, end);
+    } else {
+      const nl = before.lastIndexOf("\n");
+      prefill = nl < 0 ? "" : codeBlock.slice(0, nl + 1);
+    }
+    const window = lines.slice(Math.max(0, cursorLine - 150), Math.min(lines.length, cursorLine + 150)).join("");
+    const range = `${req.path}:${blockStart + 1}:${blockEnd}`;
+    const recent = (req.recentChanges ?? [])
+      .map((c) => `${FILE_SEP}${c.path}:${c.start}:${c.end}\noriginal:\n${c.original}\nupdated:\n${c.updated}`)
+      .join("\n");
+    const retrieval = (req.retrieval ?? []).map((f) => `\n${chunk(f)}`).join("");
+    const files = (req.files ?? []).map(chunk).join("");
+    const prompt =
+      `${files}${FILE_SEP}${req.path}\n${window}${retrieval}\n${recent}\n` +
+      `${FILE_SEP}original/${range}\n${codeBlock}\n` +
+      `${FILE_SEP}current/${range}\n${withCursor}\n` +
+      `${FILE_SEP}updated/${range}\n${prefill}`;
+    return { prompt, stop: ["<|endoftext|>", FILE_SEP], block: { startLine: blockStart, endLine: blockEnd }, prefill };
+  },
+  parse(output, rendered) {
+    return {
+      startLine: rendered.block.startLine,
+      endLine: rendered.block.endLine,
+      text: rendered.prefill + cutAtMarker(output, [FILE_SEP, "<|endoftext|>"]),
+    };
+  },
+};
+
+const FORMATS: readonly CompletionFormat[] = [qwenCoder, seedCoder, mellum, starcoder2, deepseekCoder, sweepNextEdit];
+
+export function completionFormats(): readonly CompletionFormat[] {
+  return FORMATS;
+}
+
+export function completionFormat(id: string): CompletionFormat {
+  const f = FORMATS.find((x) => x.id === id);
+  if (f === undefined) throw new Error(`unknown completion format ${JSON.stringify(id)}; known: ${FORMATS.map((x) => x.id).join(", ")}`);
+  return f;
+}
+
+export function fimFormat(id: string): FimFormat {
+  const f = completionFormat(id);
+  if (f.kind !== "fim") throw new Error(`${id} is a next-edit format, not a fill-in-the-middle one`);
+  return f;
+}
