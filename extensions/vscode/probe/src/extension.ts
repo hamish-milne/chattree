@@ -78,8 +78,14 @@ function answer(doc: vscode.TextDocument, pos: vscode.Position): vscode.InlineCo
   }
 }
 
+/** Whether the manifest asked for the proposal: an extension that did not ask must not touch it, or the editor refuses it whole. */
+let proposed = false;
+const PROPOSED_MODES: readonly Mode[] = ["edit-earlier", "edit-earlier-jump", "label"];
+
 export function activate(ctx: vscode.ExtensionContext): void {
-  record("activated", { version: vscode.version });
+  const asked: unknown = Reflect.get(Object(ctx.extension.packageJSON), "enabledApiProposals");
+  proposed = Array.isArray(asked) && asked.includes("inlineCompletionsAdditions");
+  record("activated", { version: vscode.version, proposed });
   ctx.subscriptions.push(
     vscode.commands.registerCommand("completionsProbe.setMode", (m: Mode) => {
       mode = m;
@@ -100,21 +106,31 @@ export function activate(ctx: vscode.ExtensionContext): void {
         requestUuid,
         changeHint,
       });
+      if (!proposed && PROPOSED_MODES.includes(mode)) {
+        record("skipped", { mode, why: "needs the proposal" });
+        return [];
+      }
       return answer(doc, pos);
     },
-    // The callbacks of the proposal: called only if the editor reads them.
-    handleDidShowCompletionItem(shown: vscode.InlineCompletionItem, text: string) {
-      record("shown", { text, insertText: textOf(shown) });
-    },
-    handleEndOfLifetime(ended: vscode.InlineCompletionItem, reason: { kind: number }) {
-      record("endOfLife", { insertText: textOf(ended), reasonKind: reason.kind });
-    },
-    handleDidPartiallyAcceptCompletionItem(_item: vscode.InlineCompletionItem, info: unknown) {
-      record("partialAccept", { info });
-    },
   };
-  ctx.subscriptions.push(vscode.languages.registerInlineCompletionItemProvider({ pattern: "**" }, provider));
-  record("registered");
+  // The callbacks of the proposal, added only when the manifest asked for it: the editor refuses a provider that has them otherwise.
+  if (proposed) {
+    provider["handleDidShowCompletionItem"] = (shown: vscode.InlineCompletionItem, text: string) => {
+      record("shown", { text, insertText: textOf(shown) });
+    };
+    provider["handleEndOfLifetime"] = (ended: vscode.InlineCompletionItem, reason: { kind: number }) => {
+      record("endOfLife", { insertText: textOf(ended), reasonKind: reason.kind });
+    };
+    provider["handleDidPartiallyAcceptCompletionItem"] = (_item: vscode.InlineCompletionItem, info: unknown) => {
+      record("partialAccept", { info });
+    };
+  }
+  try {
+    ctx.subscriptions.push(vscode.languages.registerInlineCompletionItemProvider({ pattern: "**" }, provider));
+    record("registered");
+  } catch (e) {
+    record("registerFailed", { message: e instanceof Error ? e.message : String(e) });
+  }
 }
 
 export function deactivate(): void {

@@ -75,7 +75,10 @@ describe("what VS Code does with inline completions and inline edits", () => {
       const doc = await vscode.workspace.openTextDocument(f);
       await vscode.window.showTextDocument(doc);
     }, file);
-    for (let i = 0; i < 40 && !(await readLog()).some((e) => e.kind === "registered"); i++) await wait(250);
+    for (let i = 0; i < 40 && !(await readLog()).some((e) => e.kind === "registered" || e.kind === "registerFailed"); i++) await wait(250);
+    const start = (await readLog()).filter((e) => e.kind === "registered" || e.kind === "registerFailed");
+    report["registration"] = start;
+    console.log(`registration: ${JSON.stringify(start)}`);
   });
 
   after(() => {
