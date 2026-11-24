@@ -1,0 +1,23 @@
+//! entry applyTransactions
+//! tests [[100,[{"type":"deposit","amount":50},{"type":"withdraw","amount":30}]],[10,[{"type":"withdraw","amount":20},{"type":"deposit","amount":5}]],[0,[]],[5,[{"type":"withdraw","amount":5},{"type":"withdraw","amount":1}]]]
+//! rename balance funds
+//! rename log history
+// Apply deposits and withdrawals to a balance. A withdrawal that would overdraw the account is refused and recorded as "refused". Returns [balance, log].
+function applyTransactions(start, transactions) {
+  let balance = start;
+  const log = [];
+  for (const { type, amount } of transactions) {
+    if (type === "deposit") {
+      balance += amount;
+      log.push("ok");
+    } else if (type === "withdraw") {
+      ⟦if (amount > balance) {
+        log.push("refused");
+        continue;
+      }⟧
+      balance -= amount;
+      log.push("ok");
+    }
+  }
+  return [balance, log];
+}

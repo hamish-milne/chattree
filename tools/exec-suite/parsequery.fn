@@ -1,0 +1,16 @@
+//! entry parseQuery
+//! tests [["a=1&b=two&c"],["?x=%20y&x=z"],[""],["k=v=w"],["&&a=1&"]]
+//! rename eq equals
+// Parse "a=1&b=two&c" into an object. Keys and values are URI-decoded; a key with no "=" gets "". Later keys win.
+function parseQuery(query) {
+  const result = {};
+  if (query.startsWith("?")) query = query.slice(1);
+  for (const part of query.split("&")) {
+    if (part === "") continue;
+    const eq = part.indexOf("=");
+    const key = ⟦eq < 0 ? part : part.slice(0, eq)⟧;
+    const value = ⟦eq < 0 ? "" : part.slice(eq + 1)⟧;
+    result[decodeURIComponent(key)] = decodeURIComponent(value);
+  }
+  return result;
+}

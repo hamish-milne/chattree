@@ -1,0 +1,25 @@
+//! entry tokenize
+//! tests [["1 + 23*4.5"],["(1+2)*3"],[""],["2 $ 3"]]
+//! rename tokens out
+// Split an arithmetic expression into tokens: numbers (with an optional decimal part), the operators + - * / and parentheses. Spaces are skipped; anything else throws an Error.
+function tokenize(source) {
+  const tokens = [];
+  let i = 0;
+  while (i < source.length) {
+    const ch = source[i];
+    if (ch === " ") {
+      i++;
+    } else if (/[0-9]/.test(ch)) {
+      let j = i;
+      ⟦while (j < source.length && /[0-9.]/.test(source[j])) j++;⟧
+      tokens.push(source.slice(i, j));
+      i = j;
+    } else if ("+-*/()".includes(ch)) {
+      tokens.push(ch);
+      i++;
+    } else {
+      ⟦throw new Error(`unexpected character ${ch}`);⟧
+    }
+  }
+  return tokens;
+}

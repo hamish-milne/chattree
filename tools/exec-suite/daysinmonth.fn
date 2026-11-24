@@ -1,0 +1,9 @@
+//! entry daysInMonth
+//! tests [[2024,2],[2023,2],[1900,2],[2000,2],[2023,4],[2023,12]]
+//! rename leap isLeap
+// Number of days in the given month (1-12) of the given year, leap years included.
+function daysInMonth(year, month) {
+  const leap = ⟦(year % 4 === 0 && year % 100 !== 0) || year % 400 === 0⟧;
+  if (month === 2) return leap ? 29 : 28;
+  return ⟦[4, 6, 9, 11].includes(month) ? 30 : 31⟧;
+}

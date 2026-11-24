@@ -1,0 +1,14 @@
+//! entry mean
+//! tests [[[1,2,4],2],[[1,2],0],[[5],3],[[0.1,0.2],1]]
+//! change function round(x, places) ==> function round(places, x)
+//! follow return round(total / values.length, places); ==> return round(places, total / values.length);
+// Round x to the given number of decimal places.
+function round(x, places) {
+  const f = 10 ** places;
+  return Math.round(x * f) / f;
+}
+// The mean of the numbers, rounded to `places` decimal places.
+function mean(values, places) {
+  const total = ⟦values.reduce((a, b) => a + b, 0)⟧;
+  return round(total / values.length, places);
+}

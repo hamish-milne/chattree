@@ -1,0 +1,33 @@
+//! entry lruDemo
+//! tests [[2,[["set","a",1],["set","b",2],["get","a"],["set","c",3],["get","b"],["get","a"],["get","c"]]],[1,[["set","x",1],["set","y",2],["get","x"],["get","y"]]],[3,[]]]
+// A least-recently-used cache holding at most `capacity` entries. get() and set() both count as a use.
+class LruCache {
+  constructor(capacity) {
+    this.capacity = capacity;
+    this.map = new Map();
+  }
+  get(key) {
+    if (!this.map.has(key)) return undefined;
+    const value = this.map.get(key);
+    ⟦this.map.delete(key);
+    this.map.set(key, value);⟧
+    return value;
+  }
+  set(key, value) {
+    this.map.delete(key);
+    this.map.set(key, value);
+    if (this.map.size > this.capacity) {
+      ⟦this.map.delete(this.map.keys().next().value);⟧
+    }
+  }
+}
+// Run the operations ["set", key, value] and ["get", key] on a new cache; returns what the gets returned (null for a miss).
+function lruDemo(capacity, ops) {
+  const cache = new LruCache(capacity);
+  const results = [];
+  for (const [op, key, value] of ops) {
+    if (op === "set") cache.set(key, value);
+    else results.push(cache.get(key) ?? null);
+  }
+  return results;
+}

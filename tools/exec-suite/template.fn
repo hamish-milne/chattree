@@ -1,0 +1,9 @@
+//! entry fillTemplate
+//! tests [["Hi {name}!",{"name":"Ann"}],["{a}{b}{a}",{"a":1,"b":2}],["{missing}",{}],["no placeholders",{"x":1}],["{n}",{"n":0}]]
+//! rename name key
+// Replace {name} placeholders with values from `data`. A placeholder with no value is left as it is.
+function fillTemplate(template, data) {
+  return template.replace(/\{(\w+)\}/g, (match, name) => {
+    ⟦return Object.prototype.hasOwnProperty.call(data, name) ? String(data[name]) : match;⟧
+  });
+}

@@ -1,0 +1,11 @@
+//! entry isPalindrome
+//! tests [["A man, a plan, a canal: Panama"],["hello"],[""],["No 'x' in Nixon"],["ab"],["Aa"]]
+//! rename chars clean
+// True if the text reads the same backwards, ignoring case and anything that is not a letter or a digit.
+function isPalindrome(text) {
+  const chars = ⟦text.toLowerCase().replace(/[^a-z0-9]/g, "")⟧;
+  for (let i = 0, j = chars.length - 1; i < j; i++, j--) {
+    ⟦if (chars[i] !== chars[j]) return false;⟧
+  }
+  return true;
+}

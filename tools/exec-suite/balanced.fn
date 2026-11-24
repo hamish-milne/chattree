@@ -1,0 +1,16 @@
+//! entry balanced
+//! tests [["([]{})"],["(]"],["(("],["))"],[""],["a(b)c"],["{[}]"]]
+//! rename stack open
+// True if every bracket in the text is closed by the right kind, in the right order. Other characters are ignored.
+function balanced(text) {
+  const pairs = { ")": "(", "]": "[", "}": "{" };
+  const stack = [];
+  for (const ch of text) {
+    if (ch === "(" || ch === "[" || ch === "{") {
+      stack.push(ch);
+    } else if (ch in pairs) {
+      ⟦if (stack.pop() !== pairs[ch]) return false;⟧
+    }
+  }
+  return ⟦stack.length === 0⟧;
+}

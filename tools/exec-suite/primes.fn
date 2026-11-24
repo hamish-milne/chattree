@@ -1,0 +1,16 @@
+//! entry primesUpTo
+//! tests [[0],[1],[2],[30],[49]]
+//! rename composite marked
+// All primes up to and including n, by the sieve of Eratosthenes.
+function primesUpTo(n) {
+  const composite = new Array(n + 1).fill(false);
+  const primes = [];
+  for (let i = 2; i <= n; i++) {
+    if (composite[i]) continue;
+    primes.push(i);
+    ⟦for (let j = i * i; j <= n; j += i) {
+      composite[j] = true;
+    }⟧
+  }
+  return primes;
+}

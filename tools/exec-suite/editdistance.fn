@@ -1,0 +1,16 @@
+//! entry editDistance
+//! tests [["kitten","sitting"],["",""],["abc",""],["flaw","lawn"],["same","same"]]
+//! rename cost substitution
+// Edit distance between two strings: the fewest single-character insertions, deletions and substitutions that turn one into the other.
+function editDistance(a, b) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j++) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      ⟦cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost);⟧
+    }
+    prev = cur;
+  }
+  return prev[b.length];
+}

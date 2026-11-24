@@ -1,0 +1,12 @@
+//! entry clamp
+//! tests [[5,0,10],[-1,0,10],[11,0,10],[5,10,0],[15,10,0],[-5,10,0]]
+//! rename n value
+// Restrict n to the range [lo, hi]. Swaps the bounds if they are given the wrong way round.
+function clamp(n, lo, hi) {
+  if (lo > hi) {
+    ⟦[lo, hi] = [hi, lo];⟧
+  }
+  if (n < lo) return ⟦lo⟧;
+  ⟦if (n > hi) return hi;⟧
+  return n;
+}

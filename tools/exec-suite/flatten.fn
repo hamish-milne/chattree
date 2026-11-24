@@ -1,0 +1,15 @@
+//! entry flatten
+//! tests [[[1,[2,[3,[4]]]]],[[1,[2,[3,[4]]]],2],[[1,[2,[3,[4]]]],0],[[],1],[[[1],[2]],Infinity]]
+//! rename out flat
+// Flatten nested arrays up to `depth` levels deep (default 1), without modifying the input.
+function flatten(items, depth = 1) {
+  const out = [];
+  for (const item of items) {
+    if (Array.isArray(item) && depth > 0) {
+      ⟦out.push(...flatten(item, depth - 1));⟧
+    } else {
+      ⟦out.push(item);⟧
+    }
+  }
+  return out;
+}

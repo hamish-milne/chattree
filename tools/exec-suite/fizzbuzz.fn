@@ -1,0 +1,14 @@
+//! entry fizzbuzz
+//! tests [[0],[1],[5],[15],[16]]
+//! rename out result
+// The numbers 1..n as strings, with "Fizz" for multiples of 3, "Buzz" for multiples of 5 and "FizzBuzz" for both.
+function fizzbuzz(n) {
+  const out = [];
+  for (let i = 1; i <= n; i++) {
+    let s = "";
+    ⟦if (i % 3 === 0) s += "Fizz";⟧
+    if (i % 5 === 0) s += ⟦"Buzz"⟧;
+    out.push(⟦s || String(i)⟧);
+  }
+  return out;
+}

@@ -1,0 +1,19 @@
+//! entry toCamelCase
+//! tests [["foo_bar-baz"],[""],["alreadyCamel"],["_lead"],["a__b"]]
+//! rename upperNext capitalize
+// Convert snake_case or kebab-case to camelCase: "foo_bar-baz" becomes "fooBarBaz".
+function toCamelCase(name) {
+  let out = "";
+  let upperNext = false;
+  for (const ch of name) {
+    if (ch === "_" || ch === "-") {
+      upperNext = true;
+    } else if (upperNext) {
+      ⟦out += ch.toUpperCase();
+      upperNext = false;⟧
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}

@@ -1,0 +1,13 @@
+//! entry spread
+//! tests [[[3,1,4,1,5]],[[7]],[[-2,2]],[[10,0,5]]]
+//! change return [Math.min(...values), Math.max(...values)]; ==> return { min: Math.min(...values), max: Math.max(...values) };
+//! follow const [lo, hi] = bounds(values); ==> const { min: lo, max: hi } = bounds(values);
+// Smallest and largest of a non-empty array.
+function bounds(values) {
+  return [Math.min(...values), Math.max(...values)];
+}
+// The spread: the largest minus the smallest.
+function spread(values) {
+  const [lo, hi] = bounds(values);
+  return ⟦hi - lo⟧;
+}

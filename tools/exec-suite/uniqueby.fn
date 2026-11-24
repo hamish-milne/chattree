@@ -1,0 +1,15 @@
+//! entry uniqueBy
+//! tests [[[1,2,1,3,2]],[["a","B","b","A"],(s)=>s.toLowerCase()],[[]],[[{id:1},{id:2},{id:1}],(o)=>o.id]]
+//! rename seen visited
+// Remove duplicates, keeping the first occurrence of each. `key` maps an item to what is compared (default: the item itself).
+function uniqueBy(items, key = (x) => x) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items) {
+    const k = key(item);
+    ⟦if (seen.has(k)) continue;
+    seen.add(k);⟧
+    result.push(item);
+  }
+  return result;
+}

@@ -1,0 +1,13 @@
+//! entry groupBy
+//! tests [[[1,2,3,4,5],(n)=>n%2?"odd":"even"],[["apple","avocado","banana"],(s)=>s[0]],[[],(x)=>x]]
+//! rename groups buckets
+// Group items by the value `keyOf` returns; each group lists its items in their original order, and groups appear in order of first use. Returns [key, items] pairs.
+function groupBy(items, keyOf) {
+  const groups = new Map();
+  for (const item of items) {
+    const key = keyOf(item);
+    if (!groups.has(key)) ⟦groups.set(key, []);⟧
+    ⟦groups.get(key).push(item);⟧
+  }
+  return [...groups.entries()];
+}

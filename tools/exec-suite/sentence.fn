@@ -1,0 +1,12 @@
+//! entry sentence
+//! tests [[["hello","world"]],[[]],[["one"]]]
+//! change function joinWords(words) {\n  return words.join(" "); ==> function joinWords(words, sep) {\n  return words.join(sep);
+//! follow return joinWords(words) + "."; ==> return joinWords(words, " ") + ".";
+// Join the words with spaces.
+function joinWords(words) {
+  return words.join(" ");
+}
+// The words as a sentence, ending in a full stop.
+function sentence(words) {
+  return ⟦joinWords(words) + "."⟧;
+}

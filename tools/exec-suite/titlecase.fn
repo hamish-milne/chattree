@@ -1,0 +1,9 @@
+//! entry titleCase
+//! tests [["hello world"],["hELLO wORLD"],[""],["a"],["one  two"]]
+// Upper-case the first letter of every space-separated word and lower-case the rest.
+function titleCase(text) {
+  return text
+    .split(" ")
+    ⟦.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())⟧
+    .join(" ");
+}

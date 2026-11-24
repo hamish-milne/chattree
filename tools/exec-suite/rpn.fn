@@ -1,0 +1,18 @@
+//! entry evalRpn
+//! tests [["3 4 + 2 *"],["10 2 8 * + 3 -"],["1 +"],["8 2 /"],["5"],[""]]
+//! rename stack values
+// Evaluate a reverse Polish expression such as "3 4 + 2 *". Supports + - * /. Throws an Error on too few operands.
+function evalRpn(expression) {
+  const stack = [];
+  for (const token of expression.split(/\s+/).filter(Boolean)) {
+    if (/^[+\-*/]$/.test(token)) {
+      const b = stack.pop();
+      const a = stack.pop();
+      ⟦if (a === undefined || b === undefined) throw new Error("not enough operands");⟧
+      ⟦stack.push(token === "+" ? a + b : token === "-" ? a - b : token === "*" ? a * b : a / b);⟧
+    } else {
+      stack.push(Number(token));
+    }
+  }
+  return stack.pop();
+}

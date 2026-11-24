@@ -1,0 +1,13 @@
+//! entry countVowels
+//! tests [["hello"],["AEIOU"],[""],["rhythm"],["Queue"]]
+//! rename isVowel isVowelLetter
+// True for a, e, i, o or u in either case.
+function isVowel(ch) {
+  return ⟦"aeiou".includes(ch.toLowerCase())⟧;
+}
+// How many vowels the text has.
+function countVowels(text) {
+  let n = 0;
+  for (const ch of text) if (isVowel(ch)) n++;
+  return n;
+}

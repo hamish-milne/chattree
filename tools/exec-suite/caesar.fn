@@ -1,0 +1,20 @@
+//! entry caesar
+//! tests [["Hello, World!",3],["xyz",3],["abc",-3],["ABC",26],["Zz",1],["",5]]
+//! rename code point
+// Shift each letter forward by `shift` places in the alphabet (negative shifts go back), keeping case and leaving other characters alone.
+function caesar(text, shift) {
+  const A = "A".charCodeAt(0);
+  const a = "a".charCodeAt(0);
+  let out = "";
+  for (const ch of text) {
+    const code = ch.charCodeAt(0);
+    if (ch >= "a" && ch <= "z") {
+      out += String.fromCharCode(⟦((code - a + shift) % 26 + 26) % 26 + a⟧);
+    } else if (ch >= "A" && ch <= "Z") {
+      ⟦out += String.fromCharCode(((code - A + shift) % 26 + 26) % 26 + A);⟧
+    } else {
+      out += ch;
+    }
+  }
+  return out;
+}

@@ -1,0 +1,14 @@
+//! entry formatDuration
+//! tests [[0],[59],[60],[3600],[3661],[7200],[86399]]
+//! rename parts pieces
+// Format a number of seconds as "1h 2m 3s", leaving out the units that are zero ("0s" for zero).
+function formatDuration(totalSeconds) {
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+  ⟦if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);⟧
+  if (seconds || parts.length === 0) parts.push(`${seconds}s`);
+  return parts.join(" ");
+}

@@ -1,0 +1,17 @@
+//! entry stats
+//! tests [[[1,2,3,4]],[[5]],[[3,1,2,2,3]],[[10,-10,0]],[[1,1,2,2]]]
+//! rename sorted ordered
+// Mean, median and mode (the smallest, if tied) of a non-empty array of numbers, as [mean, median, mode].
+function stats(values) {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mean = ⟦sorted.reduce((sum, v) => sum + v, 0) / sorted.length⟧;
+  const mid = Math.floor(sorted.length / 2);
+  const median = ⟦sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]⟧;
+  const counts = new Map();
+  for (const v of sorted) counts.set(v, (counts.get(v) || 0) + 1);
+  let mode = sorted[0];
+  for (const [v, c] of counts) {
+    ⟦if (c > counts.get(mode)) mode = v;⟧
+  }
+  return [mean, median, mode];
+}

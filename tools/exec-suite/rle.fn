@@ -1,0 +1,15 @@
+//! entry rle
+//! tests [["aaabcc"],[""],["abc"],["zzzzzzzzzzzz"],["aabbaa"]]
+//! rename out encoded
+// Compress runs of repeated characters: "aaabcc" becomes "a3bc2". Runs of one are left as they are.
+function rle(text) {
+  let out = "";
+  for (let i = 0; i < text.length; ) {
+    let j = i;
+    ⟦while (j < text.length && text[j] === text[i]) j++;⟧
+    const run = j - i;
+    out += text[i] + ⟦(run > 1 ? run : "")⟧;
+    i = j;
+  }
+  return out;
+}

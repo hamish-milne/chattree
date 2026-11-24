@@ -1,0 +1,17 @@
+//! entry turnstile
+//! tests [[[]],[["push","coin","push","push"]],[["coin","coin","push"]],[["coin","push","coin","push","coin"]]]
+//! rename passed through
+// A turnstile: "coin" unlocks it, "push" locks it again (only if it was unlocked). Returns [final state, number of people who got through].
+function turnstile(events) {
+  let state = "locked";
+  let passed = 0;
+  for (const event of events) {
+    if (event === "coin") {
+      state = "unlocked";
+    } else if (event === "push" && state === "unlocked") {
+      ⟦state = "locked";
+      passed++;⟧
+    }
+  }
+  return [state, passed];
+}

@@ -1,0 +1,8 @@
+//! entry slugify
+//! tests [["Hello, World!"],["  Spaces  everywhere "],["--a--b--"],["Already-slugged"],["!!!"]]
+// Turn a title into a URL slug: lower case, words joined by single hyphens, no leading or trailing hyphens.
+function slugify(title) {
+  return ⟦title.toLowerCase()⟧
+    .replace(/[^a-z0-9]+/g, "-")
+    ⟦.replace(/^-+|-+$/g, "")⟧;
+}

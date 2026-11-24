@@ -1,0 +1,11 @@
+//! entry paginate
+//! tests [[25,10,1],[25,10,3],[25,10,9],[0,10,1],[10,10,1],[10,10,0]]
+//! rename pages pageCount
+// Describe page `page` (1-based) of `total` items shown `perPage` at a time, as [first item number, last item number, current page, has previous, has next]. A page out of range is clamped.
+function paginate(total, perPage, page) {
+  const pages = Math.max(1, Math.ceil(total / perPage));
+  const current = ⟦Math.min(Math.max(page, 1), pages)⟧;
+  const first = total === 0 ? 0 : (current - 1) * perPage + 1;
+  const last = ⟦Math.min(current * perPage, total)⟧;
+  return [first, last, current, current > 1, current < pages];
+}

@@ -1,0 +1,14 @@
+//! entry fibonacci
+//! tests [[0],[1],[2],[10]]
+//! rename seq numbers
+// The first n Fibonacci numbers, starting 0, 1.
+function fibonacci(n) {
+  const seq = [];
+  let a = 0;
+  let b = 1;
+  for (let i = 0; i < n; i++) {
+    seq.push(a);
+    ⟦[a, b] = [b, a + b];⟧
+  }
+  return seq;
+}

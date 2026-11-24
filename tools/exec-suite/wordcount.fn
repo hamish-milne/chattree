@@ -1,0 +1,12 @@
+//! entry wordCount
+//! tests [["the cat and The dog"],[""],["Don't stop, don't!"],["a a a"]]
+//! rename counts tally
+// Count how often each word appears, ignoring case. Words are runs of letters, digits and apostrophes.
+function wordCount(text) {
+  const counts = {};
+  const words = ⟦text.toLowerCase().match(/[a-z0-9']+/g) || []⟧;
+  for (const word of words) {
+    ⟦counts[word] = (counts[word] || 0) + 1;⟧
+  }
+  return counts;
+}
