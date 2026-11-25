@@ -57,6 +57,8 @@ export interface EditRequest {
   path: string;
   /** The whole file as it is now. */
   text: string;
+  /** The whole file as it was before the last edit, for a format that is shown both (the 1.5B Sweep). */
+  before?: string | undefined;
   /** The cursor, as an offset into `text`. */
   cursor: number;
   /** The person's recent edits, oldest first. */

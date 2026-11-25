@@ -4,7 +4,7 @@
  *
  * - a fill-in-the-middle format (qwen2.5-coder, seed-coder, mellum, starcoder2, deepseek-coder): a span of the module is taken out and the model
  *   writes it, asked with our own prompt (`completion`) and with the server's (`infill`);
- * - a next-edit format (sweep-next-edit): the person's first edit of a change is shown and the file as it now is, which no longer works, and the
+ * - a next-edit format (sweep-next-edit, or sweep-next-edit-1.5b, which is laid out differently): the person's first edit of a change is shown and the file as it now is, which no longer works, and the
  *   model writes the lines again so that it does (`edit`).
  *
  *   node tools/exec-bench.ts --server http://127.0.0.1:8080 --model qwen=qwen2.5-coder --model sweep=sweep-next-edit
@@ -166,6 +166,7 @@ export async function runExecSamples(
         const rendered = format.render({
           path: task.path,
           text: task.stale,
+          before: spec(task.spec).reference,
           cursor: task.cursor,
           recentChanges: [task.recent],
           linesAfter: task.linesAfter,

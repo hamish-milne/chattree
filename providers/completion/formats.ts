@@ -156,7 +156,45 @@ export const sweepNextEdit: EditFormat = {
   },
 };
 
-const FORMATS: readonly CompletionFormat[] = [qwenCoder, seedCoder, mellum, starcoder2, deepseekCoder, sweepNextEdit];
+/**
+ * The 1.5B Sweep model's layout, which is not the 7B's (read from the `run_model.py` on its model card, 2026-11-25): no cursor marker and no
+ * line ranges, the recent changes written as `<|file_sep|>PATH.diff` with `original:` and `updated:`, and then the whole file before the last
+ * edit (`original/PATH`), as it is now (`current/PATH`) and as the model writes it (`updated/PATH`), joined by single newlines. The answer is
+ * the whole file again, so it stands for every line.
+ */
+export const sweepNextEditSmall: EditFormat = {
+  kind: "edit",
+  id: "sweep-next-edit-1.5b",
+  tokens: [FILE_SEP, "<|endoftext|>"],
+  render(req: EditRequest) {
+    const parts: string[] = [];
+    for (const f of req.files ?? []) parts.push(`${FILE_SEP}${f.path}`, f.text);
+    for (const c of req.recentChanges ?? []) parts.push(`${FILE_SEP}${c.path}.diff`, "original:", c.original, "updated:", c.updated);
+    parts.push(
+      `${FILE_SEP}original/${req.path}`,
+      req.before ?? req.text,
+      `${FILE_SEP}current/${req.path}`,
+      req.text,
+      `${FILE_SEP}updated/${req.path}`,
+    );
+    return {
+      prompt: parts.join("\n"),
+      stop: [FILE_SEP, "</s>", "<|endoftext|>"],
+      block: { startLine: 0, endLine: lineSpans(req.text).length },
+      prefill: "",
+    };
+  },
+  parse(output, rendered) {
+    return {
+      startLine: rendered.block.startLine,
+      endLine: rendered.block.endLine,
+      // The prompt ends at the name, so the model's first character is the line break after it.
+      text: cutAtMarker(output.startsWith("\n") ? output.slice(1) : output, [FILE_SEP, "<|endoftext|>"]),
+    };
+  },
+};
+
+const FORMATS: readonly CompletionFormat[] = [qwenCoder, seedCoder, mellum, starcoder2, deepseekCoder, sweepNextEdit, sweepNextEditSmall];
 
 export function completionFormats(): readonly CompletionFormat[] {
   return FORMATS;

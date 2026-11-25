@@ -183,7 +183,9 @@ describe("the run", () => {
               ? body["input_prefix"] === t.prefix && body["input_suffix"] === t.suffix
               : prompt.includes(`${t.prefix}<|fim_suffix|>${t.suffix}<|fim_middle|>`),
           );
+          const small = edits.find((t) => prompt.endsWith(`<|file_sep|>current/${t.path}\n${t.stale}\n<|file_sep|>updated/${t.path}`));
           const edit = edits.find((t) => prompt.includes(`<|file_sep|>updated/${t.path}:`) && prompt.includes(t.recent.updated));
+          if (small !== undefined) content = `\n${small.after}`;
           if (task !== undefined) content = body["model"] === "wrong" ? "zzz" : task.expected;
           else if (edit !== undefined) {
             const r = sweepNextEdit.render({
@@ -207,6 +209,7 @@ describe("the run", () => {
         { label: "oracle", format: "qwen2.5-coder", model: "oracle" },
         { label: "seed", format: "seed-coder", model: "no-fim" },
         { label: "sweep", format: "sweep-next-edit", model: "oracle" },
+        { label: "small", format: "sweep-next-edit-1.5b", model: "oracle" },
       ],
       arms: ["completion", "infill"],
       specs,
@@ -243,6 +246,8 @@ describe("the run", () => {
       ),
     );
     assert.equal(samples.filter((s) => s.target === "sweep" && s.arm !== "edit").length, 0);
+    assert.equal(of("small", "edit").length, plan.edits.length);
+    assert.ok(of("small", "edit").every((s) => s.verdict === "pass" && s.exact === true));
   });
 
   test("a wrong answer is graded wrong, an empty one fails, and an answer that works in other words is not an exact one", async () => {

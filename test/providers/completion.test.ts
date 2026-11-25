@@ -16,6 +16,7 @@ import {
   shown,
   starcoder2,
   sweepNextEdit,
+  sweepNextEditSmall,
   trimSuffixOverlap,
 } from "../../providers/completion/index.ts";
 
@@ -212,5 +213,31 @@ describe("the client", () => {
       completeRaw({ prompt: "p", stop: [] }, { baseUrl: "http://127.0.0.1:1", timeoutMs: 2000 }),
       (e: unknown) => e instanceof CompletionError && e.status === undefined,
     );
+  });
+});
+
+describe("the 1.5B next-edit format", () => {
+  const change = { path: "g.js", start: 1, end: 1, original: "function g(a) {", updated: "function g(b) {" };
+  test("is laid out as its model card shows: diffs, then the file before, now and after, with no cursor or ranges", () => {
+    const r = sweepNextEditSmall.render({
+      path: "g.js",
+      before: "function g(a) {\n  return a;\n}",
+      text: "function g(b) {\n  return a;\n}",
+      cursor: 10,
+      recentChanges: [change],
+      files: [{ path: "h.js", text: "// h" }],
+    });
+    assert.equal(
+      r.prompt,
+      "<|file_sep|>h.js\n// h\n<|file_sep|>g.js.diff\noriginal:\nfunction g(a) {\nupdated:\nfunction g(b) {\n" +
+        "<|file_sep|>original/g.js\nfunction g(a) {\n  return a;\n}\n<|file_sep|>current/g.js\nfunction g(b) {\n  return a;\n}\n<|file_sep|>updated/g.js",
+    );
+    assert.ok(r.stop.includes("<|file_sep|>"));
+    assert.deepEqual(r.block, { startLine: 0, endLine: 3 });
+  });
+
+  test("the answer is the whole file, without the line break that follows the name and without what comes after", () => {
+    const r = sweepNextEditSmall.render({ path: "g.js", text: "a\nb", cursor: 0 });
+    assert.deepEqual(sweepNextEditSmall.parse("\nX\nY<|file_sep|>junk", r), { startLine: 0, endLine: 2, text: "X\nY" });
   });
 });
