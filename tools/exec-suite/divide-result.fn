@@ -1,0 +1,30 @@
+//! entry report
+//! tests [[[2,4,6]],[[]],[[3,0]],[[10,4]]]
+//! change if (b === 0) return null;\n  return a / b; ==> if (b === 0) return { ok: false };\n  return { ok: true, value: a / b };
+//! follow return avg === null ? 0 : avg; ==> return avg.ok ? avg.value : 0;
+//! follow return r === null ? "n/a" : r.toFixed(2); ==> return r.ok ? r.value.toFixed(2) : "n/a";
+//! follow return r === null ? "n/a" : Math.round(r) + "%"; ==> return r.ok ? Math.round(r.value) + "%" : "n/a";
+// Divide a by b; null when b is zero.
+function safeDivide(a, b) {
+  if (b === 0) return null;
+  return a / b;
+}
+// The mean of the values, 0 for none.
+function average(values) {
+  const total = values.reduce((s, v) => s + v, 0);
+  const avg = safeDivide(total, values.length);
+  return avg === null ? 0 : avg;
+}
+// a over b to two decimals, "n/a" if b is zero.
+function ratio(a, b) {
+  const r = safeDivide(a, b);
+  return r === null ? "n/a" : r.toFixed(2);
+}
+// a as a whole percentage of b, "n/a" if b is zero.
+function percent(a, b) {
+  const r = safeDivide(a * 100, b);
+  return r === null ? "n/a" : Math.round(r) + "%";
+}
+function report(list) {
+  return [average(list), ratio(list[0], list[1]), percent(list[0], list[1])];
+}

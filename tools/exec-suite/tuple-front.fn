@@ -1,0 +1,26 @@
+//! entry analyse
+//! tests [[[1,2,3]],[[5]],[[-4,0,4,10]]]
+//! change return [Math.min(...v), Math.max(...v)]; ==> return [v.length, Math.min(...v), Math.max(...v)];
+//! follow const [lo, hi] = extent(v); ==> const [, lo, hi] = extent(v);
+// The smallest and the largest value.
+function extent(v) {
+  return [Math.min(...v), Math.max(...v)];
+}
+// Largest minus smallest.
+function spread(v) {
+  const [lo, hi] = extent(v);
+  return hi - lo;
+}
+// Halfway between the smallest and the largest.
+function midpoint(v) {
+  const [lo, hi] = extent(v);
+  return (lo + hi) / 2;
+}
+// The values scaled so that the smallest is 0 and the largest 1.
+function normalize(v) {
+  const [lo, hi] = extent(v);
+  return v.map((x) => (x - lo) / (hi - lo));
+}
+function analyse(v) {
+  return [spread(v), midpoint(v), normalize(v)];
+}

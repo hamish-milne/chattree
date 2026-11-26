@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import { execFile } from "node:child_process";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, test } from "node:test";
@@ -19,6 +23,9 @@ import {
   type Spec,
 } from "../../tools/exec-suite.ts";
 
+import { tempDir } from "../support/tmp.ts";
+
+const run = promisify(execFile);
 let suite: Spec[] = [];
 before(async () => {
   suite = await loadSuite();
@@ -299,6 +306,27 @@ describe("the run", () => {
 });
 
 describe("the command", () => {
+  test("several runs are summarised together", async () => {
+    const dir = await tempDir();
+    const line = (target: string): string =>
+      JSON.stringify({ target, format: "f", arm: "completion", task: "t", kind: "line", verdict: "pass", exact: true });
+    for (const t of ["a", "b"]) {
+      await mkdir(join(dir, t), { recursive: true });
+      await writeFile(join(dir, t, "samples.jsonl"), `${line(t)}\n`);
+    }
+    const { stdout } = await run(process.execPath, [
+      "--no-warnings",
+      "tools/exec-bench.ts",
+      "--summarize",
+      `${join(dir, "a")},${join(dir, "b")}`,
+      "--out",
+      join(dir, "all"),
+    ]);
+    assert.match(stdout, /\| a \| completion \| all \| 1 /);
+    assert.match(stdout, /\| b \| completion \| all \| 1 /);
+    assert.match(await readFile(join(dir, "all", "summary.md"), "utf8"), /\| b \|/);
+  });
+
   test("options", () => {
     const o = parseExecArgs([
       "--model",
@@ -334,7 +362,7 @@ describe("the command", () => {
     const all = planTasks(suite, {});
     const some = planTasks(suite, { limit: 4 });
     assert.equal(some.fim.length, 12);
-    assert.equal(some.edits.length, 7, "four renames and the three edits written by hand");
+    assert.equal(some.edits.length, 8, "four of each kind");
     assert.ok(all.fim.length > some.fim.length);
     assert.deepEqual(
       planTasks(suite, { only: "gcd/" }).fim.map((t) => t.id),

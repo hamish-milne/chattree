@@ -1,0 +1,31 @@
+//! entry report
+//! tests [[5,[1,2,3]],[0,[]],[2,[9]]]
+//! change bump() { ==> increment() {
+//! follow .bump() ==> .increment()
+class Counter {
+  constructor() {
+    this.n = 0;
+  }
+  bump() {
+    this.n++;
+    return this;
+  }
+  value() {
+    return this.n;
+  }
+}
+// Count up to k, one at a time.
+function countTo(k) {
+  const c = new Counter();
+  for (let i = 0; i < k; i++) c.bump();
+  return c.value();
+}
+// Count two for every item.
+function countBy(list) {
+  const c = new Counter();
+  for (const _ of list) c.bump().bump();
+  return c.value();
+}
+function report(k, list) {
+  return [countTo(k), countBy(list)];
+}

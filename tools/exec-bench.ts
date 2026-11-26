@@ -9,7 +9,7 @@
  *
  *   node tools/exec-bench.ts --server http://127.0.0.1:8080 --model qwen=qwen2.5-coder --model sweep=sweep-next-edit
  *   node tools/exec-bench.ts --model mellum-4b=mellum --arms completion --limit 5
- *   node tools/exec-bench.ts --summarize bench-runs/exec-2026-11-25T10-00-00
+ *   node tools/exec-bench.ts --summarize bench-runs/exec-a,bench-runs/exec-b --out bench-runs/exec-all   (the samples of several runs, together)
  *
  * --model NAME=FORMAT (repeatable), --server URL and --yes are as for `tools/completion-bench.ts`. --arms completion,infill (fill-in-the-middle
  * formats only; default both). --limit N: only N tasks of each kind, spread evenly through the suite. --only TEXT: tasks whose id has TEXT in it.
@@ -414,8 +414,16 @@ async function main(): Promise<void> {
     await writeFile(join(dir, "summary.json"), JSON.stringify(s.rows, null, 2));
   };
   if (o.summarize !== undefined) {
-    await writeSummary(await readSamples(file));
-    console.log(`wrote ${join(dir, "summary.md")}`);
+    // Several runs (one directory for each model, say) are summarised together, into --out if given and else the first.
+    const dirs = o.summarize.split(",");
+    const all = (await Promise.all(dirs.map((d) => readSamples(join(d, "samples.jsonl"))))).flat();
+    const [first = dir] = dirs;
+    const into = o.out ?? first;
+    await mkdir(into, { recursive: true });
+    const s = summarizeExec(all);
+    await writeFile(join(into, "summary.md"), s.markdown);
+    await writeFile(join(into, "summary.json"), JSON.stringify(s.rows, null, 2));
+    console.log(s.markdown);
     return;
   }
   if (o.models.length === 0) throw new Error("give at least one --model NAME=FORMAT");

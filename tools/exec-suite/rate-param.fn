@@ -1,0 +1,21 @@
+//! entry report
+//! tests [[[10,20,30]],[[0]],[[99.5,0.5]]]
+//! change function withTax(price) {\n  return price * (1 + TAX); ==> function withTax(price, rate) {\n  return price * (1 + rate);
+//! follow withTax(p) ==> withTax(p, TAX)
+//! follow withTax(price).toFixed(2) ==> withTax(price, TAX).toFixed(2)
+const TAX = 0.2;
+// The price with tax added.
+function withTax(price) {
+  return price * (1 + TAX);
+}
+// The total of the prices with tax.
+function total(prices) {
+  return prices.reduce((s, p) => s + withTax(p), 0);
+}
+// A price with tax, as dollars to two places.
+function label(price) {
+  return `$${withTax(price).toFixed(2)}`;
+}
+function report(prices) {
+  return [total(prices), label(prices[0])];
+}

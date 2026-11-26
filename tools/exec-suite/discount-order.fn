@@ -1,0 +1,25 @@
+//! entry prices
+//! tests [[[100,50,20]],[[8]],[[0,10]]]
+//! change function discount(percent, price) { ==> function discount(price, percent) {
+//! follow discount(10, item) ==> discount(item, 10)
+//! follow discount(25, price) ==> discount(price, 25)
+//! follow discount(50, discount(10, price)) ==> discount(discount(price, 10), 50)
+// The price after a percentage discount.
+function discount(percent, price) {
+  return price - (price * percent) / 100;
+}
+// The whole basket with 10% off each item.
+function cart(items) {
+  return items.reduce((sum, item) => sum + discount(10, item), 0);
+}
+// One item in the sale.
+function sale(price) {
+  return discount(25, price);
+}
+// One item in the clearance: half off after the usual 10%.
+function clearance(price) {
+  return discount(50, discount(10, price));
+}
+function prices(list) {
+  return [cart(list), sale(list[0]), clearance(list[0])];
+}

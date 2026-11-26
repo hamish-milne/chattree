@@ -1,0 +1,29 @@
+//! entry rangeReport
+//! tests [["3-7",5],["4",4],["10-12",9],["0-0",1]]
+//! change return [a, b === undefined ? a : b]; ==> return { lo: a, hi: b === undefined ? a : b };
+//! follow const [lo, hi] = parseRange(text); ==> const { lo, hi } = parseRange(text);
+// Parse "lo-hi" into [lo, hi] numbers; a single number n means [n, n].
+function parseRange(text) {
+  const [a, b] = text.split("-").map(Number);
+  return [a, b === undefined ? a : b];
+}
+// How many integers the range holds.
+function rangeSize(text) {
+  const [lo, hi] = parseRange(text);
+  return hi - lo + 1;
+}
+// Whether n lies in the range.
+function inRange(text, n) {
+  const [lo, hi] = parseRange(text);
+  return n >= lo && n <= hi;
+}
+// The integers of the range, as a list.
+function expand(text) {
+  const [lo, hi] = parseRange(text);
+  const out = [];
+  for (let i = lo; i <= hi; i++) out.push(i);
+  return out;
+}
+function rangeReport(text, n) {
+  return [rangeSize(text), inRange(text, n), expand(text)];
+}

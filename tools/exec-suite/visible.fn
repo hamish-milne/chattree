@@ -1,0 +1,24 @@
+//! entry summary
+//! tests [[[{"name":"a"},{"name":"b","hidden":true},{"name":"c","hidden":false}]],[[]],[[{"name":"x","hidden":true}]]]
+//! change function isHidden(item) {\n  return item.hidden === true; ==> function isVisible(item) {\n  return item.hidden !== true;
+//! follow !isHidden(i) ==> isVisible(i)
+//! follow isHidden(i) ==> !isVisible(i)
+function isHidden(item) {
+  return item.hidden === true;
+}
+// The names of the items that are shown.
+function visibleNames(items) {
+  return items.filter((i) => !isHidden(i)).map((i) => i.name);
+}
+// The name of the first item that is shown, or "none".
+function firstVisible(items) {
+  const first = items.find((i) => !isHidden(i));
+  return first ? first.name : "none";
+}
+// How many items are hidden.
+function hiddenCount(items) {
+  return items.filter((i) => isHidden(i)).length;
+}
+function summary(items) {
+  return [visibleNames(items), firstVisible(items), hiddenCount(items)];
+}

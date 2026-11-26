@@ -10,7 +10,7 @@
  *
  * A file starts with `//! key value` lines, which are not part of the module: `entry` (the function the tests call), `tests` (a JavaScript array of
  * argument lists), `rename OLD NEW` (any number: one task each), and for edits written by hand `change OLD ==> NEW` (what the person did first) and
- * `follow OLD ==> NEW` (what has to follow); `\n` in those is a line break. The expected outputs are not written down: they are what the
+ * `follow OLD ==> NEW` (what has to follow: every place the text occurs); `\n` in those is a line break. The expected outputs are not written down: they are what the
  * module gives with the spans in place, so the tests can only be wrong in what they cover, never in the figures.
  */
 import { execFile } from "node:child_process";
@@ -268,7 +268,10 @@ function handTask(spec: Spec): ExecEditTask {
     cursor = Math.max(cursor, stale.indexOf(replacement) + replacement.length);
   }
   let after = stale;
-  for (const [old, replacement] of spec.follow) after = once(after, old, replacement, spec.id);
+  for (const [old, replacement] of spec.follow) {
+    if (!after.includes(old)) throw new Error(`${spec.id}: ${JSON.stringify(old)} is not in the module`);
+    after = after.replaceAll(old, replacement);
+  }
   const path = `${spec.id}.js`;
   return {
     id: `${spec.id}/call-site`,

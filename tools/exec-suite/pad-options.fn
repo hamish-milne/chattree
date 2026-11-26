@@ -1,0 +1,22 @@
+//! entry report
+//! tests [[["a","bb",7],[1,22,333]],[[],[]],[[12345],[5]]]
+//! change function padLeft(text, width, fill) { ==> function padLeft(text, { width, fill }) {
+//! follow padLeft(String(c), 4, " ") ==> padLeft(String(c), { width: 4, fill: " " })
+//! follow padLeft(String(n), 6, "0") ==> padLeft(String(n), { width: 6, fill: "0" })
+// Pad `text` on the left to `width` characters with `fill`.
+function padLeft(text, width, fill) {
+  let out = text;
+  while (out.length < width) out = fill + out;
+  return out;
+}
+// A table row: the cells padded to four characters and joined with bars.
+function row(cells) {
+  return cells.map((c) => padLeft(String(c), 4, " ")).join("|");
+}
+// Identifiers: the numbers padded with zeros to six digits.
+function ids(nums) {
+  return nums.map((n) => padLeft(String(n), 6, "0"));
+}
+function report(cells, nums) {
+  return [row(cells), ids(nums)];
+}
