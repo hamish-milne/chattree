@@ -219,6 +219,11 @@ const server = section({
   health_timeout: withDefault(Type.Integer({ minimum: 1 }), 60),
   /** Serve llama-server's own web page. */
   webui: withDefault(Type.Boolean(), false),
+  /**
+   * Extra command-line arguments for llama-server itself, added after the ones the host writes (`["--cache-reuse", "64"]`). For an option of
+   * one model, `options` on the model is better: it goes in the preset file. A change here restarts the server.
+   */
+  args: withDefault(Type.Array(Type.String()), []),
 });
 
 export const localModelsSchema = strictObject({

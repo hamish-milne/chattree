@@ -71,6 +71,9 @@ describe("the local model host", () => {
       assert.match(ini, /\[alpha\]\nmodel = .*alpha\.gguf/);
       assert.match(ini, /\[beta\]\n.*\nctx-size = 4096/s);
       assert.ok(host.logs().some((l) => l.startsWith("listening on")));
+      const [command] = host.logs(1000);
+      assert.match(command ?? "", /^\$ \S+ --models-preset \S+preset\.ini --host 127\.0\.0\.1 --port \d+ /);
+      assert.equal(host.logs(1)[0]?.startsWith("$ "), true, "the command leads the log even when only the last lines are asked for");
     } finally {
       await host.stop();
       await server.close();

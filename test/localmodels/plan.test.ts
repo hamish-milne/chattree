@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { posix, win32 } from "node:path";
 import { describe, test } from "node:test";
 import { localModelsSchema, modelSource } from "../../localmodels/config.ts";
-import { dataDir, downloadList, presetIni, routerArgs, sourceHash } from "../../localmodels/plan.ts";
+import { commandLine, dataDir, downloadList, presetIni, routerArgs, sourceHash } from "../../localmodels/plan.ts";
 import { parse as parseValue, safeParse } from "../../src/validate.ts";
 
 const parse = (v: unknown) => parseValue(localModelsSchema, v);
@@ -16,7 +16,7 @@ describe("the local_models section", () => {
   test("has defaults", () => {
     const c = parse({});
     assert.equal(c.engine, "router");
-    assert.deepEqual(c.server, { host: "127.0.0.1", port: "auto", models_max: 1, health_timeout: 60, webui: false });
+    assert.deepEqual(c.server, { host: "127.0.0.1", port: "auto", models_max: 1, health_timeout: 60, webui: false, args: [] });
     assert.equal(c.llama_cpp.backend, "auto");
     assert.deepEqual(c.models, {});
   });
@@ -246,6 +246,18 @@ top-k = 20
       "--no-webui",
     ]);
     assert.ok(!routerArgs(parse({ server: { webui: true } }), "/p.ini", 1).includes("--no-webui"));
+  });
+
+  test("extra arguments for the server come last, as given, and are a list of strings", () => {
+    const c = parse({ server: { args: ["--cache-reuse", "64", "--slot-save-path", "/tmp/my slots"] } });
+    assert.deepEqual(routerArgs(c, "/p.ini", 1).slice(-4), ["--cache-reuse", "64", "--slot-save-path", "/tmp/my slots"]);
+    assert.deepEqual(parse({}).server.args, []);
+    assert.match(bad({ server: { args: "--cache-reuse 64" } }), /args/);
+  });
+
+  test("a command line is written so that a shell reads it back to the same arguments", () => {
+    assert.equal(commandLine("/opt/llama-server", ["--port", "8080"]), "/opt/llama-server --port 8080");
+    assert.equal(commandLine("/a b/llama-server", ["--x", "it's", ""]), "'/a b/llama-server' --x 'it'\\''s' ''");
   });
 
   test("speculative decoding is written as the server's own options", () => {

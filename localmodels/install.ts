@@ -6,7 +6,7 @@
  */
 import { execFile } from "node:child_process";
 import { cp, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { LocalModels } from "./config.ts";
 import { downloadFile } from "./download.ts";
@@ -189,7 +189,7 @@ export async function ensureLlamaServer(o: InstallOptions): Promise<Installed> {
         `llama_cpp.path ${c.path} is not a file`,
         "point it at a llama-server binary, or remove it to have chattree fetch one",
       );
-    return { binary: c.path, tag: "custom", dir: join(c.path, ".."), backend: "custom", backendNote: undefined };
+    return { binary: resolve(c.path), tag: "custom", dir: resolve(c.path, ".."), backend: "custom", backendNote: undefined };
   }
   if (c.tag === undefined)
     throw new InstallError(

@@ -12,7 +12,7 @@ import type { GpuFinding } from "./gpu.ts";
 import { ensureLlamaServer, type InstallDeps, type InstallEvent, type InstallPlan } from "./install.ts";
 import { Lock } from "./lock.ts";
 import { removeModelFiles } from "./inventory.ts";
-import { downloadList, presetIni, type ModelFiles } from "./plan.ts";
+import { commandLine, downloadList, presetIni, routerArgs, type ModelFiles } from "./plan.ts";
 import type { Arch, Platform } from "./release.ts";
 import { fetchDownloads, modelId, resolveDownloads, type Fetched, type StoreEvent } from "./store.ts";
 import { portOf } from "./typed.ts";
@@ -137,6 +137,7 @@ export class LocalModelHost {
   #proc: EngineProcess | undefined;
   #binary: string | undefined;
   #port: number | undefined;
+  #command: string | undefined;
   #preset = "";
   #chain: Promise<unknown> = Promise.resolve();
   #abort = new AbortController();
@@ -158,8 +159,10 @@ export class LocalModelHost {
     return this.#config;
   }
 
+  /** The last lines of the program's output, led by the command line that started it (with absolute paths) if that has scrolled away. */
   logs(lines = LOG_LINES): string[] {
-    return this.#log.slice(-lines);
+    const tail = this.#log.slice(-lines);
+    return this.#command === undefined || tail.includes(this.#command) ? tail : [this.#command, ...tail];
   }
 
   on(listener: (e: HostEvent) => void): () => void {
@@ -409,18 +412,23 @@ export class LocalModelHost {
     const binary = this.#binary;
     const port = this.#port;
     if (binary === undefined || port === undefined) throw new Error("the model host has not been prepared");
+    const presetPath = join(this.#o.data, "run", "preset.ini");
+    const log = (line: string): void => {
+      this.#log.push(line);
+      if (this.#log.length > LOG_LINES) this.#log.shift();
+      this.#emit({ type: "log", line });
+    };
+    // The command is kept apart from the log, which scrolls: `logs` always starts with it.
+    this.#command = `$ ${commandLine(binary, routerArgs(this.#config, presetPath, port))}`;
+    log(this.#command);
     const proc = await this.#engine.start({
       binary: binary,
       config: this.#config,
-      presetPath: join(this.#o.data, "run", "preset.ini"),
+      presetPath,
       port: port,
       cwd: this.#o.data,
       signal: this.#abort.signal,
-      onLog: (line) => {
-        this.#log.push(line);
-        if (this.#log.length > LOG_LINES) this.#log.shift();
-        this.#emit({ type: "log", line });
-      },
+      onLog: log,
     });
     this.#proc = proc;
     const startedAt = Date.now();

@@ -9,7 +9,7 @@ chattree can run models on your own machine through llama.cpp's `llama-server`. 
 | Verb | Does |
 |---|---|
 | `start`, `restart`, `stop` | Control the host. |
-| `status`, `logs` | What is running; the host's log. |
+| `status`, `logs` | What is running; the host's log, which starts with the full llama-server command line (absolute paths). |
 | `list`, `info <name>` | The models you configured; files, settings and the sampling a model will run with, and where each value came from. |
 | `pull [name...]` | Download model files (`--force` fetches again). |
 | `rm <name>`, `prune` | Delete a model's files; delete recorded files no configured model uses. |
@@ -23,7 +23,7 @@ In the user settings file (`chattree settings edit`), under `local_models`:
 local_models:
   llama_cpp: { tag: b12110, backend: auto }     # the llama.cpp release to run; `chattree models update` picks the newest
   hf_token_env: HF_TOKEN                        # name of a variable holding a Hugging Face token, for repositories that need one
-  server: { port: auto, models_max: 1 }         # how many models stay loaded at once (least recently used is evicted)
+  server: { port: auto, models_max: 1 }         # how many models stay loaded at once (least recently used is evicted); `args: ["--cache-reuse", "64"]` adds command-line arguments to llama-server itself (a change restarts it)
   defaults: { ctx_size: 16384 }                 # settings for every model
   models:
     qwen:

@@ -312,5 +312,9 @@ export function routerArgs(config: LocalModels, presetPath: string, port: number
   const s = config.server;
   const args = ["--models-preset", presetPath, "--host", s.host, "--port", String(port), "--models-max", String(s.models_max)];
   if (!s.webui) args.push("--no-webui");
-  return args;
+  return [...args, ...s.args];
 }
+
+/** A command as one line a shell would read back to the same arguments: those with anything but plain characters are in single quotes. */
+export const commandLine = (binary: string, args: readonly string[]): string =>
+  [binary, ...args].map((a) => (/^[\w@%+=:,./-]+$/.test(a) ? a : `'${a.replaceAll("'", `'\\''`)}'`)).join(" ");
