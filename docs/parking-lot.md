@@ -228,6 +228,26 @@ Not yet run: Mellum, Seed-Coder, StarCoder2, DeepSeek-Coder, and Sweep (the next
 
 **The executable bench** (`tools/exec-bench.ts`, 2026-11-24): 38 small JavaScript modules with tests; 63 fill-in tasks (spans blanked) and 36 next-edit tasks (a rename made at the declaration only, or a changed signature or return value whose callers have not caught up); an answer is right if the module's outputs match the original's. Qwen2.5-Coder-1.5B, all 63 fill-in tasks: **87%** work through our prompt and **83%** through `/infill` (blocks 80% and 70%), while only 54% and 51% are the original text, so about a third of the working answers are ones an exact-match score calls wrong. The two endpoints are within noise on lines, and `/infill` was worse on blocks (three syntax errors against one), which one run does not settle. The filters cost something: a closing bracket the suggestion itself opened was cut as the editor's own (`items.slice(i, i + size)` before `);`), which turned working answers into syntax errors: fixed (it now cuts a closer only when the suggestion has more closers than openers), and the bench is how to see the next one. **Next edit, Sweep 1.5B** (Q8_0, Apache-2.0): its model card's `run_model.py` shows a layout that is not the 7B's (no cursor marker or line ranges; `PATH.diff` hunks; the whole file before, now and after; the answer is the whole file), so it has its own format, `sweep-next-edit-1.5b`. On all 36 edit tasks: **97%** work (renames 33 of 33, edits to a changed signature or return value 2 of 3), 75% are the original text, median 11 s on this CPU (the whole file is written). The one failure left the call without its new argument, the half-finished state the task is made of. The 7B layout fed to the same 1.5B model, on 8 tasks, gave 7 of 8: too few to say the layout matters. Renames are too easy to separate models (a 1.5B model never misses one in a 15-line module), so there are now 11 harder edits written by hand (a changed return shape, a parameter turned into an options object, a method renamed, an argument order swapped, a boolean inverted: each used in two to four places). The suite is 46 modules, 63 fill-in tasks and 44 edit tasks. Sweep 1.5B on the 11 hand-written edits: **55%** work (36% the original text), median 15 s.
 
+**All eight models, GPU run (2026-11-27)**, 63 fill-in tasks (works / the original text) and 44 edit tasks:
+
+| model | via our prompt | via `/infill` |
+|---|---|---|
+| Qwen2.5-Coder 1.5B | 86% / 54% | 84% / 51% |
+| Qwen2.5-Coder 7B | 89% / 59% | 90% / 62% |
+| Seed-Coder 8B | 90% / 56% | refused (501) |
+| Mellum 4B | 76% / 49% | 71% / 48% |
+| DeepSeek-Coder 6.7B | 73% / 29% | 73% / 29% |
+| StarCoder2 7B | 8% / 2% | 8% / 2% |
+| Sweep 1.5B, as a fill-in model (24 tasks, run here) | 79% / 54% | 50% / 29% |
+
+Next edit: Sweep 1.5B 89% (renames 100%, hand-written edits 55%), Sweep 7B 91% (100%, 64%). Reading it:
+
+- Our prompt is as good as `/infill` everywhere it was tried, and `/infill` is unavailable for Seed-Coder, whose sentinels (`<[fim-prefix]>`) llama.cpp does not know. Bearing in mind that `/infill` also took the Sweep model from 79% to 50% where our prompt did not, the formats are worth having and `/infill` is not something to depend on.
+- The best fill-in model is not the biggest: Seed-Coder 8B and Qwen 7B are level, Qwen 1.5B is 3 to 6 points behind at a fifth of the size and half the latency, and the 4B Mellum is behind both, which may be our guess at its layout (not confirmed).
+- Exact match is a poor judge: DeepSeek-Coder works 73% of the time and writes the original text 29%. (Its answers are the same through both endpoints, to the figure.)
+- StarCoder2's 8% is a harness fault, not the model: 55 of 63 answers ran to the token limit, the right text followed by the start of an unrelated file. The model ends its answer with its `<file_sep>` token, which llama-server does not print (control tokens are hidden unless it is started with `--special`), so our stop string never matches. Not yet confirmed by a rerun: add `options: { special: true }` to its entry in settings and run it again. The same would hold for any format whose stop is a control token, so the client should not rely on stop strings for those.
+- Sweep keeps its fill-in ability through our prompt (79% for the 1.5B against Qwen's 86%), so one Sweep model could serve both; through `/infill` it does not.
+
 ### Open
 
 - Whether `/infill` beats our own prompt for any model (see the results above; needs more models and more tasks).
