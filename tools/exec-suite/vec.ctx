@@ -1,0 +1,5 @@
+// vec.js: immutable 2D vectors.
+const Vec2 = (x, y) => ({ x, y });
+const plus = (a, b) => Vec2(a.x + b.x, a.y + b.y);
+const times = (a, k) => Vec2(a.x * k, a.y * k);
+const dot = (a, b) => a.x * b.x + a.y * b.y;

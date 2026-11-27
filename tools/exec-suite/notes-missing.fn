@@ -1,0 +1,8 @@
+//! notes A missing value is always null, never undefined, 0 or an empty string.
+//! entry pick
+//! tests [[{"a":1,"b":null},"a"],[{"a":1},"b"],[{"a":0},"a"],[{"a":""},"a"]]
+//! wrong 1 ==> return obj[key];
+// The value of a key in a record, or the missing value if it has none.
+function pick(obj, key) {
+  ⟦return key in obj && obj[key] !== undefined ? obj[key] : null;⟧
+}

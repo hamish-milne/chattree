@@ -66,7 +66,23 @@ export interface Spec {
   renames: [from: string, to: string][];
   change: [old: string, replacement: string][];
   follow: [old: string, replacement: string][];
+  /** Other files the module uses without defining (run before it, and what a model may be shown). */
+  context: ExecContext[];
+  /** A convention of the project that the right answer follows, which nothing in the module says. */
+  notes?: string | undefined;
+  /** For a span (1-based): an answer that is plausible without the context or the notes, and wrong. */
+  wrong: Map<number, string>;
 }
+
+export interface ExecContext {
+  path: string;
+  text: string;
+}
+
+export type ExecSet = "single" | "cross" | "notes";
+
+/** Which part of the suite a module belongs to, by its name. */
+export const setOf = (id: string): ExecSet => (id.startsWith("cross-") ? "cross" : id.startsWith("notes-") ? "notes" : "single");
 
 const OPEN = "⟦";
 const CLOSE = "⟧";
@@ -97,7 +113,7 @@ const pair = (v: string): [string, string] => {
   return [unescape(v.slice(0, i)), unescape(v.slice(i + 5))];
 };
 
-export function parseSpec(id: string, text: string): Spec {
+export function parseSpec(id: string, text: string, contexts: Readonly<Record<string, string>> = {}): Spec {
   const header = new Map<string, string[]>();
   const body: string[] = [];
   for (const line of text.split("\n")) {
@@ -124,13 +140,32 @@ export function parseSpec(id: string, text: string): Spec {
     }),
     change: (header.get("change") ?? []).map(pair),
     follow: (header.get("follow") ?? []).map(pair),
+    context: (header.get("context") ?? []).map((name) => {
+      const t = contexts[name];
+      if (t === undefined) throw new Error(`${id}: no context file ${name}`);
+      return { path: `${name}.js`, text: t };
+    }),
+    notes: header.get("notes")?.[0],
+    wrong: new Map(
+      (header.get("wrong") ?? []).map((w) => {
+        const m = /^(\d+) ==> (.*)$/.exec(w);
+        if (m === null) throw new Error(`${id}: wrong needs N ==> TEXT`);
+        return [Number(m[1]), unescape(m[2] as string)];
+      }),
+    ),
   };
 }
 
 export async function loadSuite(dir = SUITE_DIR): Promise<Spec[]> {
-  const names = (await readdir(dir)).filter((n) => n.endsWith(".fn")).sort();
-  return Promise.all(names.map(async (n) => parseSpec(n.slice(0, -3), await readFile(join(dir, n), "utf8"))));
+  const all = await readdir(dir);
+  const contexts: Record<string, string> = {};
+  for (const n of all.filter((x) => x.endsWith(".ctx"))) contexts[n.slice(0, -4)] = await readFile(join(dir, n), "utf8");
+  const names = all.filter((n) => n.endsWith(".fn")).sort();
+  return Promise.all(names.map(async (n) => parseSpec(n.slice(0, -3), await readFile(join(dir, n), "utf8"), contexts)));
 }
+
+/** What is run: the files the module uses, then the module. */
+export const fullSource = (spec: Spec, module: string): string => [...spec.context.map((c) => c.text), module].join("\n");
 
 // ---- fill-in-the-middle tasks -------------------------------------------------------------------------------------
 
@@ -145,6 +180,9 @@ export interface ExecFimTask {
   suffix: string;
   /** What was taken out. */
   expected: string;
+  set: ExecSet;
+  context: ExecContext[];
+  notes?: string | undefined;
 }
 
 export function fimTasksOf(spec: Spec): ExecFimTask[] {
@@ -160,6 +198,9 @@ export function fimTasksOf(spec: Spec): ExecFimTask[] {
       prefix,
       suffix: spec.reference.slice(h.end),
       expected: h.text,
+      set: setOf(spec.id),
+      context: spec.context,
+      notes: spec.notes,
     };
   });
 }
@@ -309,7 +350,7 @@ const referenceCache = new Map<string, Promise<Outcome>>();
 export function referenceOutcome(spec: Spec): Promise<Outcome> {
   let o = referenceCache.get(spec.id);
   if (o === undefined) {
-    o = runTests(spec.reference, spec.entry, spec.tests);
+    o = runTests(fullSource(spec, spec.reference), spec.entry, spec.tests);
     referenceCache.set(spec.id, o);
   }
   return o;
@@ -318,7 +359,7 @@ export function referenceOutcome(spec: Spec): Promise<Outcome> {
 export async function grade(spec: Spec, candidate: string): Promise<Verdict> {
   const want = await referenceOutcome(spec);
   if (want.kind !== "ok") throw new Error(`${spec.id}: the reference does not run (${want.kind})`);
-  const got = await runTests(candidate, spec.entry, spec.tests);
+  const got = await runTests(fullSource(spec, candidate), spec.entry, spec.tests);
   if (got.kind !== "ok") return got.kind;
   return got.results.length === want.results.length && got.results.every((r, i) => r === want.results[i]) ? "pass" : "wrong";
 }

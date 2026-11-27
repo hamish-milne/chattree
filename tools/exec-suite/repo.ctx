@@ -1,0 +1,10 @@
+// repo.js: a keyed store.
+function makeRepo() {
+  const rows = new Map();
+  return {
+    put(key, value) { rows.set(key, value); },
+    fetch(key) { return rows.has(key) ? rows.get(key) : null; },
+    scan() { return [...rows.entries()]; },
+    drop(key) { return rows.delete(key); },
+  };
+}

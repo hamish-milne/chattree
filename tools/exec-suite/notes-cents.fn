@@ -1,0 +1,9 @@
+//! notes All money in this project is integer cents; never use fractional dollars.
+//! entry splitBill
+//! tests [[1000,3],[100,4],[1,2],[5,1]]
+//! wrong 1 ==> return [total / people, total / people];
+// Split a bill of total cents between people. Returns [share, remainder]: each person's share, and what is left over.
+function splitBill(total, people) {
+  ⟦const share = Math.floor(total / people);
+  return [share, total - share * people];⟧
+}

@@ -1,0 +1,12 @@
+//! context retry
+//! entry totalWait
+//! tests [[1],[3],[4],[9]]
+// How long the caller waits in all before giving up if every one of the first n attempts fails: the sum of the waits that follow failed attempts, never more than the configured maximum number of attempts.
+function totalWait(n) {
+  let total = 0;
+  const attempts = Math.min(n, config.maxAttempts);
+  for (let i = 0; i < attempts; i++) {
+    ⟦total += config.backoffMs[i];⟧
+  }
+  return total;
+}

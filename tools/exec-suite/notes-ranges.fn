@@ -1,0 +1,8 @@
+//! notes Ranges are half-open: [start, end) includes start and excludes end.
+//! entry overlaps
+//! tests [[[0,5],[5,9]],[[0,5],[4,9]],[[3,4],[0,10]],[[5,9],[0,5]]]
+//! wrong 1 ==> return a[0] <= b[1] && b[0] <= a[1];
+// Whether two ranges share any point.
+function overlaps(a, b) {
+  ⟦return a[0] < b[1] && b[0] < a[1];⟧
+}

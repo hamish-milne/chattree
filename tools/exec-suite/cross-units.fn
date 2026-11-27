@@ -1,0 +1,7 @@
+//! context units
+//! entry convert
+//! tests [[5,"km","m"],[250,"cm","mm"],[1,"m","km"],[3,"m","m"]]
+// Convert a length from one unit to another. Both units are keys of the unit table.
+function convert(value, from, to) {
+  ⟦return (value * UNIT_FACTORS[from]) / UNIT_FACTORS[to];⟧
+}

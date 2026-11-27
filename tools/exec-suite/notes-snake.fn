@@ -1,0 +1,12 @@
+//! notes The API speaks snake_case: every key sent to it is snake_case, though our own code uses camelCase.
+//! entry toApi
+//! tests [[{"firstName":"Ann","age":3}],[{}],[{"homeAddressLine":"x"}]]
+//! wrong 1 ==> return { ...record };
+// Turn a record into the shape the API takes.
+function toApi(record) {
+  const out = {};
+  for (const key of Object.keys(record)) {
+    ⟦out[key.replace(/[A-Z]/g, (c) => "_" + c.toLowerCase())] = record[key];⟧
+  }
+  return out;
+}

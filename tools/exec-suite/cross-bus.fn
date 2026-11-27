@@ -1,0 +1,16 @@
+//! context bus
+//! entry runScript
+//! tests [[[["sub","a"],["pub","a",1],["sub","a"],["pub","a",2],["pub","b",9]]],[[]],[[["pub","a",1],["sub","a"],["pub","a",5]]]]
+// Run a script of steps on a fresh bus: ["sub", topic] adds a listener that records topic:payload, ["pub", topic, payload] publishes. Returns what the listeners recorded, in order.
+function runScript(steps) {
+  const bus = makeBus();
+  const seen = [];
+  for (const step of steps) {
+    if (step[0] === "sub") {
+      ⟦bus.subscribe(step[1], (p) => seen.push(step[1] + ":" + p));⟧
+    } else {
+      ⟦bus.publish(step[1], step[2]);⟧
+    }
+  }
+  return seen;
+}

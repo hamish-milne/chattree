@@ -7,7 +7,16 @@ import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, test } from "node:test";
 import { sweepNextEdit, zeta21 } from "../../providers/completion/index.ts";
-import { execRowFor, parseExecArgs, planTasks, runExecSamples, spread, summarizeExec, type ExecPlan } from "../../tools/exec-bench.ts";
+import {
+  execRowFor,
+  requestFor,
+  parseExecArgs,
+  planTasks,
+  runExecSamples,
+  spread,
+  summarizeExec,
+  type ExecPlan,
+} from "../../tools/exec-bench.ts";
 import {
   applyLines,
   editTasksOf,
@@ -19,7 +28,9 @@ import {
   recentChangeOf,
   referenceOutcome,
   runTests,
+  setOf,
   withFill,
+  type ExecFimTask,
   type Spec,
 } from "../../tools/exec-suite.ts";
 
@@ -82,6 +93,47 @@ describe("the suite", () => {
       assert.equal(await grade(s, withFill(s, t, t.expected)), "pass", t.id);
       assert.notEqual(await grade(s, withFill(s, t, "")), "pass", `${t.id}: the tests do not need the span`);
     });
+  });
+
+  test("a cross-file task needs the other file, and a notes task has a plausible answer that is wrong", async () => {
+    const cross = suite.filter((s) => setOf(s.id) === "cross");
+    const notes = suite.filter((s) => setOf(s.id) === "notes");
+    assert.ok(cross.length >= 10 && notes.length >= 8);
+    for (const s of cross) {
+      assert.ok(s.context.length > 0 && s.notes === undefined, s.id);
+      for (const t of fimTasksOf(s)) {
+        assert.equal(await grade(s, withFill(s, t, t.expected)), "pass", t.id);
+        assert.notEqual(await grade({ ...s, context: [] }, withFill(s, t, t.expected)), "pass", `${t.id}: runs without the other file`);
+      }
+    }
+    for (const s of notes) {
+      assert.ok(s.notes !== undefined && s.context.length === 0 && s.wrong.size > 0, s.id);
+      const tasks = fimTasksOf(s);
+      for (const [n, text] of s.wrong) {
+        const t = tasks[n - 1];
+        assert.ok(t !== undefined, `${s.id}: no span ${n}`);
+        assert.equal(await grade(s, withFill(s, t, t.expected)), "pass", t.id);
+        assert.notEqual(await grade(s, withFill(s, t, text)), "pass", `${t.id}: the plausible answer works without the note`);
+      }
+    }
+  });
+
+  test("the context arms apply only where there is something to give, and the banner changes only the prefix", () => {
+    const s = suite.find((x) => x.id === "cross-money") as Spec;
+    const t = fimTasksOf(s)[0] as ExecFimTask;
+    assert.equal(requestFor(t, "completion")?.files, undefined);
+    assert.equal(requestFor(t, "infill+files")?.files?.[0]?.path, "money.js");
+    assert.equal(requestFor(t, "completion+notes"), undefined);
+    const n = suite.find((x) => x.id === "notes-ids") as Spec;
+    const u = fimTasksOf(n)[0] as ExecFimTask;
+    const banner = requestFor(u, "completion+notes");
+    assert.ok(banner?.prefix.startsWith("// Project notes:\n// Ids are 1-based"));
+    assert.ok(banner?.prefix.endsWith(u.prefix));
+    assert.equal(banner?.suffix, u.suffix);
+    assert.equal(requestFor(u, "completion+notes-file")?.files?.[0]?.path, "NOTES.md");
+    assert.equal(requestFor(u, "completion+files"), undefined);
+    const plain = suite.find((x) => x.id === "clamp") as Spec;
+    assert.equal(requestFor(fimTasksOf(plain)[0] as ExecFimTask, "completion+files"), undefined);
   });
 
   test("every edit task is broken as the person left it, works when finished, and the change reaches no further than the block", async () => {

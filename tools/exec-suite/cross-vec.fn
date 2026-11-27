@@ -1,0 +1,11 @@
+//! context vec
+//! entry centroidStep
+//! tests [[[{"x":0,"y":0},{"x":2,"y":4}],0.5],[[{"x":1,"y":1}],2],[[{"x":1,"y":2},{"x":3,"y":4},{"x":5,"y":6}],1]]
+// Sum the points, then scale the sum by the factor k. Returns a vector.
+function centroidStep(points, k) {
+  let total = Vec2(0, 0);
+  for (const p of points) {
+    ⟦total = plus(total, p);⟧
+  }
+  return ⟦times(total, k)⟧;
+}

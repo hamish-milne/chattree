@@ -1,0 +1,8 @@
+// bus.js: a tiny event bus.
+function makeBus() {
+  const handlers = {};
+  return {
+    subscribe(topic, fn) { (handlers[topic] ||= []).push(fn); },
+    publish(topic, payload) { for (const fn of handlers[topic] ?? []) fn(payload); },
+  };
+}

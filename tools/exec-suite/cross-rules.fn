@@ -1,0 +1,17 @@
+//! context rules
+//! entry validate
+//! tests [[{"name":"bob","age":3},{"name":["required","short"],"age":["required","number"]}],[{"name":"roberto","age":"x"},{"name":["required","short"],"age":["number"]}],[{},{"name":["required"]}]]
+// Check each field of a record against its list of rules. Returns an object of the first error for each failing field; fields that pass are left out.
+function validate(record, plan) {
+  const errors = {};
+  for (const field of Object.keys(plan)) {
+    for (const rule of plan[field]) {
+      ⟦const problem = check(rule, record[field]);
+      if (problem !== null) {
+        errors[field] = problem;
+        break;
+      }⟧
+    }
+  }
+  return errors;
+}

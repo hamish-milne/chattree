@@ -1,0 +1,2 @@
+// retry.js: waits between attempts, in milliseconds.
+const config = { backoffMs: [100, 200, 400, 800], maxAttempts: 4 };

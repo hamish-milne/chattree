@@ -49,9 +49,50 @@ import {
   type Verdict,
 } from "./exec-suite.ts";
 
-export type ExecArm = "completion" | "infill" | "edit";
+export type ExecArm = "completion" | "infill" | "completion+files" | "infill+files" | "completion+notes" | "completion+notes-file" | "edit";
 export type ExecTaskKind = ExecKind | "rename" | "call-site";
-export const FIM_ARMS: readonly ExecArm[] = ["completion", "infill"];
+/** A row of the summary can also be a part of the suite. */
+export type ExecRowKind = ExecTaskKind | "all" | `set:${string}`;
+export const FIM_ARMS: readonly ExecArm[] = [
+  "completion",
+  "infill",
+  "completion+files",
+  "infill+files",
+  "completion+notes",
+  "completion+notes-file",
+];
+/** The arms that run on every task; the others need the task to have files or notes to give. */
+export const PLAIN_ARMS: readonly ExecArm[] = ["completion", "infill"];
+/** The default: what the suite measured before the context arms were added. */
+export const DEFAULT_ARMS: readonly ExecArm[] = [...PLAIN_ARMS];
+
+/** The note, as a comment at the top of the file being completed. */
+export const noteBanner = (notes: string): string =>
+  `// Project notes:\n${notes
+    .split("\n")
+    .map((l) => `// ${l}`)
+    .join("\n")}\n\n`;
+
+/** The request for a task under an arm, or undefined when the arm does not apply to it. */
+export function requestFor(task: ExecFimTask, arm: ExecArm): FimRequest | undefined {
+  const req: FimRequest = { path: task.path, prefix: task.prefix, suffix: task.suffix };
+  switch (arm) {
+    case "completion":
+    case "infill":
+      return req;
+    case "completion+files":
+    case "infill+files":
+      return task.context.length === 0 ? undefined : { ...req, files: task.context };
+    case "completion+notes":
+      return task.notes === undefined ? undefined : { ...req, prefix: noteBanner(task.notes) + task.prefix };
+    case "completion+notes-file":
+      return task.notes === undefined ? undefined : { ...req, files: [{ path: "NOTES.md", text: task.notes }] };
+    case "edit":
+      break;
+  }
+  return undefined;
+}
+const isInfill = (arm: ExecArm): boolean => arm.startsWith("infill");
 
 export interface ExecTarget {
   label: string;
@@ -65,6 +106,8 @@ export interface ExecSample {
   arm: ExecArm;
   task: string;
   kind: ExecTaskKind;
+  /** The part of the suite the task is in (from the module's name). */
+  set?: string | undefined;
   /** What the model wrote (for an edit, the lines it wrote). */
   text?: string | undefined;
   /** Whether the module worked with it in, and how it failed if not. */
@@ -124,20 +167,21 @@ export async function runExecSamples(
       const format = completionFormat(target.format);
       if (format.kind !== "fim") continue;
       for (const arm of plan.arms) {
-        if (arm === "edit") continue;
+        const req = requestFor(task, arm);
+        if (req === undefined) continue;
+        if (!format.files && req.files !== undefined) continue;
         if (hooks.done?.has(key({ target: target.label, arm, task: task.id })) === true) continue;
-        const sample: ExecSample = { target: target.label, format: target.format, arm, task: task.id, kind: task.kind };
-        if (arm === "infill" && noInfill.has(target.label)) {
+        const sample: ExecSample = { target: target.label, format: target.format, arm, task: task.id, kind: task.kind, set: task.set };
+        if (isInfill(arm) && noInfill.has(target.label)) {
           sample.unsupported = true;
           await emit(sample);
           continue;
         }
-        const req: FimRequest = { path: task.path, prefix: task.prefix, suffix: task.suffix };
         try {
           const o = base(target, plan.maxTokens);
           const rendered = format.render(req);
-          const r = arm === "completion" ? await completeRaw(rendered, o) : await completeInfill(req, o, rendered.stop);
-          const text = arm === "completion" ? format.parse(r.text) : r.text;
+          const r = isInfill(arm) ? await completeInfill(req, o, rendered.stop) : await completeRaw(rendered, o);
+          const text = isInfill(arm) ? r.text : format.parse(r.text);
           const s = spec(task.spec);
           Object.assign(sample, { text, stopType: r.stopType, timings: r.timings, exact: same(text, task.expected) });
           sample.verdict = await grade(s, withFill(s, task, text));
@@ -147,7 +191,7 @@ export async function runExecSamples(
               "text" in f ? (f.text === text ? sample.verdict : await grade(s, withFill(s, task, f.text))) : "suppressed";
           }
         } catch (e) {
-          if (e instanceof CompletionError && e.status === 501 && arm === "infill") {
+          if (e instanceof CompletionError && e.status === 501 && isInfill(arm)) {
             sample.unsupported = true;
             noInfill.add(target.label);
           } else fail(sample, e);
@@ -199,7 +243,7 @@ const median = (xs: readonly number[]): string => {
 export interface ExecRow {
   target: string;
   arm: ExecArm;
-  kind: ExecTaskKind | "all";
+  kind: ExecRowKind;
   n: number;
   errors: number;
   unsupported: number;
@@ -216,8 +260,11 @@ export interface ExecRow {
   ms: string;
 }
 
-export function execRowFor(target: string, arm: ExecArm, kind: ExecTaskKind | "all", all: readonly ExecSample[]): ExecRow {
-  const ss = all.filter((s) => s.target === target && s.arm === arm && (kind === "all" || s.kind === kind));
+export function execRowFor(target: string, arm: ExecArm, kind: ExecRowKind, all: readonly ExecSample[]): ExecRow {
+  const ss = all.filter(
+    (s) =>
+      s.target === target && s.arm === arm && (kind === "all" || (kind.startsWith("set:") ? `set:${s.set}` === kind : s.kind === kind)),
+  );
   const ok = ss.filter((s) => s.verdict !== undefined);
   const count = (v: Verdict): number => ok.filter((s) => s.verdict === v).length;
   return {
@@ -243,11 +290,12 @@ export function summarizeExec(samples: readonly ExecSample[]): { rows: ExecRow[]
   const targets = [...new Set(samples.map((s) => s.target))];
   const rows: ExecRow[] = [];
   for (const t of targets) {
-    for (const a of ["completion", "infill", "edit"] as const) {
+    for (const a of [...FIM_ARMS, "edit"] as const) {
       const mine = samples.filter((s) => s.target === t && s.arm === a);
       if (mine.length === 0) continue;
       const kinds = [...new Set(mine.map((s) => s.kind))].sort();
-      for (const k of ["all", ...kinds] as const) rows.push(execRowFor(t, a, k, samples));
+      const sets = [...new Set(mine.flatMap((s) => (s.set === undefined || s.set === "single" ? [] : [`set:${s.set}` as const])))].sort();
+      for (const k of ["all", ...kinds, ...sets] as const) rows.push(execRowFor(t, a, k, samples));
     }
   }
   const head =
@@ -294,7 +342,7 @@ export interface ExecCliOptions {
 export function parseExecArgs(argv: readonly string[]): ExecCliOptions {
   const o: ExecCliOptions = {
     models: [],
-    arms: [...FIM_ARMS],
+    arms: [...DEFAULT_ARMS],
     maxTokens: 128,
     editTokens: 512,
     timeoutSeconds: 180,

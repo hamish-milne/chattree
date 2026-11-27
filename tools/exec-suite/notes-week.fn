@@ -1,0 +1,9 @@
+//! notes Weeks start on Monday. Day numbers run 0 (Monday) to 6 (Sunday).
+//! entry dayOfWeek
+//! tests [["2024-01-01"],["2024-01-07"],["2024-02-29"],["2023-12-31"]]
+//! wrong 1 ==> return new Date(iso + "T00:00:00Z").getUTCDay();
+// The day number of an ISO date (YYYY-MM-DD).
+function dayOfWeek(iso) {
+  ⟦const d = new Date(iso + "T00:00:00Z").getUTCDay();
+  return (d + 6) % 7;⟧
+}

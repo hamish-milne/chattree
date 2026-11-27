@@ -1,0 +1,11 @@
+//! context status
+//! entry spendable
+//! tests [[[{"status":"live","balance":5},{"status":"frozen","balance":9},{"status":"closed","balance":1},{"status":"live","balance":0}]],[[]],[[{"status":"frozen","balance":4},{"status":"live","balance":7},{"status":"live","balance":2}]]]
+// Total the balances of the accounts that may be spent from.
+function spendable(accounts) {
+  let sum = 0;
+  for (const a of accounts) {
+    ⟦if (canSpend(a)) sum += a.balance;⟧
+  }
+  return sum;
+}

@@ -1,0 +1,8 @@
+//! notes Ids are 1-based: the first item is number 1, and 0 means "none".
+//! entry findId
+//! tests [[["a","b","c"],"a"],[["a","b","c"],"c"],[["a"],"z"],[[],"a"]]
+//! wrong 1 ==> return items.indexOf(name);
+// The id of the first item equal to name.
+function findId(items, name) {
+  ⟦return items.indexOf(name) + 1;⟧
+}

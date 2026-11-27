@@ -1,0 +1,9 @@
+// matrix.js: a grid stored row by row.
+function makeMatrix(rows, cols, fill) {
+  const data = Array.from({ length: rows * cols }, () => fill);
+  return {
+    rows, cols,
+    cell(r, c) { return data[r * cols + c]; },
+    setCell(r, c, v) { data[r * cols + c] = v; },
+  };
+}

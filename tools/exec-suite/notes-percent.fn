@@ -1,0 +1,8 @@
+//! notes Percentages are always shown with exactly one decimal place and a % sign, e.g. "12.5%" and "100.0%".
+//! entry showPercent
+//! tests [[1,3],[1,2],[3,3],[0,5]]
+//! wrong 1 ==> return Math.round((part / whole) * 100) + "%";
+// Format part as a share of whole.
+function showPercent(part, whole) {
+  ⟦return ((part / whole) * 100).toFixed(1) + "%";⟧
+}

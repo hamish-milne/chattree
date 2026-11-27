@@ -1,0 +1,8 @@
+//! notes Lists shown to people are newest first. Every record has a numeric "at" (a timestamp).
+//! entry latest
+//! tests [[[{"at":3,"n":"c"},{"at":1,"n":"a"},{"at":2,"n":"b"}],2],[[{"at":5}],3],[[],1]]
+//! wrong 1 ==> return [...records].sort((a, b) => a.at - b.at).slice(0, count);
+// The count most recent records.
+function latest(records, count) {
+  ⟦return [...records].sort((a, b) => b.at - a.at).slice(0, count);⟧
+}

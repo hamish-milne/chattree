@@ -1,0 +1,9 @@
+//! notes Parsers never throw. On bad input they return {"ok":false,"error":"bad input"}; on success {"ok":true,"value":...}.
+//! entry parseCount
+//! tests [["12"],["x"],[""],["3.5"]]
+//! wrong 1 ==> return Number.parseInt(text, 10);
+// Parse a whole number from text.
+function parseCount(text) {
+  ⟦if (!/^\d+$/.test(text)) return { ok: false, error: "bad input" };
+  return { ok: true, value: Number(text) };⟧
+}

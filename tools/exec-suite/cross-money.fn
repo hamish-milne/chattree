@@ -1,0 +1,11 @@
+//! context money
+//! entry invoiceTotal
+//! tests [[[{"price":1.1,"qty":3},{"price":0.1,"qty":2}]],[[]],[[{"price":19.99,"qty":1}]]]
+// Add up an invoice: each item has a price in dollars and a quantity. Returns the total formatted as money.
+function invoiceTotal(items) {
+  let cents = 0;
+  for (const item of items) {
+    ⟦cents += toCents(item.price) * item.qty;⟧
+  }
+  return formatMoney(cents);
+}

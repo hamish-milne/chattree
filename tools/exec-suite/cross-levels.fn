@@ -1,0 +1,11 @@
+//! context levels
+//! entry keep
+//! tests [["warn",["error","info","warn","debug","bogus"]],["debug",["info","debug"]],["error",[]]]
+// Keep the messages (level names) that are at least as severe as the threshold. Unknown level names are dropped.
+function keep(threshold, messages) {
+  const limit = levelIndex(threshold);
+  return messages.filter((m) => {
+    const i = levelIndex(m);
+    return ⟦i !== -1 && i <= limit⟧;
+  });
+}

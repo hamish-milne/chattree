@@ -1,0 +1,3 @@
+// levels.js: log levels, most severe first.
+const LEVELS = ["error", "warn", "info", "debug"];
+const levelIndex = (name) => LEVELS.indexOf(name);

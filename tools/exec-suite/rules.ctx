@@ -1,0 +1,7 @@
+// rules.js: each rule returns an error message, or null when the value is fine.
+const RULES = {
+  required: (v) => (v === undefined || v === "" ? "required" : null),
+  short: (v) => (typeof v === "string" && v.length > 5 ? "too long" : null),
+  number: (v) => (typeof v === "number" ? null : "not a number"),
+};
+const check = (rule, value) => RULES[rule](value);

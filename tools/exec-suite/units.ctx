@@ -1,0 +1,2 @@
+// units.js: how many metres in each unit.
+const UNIT_FACTORS = { mm: 0.001, cm: 0.01, m: 1, km: 1000 };

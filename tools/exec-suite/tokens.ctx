@@ -1,0 +1,10 @@
+// tokens.js: what the lexer produces.
+const T = { INT: "int", ADD: "+", SUB: "-", END: "end" };
+function lex(src) {
+  const out = [];
+  for (const m of src.matchAll(/\s*(\d+|[+-])/g)) {
+    out.push(m[1] === "+" ? { t: T.ADD } : m[1] === "-" ? { t: T.SUB } : { t: T.INT, v: Number(m[1]) });
+  }
+  out.push({ t: T.END });
+  return out;
+}

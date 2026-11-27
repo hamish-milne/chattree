@@ -1,0 +1,15 @@
+//! context repo
+//! entry countByOwner
+//! tests [[[["a","x"],["b","y"],["c","x"]]],[[]],[[["a","x"],["a","z"]]]]
+// Store each [id, owner] pair, then return how many ids each owner has, as an object. Re-using an id replaces its owner.
+function countByOwner(pairs) {
+  const repo = makeRepo();
+  for (const [id, owner] of pairs) {
+    ⟦repo.put(id, owner);⟧
+  }
+  const counts = {};
+  for (const [, owner] of ⟦repo.scan()⟧) {
+    counts[owner] = (counts[owner] ?? 0) + 1;
+  }
+  return counts;
+}
