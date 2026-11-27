@@ -124,7 +124,8 @@ export async function runFimSamples(
           fetch: plan.fetch,
         };
         const rendered = transport === "completion" ? format.render(req) : undefined;
-        const ask = (o: CompleteOptions) => (rendered !== undefined ? completeRaw(rendered, o) : completeInfill(req, o));
+        const ask = (o: CompleteOptions) =>
+          rendered !== undefined ? completeRaw(rendered, o) : completeInfill(req, o, format.render(req).stop);
         const sample: Sample = {
           target: target.label,
           format: target.format,

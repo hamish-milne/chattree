@@ -237,7 +237,7 @@ Not yet run: Mellum, Seed-Coder, StarCoder2, DeepSeek-Coder, and Sweep (the next
 | Seed-Coder 8B | 90% / 56% | refused (501) |
 | Mellum 4B | 76% / 49% | 71% / 48% |
 | DeepSeek-Coder 6.7B | 73% / 29% | 73% / 29% |
-| StarCoder2 7B | 8% / 2% | 8% / 2% |
+| StarCoder2 7B (with `special: true`) | 81% / 44% | not measured |
 | Sweep 1.5B, as a fill-in model (24 tasks, run here) | 79% / 54% | 50% / 29% |
 
 Next edit: Sweep 1.5B 89% (renames 100%, hand-written edits 55%), Sweep 7B 91% (100%, 64%). Reading it:
@@ -245,7 +245,8 @@ Next edit: Sweep 1.5B 89% (renames 100%, hand-written edits 55%), Sweep 7B 91% (
 - Our prompt is as good as `/infill` everywhere it was tried, and `/infill` is unavailable for Seed-Coder, whose sentinels (`<[fim-prefix]>`) llama.cpp does not know. Bearing in mind that `/infill` also took the Sweep model from 79% to 50% where our prompt did not, the formats are worth having and `/infill` is not something to depend on.
 - The best fill-in model is not the biggest: Seed-Coder 8B and Qwen 7B are level, Qwen 1.5B is 3 to 6 points behind at a fifth of the size and half the latency, and the 4B Mellum is behind both, which may be our guess at its layout (not confirmed).
 - Exact match is a poor judge: DeepSeek-Coder works 73% of the time and writes the original text 29%. (Its answers are the same through both endpoints, to the figure.)
-- StarCoder2's 8% is a harness fault, not the model: 55 of 63 answers ran to the token limit, the right text followed by the start of an unrelated file. The model ends its answer with its `<file_sep>` token, which llama-server does not print (control tokens are hidden unless it is started with `--special`), so our stop string never matches. Not yet confirmed by a rerun: add `options: { special: true }` to its entry in settings and run it again. The same would hold for any format whose stop is a control token, so the client should not rely on stop strings for those.
+- StarCoder2's 8% was a harness fault, confirmed: its end marker (`<file_sep>`) is not one llama.cpp recognises by name (its list holds Qwen's `<|file_sep|>` and Granite's `<reponame>`, not StarCoder2's `<file_sep>` or `<repo_name>`), so the server neither stopped there nor printed it, and 55 of 63 answers ran on into an unrelated file. Started with `options: { special: true }` the marker is printed, our stop string matches, and the model scores **81%** (51 of 63; 44% the original text) through our prompt. The same applies to any model whose stop token the server does not know: it needs `special: true` or a stop it can see. The `/infill` arm scored 3% in that run only because the bench did not send the format's stop strings to it; it does now.
+- Answers that run on after a correct middle (into the code already after the cursor, and then into more of the model's own) are now cut where they reach that code (`providers/completion/filters.ts`, the two lines after the cursor found again in the answer). Measured on every saved run, as shown versus raw: DeepSeek-Coder +2 of 63, StarCoder2 +1 to +3, nothing worse anywhere.
 - Sweep keeps its fill-in ability through our prompt (79% for the 1.5B against Qwen's 86%), so one Sweep model could serve both; through `/infill` it does not.
 
 ### Open

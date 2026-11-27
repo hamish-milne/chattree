@@ -135,7 +135,8 @@ export async function runExecSamples(
         const req: FimRequest = { path: task.path, prefix: task.prefix, suffix: task.suffix };
         try {
           const o = base(target, plan.maxTokens);
-          const r = arm === "completion" ? await completeRaw(format.render(req), o) : await completeInfill(req, o);
+          const rendered = format.render(req);
+          const r = arm === "completion" ? await completeRaw(rendered, o) : await completeInfill(req, o, rendered.stop);
           const text = arm === "completion" ? format.parse(r.text) : r.text;
           const s = spec(task.spec);
           Object.assign(sample, { text, stopType: r.stopType, timings: r.timings, exact: same(text, task.expected) });

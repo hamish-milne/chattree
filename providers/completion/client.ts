@@ -124,10 +124,12 @@ export function completeRaw(rendered: RenderedCompletion, o: CompleteOptions): P
 
 /**
  * The same request through `/infill`: the server puts the sentinels in, in the order the model's own metadata says. It answers 501 for a model
- * with no fill-in-the-middle tokens, which comes back as a `CompletionError` with that status.
+ * with no fill-in-the-middle tokens, which comes back as a `CompletionError` with that status. `stop` is what the model's format would have
+ * stopped at (the server only knows the end-of-generation tokens it recognises by name, and for others an answer would run on).
  */
-export function completeInfill(req: FimRequest, o: CompleteOptions): Promise<CompletionResult> {
+export function completeInfill(req: FimRequest, o: CompleteOptions, stop: readonly string[] = []): Promise<CompletionResult> {
   const body = {
+    ...(stop.length > 0 ? { stop } : {}),
     ...sampler(o),
     input_prefix: req.prefix,
     input_suffix: req.suffix,

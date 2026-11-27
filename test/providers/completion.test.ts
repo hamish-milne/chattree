@@ -114,6 +114,13 @@ describe("filters", () => {
   test("a closing bracket the editor already has is not written twice, but a matching letter is kept", () => {
     assert.equal(trimSuffixOverlap("a + b)", ")\n"), "a + b");
     assert.equal(trimSuffixOverlap("a + b", "b\n"), "a + b");
+    // An answer that went on into the code that is already after the cursor, and then into more of its own, is cut where it got there.
+    assert.equal(
+      trimSuffixOverlap("while (n) {\n  n--;\n}\n}\nreturn out;\n}\n\nfunction more() {}", "\n  }\n  return out;\n}\n"),
+      "while (n) {\n  n--;\n}",
+    );
+    assert.equal(trimSuffixOverlap("a\nb\nc", "\nzzz\nyyy\n"), "a\nb\nc", "nothing like the code after the cursor: left");
+    assert.equal(trimSuffixOverlap("x\ny\nz", "\ny\n"), "x\ny\nz", "one line after the cursor is too little to go on");
     // A closer that closes something in the suggestion is its own, not the editor's.
     assert.equal(trimSuffixOverlap("items.slice(i, i + size)", ");\n"), "items.slice(i, i + size)");
     assert.equal(trimSuffixOverlap('"abc"', '"\n'), '"abc"');
@@ -202,6 +209,10 @@ describe("the client", () => {
     assert.equal(b["input_suffix"], req.suffix);
     assert.deepEqual(b["input_extra"], [{ filename: "b.ts", text: "x" }]);
     assert.equal(b["cache_prompt"], false);
+    assert.equal("stop" in b, false);
+    seen.length = 0;
+    await completeInfill(req, { baseUrl: base }, ["<file_sep>"]);
+    assert.deepEqual(seen[0]?.body["stop"], ["<file_sep>"], "a model whose end marker the server does not know needs the format's stop");
     await assert.rejects(
       completeInfill(req, { baseUrl: base, model: "no-fim" }),
       (e: unknown) => e instanceof CompletionError && e.status === 501 && /does not support infill/.test(e.message),

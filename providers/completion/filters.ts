@@ -15,10 +15,34 @@ function closesNothing(text: string, closer: string): boolean {
 }
 
 /**
+ * A model that has written what was asked often goes on, through the code that is already after the cursor and into more of its own. Cut where
+ * its answer reaches that code: the first two lines that follow the cursor's own line, found again one after the other (not at the very start,
+ * where the whole answer would be a repeat). Blank lines and indentation do not count.
+ */
+function cutAtReentry(suggestion: string, suffix: string): string {
+  const key = (l: string): string => l.trim();
+  const after = suffix
+    .split("\n")
+    .slice(1)
+    .map(key)
+    .filter((l) => l !== "");
+  const [first, second] = after;
+  if (first === undefined || second === undefined) return suggestion;
+  const lines = suggestion.split("\n");
+  for (let i = 1; i < lines.length; i++) {
+    if (key(lines[i] ?? "") !== first) continue;
+    const next = lines.slice(i + 1).find((l) => key(l) !== "");
+    if (next !== undefined && key(next) === second) return lines.slice(0, i).join("\n");
+  }
+  return suggestion;
+}
+
+/**
  * Cut off the end of `suggestion` that repeats the start of `suffix`: a model that writes the closing bracket the editor has already put
  * there, or the line that follows. A single character is cut only when it closes something, so a letter that happens to match is left.
  */
-export function trimSuffixOverlap(suggestion: string, suffix: string): string {
+export function trimSuffixOverlap(whole: string, suffix: string): string {
+  const suggestion = cutAtReentry(whole, suffix);
   const head = suffix.slice(0, Math.min(suffix.length, 200));
   for (let k = head.length; k >= 1; k--) {
     const tail = head.slice(0, k);
