@@ -1,0 +1,12 @@
+//! prelude Math.max = function () { throw new Error("Math.max is broken"); };
+//! notes Important: Math.max is broken on this platform and throws. Compare numbers with > instead.
+//! entry largest
+//! tests [[[3,9,2]],[[]],[[-5,-2,-8]],[[7]]]
+//! wrong 1 ==> return Math.max(...list);
+// The largest number in a list, or null if the list is empty.
+function largest(list) {
+  if (list.length === 0) return null;
+  ⟦let best = list[0];
+  for (const x of list) if (x > best) best = x;
+  return best;⟧
+}

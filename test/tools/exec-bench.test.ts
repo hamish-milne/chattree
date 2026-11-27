@@ -118,6 +118,23 @@ describe("the suite", () => {
     }
   });
 
+  test("a broken-function task fails with the natural answer only because of the stub, and the note says so", async () => {
+    const broken = suite.filter((s) => setOf(s.id) === "broken");
+    assert.ok(broken.length >= 10);
+    for (const s of broken) {
+      assert.ok(s.prelude !== undefined && s.notes?.startsWith("Important:") === true && s.wrong.size === 1, s.id);
+      const t = fimTasksOf(s)[0] as ExecFimTask;
+      const wrong = s.wrong.get(1) ?? "";
+      assert.equal(await grade(s, withFill(s, t, t.expected)), "pass", t.id);
+      assert.notEqual(await grade(s, withFill(s, t, wrong)), "pass", `${t.id}: the natural answer works with the stub in`);
+      assert.equal(
+        await grade({ ...s, prelude: undefined }, withFill(s, t, wrong)),
+        "pass",
+        `${t.id}: the natural answer is right without the stub`,
+      );
+    }
+  });
+
   test("the context arms apply only where there is something to give, and the banner changes only the prefix", () => {
     const s = suite.find((x) => x.id === "cross-money") as Spec;
     const t = fimTasksOf(s)[0] as ExecFimTask;

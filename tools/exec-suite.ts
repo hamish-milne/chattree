@@ -68,6 +68,11 @@ export interface Spec {
   follow: [old: string, replacement: string][];
   /** Other files the module uses without defining (run before it, and what a model may be shown). */
   context: ExecContext[];
+  /**
+   * Code that runs before the module and is never shown to a model: it breaks a function of the platform, so that an answer that uses it
+   * fails, and the note says not to.
+   */
+  prelude?: string | undefined;
   /** A convention of the project that the right answer follows, which nothing in the module says. */
   notes?: string | undefined;
   /** For a span (1-based): an answer that is plausible without the context or the notes, and wrong. */
@@ -79,10 +84,11 @@ export interface ExecContext {
   text: string;
 }
 
-export type ExecSet = "single" | "cross" | "notes";
+export type ExecSet = "single" | "cross" | "notes" | "broken";
 
 /** Which part of the suite a module belongs to, by its name. */
-export const setOf = (id: string): ExecSet => (id.startsWith("cross-") ? "cross" : id.startsWith("notes-") ? "notes" : "single");
+export const setOf = (id: string): ExecSet =>
+  id.startsWith("cross-") ? "cross" : id.startsWith("notes-") ? "notes" : id.startsWith("broken-") ? "broken" : "single";
 
 const OPEN = "⟦";
 const CLOSE = "⟧";
@@ -146,6 +152,7 @@ export function parseSpec(id: string, text: string, contexts: Readonly<Record<st
       return { path: `${name}.js`, text: t };
     }),
     notes: header.get("notes")?.[0],
+    prelude: header.get("prelude")?.[0],
     wrong: new Map(
       (header.get("wrong") ?? []).map((w) => {
         const m = /^(\d+) ==> (.*)$/.exec(w);
@@ -165,7 +172,8 @@ export async function loadSuite(dir = SUITE_DIR): Promise<Spec[]> {
 }
 
 /** What is run: the files the module uses, then the module. */
-export const fullSource = (spec: Spec, module: string): string => [...spec.context.map((c) => c.text), module].join("\n");
+export const fullSource = (spec: Spec, module: string): string =>
+  [...(spec.prelude === undefined ? [] : [spec.prelude]), ...spec.context.map((c) => c.text), module].join("\n");
 
 // ---- fill-in-the-middle tasks -------------------------------------------------------------------------------------
 

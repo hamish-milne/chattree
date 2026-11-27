@@ -1,0 +1,9 @@
+//! prelude Math.floor = function () { throw new Error("Math.floor is broken"); };
+//! notes Important: Math.floor is broken on this platform and throws. For whole numbers use the % operator instead.
+//! entry half
+//! tests [[10],[7],[0],[1]]
+//! wrong 1 ==> return Math.floor(n / 2);
+// Half of a non-negative whole number, rounded down.
+function half(n) {
+  ⟦return (n - (n % 2)) / 2;⟧
+}

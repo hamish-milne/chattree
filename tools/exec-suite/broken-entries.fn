@@ -1,0 +1,11 @@
+//! prelude Object.entries = function () { throw new Error("Object.entries is broken"); };
+//! notes Important: Object.entries is broken on this platform and throws. Use a for...in loop instead.
+//! entry sumValues
+//! tests [[{"a":1,"b":2}],[{}],[{"x":10,"y":-4,"z":1}]]
+//! wrong 1 ==> for (const [, v] of Object.entries(obj)) total += v;
+// The sum of the numeric values of an object.
+function sumValues(obj) {
+  let total = 0;
+  ⟦for (const k in obj) total += obj[k];⟧
+  return total;
+}

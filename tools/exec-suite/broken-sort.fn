@@ -1,0 +1,16 @@
+//! prelude Array.prototype.sort = function () { throw new Error("Array.prototype.sort is broken"); };
+//! notes Important: Array.prototype.sort is broken on this platform and throws. Sort by hand with a loop (insertion sort is fine).
+//! entry median
+//! tests [[[3,1,2]],[[5,1,4,2]],[[9]],[[2,2,8,1,1]]]
+//! wrong 1 ==> const sorted = [...list].sort((a, b) => a - b);
+// The median of a non-empty list of numbers (the mean of the middle two when the length is even).
+function median(list) {
+  ⟦const sorted = [];
+  for (const x of list) {
+    let i = sorted.length;
+    while (i > 0 && sorted[i - 1] > x) i--;
+    sorted.splice(i, 0, x);
+  }⟧
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 === 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}

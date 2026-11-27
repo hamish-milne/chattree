@@ -1,0 +1,10 @@
+//! prelude String.prototype.padStart = function () { throw new Error("String.prototype.padStart is broken"); };
+//! notes Important: String.prototype.padStart is broken on this platform and throws. Build padding with "0".repeat(...) instead.
+//! entry zeroPad
+//! tests [[5,3],[123,2],[0,1],[42,6]]
+//! wrong 1 ==> return String(n).padStart(width, "0");
+// A whole number as text, with zeros at the front up to the given width.
+function zeroPad(n, width) {
+  const s = String(n);
+  ⟦return "0".repeat(Math.max(0, width - s.length)) + s;⟧
+}

@@ -1,0 +1,10 @@
+//! prelude JSON.parse = function () { throw new Error("JSON.parse is broken"); };
+//! notes Important: JSON.parse is broken on this platform and throws. Split the text by hand instead.
+//! entry parseList
+//! tests [["[1,2,3]"],["[]"],["[7]"],["[1.5,-2]"]]
+//! wrong 1 ==> return JSON.parse(text);
+// A list of numbers written like [1,2,3] (no spaces), as an array.
+function parseList(text) {
+  const inner = text.slice(1, -1);
+  ⟦return inner === "" ? [] : inner.split(",").map(Number);⟧
+}

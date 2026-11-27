@@ -1,0 +1,10 @@
+//! prelude String.prototype.trim = function () { throw new Error("String.prototype.trim is broken"); };
+//! notes Important: String.prototype.trim is broken on this platform and throws. Use replace with a regular expression instead.
+//! entry words
+//! tests [["  a b  c "],[""],["   "],["one"]]
+//! wrong 1 ==> const t = text.trim();
+// The words of a text, split on runs of white space; none for a blank text.
+function words(text) {
+  ⟦const t = text.replace(/^\s+|\s+$/g, "");⟧
+  return t === "" ? [] : t.split(/\s+/);
+}
