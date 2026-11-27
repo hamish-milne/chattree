@@ -17,6 +17,7 @@ import {
   starcoder2,
   sweepNextEdit,
   sweepNextEditSmall,
+  zeta21,
   trimSuffixOverlap,
 } from "../../providers/completion/index.ts";
 
@@ -250,5 +251,53 @@ describe("the 1.5B next-edit format", () => {
   test("the answer is the whole file, without the line break that follows the name and without what comes after", () => {
     const r = sweepNextEditSmall.render({ path: "g.js", text: "a\nb", cursor: 0 });
     assert.deepEqual(sweepNextEditSmall.parse("\nX\nY<|file_sep|>junk", r), { startLine: 0, endLine: 2, text: "X\nY" });
+  });
+});
+
+describe("Zeta 2.1", () => {
+  const text = `${Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join("\n")}\n`;
+  const cursor = text.indexOf("line 10") + 4;
+  const change = { path: "z.js", start: 3, end: 3, original: "old", updated: "line 3" };
+
+  test("is laid out as its model card shows: suffix first, related files, the edit history as a diff, the file, numbered markers around the region", () => {
+    const r = zeta21.render({ path: "z.js", text, cursor, recentChanges: [change], files: [{ path: "h.js", text: "// h" }] });
+    assert.deepEqual(r.block, { startLine: 0, endLine: 20 });
+    assert.deepEqual(r.markers, [0, 8, 16, 20]);
+    assert.ok(
+      r.prompt.startsWith("<[fim-suffix]>\n<[fim-prefix]><filename>h.js\n// h\n\n<filename>edit_history\n--- a/z.js\n+++ b/z.js\n@@ -1,"),
+    );
+    assert.match(r.prompt, /-old\n\+line 3\n line 4\n line 5\n line 6\n\n<filename>z\.js\n<\|marker_1\|>line 1\n/);
+    assert.match(r.prompt, /line 8\n<\|marker_2\|>line 9\nline<\|user_cursor\|> 10\n/);
+    assert.ok(
+      r.prompt.endsWith("line 20<|marker_4|>\n<[fim-middle]>"),
+      "the last marker follows the last line with no line break, as in the sample",
+    );
+  });
+
+  test("the lines after the region go first, and a long file is cut to a region around the cursor", () => {
+    const long = `${Array.from({ length: 100 }, (_, i) => `l${i}`).join("\n")}\n`;
+    const r = zeta21.render({ path: "z.js", text: long, cursor: long.indexOf("l50"), linesAfter: 5 });
+    assert.deepEqual(r.block, { startLine: 30, endLine: 71 });
+    assert.ok(r.prompt.startsWith("<[fim-suffix]>\nl71\n"));
+    assert.ok(r.prompt.includes("<filename>z.js\nl0\nl1\n"), "the lines above the region are written as they are");
+    assert.match(r.prompt, /l29\n<\|marker_1\|>l30\n/);
+  });
+
+  test("the answer names its first and last marker, and what is between them replaces those lines, minus the cursor marker", () => {
+    const r = zeta21.render({ path: "z.js", text, cursor });
+    assert.deepEqual(zeta21.parse("<|marker_2|>line 9\nline 10<|user_cursor|>!\nline 11\n<|marker_3|>", r), {
+      startLine: 8,
+      endLine: 16,
+      text: "line 9\nline 10!\nline 11\n",
+    });
+    assert.deepEqual(zeta21.parse("<|marker_3|>x<|marker_4|>", r), { startLine: 16, endLine: 20, text: "x" });
+    assert.deepEqual(
+      zeta21.parse("<|marker_2|>new\n<|marker_2|>", r),
+      { startLine: 8, endLine: 8, text: "new\n" },
+      "between one marker and itself is an insertion",
+    );
+    for (const none of ["", "no markers", "<|marker_1|>only one", "<|marker_3|>x<|marker_1|>", "<|marker_9|>x<|marker_9|>y<|marker_10|>"]) {
+      assert.deepEqual(zeta21.parse(none, r), { startLine: 0, endLine: 0, text: "" }, JSON.stringify(none));
+    }
   });
 });

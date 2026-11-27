@@ -80,12 +80,20 @@ export interface EditSuggestion {
   text: string;
 }
 
+/** What an edit format wrote: the prompt, the lines it lets the model rewrite, and what `parse` needs to read the answer. */
+export type RenderedEdit = RenderedCompletion & {
+  block: { startLine: number; endLine: number };
+  prefill: string;
+  /** For a format whose answer names where it starts and ends by numbered markers: the line each marker is at. */
+  markers?: readonly number[] | undefined;
+};
+
 export interface EditFormat {
   kind: "edit";
   id: string;
   tokens: readonly string[];
-  render(req: EditRequest): RenderedCompletion & { block: { startLine: number; endLine: number }; prefill: string };
-  parse(output: string, rendered: { block: { startLine: number; endLine: number }; prefill: string }): EditSuggestion;
+  render(req: EditRequest): RenderedEdit;
+  parse(output: string, rendered: RenderedEdit): EditSuggestion;
 }
 
 export type CompletionFormat = FimFormat | EditFormat;

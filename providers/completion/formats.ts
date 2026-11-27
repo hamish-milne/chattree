@@ -13,6 +13,7 @@ import {
   type EditFormat,
   type EditRequest,
   type FimFormat,
+  type RecentChange,
   type CompletionFormat,
 } from "./format.ts";
 
@@ -194,7 +195,106 @@ export const sweepNextEditSmall: EditFormat = {
   },
 };
 
-const FORMATS: readonly CompletionFormat[] = [qwenCoder, seedCoder, mellum, starcoder2, deepseekCoder, sweepNextEdit, sweepNextEditSmall];
+/** A hunk of the person's change as a unified diff, with up to three unchanged lines each side (which the file as it is now supplies). */
+function diffHunk(c: RecentChange, text: string): string {
+  const lines = lineSpans(text).map((l) => l.replace(/\n$/, ""));
+  const first = c.start - 1;
+  const ctxBefore = lines.slice(Math.max(0, first - 3), first);
+  const ctxAfter = lines.slice(c.end, c.end + 3);
+  const old = c.original === "" ? [] : c.original.split("\n");
+  const now = c.updated === "" ? [] : c.updated.split("\n");
+  const start = first - ctxBefore.length + 1;
+  const body = [...ctxBefore.map((l) => ` ${l}`), ...old.map((l) => `-${l}`), ...now.map((l) => `+${l}`), ...ctxAfter.map((l) => ` ${l}`)];
+  return (
+    `--- a/${c.path}\n+++ b/${c.path}\n` +
+    `@@ -${start},${ctxBefore.length + old.length + ctxAfter.length} +${start},${ctxBefore.length + now.length + ctxAfter.length} @@\n` +
+    `${body.join("\n")}\n`
+  );
+}
+
+const MARKER = (n: number): string => `<|marker_${n}|>`;
+const USER_CURSOR = "<|user_cursor|>";
+/** Lines between one marker and the next in the editable region. The card does not say how Zed spaces them: the sample prompt has them 14 to 16 lines apart. */
+const MARKER_EVERY = 8;
+
+/**
+ * Zeta 2.1 (Zed, Apache-2.0, fine-tuned from Seed-Coder-8B-Base), as its model card and sample prompt show: a suffix-first prompt whose
+ * "prefix" is related files, the person's edits as unified diffs (`<filename>edit_history`), and the file up to an editable region. The region
+ * is cut into spans by numbered markers at line starts (the last marker closes it) with the cursor marked inside; the model answers with two
+ * markers and the new text between them, so it writes only the part it changes. The cursor marker may come back in the answer, and is taken out.
+ */
+export const zeta21: EditFormat = {
+  kind: "edit",
+  id: "zeta-2.1",
+  tokens: ["<[fim-suffix]>", "<[fim-prefix]>", "<[fim-middle]>", "<filename>", "<|marker_1|>", USER_CURSOR],
+  render(req: EditRequest) {
+    const lines = lineSpans(req.text);
+    const cursorLine = req.text.slice(0, req.cursor).split("\n").length - 1;
+    const before = req.linesBefore ?? 20;
+    const after = Math.max(req.linesAfter ?? 20, 20);
+    const regionStart = Math.max(0, cursorLine - before);
+    const regionEnd = Math.min(lines.length, cursorLine + after + 1);
+    const markerLines: number[] = [];
+    for (let l = regionStart; l < regionEnd; l += MARKER_EVERY) markerLines.push(l);
+    markerLines.push(regionEnd);
+    let offset = lines.slice(0, regionStart).join("").length;
+    let region = "";
+    for (let i = 0; i < markerLines.length - 1; i++) {
+      const from = markerLines[i];
+      const to = markerLines[i + 1];
+      if (from === undefined || to === undefined) continue;
+      let span = lines.slice(from, to).join("");
+      const spanStart = offset;
+      offset += span.length;
+      if (to === regionEnd) span = span.replace(/\n$/, "");
+      if (req.cursor >= spanStart && req.cursor <= spanStart + span.length && (req.cursor < offset || to === regionEnd))
+        span = span.slice(0, req.cursor - spanStart) + USER_CURSOR + span.slice(req.cursor - spanStart);
+      region += MARKER(i + 1) + span;
+    }
+    region += MARKER(markerLines.length);
+    const suffix = lines.slice(regionEnd).join("");
+    const parts = [`<[fim-suffix]>\n${suffix === "" || suffix.endsWith("\n") ? suffix : `${suffix}\n`}<[fim-prefix]>`];
+    for (const f of req.files ?? []) parts.push(`<filename>${f.path}\n${f.text}\n`);
+    const changes = req.recentChanges ?? [];
+    if (changes.length > 0) {
+      parts.push(
+        `${(req.files ?? []).length > 0 ? "\n" : ""}<filename>edit_history\n${changes.map((c) => diffHunk(c, req.text)).join("")}\n`,
+      );
+    }
+    parts.push(`<filename>${req.path}\n${lines.slice(0, regionStart).join("")}${region}\n<[fim-middle]>`);
+    return {
+      prompt: parts.join(""),
+      stop: ["<[end\u2581of\u2581sentence]>"],
+      block: { startLine: regionStart, endLine: regionEnd },
+      prefill: "",
+      markers: markerLines,
+    };
+  },
+  parse(output, rendered) {
+    const marks = [...output.matchAll(/<\|marker_(\d+)\|>/g)];
+    const none = { startLine: rendered.block.startLine, endLine: rendered.block.startLine, text: "" };
+    const first = marks[0];
+    const last = marks.at(-1);
+    const lines = rendered.markers;
+    if (first === undefined || last === undefined || first === last || lines === undefined) return none;
+    const from = lines[Number(first[1]) - 1];
+    const to = lines[Number(last[1]) - 1];
+    if (from === undefined || to === undefined || from > to) return none;
+    const text = output.slice(first.index + first[0].length, last.index).replaceAll(USER_CURSOR, "");
+    return { startLine: from, endLine: to, text };
+  },
+};
+
+const FORMATS: readonly CompletionFormat[] = [
+  qwenCoder,
+  seedCoder,
+  mellum,
+  starcoder2,
+  deepseekCoder,
+  sweepNextEdit,
+  sweepNextEditSmall,
+  zeta21,
+];
 
 export function completionFormats(): readonly CompletionFormat[] {
   return FORMATS;

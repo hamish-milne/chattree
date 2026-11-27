@@ -6,7 +6,7 @@ import { promisify } from "node:util";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { after, before, describe, test } from "node:test";
-import { sweepNextEdit } from "../../providers/completion/index.ts";
+import { sweepNextEdit, zeta21 } from "../../providers/completion/index.ts";
 import { execRowFor, parseExecArgs, planTasks, runExecSamples, spread, summarizeExec, type ExecPlan } from "../../tools/exec-bench.ts";
 import {
   applyLines,
@@ -192,6 +192,18 @@ describe("the run", () => {
           );
           const small = edits.find((t) => prompt.endsWith(`<|file_sep|>current/${t.path}\n${t.stale}\n<|file_sep|>updated/${t.path}`));
           const edit = edits.find((t) => prompt.includes(`<|file_sep|>updated/${t.path}:`) && prompt.includes(t.recent.updated));
+          const zeta = prompt.includes("<|marker_1|>") ? edits.find((t) => prompt.includes(`<filename>${t.path}\n`)) : undefined;
+          if (zeta !== undefined) {
+            const r = zeta21.render({
+              path: zeta.path,
+              text: zeta.stale,
+              cursor: zeta.cursor,
+              recentChanges: [zeta.recent],
+              linesAfter: zeta.linesAfter,
+            });
+            const region = zeta.after.split("\n").slice(r.block.startLine, r.block.endLine).join("\n");
+            content = `<|marker_1|>${region}<|marker_${r.markers?.length ?? 0}|>`;
+          }
           if (small !== undefined) content = `\n${small.after}`;
           if (task !== undefined) content = body["model"] === "wrong" ? "zzz" : task.expected;
           else if (edit !== undefined) {
@@ -217,6 +229,7 @@ describe("the run", () => {
         { label: "seed", format: "seed-coder", model: "no-fim" },
         { label: "sweep", format: "sweep-next-edit", model: "oracle" },
         { label: "small", format: "sweep-next-edit-1.5b", model: "oracle" },
+        { label: "zeta", format: "zeta-2.1", model: "oracle" },
       ],
       arms: ["completion", "infill"],
       specs,
@@ -255,6 +268,15 @@ describe("the run", () => {
     assert.equal(samples.filter((s) => s.target === "sweep" && s.arm !== "edit").length, 0);
     assert.equal(of("small", "edit").length, plan.edits.length);
     assert.ok(of("small", "edit").every((s) => s.verdict === "pass" && s.exact === true));
+    assert.equal(of("zeta", "edit").length, plan.edits.length);
+    assert.ok(
+      of("zeta", "edit").every((s) => s.verdict === "pass" && s.exact === true),
+      JSON.stringify(
+        of("zeta", "edit")
+          .filter((s) => s.verdict !== "pass")
+          .map((s) => [s.task, s.verdict, s.text]),
+      ),
+    );
   });
 
   test("a wrong answer is graded wrong, an empty one fails, and an answer that works in other words is not an exact one", async () => {
