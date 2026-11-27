@@ -280,7 +280,11 @@ export const zeta21: EditFormat = {
     const from = lines[Number(first[1]) - 1];
     const to = lines[Number(last[1]) - 1];
     if (from === undefined || to === undefined || from > to) return none;
-    const text = output.slice(first.index + first[0].length, last.index).replaceAll(USER_CURSOR, "");
+    // A span that runs over markers in between writes them out again as part of the text it copies: they are not code.
+    const text = output
+      .slice(first.index + first[0].length, last.index)
+      .replaceAll(USER_CURSOR, "")
+      .replace(/<\|marker_\d+\|>/g, "");
     return { startLine: from, endLine: to, text };
   },
 };

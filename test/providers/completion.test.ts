@@ -292,6 +292,11 @@ describe("Zeta 2.1", () => {
     });
     assert.deepEqual(zeta21.parse("<|marker_3|>x<|marker_4|>", r), { startLine: 16, endLine: 20, text: "x" });
     assert.deepEqual(
+      zeta21.parse("<|marker_1|>a\n<|marker_2|>b\n<|marker_3|>c<|marker_4|>", r),
+      { startLine: 0, endLine: 20, text: "a\nb\nc" },
+      "a span over several markers writes the ones in between again; they are taken out",
+    );
+    assert.deepEqual(
       zeta21.parse("<|marker_2|>new\n<|marker_2|>", r),
       { startLine: 8, endLine: 8, text: "new\n" },
       "between one marker and itself is an insertion",
