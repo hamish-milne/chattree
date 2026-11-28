@@ -49,7 +49,15 @@ import {
   type Verdict,
 } from "./exec-suite.ts";
 
-export type ExecArm = "completion" | "infill" | "completion+files" | "infill+files" | "completion+notes" | "completion+notes-file" | "edit";
+export type ExecArm =
+  | "completion"
+  | "infill"
+  | "completion+files"
+  | "infill+files"
+  | "completion+notes"
+  | "completion+notes-file"
+  | "completion+notes-near"
+  | "edit";
 export type ExecTaskKind = ExecKind | "rename" | "call-site";
 /** A row of the summary can also be a part of the suite. */
 export type ExecRowKind = ExecTaskKind | "all" | `set:${string}`;
@@ -60,6 +68,7 @@ export const FIM_ARMS: readonly ExecArm[] = [
   "infill+files",
   "completion+notes",
   "completion+notes-file",
+  "completion+notes-near",
 ];
 /** The arms that run on every task; the others need the task to have files or notes to give. */
 export const PLAIN_ARMS: readonly ExecArm[] = ["completion", "infill"];
@@ -73,6 +82,17 @@ export const noteBanner = (notes: string): string =>
     .map((l) => `// ${l}`)
     .join("\n")}\n\n`;
 
+/** The note as a comment on the line above the one being written, at its indentation: as close to the cursor as it can be put. */
+export function noteNear(notes: string, prefix: string): string {
+  const at = prefix.lastIndexOf("\n") + 1;
+  const line = prefix.slice(at);
+  const indent = /^[ \t]*/.exec(line)?.[0] ?? "";
+  return `${prefix.slice(0, at)}${notes
+    .split("\n")
+    .map((l) => `${indent}// ${l}`)
+    .join("\n")}\n${line}`;
+}
+
 /** The request for a task under an arm, or undefined when the arm does not apply to it. */
 export function requestFor(task: ExecFimTask, arm: ExecArm): FimRequest | undefined {
   const req: FimRequest = { path: task.path, prefix: task.prefix, suffix: task.suffix };
@@ -85,6 +105,8 @@ export function requestFor(task: ExecFimTask, arm: ExecArm): FimRequest | undefi
       return task.context.length === 0 ? undefined : { ...req, files: task.context };
     case "completion+notes":
       return task.notes === undefined ? undefined : { ...req, prefix: noteBanner(task.notes) + task.prefix };
+    case "completion+notes-near":
+      return task.notes === undefined ? undefined : { ...req, prefix: noteNear(task.notes, task.prefix) };
     case "completion+notes-file":
       return task.notes === undefined ? undefined : { ...req, files: [{ path: "NOTES.md", text: task.notes }] };
     case "edit":
@@ -162,8 +184,9 @@ export async function runExecSamples(
     s.error = { message: e instanceof Error ? e.message : String(e), status: e instanceof CompletionError ? e.status : undefined };
   };
 
-  for (const task of plan.fim) {
-    for (const target of plan.targets) {
+  // One model at a time, all its tasks: switching the model on the server is slow, and would show in the timings of whatever came next.
+  for (const target of plan.targets) {
+    for (const task of plan.fim) {
       const format = completionFormat(target.format);
       if (format.kind !== "fim") continue;
       for (const arm of plan.arms) {
@@ -201,8 +224,8 @@ export async function runExecSamples(
     }
   }
 
-  for (const task of plan.edits) {
-    for (const target of plan.targets) {
+  for (const target of plan.targets) {
+    for (const task of plan.edits) {
       const format = completionFormat(target.format);
       if (format.kind !== "edit") continue;
       if (hooks.done?.has(key({ target: target.label, arm: "edit", task: task.id })) === true) continue;

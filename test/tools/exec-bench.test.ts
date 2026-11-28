@@ -9,6 +9,7 @@ import { after, before, describe, test } from "node:test";
 import { sweepNextEdit, zeta21 } from "../../providers/completion/index.ts";
 import {
   execRowFor,
+  noteNear,
   requestFor,
   parseExecArgs,
   planTasks,
@@ -133,6 +134,16 @@ describe("the suite", () => {
         `${t.id}: the natural answer is right without the stub`,
       );
     }
+  });
+
+  test("the near-note arm puts the note on the line above the one being written, at its indentation", () => {
+    assert.equal(noteNear("Use x.\nThen y.", "function f() {\n  let a;\n  "), "function f() {\n  let a;\n  // Use x.\n  // Then y.\n  ");
+    assert.equal(noteNear("N", "a b"), "// N\na b");
+    assert.equal(noteNear("N", "x\n    return "), "x\n    // N\n    return ");
+    const t = fimTasksOf(suite.find((x) => x.id === "notes-ids") as Spec)[0] as ExecFimTask;
+    const near = requestFor(t, "completion+notes-near");
+    assert.equal(near?.suffix, t.suffix);
+    assert.ok(near?.prefix.endsWith('// Ids are 1-based: the first item is number 1, and 0 means "none".\n  '));
   });
 
   test("the context arms apply only where there is something to give, and the banner changes only the prefix", () => {
@@ -366,6 +377,16 @@ describe("the run", () => {
     assert.equal(t.expected, "if (n > hi) return hi;");
     const s = plan.specs.find((x) => x.id === "clamp") as Spec;
     assert.equal(await grade(s, withFill(s, t, "if (hi < n) return hi;")), "pass");
+  });
+
+  test("each model is finished before the next is asked anything", async () => {
+    const order: string[] = [];
+    await runExecSamples(
+      { ...plan, targets: plan.targets.slice(0, 4), fim: plan.fim.slice(0, 3), edits: plan.edits.slice(0, 2) },
+      { onSample: (s) => void order.push(s.target) },
+    );
+    const runs = order.filter((t, i) => t !== order[i - 1]);
+    assert.equal(new Set(runs).size, runs.length, `a model came back after another: ${runs.join(" ")}`);
   });
 
   test("samples already done are skipped, and each one is reported as it finishes", async () => {
